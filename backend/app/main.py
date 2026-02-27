@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings
 from app.db.leadgen_db import leadgen_engine
+from app.db.crm_db import crm_engine
 from app.models.lead import Base
 
 logger = logging.getLogger(__name__)
@@ -24,10 +25,48 @@ async def lifespan(app: FastAPI):
         # Create settings table and seed defaults
         await settings.init_settings_table(leadgen_engine)
         logger.info("Settings initialized")
+        
+        # Verify CRM schema exists (don't re-create, just verify)
+        await verify_crm_schema()
+        logger.info("CRM schema verified")
+        
     except Exception as e:
         logger.error("Failed to initialize databases: %s", e)
     
     yield
+
+
+async def verify_crm_schema():
+    """Verify CRM schema exists without re-creating it."""
+    from sqlalchemy import text
+    
+    try:
+        async with crm_engine.begin() as conn:
+            result = await conn.execute(
+                text("SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'crm'")
+            )
+            schema_exists = result.fetchone()
+            
+            if not schema_exists:
+                logger.warning("CRM schema does not exist - run migration first")
+                return False
+            
+            # Check if we have the basic tables
+            table_check = await conn.execute(
+                text("SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'crm'")
+            )
+            table_count = table_check.fetchone()[0]
+            
+            if table_count < 10:  # Should have many more than 10 tables
+                logger.warning(f"CRM schema incomplete - only {table_count} tables found")
+                return False
+                
+            logger.info(f"CRM schema verified with {table_count} tables")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Failed to verify CRM schema: {e}")
+        return False
 
 
 app = FastAPI(title="WAR ROOM", version="0.1.0", lifespan=lifespan)

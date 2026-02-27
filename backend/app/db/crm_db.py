@@ -42,9 +42,11 @@ async def init_crm_schema():
         with open(schema_file, 'r') as f:
             schema_sql = f.read()
         
-        # Execute the schema
-        async with crm_engine.begin() as conn:
-            await conn.execute(text(schema_sql))
+        # Execute the schema using session
+        async with crm_session() as session:
+            await session.execute(text("SET search_path TO crm, public"))
+            await session.execute(text(schema_sql))
+            await session.commit()
         
         logger.info("CRM schema initialized successfully")
         return True
