@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, MapPin, Globe, Mail, Phone, Loader2, Building2, RefreshCw, Star, Filter, X } from "lucide-react";
+import LeadDrawer, { LeadFull } from "./LeadDrawer";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 const PAGE_SIZE = 50;
@@ -25,6 +26,9 @@ interface Lead {
   lead_tier: string;
   enrichment_status: string;
   search_job_id: number | null;
+  outreach_status: string;
+  contacted_by: string | null;
+  contacted_at: string | null;
 }
 
 const BUSINESS_CATEGORIES = [
@@ -101,7 +105,12 @@ export default function LeadgenPanel() {
   const [searchStatus, setSearchStatus] = useState("");
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [filterTier, setFilterTier] = useState<string>("");
+  const [filterStatus, setFilterStatus] = useState<string>("");
   const [showAllLeads, setShowAllLeads] = useState(true);
+
+  // Drawer state
+  const [selectedLead, setSelectedLead] = useState<LeadFull | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Infinite scroll state
   const [offset, setOffset] = useState(0);
@@ -123,8 +132,9 @@ export default function LeadgenPanel() {
     });
     if (!showAllLeads && activeJobId) params.set("search_job_id", String(activeJobId));
     if (filterTier) params.set("tier", filterTier);
+    if (filterStatus) params.set("outreach_status", filterStatus);
     return `${API}/api/leadgen/leads?${params}`;
-  }, [activeJobId, filterTier, showAllLeads]);
+  }, [activeJobId, filterTier, filterStatus, showAllLeads]);
 
   // Fetch a page of results
   const fetchPage = useCallback(async (pageOffset: number): Promise<Lead[]> => {
@@ -202,6 +212,66 @@ export default function LeadgenPanel() {
 
   // Reload on filter/view changes
   useEffect(() => { loadLeads(); }, [loadLeads]);
+
+  // Handle lead row click
+  const handleLeadClick = async (lead: Lead) => {
+    try {
+      // Fetch full lead data if needed
+      const response = await fetch(`${API}/api/leadgen/leads/${lead.id}`);
+      if (response.ok) {
+        const fullLead: LeadFull = await response.json();
+        setSelectedLead(fullLead);
+        setIsDrawerOpen(true);
+      }
+    } catch (error) {
+      console.error("Failed to fetch lead details:", error);
+      // Fallback: use partial data and expand it
+      const partialLead: LeadFull = {
+        ...lead,
+        website_audit_summary: null,
+        website_audit_top_fixes: [],
+        audit_lite_flags: [],
+        facebook_url: null,
+        instagram_url: null,
+        linkedin_url: null,
+        twitter_url: null,
+        contact_outcome: null,
+        contact_notes: null,
+        contact_history: [],
+        contact_who_answered: null,
+        contact_owner_name: null,
+        contact_economic_buyer: null,
+        contact_champion: null,
+        notes: null,
+        tags: [],
+        website_platform: null,
+      };
+      setSelectedLead(partialLead);
+      setIsDrawerOpen(true);
+    }
+  };
+
+  const handleLeadUpdate = (updatedLead: LeadFull) => {
+    // Update the leads list with new data
+    setLeads(prevLeads => 
+      prevLeads.map(lead => 
+        lead.id === updatedLead.id 
+          ? { 
+              ...lead,
+              outreach_status: updatedLead.outreach_status,
+              contacted_by: updatedLead.contacted_by,
+              contacted_at: updatedLead.contacted_at,
+            }
+          : lead
+      )
+    );
+    setSelectedLead(updatedLead);
+  };
+
+  const closeDrawer = () => {
+    setIsDrawerOpen(false);
+    setSelectedLead(null);
+  };
 
   // IntersectionObserver for infinite scroll
   useEffect(() => {
@@ -312,13 +382,50 @@ export default function LeadgenPanel() {
         </div>
 
         {/* Status + filters bar */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            {searchStatus && (
-              <p className="text-xs text-warroom-muted">{searchStatus}</p>
-            )}
+        <div className="space-y-3 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {searchStatus && (
+                <p className="text-xs text-warroom-muted">{searchStatus}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Toggle: search results vs all */}
+              {activeJobId && (
+                <button
+                  onClick={() => setShowAllLeads(!showAllLeads)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
+                    showAllLeads
+                      ? "bg-warroom-border/50 text-warroom-muted hover:text-warroom-text"
+                      : "bg-warroom-accent/20 text-warroom-accent"
+                  }`}
+                >
+                  <Filter size={12} />
+                  {showAllLeads ? "Show Search Results" : "Show All Leads"}
+                </button>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+
+          {/* Filter row */}
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-warroom-muted font-medium">Filters:</div>
+            
+            {/* Contact Status Filter */}
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-warroom-surface border border-warroom-border rounded-lg px-3 py-1.5 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+              style={{ colorScheme: "dark" }}
+            >
+              <option value="">All</option>
+              <option value="none">Not Contacted</option>
+              <option value="contacted">Contacted</option>
+              <option value="in_progress">In Progress</option>
+              <option value="won">Won</option>
+              <option value="lost">Lost</option>
+            </select>
+
             {/* Tier filter */}
             <select
               value={filterTier}
@@ -332,18 +439,16 @@ export default function LeadgenPanel() {
               <option value="cold">🔵 Cold</option>
             </select>
 
-            {/* Toggle: search results vs all */}
-            {activeJobId && (
+            {/* Clear filters */}
+            {(filterStatus || filterTier) && (
               <button
-                onClick={() => setShowAllLeads(!showAllLeads)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
-                  showAllLeads
-                    ? "bg-warroom-border/50 text-warroom-muted hover:text-warroom-text"
-                    : "bg-warroom-accent/20 text-warroom-accent"
-                }`}
+                onClick={() => {
+                  setFilterStatus("");
+                  setFilterTier("");
+                }}
+                className="text-[10px] text-warroom-muted hover:text-warroom-text flex items-center gap-1 transition"
               >
-                <Filter size={12} />
-                {showAllLeads ? "Show Search Results" : "Show All Leads"}
+                <X size={10} /> Clear
               </button>
             )}
           </div>
@@ -375,15 +480,48 @@ export default function LeadgenPanel() {
                 </tr>
               </thead>
               <tbody>
-                {leads.map((lead) => (
-                  <tr key={lead.id} className="border-b border-warroom-border/50 hover:bg-warroom-border/20">
-                    <td className="px-4 py-3">
-                      <p className="font-medium">{lead.business_name}</p>
-                      <p className="text-xs text-warroom-muted">{[lead.city, lead.state].filter(Boolean).join(", ") || lead.address}</p>
-                      {lead.business_category && (
-                        <p className="text-[10px] text-warroom-muted/70 mt-0.5">{lead.business_category}</p>
-                      )}
-                    </td>
+                {leads.map((lead) => {
+                  // Determine border color based on outreach status
+                  let borderColorClass = "";
+                  let backgroundClass = "";
+                  
+                  switch (lead.outreach_status) {
+                    case "contacted":
+                      borderColorClass = "border-l-4 border-blue-500";
+                      break;
+                    case "in_progress":
+                      borderColorClass = "border-l-4 border-yellow-500";
+                      break;
+                    case "won":
+                      borderColorClass = "border-l-4 border-green-500";
+                      backgroundClass = "bg-green-500/5";
+                      break;
+                    case "lost":
+                      borderColorClass = "border-l-4 border-red-500";
+                      backgroundClass = "opacity-60";
+                      break;
+                    default:
+                      borderColorClass = "";
+                  }
+
+                  return (
+                    <tr 
+                      key={lead.id} 
+                      className={`border-b border-warroom-border/50 hover:bg-warroom-border/20 cursor-pointer ${borderColorClass} ${backgroundClass}`}
+                      onClick={() => handleLeadClick(lead)}
+                    >
+                      <td className="px-4 py-3">
+                        <p className="font-medium">{lead.business_name}</p>
+                        {lead.contacted_by && lead.contacted_at && (
+                          <p className="text-xs text-blue-400 mb-1">
+                            Contacted by {lead.contacted_by} on {new Date(lead.contacted_at).toLocaleDateString()}
+                          </p>
+                        )}
+                        <p className="text-xs text-warroom-muted">{[lead.city, lead.state].filter(Boolean).join(", ") || lead.address}</p>
+                        {lead.business_category && (
+                          <p className="text-[10px] text-warroom-muted/70 mt-0.5">{lead.business_category}</p>
+                        )}
+                      </td>
                     <td className="px-4 py-3">
                       {lead.phone && (
                         <div className="flex items-center gap-1 text-xs text-warroom-muted">
@@ -418,8 +556,9 @@ export default function LeadgenPanel() {
                         <span className="text-xs text-warroom-muted">{lead.lead_score}/100</span>
                       </div>
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
 
@@ -455,6 +594,14 @@ export default function LeadgenPanel() {
           </div>
         )}
       </div>
+
+      {/* Lead Drawer */}
+      <LeadDrawer
+        lead={selectedLead}
+        isOpen={isDrawerOpen}
+        onClose={closeDrawer}
+        onUpdate={handleLeadUpdate}
+      />
     </div>
   );
 }

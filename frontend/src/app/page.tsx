@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MessageSquare, LayoutGrid, Users, BookOpen, Search, Zap, Brain, GraduationCap, Settings } from "lucide-react";
+import { MessageSquare, LayoutGrid, Users, BookOpen, Search, Zap, Brain, GraduationCap, Settings, Phone } from "lucide-react";
 import ChatPanel from "@/components/chat/ChatPanel";
 import KanbanPanel from "@/components/kanban/KanbanPanel";
 import TeamPanel from "@/components/team/TeamPanel";
 import LibraryPanel from "@/components/library/LibraryPanel";
 import EducatePanel from "@/components/library/EducatePanel";
 import LeadgenPanel from "@/components/leadgen/LeadgenPanel";
+import ContactsPanel from "@/components/contacts/ContactsPanel";
 import SettingsPanel from "@/components/settings/SettingsPanel";
 
 const TABS = [
@@ -20,9 +21,10 @@ const TABS = [
     { id: "library-educate", label: "Educate", icon: GraduationCap },
   ]},
   { id: "leadgen", label: "Lead Gen", icon: Search },
+  { id: "contacts", label: "Contacts", icon: Phone },
 ] as const;
 
-type TabId = "chat" | "kanban" | "team" | "library-search" | "library-educate" | "leadgen" | "settings";
+type TabId = "chat" | "kanban" | "team" | "library-search" | "library-educate" | "leadgen" | "contacts" | "settings";
 
 export default function Page() {
   return (
@@ -158,6 +160,7 @@ function WarRoom() {
         {activeTab === "library-search" && <LibraryPanel />}
         {activeTab === "library-educate" && <EducatePanel />}
         {activeTab === "leadgen" && <LeadgenPanel />}
+        {activeTab === "contacts" && <ContactsPanel />}
         {activeTab === "settings" && <SettingsPanel />}
       </main>
     </div>
