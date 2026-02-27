@@ -271,6 +271,16 @@ async def get_search(job_id: int, db: AsyncSession = Depends(get_leadgen_db)):
     return job
 
 
+@router.get("/leads/{lead_id}", response_model=LeadResponse)
+async def get_lead(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
+    """Get a single lead by ID."""
+    result = await db.execute(select(Lead).where(Lead.id == lead_id))
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return lead
+
+
 @router.post("/leads/{lead_id}/audit", response_model=WebsiteAuditResult)
 async def trigger_website_audit(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
     """Trigger website audit for a lead."""
