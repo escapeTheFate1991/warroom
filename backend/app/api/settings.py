@@ -97,8 +97,8 @@ async def init_settings_table(engine):
         await conn.run_sync(SettingsBase.metadata.create_all)
 
     # Seed defaults if table is empty
-    from app.db.leadgen_db import async_session_factory
-    async with async_session_factory() as db:
+    from app.db.leadgen_db import leadgen_session
+    async with leadgen_session() as db:
         result = await db.execute(select(Setting))
         if not result.scalars().first():
             for s in DEFAULT_SETTINGS:
