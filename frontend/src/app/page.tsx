@@ -13,6 +13,7 @@ import ContactsPanel from "@/components/contacts/ContactsPanel";
 import SettingsPanel from "@/components/settings/SettingsPanel";
 import ContactsManager from "@/components/crm/ContactsManager";
 import ActivitiesPanel from "@/components/crm/ActivitiesPanel";
+import DealsKanban from "@/components/crm/DealsKanban";
 
 const TABS = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -23,6 +24,7 @@ const TABS = [
     { id: "library-educate", label: "Educate", icon: GraduationCap },
   ]},
   { id: "crm", label: "CRM", icon: UserSquare, children: [
+    { id: "crm-deals", label: "Deals", icon: Briefcase },
     { id: "crm-contacts", label: "Contacts", icon: Users },
     { id: "crm-activities", label: "Activities", icon: Calendar },
   ]},
@@ -30,7 +32,7 @@ const TABS = [
   { id: "contacts", label: "Contacts", icon: Phone },
 ] as const;
 
-type TabId = "chat" | "kanban" | "team" | "library-search" | "library-educate" | "crm-contacts" | "crm-activities" | "leadgen" | "contacts" | "settings";
+type TabId = "chat" | "kanban" | "team" | "library-search" | "library-educate" | "crm-deals" | "crm-contacts" | "crm-activities" | "leadgen" | "contacts" | "settings";
 
 export default function Page() {
   return (
@@ -49,7 +51,7 @@ function WarRoom() {
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLibraryActive = activeTab === "library-search" || activeTab === "library-educate";
-  const isCrmActive = activeTab === "crm-contacts" || activeTab === "crm-activities";
+  const isCrmActive = activeTab === "crm-deals" || activeTab === "crm-contacts" || activeTab === "crm-activities";
 
   // Clean up leave-close timer on unmount
   useEffect(() => () => { if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current); }, []);
@@ -166,6 +168,7 @@ function WarRoom() {
         {activeTab === "team" && <TeamPanel />}
         {activeTab === "library-search" && <LibraryPanel />}
         {activeTab === "library-educate" && <EducatePanel />}
+        {activeTab === "crm-deals" && <DealsKanban />}
         {activeTab === "crm-contacts" && <ContactsManager />}
         {activeTab === "crm-activities" && <ActivitiesPanel />}
         {activeTab === "leadgen" && <LeadgenPanel />}
