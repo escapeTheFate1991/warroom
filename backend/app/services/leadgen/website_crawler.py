@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 EMAIL_PATTERN = re.compile(
     r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
 )
+PHONE_PATTERN = re.compile(
+    r"(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",
+)
 SOCIAL_PATTERNS = {
     "facebook": re.compile(r"https?://(?:www\.)?facebook\.com/[a-zA-Z0-9._\-]+/?"),
     "instagram": re.compile(r"https?://(?:www\.)?instagram\.com/[a-zA-Z0-9._\-]+/?"),
@@ -42,11 +45,24 @@ CONTACT_PAGE_PATTERNS = [
 ]
 
 
+def _clean_phones(raw_phones: set[str]) -> list[str]:
+    """Deduplicate and normalize phone numbers."""
+    cleaned = set()
+    for phone in raw_phones:
+        digits = re.sub(r"\D", "", phone)
+        if len(digits) == 11 and digits.startswith("1"):
+            digits = digits[1:]
+        if len(digits) == 10:
+            cleaned.add(f"({digits[:3]}) {digits[3:6]}-{digits[6:]}")
+    return sorted(cleaned)
+
+
 @dataclass
 class CrawlResult:
     url: str
     status_code: int = 0
     emails: list[str] = field(default_factory=list)
+    phones: list[str] = field(default_factory=list)
     owner_name: str = ""
     facebook: str = ""
     instagram: str = ""
@@ -104,20 +120,21 @@ def _find_contact_pages(page_source: str, base_url: str) -> list[str]:
     return list(set(found))[:3]  # Limit to 3 pages
 
 
-async def _scrape_page(url: str, session: httpx.AsyncClient) -> tuple[str, set[str], dict[str, str]]:
-    """Visit a page and extract emails + socials from content."""
+async def _scrape_page(url: str, session: httpx.AsyncClient) -> tuple[str, set[str], set[str], dict[str, str]]:
+    """Visit a page and extract emails, phones, socials from content."""
     try:
         response = await session.get(url, timeout=15.0, follow_redirects=True)
         if response.status_code != 200:
-            return "", set(), {}
+            return "", set(), set(), {}
         
         content = response.text
         emails = set(EMAIL_PATTERN.findall(content))
+        phones = set(PHONE_PATTERN.findall(content))
         socials = _extract_socials(content)
-        return content, emails, socials
+        return content, emails, phones, socials
     except Exception as exc:
         logger.warning("Failed to scrape %s: %s", url, exc)
-        return "", set(), {}
+        return "", set(), set(), {}
 
 
 async def crawl_website(url: str) -> CrawlResult:
@@ -127,7 +144,7 @@ async def crawl_website(url: str) -> CrawlResult:
     try:
         async with httpx.AsyncClient(timeout=20.0) as session:
             # Scrape homepage
-            homepage_content, all_emails, all_socials = await _scrape_page(url, session)
+            homepage_content, all_emails, all_phones, all_socials = await _scrape_page(url, session)
             if not homepage_content:
                 result.error = "Failed to load homepage"
                 return result
@@ -139,13 +156,15 @@ async def crawl_website(url: str) -> CrawlResult:
             contact_pages = _find_contact_pages(homepage_content, url)
             for contact_url in contact_pages:
                 await asyncio.sleep(1)  # Be polite
-                _, page_emails, page_socials = await _scrape_page(contact_url, session)
+                _, page_emails, page_phones, page_socials = await _scrape_page(contact_url, session)
                 all_emails.update(page_emails)
+                all_phones.update(page_phones)
                 for platform, link in page_socials.items():
                     if platform not in all_socials:
                         all_socials[platform] = link
 
             result.emails = _clean_emails(all_emails)
+            result.phones = _clean_phones(all_phones)
             result.facebook = all_socials.get("facebook", "")
             result.instagram = all_socials.get("instagram", "")
             result.linkedin = all_socials.get("linkedin", "")

@@ -55,6 +55,7 @@ class Lead(Base):
 
     # Enriched contact data
     emails = Column(ARRAY(Text), default=[])
+    website_phones = Column(ARRAY(Text), default=[])
     owner_name = Column(Text)
     facebook_url = Column(Text)
     instagram_url = Column(Text)
@@ -74,14 +75,28 @@ class Lead(Base):
     website_audit_top_fixes = Column(ARRAY(Text))
     website_audit_date = Column(TIMESTAMP(timezone=True))
 
+    # Audit lite (quick surface-level flags from enrichment crawl)
+    audit_lite_flags = Column(ARRAY(Text), default=[])
+
     # Pipeline status
     enrichment_status = Column(String(20), default="pending")
     audit_status = Column(String(20), default="pending")
-    outreach_status = Column(String(20), default="none")
+    outreach_status = Column(String(20), default="none")  # none, contacted, in_progress, won, lost
 
     # Scoring
     lead_score = Column(Integer, default=0)
     lead_tier = Column(String(20), default="unscored")
+
+    # CRM / Outreach tracking
+    contacted_by = Column(Text)                          # Who made the call
+    contacted_at = Column(TIMESTAMP(timezone=True))      # When
+    contact_outcome = Column(String(20))                 # won, lost, follow_up, no_answer
+    contact_notes = Column(Text)                         # Why won/lost, call notes
+    contact_who_answered = Column(Text)                  # Name of person who answered
+    contact_owner_name = Column(Text)                    # Business owner name
+    contact_economic_buyer = Column(Text)                # Economic buyer (decision maker)
+    contact_champion = Column(Text)                      # Internal champion for the deal
+    contact_history = Column(JSONB, default=[])          # Array of {date, by, notes, outcome}
 
     # Metadata
     notes = Column(Text)

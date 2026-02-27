@@ -11,69 +11,69 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, case, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.leadgen_db import get_leadgen_db
+from app.db.leadgen_db import get_leadgen_db, leadgen_session
 from app.models.lead import Lead, SearchJob
 from app.services.leadgen.google_places import search_places
 from app.services.leadgen.enrichment import enrich_job
 from app.services.leadgen.website_auditor import audit_website
 from app.api.leadgen_schemas import (
     LeadResponse, LeadUpdate, StatsResponse, SearchRequest, 
-    SearchJobResponse, WebsiteAuditResult
+    SearchJobResponse, WebsiteAuditResult, ContactLogRequest
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _run_search(job_id: int, request: SearchRequest, db: AsyncSession):
-    """Background task: search Google Places and insert leads."""
-    try:
-        places = await search_places(request.query, request.location, request.max_results)
+async def _run_search(job_id: int, request: SearchRequest):
+    """Background task: search Google Places, insert leads, enrich."""
+    async with leadgen_session() as db:
+        try:
+            places = await search_places(request.query, request.location, request.max_results)
 
-        for place in places:
-            existing = await db.execute(
-                select(Lead).where(Lead.google_place_id == place.place_id)
-            )
-            if existing.scalar_one_or_none():
-                continue
+            for place in places:
+                existing = await db.execute(
+                    select(Lead).where(Lead.google_place_id == place.place_id)
+                )
+                if existing.scalar_one_or_none():
+                    continue
 
-            lead = Lead(
-                search_job_id=job_id,
-                google_place_id=place.place_id,
-                business_name=place.name,
-                address=place.address,
-                city=place.city,
-                state=place.state,
-                zip=place.zip_code,
-                phone=place.phone,
-                website=place.website or None,
-                google_maps_url=place.maps_url,
-                google_rating=place.rating or None,
-                google_reviews_count=place.review_count,
-                business_category=place.category,
-                business_types=place.types,
-                latitude=place.latitude or None,
-                longitude=place.longitude or None,
-                opening_hours=place.opening_hours,
-                has_website=bool(place.website),
-            )
-            db.add(lead)
+                lead = Lead(
+                    search_job_id=job_id,
+                    google_place_id=place.place_id,
+                    business_name=place.name,
+                    address=place.address,
+                    city=place.city,
+                    state=place.state,
+                    zip=place.zip_code,
+                    phone=place.phone,
+                    website=place.website or None,
+                    google_maps_url=place.maps_url,
+                    google_rating=place.rating or None,
+                    google_reviews_count=place.review_count,
+                    business_category=place.category,
+                    business_types=place.types,
+                    latitude=place.latitude or None,
+                    longitude=place.longitude or None,
+                    opening_hours=place.opening_hours,
+                    has_website=bool(place.website),
+                )
+                db.add(lead)
 
-        await db.execute(
-            select(SearchJob).where(SearchJob.id == job_id)
-        )
-        job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id))).scalar_one()
-        job.total_found = len(places)
-        job.status = "complete"
-        await db.commit()
+            job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id))).scalar_one()
+            job.total_found = len(places)
+            job.status = "enriching"
+            await db.commit()
 
-        # Auto-start enrichment
-        await enrich_job(job_id, db)
+            # Enrich with fresh session
+            logger.info("Starting enrichment for job %d (%d leads)", job_id, len(places))
+            await enrich_job(job_id, db)
+            logger.info("Enrichment complete for job %d", job_id)
 
-    except Exception as exc:
-        logger.error("Search job %d failed: %s", job_id, exc)
-        job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id))).scalar_one_or_none()
-        if job:
+        except Exception as exc:
+            logger.error("Search job %d failed: %s", job_id, exc, exc_info=True)
+            job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id))).scalar_one_or_none()
+            if job:
             job.status = "failed"
             job.error_message = str(exc)
             await db.commit()
@@ -155,6 +155,10 @@ async def get_stats(search_job_id: int | None = None, db: AsyncSession = Depends
     )
     top_categories = [{"category": row[0], "count": row[1]} for row in cats.all()]
 
+    contacted = (await db.execute(select(func.count(Lead.id)).where(Lead.outreach_status != "none"))).scalar() or 0
+    won = (await db.execute(select(func.count(Lead.id)).where(Lead.contact_outcome == "won"))).scalar() or 0
+    lost = (await db.execute(select(func.count(Lead.id)).where(Lead.contact_outcome == "lost"))).scalar() or 0
+
     return StatsResponse(
         total_leads=total,
         enriched=enriched,
@@ -165,6 +169,9 @@ async def get_stats(search_job_id: int | None = None, db: AsyncSession = Depends
         cold_leads=cold,
         avg_lead_score=round(float(avg_score), 1),
         top_categories=top_categories,
+        contacted=contacted,
+        won=won,
+        lost=lost,
     )
 
 
@@ -229,7 +236,7 @@ async def create_search(request: SearchRequest, background_tasks: BackgroundTask
     await db.commit()
     await db.refresh(job)
 
-    background_tasks.add_task(_run_search, job.id, request, db)
+    background_tasks.add_task(_run_search, job.id, request)
     return job
 
 
@@ -299,3 +306,77 @@ async def get_audit_results(lead_id: int, db: AsyncSession = Depends(get_leadgen
         summary=lead.website_audit_summary or "",
         top_fixes=lead.website_audit_top_fixes or []
     )
+
+
+# --- CRM / Contact Logging ---
+
+@router.post("/leads/{lead_id}/contact")
+async def log_contact(lead_id: int, body: ContactLogRequest, db: AsyncSession = Depends(get_leadgen_db)):
+    """Log a contact attempt with a lead."""
+    result = await db.execute(select(Lead).where(Lead.id == lead_id))
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    now = datetime.now()
+
+    # Update current contact info
+    lead.contacted_by = body.contacted_by
+    lead.contacted_at = now
+    lead.contact_outcome = body.outcome
+    lead.contact_notes = body.notes
+    if body.who_answered:
+        lead.contact_who_answered = body.who_answered
+    if body.owner_name:
+        lead.contact_owner_name = body.owner_name
+    if body.economic_buyer:
+        lead.contact_economic_buyer = body.economic_buyer
+    if body.champion:
+        lead.contact_champion = body.champion
+
+    # Append to contact history
+    history = lead.contact_history or []
+    history.append({
+        "date": now.isoformat(),
+        "by": body.contacted_by,
+        "outcome": body.outcome,
+        "notes": body.notes or "",
+        "who_answered": body.who_answered or "",
+    })
+    lead.contact_history = history
+
+    # Update outreach status
+    if body.outcome == "won":
+        lead.outreach_status = "won"
+    elif body.outcome == "lost":
+        lead.outreach_status = "lost"
+    elif body.outcome in ("follow_up", "callback"):
+        lead.outreach_status = "in_progress"
+    else:
+        lead.outreach_status = "contacted"
+
+    await db.commit()
+    return {"status": "logged", "lead_id": lead_id, "outcome": body.outcome}
+
+
+@router.get("/contacts")
+async def list_contacts(
+    outcome: str | None = None,
+    contacted_by: str | None = None,
+    limit: int = Query(default=100, le=500),
+    offset: int = 0,
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """List all contacted leads (CRM history view)."""
+    query = select(Lead).where(Lead.outreach_status != "none")
+    
+    if outcome:
+        query = query.where(Lead.contact_outcome == outcome)
+    if contacted_by:
+        query = query.where(Lead.contacted_by.ilike(f"%{contacted_by}%"))
+    
+    query = query.order_by(Lead.contacted_at.desc()).offset(offset).limit(limit)
+    result = await db.execute(query)
+    leads = result.scalars().all()
+
+    return [LeadResponse.model_validate(lead) for lead in leads]

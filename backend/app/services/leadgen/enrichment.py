@@ -39,6 +39,9 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
     lead.website_status = crawl.status_code
     lead.website_platform = crawl.platform
     lead.emails = crawl.emails
+    # Store scraped phones — merge with Google phone if different
+    if crawl.phones:
+        lead.website_phones = crawl.phones
     lead.facebook_url = crawl.facebook
     lead.instagram_url = crawl.instagram
     lead.linkedin_url = crawl.linkedin
@@ -47,6 +50,24 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
     lead.youtube_url = crawl.youtube
     lead.yelp_url = crawl.yelp
     lead.enrichment_status = "failed" if crawl.error else "enriched"
+
+    # Quick audit lite — surface level signals from the crawl
+    audit_flags = []
+    if crawl.platform and crawl.platform != "custom":
+        audit_flags.append(f"Built on {crawl.platform.title()}")
+    if not crawl.emails:
+        audit_flags.append("No email found on website")
+    if not crawl.phones:
+        audit_flags.append("No phone found on website")
+    has_ssl = lead.website.startswith("https://") if lead.website else False
+    if not has_ssl:
+        audit_flags.append("No SSL (HTTP only)")
+    social_count = sum(1 for x in [crawl.facebook, crawl.instagram, crawl.linkedin, crawl.twitter] if x)
+    if social_count == 0:
+        audit_flags.append("No social media links")
+    elif social_count < 2:
+        audit_flags.append("Minimal social presence")
+    lead.audit_lite_flags = audit_flags
 
     score, tier = score_lead(lead)
     lead.lead_score = score
