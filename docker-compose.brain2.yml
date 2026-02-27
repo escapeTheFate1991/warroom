@@ -1,0 +1,45 @@
+services:
+  warroom-backend:
+    build: ./backend
+    container_name: warroom-backend
+    ports:
+      - "8300:8300"
+    environment:
+      # --- Brain 2 local services (localhost because host network) ---
+      KANBAN_API_URL: http://10.0.0.11:18794
+      TEAM_DASHBOARD_URL: http://localhost:18795
+      POSTGRES_URL: postgresql+asyncpg://friday:friday-brain2-2026@localhost:5433/knowledge
+      # --- Brain 3 (10.0.0.12) — AI infrastructure ---
+      QDRANT_URL: http://10.0.0.12:6333
+      FASTEMBED_URL: http://10.0.0.12:11435
+      # --- Brain 1 (10.0.0.1) — OpenClaw + frontends ---
+      OPENCLAW_WS_URL: ws://10.0.0.1:18789
+      OPENCLAW_API_URL: http://10.0.0.1:18789
+      OPENCLAW_AUTH_TOKEN: f82d5df991279454acb4e92e383f69997524b6774dc91030
+      OPENCLAW_SESSION_KEY: warroom
+      # Device identity for operator.write scope (Ed25519)
+      OPENCLAW_DEVICE_ID: 6a5b1d6d97282742cbb3be43be4a4090268f6184b881dc99ef090359f3862b8b
+      OPENCLAW_DEVICE_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQGlyXAmMYp1xh9m0O7rT0dQLCz7ks5b5YrgAi1Rjgt0=\n-----END PUBLIC KEY-----\n"
+      OPENCLAW_DEVICE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINFuG46daTmDYtDpfkAfcClJhDDhNW9R+rad4t/NGPz1\n-----END PRIVATE KEY-----\n"
+      LEADGEN_BACKEND_URL: http://10.0.0.1:8200
+      LEADGEN_DB_URL: postgresql+asyncpg://leadgen:leadgen-yieldlabs-2026@10.0.0.1:5434/leadgen
+      # --- Mental Library (SQLite + pipeline API) ---
+      MENTAL_LIBRARY_DB: /data/mental-library/mental_library.db
+      MENTAL_LIBRARY_API_URL: http://localhost:8100
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /home/lowkeyshift/warroom/mental-library-data:/data/mental-library:ro
+
+  mental-library:
+    build: ./mental-library-backend
+    container_name: mental-library-backend
+    ports:
+      - "8100:8100"
+    environment:
+      FASTEMBED_URL: http://10.0.0.12:11435
+      QDRANT_URL: http://10.0.0.12:6333
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /home/lowkeyshift/warroom/mental-library-data:/app/data
