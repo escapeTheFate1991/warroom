@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings
 from app.db.leadgen_db import leadgen_engine
 from app.models.lead import Base
 
@@ -20,8 +20,12 @@ async def lifespan(app: FastAPI):
         async with leadgen_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("LeadGen database initialized")
+        
+        # Create settings table and seed defaults
+        await settings.init_settings_table(leadgen_engine)
+        logger.info("Settings initialized")
     except Exception as e:
-        logger.error("Failed to initialize LeadGen database: %s", e)
+        logger.error("Failed to initialize databases: %s", e)
     
     yield
 
@@ -43,3 +47,4 @@ app.include_router(leadgen.router, prefix="/api/leadgen", tags=["leadgen"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(mental_library.router, prefix="/api/ml", tags=["mental-library"])
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
+app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
