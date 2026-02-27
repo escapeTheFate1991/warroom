@@ -1,10 +1,32 @@
 """WAR ROOM — Unified API Gateway"""
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice
+from app.db.leadgen_db import leadgen_engine
+from app.models.lead import Base
 
-app = FastAPI(title="WAR ROOM", version="0.1.0")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize database tables on startup."""
+    try:
+        # Create leadgen tables if they don't exist
+        async with leadgen_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("LeadGen database initialized")
+    except Exception as e:
+        logger.error("Failed to initialize LeadGen database: %s", e)
+    
+    yield
+
+
+app = FastAPI(title="WAR ROOM", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
