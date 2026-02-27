@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { X, Save, Loader2, Search, Plus } from "lucide-react";
-import { Pipeline, PipelineStage, Person, Organization, LeadSource, LeadType, DealFull } from "./types";
+import { Pipeline, PipelineStage, Person, Organization, LeadSource, LeadType, DealFull, DealFormData } from "./types";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
@@ -16,7 +16,7 @@ interface DealFormProps {
 }
 
 export default function DealForm({ deal, isOpen, onClose, onSave, pipelines, stages }: DealFormProps) {
-  const [formData, setFormData] = useState<DealFull>({
+  const [formData, setFormData] = useState<DealFormData>({
     title: "",
     description: null,
     deal_value: null,

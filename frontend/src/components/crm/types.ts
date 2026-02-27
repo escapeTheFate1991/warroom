@@ -114,3 +114,19 @@ export interface Email {
   is_read: boolean;
   created_at: string;
 }
+
+// Form-specific type for creating/editing deals
+export interface DealFormData {
+  id?: number;
+  title: string;
+  description: string | null;
+  deal_value: number | null;
+  person_id: number | null;
+  organization_id: number | null;
+  source_id: number | null;
+  type_id: number | null;
+  pipeline_id: number;
+  stage_id: number;
+  expected_close_date: string | null;
+  status: boolean | null;
+}
