@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings
+from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
 from app.models.lead import Base
@@ -87,3 +88,16 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(mental_library.router, prefix="/api/ml", tags=["mental-library"])
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+
+# CRM Routes
+app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])
+app.include_router(contacts.router, prefix="/api/crm", tags=["crm-contacts"])
+app.include_router(activities.router, prefix="/api/crm", tags=["crm-activities"])
+app.include_router(pipelines.router, prefix="/api/crm", tags=["crm-pipelines"])
+app.include_router(products.router, prefix="/api/crm", tags=["crm-products"])
+app.include_router(emails.router, prefix="/api/crm", tags=["crm-emails"])
+app.include_router(marketing.router, prefix="/api/crm", tags=["crm-marketing"])
+app.include_router(attributes.router, prefix="/api/crm", tags=["crm-attributes"])
+app.include_router(acl.router, prefix="/api/crm", tags=["crm-acl"])
+app.include_router(data.router, prefix="/api/crm", tags=["crm-data"])
+app.include_router(audit.router, prefix="/api/crm", tags=["crm-audit"])
