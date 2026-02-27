@@ -90,7 +90,7 @@ export default function ContactsPanel() {
     setContactedByFilter("");
   };
 
-  const uniqueContactedBy = [...new Set(contacts.map(c => c.contacted_by))].filter(Boolean);
+  const uniqueContactedBy = Array.from(new Set(contacts.map(c => c.contacted_by).filter(Boolean))) as string[];
 
   return (
     <div className="flex flex-col h-full">
