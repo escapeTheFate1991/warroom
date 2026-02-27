@@ -16,6 +16,7 @@ from app.models.lead import Lead, SearchJob
 from app.services.leadgen.google_places import search_places
 from app.services.leadgen.enrichment import enrich_job
 from app.services.leadgen.website_auditor import audit_website
+from app.services.leadgen.lead_scorer import score_lead
 from app.api.leadgen_schemas import (
     LeadResponse, LeadUpdate, StatsResponse, SearchRequest, 
     SearchJobResponse, WebsiteAuditResult, ContactLogRequest
@@ -74,9 +75,9 @@ async def _run_search(job_id: int, request: SearchRequest):
             logger.error("Search job %d failed: %s", job_id, exc, exc_info=True)
             job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id))).scalar_one_or_none()
             if job:
-            job.status = "failed"
-            job.error_message = str(exc)
-            await db.commit()
+                job.status = "failed"
+                job.error_message = str(exc)
+                await db.commit()
 
 
 @router.get("/leads", response_model=list[LeadResponse])
@@ -357,6 +358,22 @@ async def log_contact(lead_id: int, body: ContactLogRequest, db: AsyncSession = 
 
     await db.commit()
     return {"status": "logged", "lead_id": lead_id, "outcome": body.outcome}
+
+
+@router.post("/leads/rescore")
+async def rescore_all_leads(db: AsyncSession = Depends(get_leadgen_db)):
+    """Rescore all leads — fixes leads imported before scoring was wired up."""
+    result = await db.execute(select(Lead))
+    leads = result.scalars().all()
+    updated = 0
+    for lead in leads:
+        score, tier = score_lead(lead)
+        if lead.lead_score != score or lead.lead_tier != tier:
+            lead.lead_score = score
+            lead.lead_tier = tier
+            updated += 1
+    await db.commit()
+    return {"status": "rescored", "total": len(leads), "updated": updated}
 
 
 @router.get("/contacts")
