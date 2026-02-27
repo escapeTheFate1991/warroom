@@ -25,6 +25,65 @@ interface Lead {
   enrichment_status: string;
 }
 
+const BUSINESS_CATEGORIES = [
+  "Plumbers",
+  "Electricians",
+  "HVAC Contractors",
+  "Roofers",
+  "Landscapers",
+  "General Contractors",
+  "Painters",
+  "Pest Control",
+  "Cleaning Services",
+  "Moving Companies",
+  "Restaurants",
+  "Cafes & Coffee Shops",
+  "Bars & Nightclubs",
+  "Bakeries",
+  "Food Trucks",
+  "Catering Services",
+  "Dentists",
+  "Chiropractors",
+  "Veterinarians",
+  "Optometrists",
+  "Medical Clinics",
+  "Physical Therapy",
+  "Mental Health Counselors",
+  "Pharmacies",
+  "Law Firms",
+  "Accounting Firms",
+  "Insurance Agents",
+  "Financial Advisors",
+  "Real Estate Agents",
+  "Mortgage Brokers",
+  "Auto Repair Shops",
+  "Auto Dealerships",
+  "Car Wash",
+  "Towing Services",
+  "Hair Salons",
+  "Barber Shops",
+  "Nail Salons",
+  "Spas & Wellness",
+  "Gyms & Fitness Centers",
+  "Yoga Studios",
+  "Martial Arts Studios",
+  "Daycare Centers",
+  "Tutoring Services",
+  "Dog Grooming",
+  "Pet Boarding",
+  "Photography Studios",
+  "Wedding Venues",
+  "Event Planners",
+  "Florists",
+  "Printing Services",
+  "IT Services",
+  "Web Design Agencies",
+  "Marketing Agencies",
+  "Staffing Agencies",
+  "Storage Facilities",
+  "Hotels & Motels",
+];
+
 const TIER_COLORS: Record<string, string> = {
   hot: "bg-red-500/20 text-red-400",
   warm: "bg-orange-500/20 text-orange-400",
@@ -112,14 +171,19 @@ export default function LeadgenPanel() {
             />
           </div>
           <div className="relative flex-1">
-            <Building2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
-            <input
+            <Building2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" />
+            <select
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && searchBusinesses()}
-              placeholder="Business type (e.g. Plumbers)"
-              className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-10 pr-4 py-2.5 text-sm text-warroom-text placeholder-warroom-muted focus:outline-none focus:border-warroom-accent"
-            />
+              className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-10 pr-4 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+              style={{ colorScheme: "dark" }}
+            >
+              <option value="" disabled>Select business type...</option>
+              {BUSINESS_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+            <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
           </div>
           <button
             onClick={searchBusinesses}
