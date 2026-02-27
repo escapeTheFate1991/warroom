@@ -68,7 +68,11 @@ async def _run_search(job_id: int, request: SearchRequest):
             job.status = "complete"  # Search complete, enrichment runs separately
             await db.commit()
             
-            logger.info("Search complete for job %d (%d leads), starting background enrichment", job_id, len(places))
+            logger.info("Search complete for job %d (%d leads), starting enrichment", job_id, len(places))
+            
+            # Run enrichment inline (search is already a background task)
+            await enrich_job(job_id, db)
+            logger.info("Enrichment complete for job %d", job_id)
 
         except Exception as exc:
             logger.error("Search job %d failed: %s", job_id, exc, exc_info=True)
@@ -247,10 +251,8 @@ async def create_search(request: SearchRequest, background_tasks: BackgroundTask
     await db.commit()
     await db.refresh(job)
 
-    # Run search first (fast, returns leads immediately)
+    # Search inserts leads, then enrichment runs inline within the same background task
     background_tasks.add_task(_run_search, job.id, request)
-    # Run enrichment separately (slow, updates leads in background)
-    background_tasks.add_task(_run_enrichment, job.id)
     return job
 
 
@@ -381,6 +383,29 @@ async def log_contact(lead_id: int, body: ContactLogRequest, db: AsyncSession = 
 
     await db.commit()
     return {"status": "logged", "lead_id": lead_id, "outcome": body.outcome}
+
+
+@router.post("/leads/enrich-pending")
+async def enrich_pending_leads(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_leadgen_db)):
+    """Trigger enrichment for all pending leads across all jobs."""
+    result = await db.execute(
+        select(func.count(Lead.id)).where(Lead.enrichment_status == "pending")
+    )
+    pending_count = result.scalar() or 0
+    
+    if pending_count == 0:
+        return {"status": "nothing_to_enrich", "pending": 0}
+    
+    # Get distinct job IDs with pending leads
+    jobs = await db.execute(
+        select(Lead.search_job_id).where(Lead.enrichment_status == "pending").distinct()
+    )
+    job_ids = [row[0] for row in jobs.all() if row[0] is not None]
+    
+    for job_id in job_ids:
+        background_tasks.add_task(_run_enrichment, job_id)
+    
+    return {"status": "started", "pending": pending_count, "jobs": len(job_ids)}
 
 
 @router.post("/leads/rescore")
