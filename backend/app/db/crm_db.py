@@ -14,12 +14,7 @@ crm_engine = create_async_engine(CRM_DB_URL, echo=False, pool_size=5, max_overfl
 crm_session = async_sessionmaker(crm_engine, class_=AsyncSession, expire_on_commit=False)
 
 
-# Set search_path to crm on connections using events
-@event.listens_for(crm_engine.sync_engine, "connect")
-def set_search_path(dbapi_connection, connection_record):
-    """Set search_path to crm for all connections."""
-    with dbapi_connection.cursor() as cursor:
-        cursor.execute("SET search_path TO crm, public")
+# For async engines, we'll set search_path in get_crm_db instead of using events
 
 
 async def get_crm_db():
