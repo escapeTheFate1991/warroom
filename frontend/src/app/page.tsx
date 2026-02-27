@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MessageSquare, LayoutGrid, Users, BookOpen, Search, Zap, Brain, GraduationCap, Settings, Phone } from "lucide-react";
+import { MessageSquare, LayoutGrid, Users, BookOpen, Search, Zap, Brain, GraduationCap, Settings, Phone, Calendar, UserSquare, Briefcase } from "lucide-react";
 import ChatPanel from "@/components/chat/ChatPanel";
 import KanbanPanel from "@/components/kanban/KanbanPanel";
 import TeamPanel from "@/components/team/TeamPanel";
@@ -11,6 +11,8 @@ import EducatePanel from "@/components/library/EducatePanel";
 import LeadgenPanel from "@/components/leadgen/LeadgenPanel";
 import ContactsPanel from "@/components/contacts/ContactsPanel";
 import SettingsPanel from "@/components/settings/SettingsPanel";
+import ContactsManager from "@/components/crm/ContactsManager";
+import ActivitiesPanel from "@/components/crm/ActivitiesPanel";
 
 const TABS = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -20,11 +22,15 @@ const TABS = [
     { id: "library-search", label: "Search", icon: Search },
     { id: "library-educate", label: "Educate", icon: GraduationCap },
   ]},
+  { id: "crm", label: "CRM", icon: UserSquare, children: [
+    { id: "crm-contacts", label: "Contacts", icon: Users },
+    { id: "crm-activities", label: "Activities", icon: Calendar },
+  ]},
   { id: "leadgen", label: "Lead Gen", icon: Search },
   { id: "contacts", label: "Contacts", icon: Phone },
 ] as const;
 
-type TabId = "chat" | "kanban" | "team" | "library-search" | "library-educate" | "leadgen" | "contacts" | "settings";
+type TabId = "chat" | "kanban" | "team" | "library-search" | "library-educate" | "crm-contacts" | "crm-activities" | "leadgen" | "contacts" | "settings";
 
 export default function Page() {
   return (
@@ -43,6 +49,7 @@ function WarRoom() {
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLibraryActive = activeTab === "library-search" || activeTab === "library-educate";
+  const isCrmActive = activeTab === "crm-contacts" || activeTab === "crm-activities";
 
   // Clean up leave-close timer on unmount
   useEffect(() => () => { if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current); }, []);
@@ -78,7 +85,7 @@ function WarRoom() {
           const Icon = tab.icon;
           const hasChildren = "children" in tab && tab.children;
           const isActive = hasChildren
-            ? isLibraryActive
+            ? tab.id === "library" ? isLibraryActive : tab.id === "crm" ? isCrmActive : false
             : activeTab === tab.id;
 
           return (
@@ -159,6 +166,8 @@ function WarRoom() {
         {activeTab === "team" && <TeamPanel />}
         {activeTab === "library-search" && <LibraryPanel />}
         {activeTab === "library-educate" && <EducatePanel />}
+        {activeTab === "crm-contacts" && <ContactsManager />}
+        {activeTab === "crm-activities" && <ActivitiesPanel />}
         {activeTab === "leadgen" && <LeadgenPanel />}
         {activeTab === "contacts" && <ContactsPanel />}
         {activeTab === "settings" && <SettingsPanel />}
