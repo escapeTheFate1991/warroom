@@ -2,62 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { X, Save, Loader2, Search, Plus } from "lucide-react";
+import { Pipeline, PipelineStage, Person, Organization, LeadSource, LeadType, DealFull } from "./types";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
-
-interface Pipeline {
-  id: number;
-  name: string;
-  is_default: boolean;
-  rotten_days: number;
-}
-
-interface PipelineStage {
-  id: number;
-  code: string;
-  name: string;
-  probability: number;
-  sort_order: number;
-  pipeline_id: number;
-}
-
-interface Person {
-  id: number;
-  name: string;
-  emails: any[];
-  organization_id: number | null;
-  organization_name?: string;
-}
-
-interface Organization {
-  id: number;
-  name: string;
-}
-
-interface LeadSource {
-  id: number;
-  name: string;
-}
-
-interface LeadType {
-  id: number;
-  name: string;
-}
-
-interface DealFull {
-  id?: number;
-  title: string;
-  description: string | null;
-  deal_value: number | null;
-  person_id: number | null;
-  organization_id: number | null;
-  source_id: number | null;
-  type_id: number | null;
-  pipeline_id: number;
-  stage_id: number;
-  expected_close_date: string | null;
-  status: boolean | null;
-}
 
 interface DealFormProps {
   deal: DealFull | null;

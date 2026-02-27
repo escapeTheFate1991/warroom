@@ -20,67 +20,9 @@ import {
   Package,
   MessageSquare
 } from "lucide-react";
+import { DealFull, Activity, Product, Email } from "./types";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
-
-interface DealFull {
-  id: number;
-  title: string;
-  description: string | null;
-  deal_value: number | null;
-  status: boolean | null;
-  lost_reason: string | null;
-  expected_close_date: string | null;
-  closed_at: string | null;
-  person_id: number | null;
-  person_name: string | null;
-  organization_id: number | null;
-  organization_name: string | null;
-  source_id: number | null;
-  source_name: string | null;
-  type_id: number | null;
-  type_name: string | null;
-  pipeline_id: number;
-  pipeline_name: string;
-  stage_id: number;
-  stage_name: string;
-  stage_probability: number;
-  user_id: number | null;
-  user_name: string | null;
-  created_at: string;
-  updated_at: string;
-  days_in_stage: number;
-  is_rotten: boolean;
-}
-
-interface Activity {
-  id: number;
-  title: string;
-  type: string;
-  comment: string | null;
-  schedule_from: string | null;
-  schedule_to: string | null;
-  is_done: boolean;
-  user_name: string;
-  created_at: string;
-}
-
-interface Product {
-  id: number;
-  name: string;
-  sku: string | null;
-  price: number;
-  quantity: number;
-  amount: number;
-}
-
-interface Email {
-  id: number;
-  subject: string;
-  from_addr: any;
-  is_read: boolean;
-  created_at: string;
-}
 
 interface DealDrawerProps {
   deal: DealFull | null;

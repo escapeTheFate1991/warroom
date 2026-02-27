@@ -4,51 +4,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, Briefcase, DollarSign, Calendar, RefreshCw, Filter, User, Building2, Clock, AlertTriangle } from "lucide-react";
 import DealDrawer from "./DealDrawer";
 import DealForm from "./DealForm";
+import { Pipeline, PipelineStage, Deal, DealFull } from "./types";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
-
-interface Pipeline {
-  id: number;
-  name: string;
-  is_default: boolean;
-  rotten_days: number;
-}
-
-interface PipelineStage {
-  id: number;
-  code: string;
-  name: string;
-  probability: number;
-  sort_order: number;
-  pipeline_id: number;
-}
-
-interface Deal {
-  id: number;
-  title: string;
-  description: string | null;
-  deal_value: number | null;
-  status: boolean | null;
-  expected_close_date: string | null;
-  person_name: string | null;
-  organization_name: string | null;
-  stage_id: number;
-  pipeline_id: number;
-  created_at: string;
-  updated_at: string;
-  days_in_stage: number;
-  is_rotten: boolean;
-}
-
-interface DealFull extends Deal {
-  person_id: number | null;
-  organization_id: number | null;
-  source_id: number | null;
-  type_id: number | null;
-  user_id: number | null;
-  lost_reason: string | null;
-  closed_at: string | null;
-}
 
 const STAGE_COLORS: Record<number, string> = {
   0: "bg-gray-500/20 text-gray-400 border-gray-500/30", // 0% probability (lost)
