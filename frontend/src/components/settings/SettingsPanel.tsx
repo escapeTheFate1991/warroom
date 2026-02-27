@@ -156,7 +156,7 @@ export default function SettingsPanel() {
                     const isSaving = saving[setting.key];
                     const isSaved = saved[setting.key];
                     const error = errors[setting.key];
-                    const hasValue = setting.value && setting.value !== "" && !setting.value.startsWith("••••");
+                    const hasValue = setting.value && setting.value !== "" && setting.value !== "••••";
                     const editValue = editValues[setting.key] ?? "";
 
                     return (

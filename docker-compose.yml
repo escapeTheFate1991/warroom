@@ -26,6 +26,10 @@ services:
       # --- Brain 1 (10.0.0.1) — services awaiting migration to Brain 2 ---
       OPENCLAW_WS_URL: ws://10.0.0.1:18789
       OPENCLAW_API_URL: http://10.0.0.1:18789
+      OPENCLAW_AUTH_TOKEN: b96cf43250e241b291396802db4b445a
+      OPENCLAW_DEVICE_ID: 6a5b1d6d97282742cbb3be43be4a4090268f6184b881dc99ef090359f3862b8b
+      OPENCLAW_DEVICE_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQGlyXAmMYp1xh9m0O7rT0dQLCz7ks5b5YrgAi1Rjgt0=\n-----END PUBLIC KEY-----"
+      OPENCLAW_DEVICE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINFuG46daTmDYtDpfkAfcClJhDDhNW9R+rad4t/NGPz1\n-----END PRIVATE KEY-----"
       MENTAL_LIBRARY_API_URL: http://10.0.0.1:8100
       LEADGEN_BACKEND_URL: http://10.0.0.1:8200
       LEADGEN_DB_URL: postgresql+asyncpg://leadgen:leadgen-yieldlabs-2026@10.0.0.1:5434/leadgen
