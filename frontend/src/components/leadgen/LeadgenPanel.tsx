@@ -5,7 +5,7 @@ import { Search, MapPin, Globe, Mail, Phone, Loader2, Building2, RefreshCw, Star
 import LeadDrawer, { LeadFull } from "./LeadDrawer";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 10;
 
 interface Lead {
   id: number;
@@ -311,11 +311,23 @@ export default function LeadgenPanel() {
           const status = await statusResp.json();
           if (status.status === "complete") {
             clearInterval(poll);
-            setSearchStatus(`Found ${status.total_found} businesses in ${location}`);
+            setSearchStatus(`Found ${status.total_found} businesses in ${location} (enrichment running in background)`);
             setSearching(false);
             // Switch to showing only this search's results
             setActiveJobId(job.id);
             setShowAllLeads(false);
+            // Set up enrichment polling - refresh results every 10 seconds for 2 minutes
+            let enrichmentPollCount = 0;
+            const maxEnrichmentPolls = 12; // 2 minutes at 10 second intervals
+            const enrichmentPoll = setInterval(() => {
+              enrichmentPollCount++;
+              if (enrichmentPollCount >= maxEnrichmentPolls) {
+                clearInterval(enrichmentPoll);
+                setSearchStatus(`Found ${status.total_found} businesses in ${location}`);
+              } else {
+                loadLeads(); // Refresh to show enrichment progress
+              }
+            }, 10000);
           } else if (status.status === "failed") {
             clearInterval(poll);
             setSearchStatus("Search failed");
@@ -515,6 +527,12 @@ export default function LeadgenPanel() {
                         {lead.contacted_by && lead.contacted_at && (
                           <p className="text-xs text-blue-400 mb-1">
                             Contacted by {lead.contacted_by} on {new Date(lead.contacted_at).toLocaleDateString()}
+                          </p>
+                        )}
+                        {lead.enrichment_status === "pending" && (
+                          <p className="text-xs text-yellow-400 mb-1">
+                            <Loader2 size={10} className="inline animate-spin mr-1" />
+                            Enrichment pending...
                           </p>
                         )}
                         <p className="text-xs text-warroom-muted">{[lead.city, lead.state].filter(Boolean).join(", ") || lead.address}</p>

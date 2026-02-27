@@ -27,7 +27,7 @@ router = APIRouter()
 
 
 async def _run_search(job_id: int, request: SearchRequest):
-    """Background task: search Google Places, insert leads, enrich."""
+    """Background task: search Google Places, insert leads with pending enrichment."""
     async with leadgen_session() as db:
         try:
             places = await search_places(request.query, request.location, request.max_results)
@@ -58,18 +58,17 @@ async def _run_search(job_id: int, request: SearchRequest):
                     longitude=place.longitude or None,
                     opening_hours=place.opening_hours,
                     has_website=bool(place.website),
+                    enrichment_status="pending",  # Mark for background enrichment
                 )
                 db.add(lead)
 
+            # Complete the search job immediately - leads are available
             job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id))).scalar_one()
             job.total_found = len(places)
-            job.status = "enriching"
+            job.status = "complete"  # Search complete, enrichment runs separately
             await db.commit()
-
-            # Enrich with fresh session
-            logger.info("Starting enrichment for job %d (%d leads)", job_id, len(places))
-            await enrich_job(job_id, db)
-            logger.info("Enrichment complete for job %d", job_id)
+            
+            logger.info("Search complete for job %d (%d leads), starting background enrichment", job_id, len(places))
 
         except Exception as exc:
             logger.error("Search job %d failed: %s", job_id, exc, exc_info=True)
@@ -78,6 +77,17 @@ async def _run_search(job_id: int, request: SearchRequest):
                 job.status = "failed"
                 job.error_message = str(exc)
                 await db.commit()
+
+
+async def _run_enrichment(job_id: int):
+    """Background task: enrich pending leads for a search job."""
+    async with leadgen_session() as db:
+        try:
+            logger.info("Starting enrichment for job %d", job_id)
+            await enrich_job(job_id, db)
+            logger.info("Enrichment complete for job %d", job_id)
+        except Exception as exc:
+            logger.error("Enrichment job %d failed: %s", job_id, exc, exc_info=True)
 
 
 @router.get("/leads", response_model=list[LeadResponse])
@@ -92,7 +102,7 @@ async def list_leads(
     min_score: int | None = None,
     sort_by: str = "lead_score",
     sort_dir: str = "desc",
-    limit: int = Query(default=100, le=500),
+    limit: int = Query(default=10, le=500),
     offset: int = 0,
     db: AsyncSession = Depends(get_leadgen_db),
 ):
@@ -237,7 +247,10 @@ async def create_search(request: SearchRequest, background_tasks: BackgroundTask
     await db.commit()
     await db.refresh(job)
 
+    # Run search first (fast, returns leads immediately)
     background_tasks.add_task(_run_search, job.id, request)
+    # Run enrichment separately (slow, updates leads in background)
+    background_tasks.add_task(_run_enrichment, job.id)
     return job
 
 

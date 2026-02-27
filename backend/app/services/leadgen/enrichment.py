@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,61 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
     result = await db.execute(select(Lead).where(Lead.id == lead_id))
     lead = result.scalar_one_or_none()
     if not lead:
+        return
+
+    # Skip if already enriched
+    if lead.enrichment_status == "enriched":
+        logger.debug("Lead %d already enriched, skipping", lead_id)
+        return
+
+    # Check if we already have enriched data for this google_place_id
+    if lead.google_place_id:
+        existing = await db.execute(
+            select(Lead).where(
+                Lead.google_place_id == lead.google_place_id,
+                Lead.enrichment_status == "enriched",
+                Lead.id != lead_id
+            ).limit(1)
+        )
+        existing_lead = existing.scalar_one_or_none()
+        if existing_lead:
+            logger.debug("Found existing enriched lead for place %s, copying data", lead.google_place_id)
+            # Copy enrichment data from existing lead
+            lead.enrichment_status = "enriched"
+            lead.has_website = existing_lead.has_website
+            lead.website_status = existing_lead.website_status
+            lead.website_platform = existing_lead.website_platform
+            lead.emails = existing_lead.emails
+            lead.website_phones = existing_lead.website_phones
+            lead.facebook_url = existing_lead.facebook_url
+            lead.instagram_url = existing_lead.instagram_url
+            lead.linkedin_url = existing_lead.linkedin_url
+            lead.twitter_url = existing_lead.twitter_url
+            lead.tiktok_url = existing_lead.tiktok_url
+            lead.youtube_url = existing_lead.youtube_url
+            lead.yelp_url = existing_lead.yelp_url
+            lead.audit_lite_flags = existing_lead.audit_lite_flags
+            lead.website_audit_score = existing_lead.website_audit_score
+            lead.website_audit_grade = existing_lead.website_audit_grade
+            lead.website_audit_summary = existing_lead.website_audit_summary
+            lead.website_audit_top_fixes = existing_lead.website_audit_top_fixes
+            lead.website_audit_date = existing_lead.website_audit_date
+            lead.audit_status = existing_lead.audit_status
+            score, tier = score_lead(lead)
+            lead.lead_score = score
+            lead.lead_tier = tier
+            await db.commit()
+            return
+
+    # Check if audit is recent enough (within 30 days)
+    if (lead.website_audit_date and 
+        datetime.now() - lead.website_audit_date < timedelta(days=30)):
+        logger.debug("Lead %d has recent audit, skipping crawl", lead_id)
+        lead.enrichment_status = "enriched"
+        score, tier = score_lead(lead)
+        lead.lead_score = score
+        lead.lead_tier = tier
+        await db.commit()
         return
 
     lead.enrichment_status = "crawling"
@@ -72,6 +128,7 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
     score, tier = score_lead(lead)
     lead.lead_score = score
     lead.lead_tier = tier
+    lead.website_audit_date = datetime.now()  # Track when we performed enrichment
 
     await db.commit()
 
