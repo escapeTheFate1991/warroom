@@ -101,6 +101,7 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
   const [assignTo, setAssignTo] = useState("");
   const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState<{ dealId: number; assignee: string } | null>(null);
 
   useEffect(() => {
     fetch(`${API}/api/crm/users`).then(r => r.json()).then(setUsers).catch(() => {});
@@ -141,6 +142,7 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
           }),
         });
         onAssigned(deal.id);
+        setSuccess({ dealId: deal.id, assignee: assignTo });
         setShowForm(false);
       }
     } catch (err) {
@@ -154,7 +156,23 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
 
   return (
     <div>
-      {!showForm ? (
+      {success ? (
+        <div className="space-y-3 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+          <div className="flex items-center gap-2 text-green-400">
+            <CheckCircle size={16} />
+            <span className="text-sm font-medium">Successfully assigned to pipeline!</span>
+          </div>
+          <div className="text-xs text-warroom-muted">
+            {lead.business_name} has been assigned to {success.assignee} and added to the CRM pipeline.
+          </div>
+          <a
+            href="/?tab=crm-deals"
+            className="inline-flex items-center gap-2 text-xs text-warroom-accent hover:text-warroom-accent/80 font-medium"
+          >
+            View in CRM Deals →
+          </a>
+        </div>
+      ) : !showForm ? (
         <button
           onClick={() => setShowForm(true)}
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition text-sm font-medium"
@@ -466,7 +484,9 @@ ${lead.phone || "[Your Phone]"}`;
                 {/* Assign to Pipeline */}
                 <div className="mt-4 pt-4 border-t border-warroom-border">
                   <AssignButton lead={lead} onAssigned={(dealId) => {
-                    onUpdate?.({ ...lead, outreach_status: "in_progress" });
+                    // Update lead status to in_progress (shows yellow border)
+                    const updatedLead = { ...lead, outreach_status: "in_progress" };
+                    onUpdate?.(updatedLead);
                   }} />
                 </div>
 

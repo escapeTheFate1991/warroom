@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, social
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
@@ -80,6 +80,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router, tags=["health"])
+app.include_router(auth.router, tags=["auth"])
 app.include_router(kanban.router, prefix="/api/kanban", tags=["kanban"])
 app.include_router(team.router, prefix="/api/team", tags=["team"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
@@ -88,6 +89,7 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(mental_library.router, prefix="/api/ml", tags=["mental-library"])
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+app.include_router(social.router, prefix="/api/social", tags=["social"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])

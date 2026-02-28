@@ -2,18 +2,20 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MessageSquare, LayoutGrid, Users, BookOpen, Search, Zap, Brain, GraduationCap, Settings, Phone, Calendar, UserSquare, Briefcase } from "lucide-react";
+import { MessageSquare, LayoutGrid, Users, BookOpen, Search, Zap, Brain, GraduationCap, Settings, Calendar, UserSquare, Briefcase, Package, Mail, FileText, LogOut, Share2 } from "lucide-react";
+import { AuthProvider, useAuth } from "@/components/AuthProvider";
 import ChatPanel from "@/components/chat/ChatPanel";
 import KanbanPanel from "@/components/kanban/KanbanPanel";
 import TeamPanel from "@/components/team/TeamPanel";
 import LibraryPanel from "@/components/library/LibraryPanel";
 import EducatePanel from "@/components/library/EducatePanel";
 import LeadgenPanel from "@/components/leadgen/LeadgenPanel";
-import ContactsPanel from "@/components/contacts/ContactsPanel";
 import SettingsPanel from "@/components/settings/SettingsPanel";
 import ContactsManager from "@/components/crm/ContactsManager";
 import ActivitiesPanel from "@/components/crm/ActivitiesPanel";
 import DealsKanban from "@/components/crm/DealsKanban";
+import ProductsPanel from "@/components/crm/ProductsPanel";
+import SocialDashboard from "@/components/social/SocialDashboard";
 
 const TABS = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -27,22 +29,30 @@ const TABS = [
     { id: "crm-deals", label: "Deals", icon: Briefcase },
     { id: "crm-contacts", label: "Contacts", icon: Users },
     { id: "crm-activities", label: "Activities", icon: Calendar },
+    { id: "crm-products", label: "Products", icon: Package },
   ]},
   { id: "leadgen", label: "Lead Gen", icon: Search },
-  { id: "contacts", label: "Contacts", icon: Phone },
+  { id: "marketing", label: "Marketing", icon: Mail, children: [
+    { id: "marketing-campaigns", label: "Campaigns", icon: Mail },
+    { id: "marketing-templates", label: "Email Templates", icon: FileText },
+    { id: "marketing-social", label: "Social Media", icon: Share2 },
+  ]},
 ] as const;
 
-type TabId = "chat" | "kanban" | "team" | "library-search" | "library-educate" | "crm-deals" | "crm-contacts" | "crm-activities" | "leadgen" | "contacts" | "settings";
+type TabId = "chat" | "kanban" | "team" | "library-search" | "library-educate" | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products" | "leadgen" | "marketing-campaigns" | "marketing-templates" | "marketing-social" | "settings";
 
 export default function Page() {
   return (
-    <Suspense>
-      <WarRoom />
-    </Suspense>
+    <AuthProvider>
+      <Suspense>
+        <WarRoom />
+      </Suspense>
+    </AuthProvider>
   );
 }
 
 function WarRoom() {
+  const { user, logout } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get("tab") as TabId) || "chat";
@@ -51,7 +61,8 @@ function WarRoom() {
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLibraryActive = activeTab === "library-search" || activeTab === "library-educate";
-  const isCrmActive = activeTab === "crm-deals" || activeTab === "crm-contacts" || activeTab === "crm-activities";
+  const isCrmActive = activeTab === "crm-deals" || activeTab === "crm-contacts" || activeTab === "crm-activities" || activeTab === "crm-products";
+  const isMarketingActive = activeTab === "marketing-campaigns" || activeTab === "marketing-templates" || activeTab === "marketing-social";
 
   // Clean up leave-close timer on unmount
   useEffect(() => () => { if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current); }, []);
@@ -87,7 +98,9 @@ function WarRoom() {
           const Icon = tab.icon;
           const hasChildren = "children" in tab && tab.children;
           const isActive = hasChildren
-            ? tab.id === "library" ? isLibraryActive : tab.id === "crm" ? isCrmActive : false
+            ? tab.id === "library" ? isLibraryActive : 
+              tab.id === "crm" ? isCrmActive : 
+              tab.id === "marketing" ? isMarketingActive : false
             : activeTab === tab.id;
 
           return (
@@ -145,8 +158,20 @@ function WarRoom() {
           );
         })}
 
-        {/* Spacer + Settings at bottom */}
+        {/* Spacer + User info + Settings at bottom */}
         <div className="flex-1" />
+        
+        {/* User info */}
+        <div className="px-2 mb-3">
+          <div className="text-center">
+            <div className="w-8 h-8 rounded-full bg-warroom-accent flex items-center justify-center mx-auto mb-1">
+              <span className="text-xs font-medium text-white">{user?.name?.[0]?.toUpperCase()}</span>
+            </div>
+            <span className="text-[9px] text-warroom-muted block">{user?.name}</span>
+          </div>
+        </div>
+
+        {/* Settings button */}
         <button
           onClick={() => navigate("settings")}
           className={`w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all mb-2 ${
@@ -158,6 +183,16 @@ function WarRoom() {
         >
           <Settings size={20} />
           <span className="text-[9px] font-medium">Settings</span>
+        </button>
+
+        {/* Logout button */}
+        <button
+          onClick={logout}
+          className="w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all mb-2 text-warroom-muted hover:text-red-400 hover:bg-red-400/10"
+          title="Logout"
+        >
+          <LogOut size={20} />
+          <span className="text-[9px] font-medium">Logout</span>
         </button>
       </nav>
 
@@ -171,8 +206,21 @@ function WarRoom() {
         {activeTab === "crm-deals" && <DealsKanban />}
         {activeTab === "crm-contacts" && <ContactsManager />}
         {activeTab === "crm-activities" && <ActivitiesPanel />}
+        {activeTab === "crm-products" && <ProductsPanel />}
         {activeTab === "leadgen" && <LeadgenPanel />}
-        {activeTab === "contacts" && <ContactsPanel />}
+        {activeTab === "marketing-campaigns" && (
+          <div className="flex flex-col items-center justify-center h-full text-warroom-muted">
+            <Mail size={48} className="mb-4 opacity-20" />
+            <p className="text-sm">Marketing campaigns coming soon</p>
+          </div>
+        )}
+        {activeTab === "marketing-templates" && (
+          <div className="flex flex-col items-center justify-center h-full text-warroom-muted">
+            <FileText size={48} className="mb-4 opacity-20" />
+            <p className="text-sm">Email templates coming soon</p>
+          </div>
+        )}
+        {activeTab === "marketing-social" && <SocialDashboard />}
         {activeTab === "settings" && <SettingsPanel />}
       </main>
     </div>
