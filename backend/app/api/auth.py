@@ -11,7 +11,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_async_crm_session
+from app.db.crm_db import get_crm_db
 from app.models.crm.user import User
 
 router = APIRouter()
@@ -70,7 +70,7 @@ def create_access_token(data: dict) -> str:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    session: AsyncSession = Depends(get_async_crm_session)
+    session: AsyncSession = Depends(get_crm_db)
 ) -> User:
     """Get current user from JWT token."""
     try:
@@ -99,7 +99,7 @@ async def get_current_user(
 @router.post("/api/auth/signup", response_model=UserResponse, status_code=201)
 async def signup(
     user_data: UserCreate,
-    session: AsyncSession = Depends(get_async_crm_session)
+    session: AsyncSession = Depends(get_crm_db)
 ):
     """Create a new user account."""
     # Check if user already exists
@@ -134,7 +134,7 @@ async def signup(
 @router.post("/api/auth/login", response_model=Token)
 async def login(
     user_data: UserLogin,
-    session: AsyncSession = Depends(get_async_crm_session)
+    session: AsyncSession = Depends(get_crm_db)
 ):
     """Authenticate user and return JWT token."""
     # Find user by email
