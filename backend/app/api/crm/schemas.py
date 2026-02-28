@@ -218,6 +218,16 @@ class DealForecast(BaseSchema):
 
 class ConvertFromLeadRequest(BaseModel):
     leadgen_lead_id: int
+    title: Optional[str] = None
+    assigned_to: Optional[str] = None
+    business_name: Optional[str] = None
+    business_category: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    emails: Optional[List[str]] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
 
 
 # ===== Activity Schemas =====

@@ -288,27 +288,78 @@ async def get_deals_forecast(pipeline_id: Optional[int] = None, db: AsyncSession
     return forecasts
 
 
-@router.post("/deals/{deal_id}/convert-from-lead", response_model=DealResponse)
-async def convert_from_lead(deal_id: int, convert_data: ConvertFromLeadRequest, 
-                           user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
-    """Create deal from leadgen lead (the bridge between leadgen and CRM)."""
-    # This would need to import the leadgen models and connect the systems
-    # For now, just update the deal with the leadgen_lead_id
-    result = await db.execute(select(Deal).where(Deal.id == deal_id))
-    deal = result.scalar_one_or_none()
+@router.post("/deals/convert-from-lead", response_model=DealResponse)
+async def convert_from_lead(convert_data: ConvertFromLeadRequest,
+                           db: AsyncSession = Depends(get_crm_db)):
+    """Create deal + org + person from a leadgen lead. Starts the sales pipeline."""
     
-    if not deal:
-        raise HTTPException(status_code=404, detail="Deal not found")
+    # 1. Create or find organization
+    org = Organization(
+        name=convert_data.business_name or convert_data.title,
+        address={"street": convert_data.address or "", "city": convert_data.city or "", "state": convert_data.state or ""},
+        leadgen_lead_id=convert_data.leadgen_lead_id,
+    )
+    db.add(org)
+    await db.flush()
     
-    deal.leadgen_lead_id = convert_data.leadgen_lead_id
-    deal.updated_at = datetime.now()
+    # 2. Create person if we have contact info
+    person = None
+    if convert_data.emails or convert_data.phone:
+        emails_json = [{"value": e, "label": "work"} for e in (convert_data.emails or [])]
+        phones_json = [{"value": convert_data.phone, "label": "work"}] if convert_data.phone else None
+        person = Person(
+            name=convert_data.assigned_to or "Unknown Contact",
+            emails=emails_json or [],
+            contact_numbers=phones_json,
+            organization_id=org.id,
+        )
+        db.add(person)
+        await db.flush()
+    
+    # 3. Get default pipeline + first stage
+    pipeline_result = await db.execute(
+        select(Pipeline).where(Pipeline.is_default == True).limit(1)
+    )
+    pipeline = pipeline_result.scalar_one_or_none()
+    if not pipeline:
+        pipeline_result = await db.execute(select(Pipeline).limit(1))
+        pipeline = pipeline_result.scalar_one_or_none()
+    
+    stage = None
+    if pipeline:
+        stage_result = await db.execute(
+            select(PipelineStage)
+            .where(PipelineStage.pipeline_id == pipeline.id)
+            .order_by(PipelineStage.sort_order)
+            .limit(1)
+        )
+        stage = stage_result.scalar_one_or_none()
+    
+    # 4. Get lead source "Lead Gen"
+    source_result = await db.execute(
+        select(LeadSource).where(LeadSource.name == "Lead Gen").limit(1)
+    )
+    source = source_result.scalar_one_or_none()
+    
+    # 5. Create the deal
+    deal = Deal(
+        title=convert_data.title or convert_data.business_name,
+        description=f"Converted from Lead Gen — {convert_data.business_category or 'Business'}",
+        person_id=person.id if person else None,
+        organization_id=org.id,
+        pipeline_id=pipeline.id if pipeline else None,
+        stage_id=stage.id if stage else None,
+        source_id=source.id if source else None,
+        leadgen_lead_id=convert_data.leadgen_lead_id,
+    )
+    db.add(deal)
+    await db.flush()
+    
+    # 6. Log audit
+    await log_audit(db, "deal", deal.id, "created", None,
+                   new_values={"title": deal.title, "source": "leadgen", "leadgen_lead_id": convert_data.leadgen_lead_id})
     
     await db.commit()
     await db.refresh(deal)
-    
-    # Log audit
-    await log_audit(db, "deal", deal.id, "converted_from_lead", user_id, 
-                   new_values={"leadgen_lead_id": convert_data.leadgen_lead_id})
-    await db.commit()
     
     return deal

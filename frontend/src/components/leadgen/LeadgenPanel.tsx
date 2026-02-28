@@ -529,11 +529,14 @@ export default function LeadgenPanel() {
                             Contacted by {lead.contacted_by} on {new Date(lead.contacted_at).toLocaleDateString()}
                           </p>
                         )}
-                        {lead.enrichment_status === "pending" && (
+                        {lead.enrichment_status === "pending" && lead.has_website && (
                           <p className="text-xs text-yellow-400 mb-1">
                             <Loader2 size={10} className="inline animate-spin mr-1" />
-                            Enrichment pending...
+                            Enriching...
                           </p>
+                        )}
+                        {lead.enrichment_status === "pending" && !lead.has_website && (
+                          <p className="text-xs text-warroom-muted mb-1">No website</p>
                         )}
                         <p className="text-xs text-warroom-muted">{[lead.city, lead.state].filter(Boolean).join(", ") || lead.address}</p>
                         {lead.business_category && (
