@@ -180,14 +180,17 @@ async def chat_ws(ws: WebSocket):
             while not shutdown.is_set():
                 try:
                     async for message in openclaw:
-                        data = json.loads(message) if isinstance(message, str) else json.loads(message.decode())
+                        raw_str = message if isinstance(message, str) else message.decode()
+                        data = json.loads(raw_str)
                         msg_type = data.get("type", "")
                         method = data.get("method", "")
+                        logger.info(f"GW-RAW: type={msg_type} event={data.get('event','')} method={method} keys={list(data.keys())[:6]}")
                         # Filter: only forward events for the active session
                         if msg_type == "event":
-                            event_session = data.get("payload", {}).get("sessionKey", "")
+                            payload = data.get("payload", {})
+                            event_session = payload.get("sessionKey", "") or payload.get("session", "")
                             if event_session and event_session != session_key:
-                                continue  # Skip events from other sessions
+                                continue
 
                         await ws.send_text(json.dumps(data))
                 except websockets.exceptions.ConnectionClosed as e:
