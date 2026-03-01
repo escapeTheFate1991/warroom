@@ -17,6 +17,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key, Encoding, PublicFormat
 
 logger = logging.getLogger("chat")
+logger.setLevel(logging.DEBUG)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s: %(message)s"))
+    logger.addHandler(handler)
 
 router = APIRouter()
 
@@ -178,12 +183,12 @@ async def chat_ws(ws: WebSocket):
                         data = json.loads(message) if isinstance(message, str) else json.loads(message.decode())
                         msg_type = data.get("type", "")
                         method = data.get("method", "")
-                        # Log chat events in detail to debug duplicate TTS
-                        if msg_type == "event" and data.get("event") == "chat":
-                            state = data.get("payload", {}).get("state", "")
-                            logger.info(f"GW→Client: chat event state={state}")
-                        else:
-                            logger.debug(f"GW→Client: type={msg_type} method={method}")
+                        # Filter: only forward events for the active session
+                        if msg_type == "event":
+                            event_session = data.get("payload", {}).get("sessionKey", "")
+                            if event_session and event_session != session_key:
+                                continue  # Skip events from other sessions
+
                         await ws.send_text(json.dumps(data))
                 except websockets.exceptions.ConnectionClosed as e:
                     logger.warning(f"Gateway WS closed: code={e.code} reason={e.reason}")
