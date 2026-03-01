@@ -115,6 +115,7 @@ export default function ChatPanel() {
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioQueueRef = useRef<(() => Promise<void>)[]>([]);
   const audioPlayingRef = useRef<boolean>(false);
+  const lastSpokenTextRef = useRef<string>("");
 
   // Keep ref in sync with state
   useEffect(() => { streamTextRef.current = streamText; }, [streamText]);
@@ -318,6 +319,9 @@ export default function ChatPanel() {
 
   const speakText = async (text: string) => {
     if (!conversationActiveRef.current) return;
+    // Deduplicate — don't speak the same text twice (gateway can send multiple final events)
+    if (text === lastSpokenTextRef.current) return;
+    lastSpokenTextRef.current = text;
 
     const playTask = async () => {
       // Check BEFORE fetch
@@ -538,6 +542,7 @@ export default function ChatPanel() {
     conversationActiveRef.current = false;
     audioQueueRef.current = [];
     audioPlayingRef.current = false;
+    lastSpokenTextRef.current = "";
     setIsConversationMode(false);
     setHasVoiceActivity(false);
 
