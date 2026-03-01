@@ -186,10 +186,11 @@ async def chat_ws(ws: WebSocket):
                         method = data.get("method", "")
                         logger.info(f"GW-RAW: type={msg_type} event={data.get('event','')} method={method} keys={list(data.keys())[:6]}")
                         # Filter: only forward events for the active session
+                        # Gateway returns full key (e.g. "agent:main:warroom") while we send short key ("warroom")
                         if msg_type == "event":
                             payload = data.get("payload", {})
                             event_session = payload.get("sessionKey", "") or payload.get("session", "")
-                            if event_session and event_session != session_key:
+                            if event_session and session_key not in event_session:
                                 continue
 
                         await ws.send_text(json.dumps(data))
