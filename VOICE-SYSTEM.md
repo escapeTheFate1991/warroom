@@ -167,6 +167,10 @@ The Whisper server (`transcribe_server.py`) listens on TCP port 18796:
 - **Cause:** HFP SCO transport not established. Profile was switched without reconnecting BT.
 - **Fix:** Full disconnect/reconnect cycle (see BT section above), then set mic volume to 100%.
 
+### "Audio plays 3x / multiple responses spoken at once"
+- **Cause:** Gateway broadcasts events for ALL sessions to operator connections. The War Room relay was forwarding everything — so responses from OpenClaw webchat, cron jobs, or other sessions all triggered TTS.
+- **Fix:** Session filter in `chat.py` `forward_from_gateway` — checks `payload.sessionKey` and skips events not matching the active War Room session key.
+
 ### "Keeps talking after hitting End"
 - **Cause:** TTS fetch was in-flight when stop was pressed. Without guards, it plays after completion.
 - **Fix:** Triple guard pattern in `speakText` (check ref before fetch, after fetch, after blob).
