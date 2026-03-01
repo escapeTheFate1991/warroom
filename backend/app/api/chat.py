@@ -178,7 +178,12 @@ async def chat_ws(ws: WebSocket):
                         data = json.loads(message) if isinstance(message, str) else json.loads(message.decode())
                         msg_type = data.get("type", "")
                         method = data.get("method", "")
-                        logger.debug(f"GW→Client: type={msg_type} method={method}")
+                        # Log chat events in detail to debug duplicate TTS
+                        if msg_type == "event" and data.get("event") == "chat":
+                            state = data.get("payload", {}).get("state", "")
+                            logger.info(f"GW→Client: chat event state={state}")
+                        else:
+                            logger.debug(f"GW→Client: type={msg_type} method={method}")
                         await ws.send_text(json.dumps(data))
                 except websockets.exceptions.ConnectionClosed as e:
                     logger.warning(f"Gateway WS closed: code={e.code} reason={e.reason}")
