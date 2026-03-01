@@ -206,6 +206,7 @@ export default function ChatPanel() {
           const p = data.payload || {};
           const state = p.state;
           const message = p.message;
+          console.log(`[WS] event chat state=${state}`, message?.content?.slice?.(0, 60) || "");
 
           if (state === "delta") {
             const text = extractText(message);
@@ -322,6 +323,7 @@ export default function ChatPanel() {
   const speakText = async (text: string) => {
     if (!conversationActiveRef.current) return;
     // Deduplicate — don't speak the same text twice
+    console.log(`[TTS] speakText called, dedup=${text === lastSpokenTextRef.current}, text=${text.slice(0, 60)}`);
     if (text === lastSpokenTextRef.current) return;
     lastSpokenTextRef.current = text;
 
