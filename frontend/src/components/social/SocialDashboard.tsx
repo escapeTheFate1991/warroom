@@ -87,6 +87,26 @@ export default function SocialDashboard() {
     fetchData();
   }, [selectedPlatform]);
 
+  // Handle OAuth callback redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const error = params.get("error");
+    if (connected) {
+      fetchData();
+      // Clean URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete("connected");
+      window.history.replaceState({}, "", url.toString());
+    }
+    if (error) {
+      alert(`OAuth connection failed: ${error}`);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("error");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
+
   const handleConnect = async (formData: ConnectAccountData) => {
     try {
       const response = await fetch("/api/social/accounts", {
@@ -128,7 +148,39 @@ export default function SocialDashboard() {
     }
   };
 
-  const openConnectModal = (platform: string) => {
+    // OAuth platform mapping
+  const OAUTH_PLATFORMS: Record<string, string> = {
+    instagram: "meta",
+    facebook: "meta",
+    threads: "meta",
+    x: "x",
+    tiktok: "tiktok",
+    youtube: "google",
+  };
+
+  const openConnectModal = async (platform: string) => {
+    const oauthKey = OAUTH_PLATFORMS[platform];
+    if (oauthKey) {
+      // Try OAuth flow
+      try {
+        const res = await fetch(`/api/social/oauth/${oauthKey}/authorize`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.auth_url) {
+            window.open(data.auth_url, "_blank", "width=600,height=700");
+            return;
+          }
+        }
+        const errData = await res.json().catch(() => ({}));
+        // If OAuth not configured, fall back to manual
+        if (res.status === 400) {
+          alert(`OAuth not configured for ${platform}. Add credentials in Settings → API Keys, or connect manually below.`);
+        }
+      } catch (err) {
+        console.error("OAuth init failed:", err);
+      }
+    }
+    // Fallback: manual connect
     setConnectPlatform(platform);
     setConnectForm({ ...connectForm, platform });
     setShowConnectModal(true);
