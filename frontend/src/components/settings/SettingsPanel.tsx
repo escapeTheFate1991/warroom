@@ -345,7 +345,7 @@ export default function SettingsPanel() {
 
   const connectSocialPlatform = (platform: string) => {
     // Placeholder for OAuth flow
-    alert(`Connect to ${platform} - OAuth integration coming soon`);
+    alert(`Connect to ${platform} - Configure in Social Media settings`);
   };
 
   // Group settings by category

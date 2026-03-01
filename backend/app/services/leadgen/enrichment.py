@@ -134,13 +134,19 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
 
 
 async def enrich_job(job_id: int, db: AsyncSession) -> None:
-    """Enrich all pending leads in a search job."""
+    """Enrich all pending leads in a search job.
+    
+    Each lead gets its own session to avoid SQLAlchemy concurrent-access issues.
+    Only leads WITH websites get crawled; no-website leads are scored immediately.
+    """
+    from app.db.leadgen_db import leadgen_session
+
     result = await db.execute(
-        select(Lead)
+        select(Lead.id, Lead.has_website)
         .where(Lead.search_job_id == job_id, Lead.enrichment_status == "pending")
         .order_by(Lead.id)
     )
-    leads = result.scalars().all()
+    lead_rows = result.all()
 
     await db.execute(
         update(SearchJob).where(SearchJob.id == job_id).values(status="running")
@@ -148,22 +154,20 @@ async def enrich_job(job_id: int, db: AsyncSession) -> None:
     await db.commit()
 
     enriched = 0
-    semaphore = asyncio.Semaphore(3)  # Limit concurrency
+    semaphore = asyncio.Semaphore(3)  # Limit concurrency for website crawls
 
     async def _enrich_one(lead_id: int):
         nonlocal enriched
         async with semaphore:
-            await enrich_lead(lead_id, db)
+            # Each task gets its own DB session — prevents shared-session hangs
+            async with leadgen_session() as task_db:
+                try:
+                    await enrich_lead(lead_id, task_db)
+                except Exception as exc:
+                    logger.error("Failed to enrich lead %d: %s", lead_id, exc)
             enriched += 1
-            if enriched % 5 == 0:
-                await db.execute(
-                    update(SearchJob)
-                    .where(SearchJob.id == job_id)
-                    .values(enriched_count=enriched)
-                )
-                await db.commit()
 
-    tasks = [_enrich_one(lead.id) for lead in leads]
+    tasks = [_enrich_one(row[0]) for row in lead_rows]
     await asyncio.gather(*tasks, return_exceptions=True)
 
     await db.execute(

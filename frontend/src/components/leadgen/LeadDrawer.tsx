@@ -38,6 +38,7 @@ export interface LeadFull {
   google_reviews_count: number;
   business_category: string | null;
   emails: string[];
+  website_phones?: string[];
   has_website: boolean;
   website_audit_score: number | null;
   website_audit_grade: string | null;
@@ -239,6 +240,19 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [settings, setSettings] = useState<Record<string, string>>({});
+
+  // Load platform settings for script generation
+  useEffect(() => {
+    fetch(`${API}/api/settings?category=general`)
+      .then(r => r.ok ? r.json() : [])
+      .then((items: any[]) => {
+        const map: Record<string, string> = {};
+        items.forEach((s: any) => { map[s.key] = s.value || ""; });
+        setSettings(map);
+      })
+      .catch(() => {});
+  }, []);
 
   // Reset form when lead changes
   useEffect(() => {
@@ -328,13 +342,18 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
     }
   };
 
+  const companyName = settings.company_name || "yieldlabs";
+  const userName = settings.your_name || contactForm.contacted_by || "";
+  const contactName = lead.contact_owner_name || lead.contact_who_answered || "";
+
   const generateColdCallScript = () => {
-    const websiteStatus = lead.has_website ? "I see you have a website" : "I noticed you don't have a website";
+    const greeting = contactName ? `May I speak with ${contactName}?` : "Who am I speaking with?";
+    const websiteStatus = lead.has_website ? "I took a look at your website" : "I noticed you don't currently have a website";
     const auditIssues = lead.audit_lite_flags.length > 0 
       ? ` and found some areas that could boost your online presence: ${lead.audit_lite_flags.slice(0, 2).join(", ")}`
       : "";
     
-    return `Hi, this is [Your Name] from [Your Company]. I'm calling about ${lead.business_name}. 
+    return `Hi, this is ${userName || "[Your Name]"} from ${companyName}. I'm calling about ${lead.business_name}. ${greeting}
 
 ${websiteStatus}${auditIssues}. I specialize in helping ${lead.business_category || "businesses like yours"} increase their online visibility and attract more customers.
 
@@ -344,9 +363,13 @@ When would be a good time for a quick 15-minute conversation this week?`;
   };
 
   const generateColdEmail = () => {
-    return `Subject: Quick question about ${lead.business_name}'s online presence
+    const recipientEmail = lead.emails?.[0] || "";
+    const recipientName = contactName || "there";
+    
+    return `To: ${recipientEmail}
+Subject: Quick question about ${lead.business_name}'s online presence
 
-Hi there,
+Hi ${recipientName},
 
 I was looking at ${lead.business_name} online and ${lead.has_website ? "visited your website" : "noticed you might not have a website yet"}.
 
@@ -357,9 +380,9 @@ Would you be interested in a free 5-minute consultation to see how we could help
 I've helped other ${lead.business_category || "local businesses"} in ${lead.city || "the area"} increase their customer base by 30-50%.
 
 Best regards,
-[Your Name]
-[Your Company]
-${lead.phone || "[Your Phone]"}`;
+${userName || "[Your Name]"}
+${companyName}
+${lead.phone || ""}`;
   };
 
   const socialLinks = [
@@ -583,6 +606,65 @@ ${lead.phone || "[Your Phone]"}`;
 
             {activeTab === "contact" && (
               <div className="space-y-4">
+                {/* Enriched Data from Website Scrape */}
+                {(lead.emails.length > 0 || (lead.website_phones && lead.website_phones.length > 0)) && (
+                  <div className="p-4 bg-warroom-accent/5 border border-warroom-accent/20 rounded-lg space-y-3">
+                    <h4 className="text-xs font-semibold text-warroom-accent flex items-center gap-2">
+                      <CheckCircle size={14} />
+                      Enriched Contact Data
+                    </h4>
+                    {lead.emails.length > 0 && (
+                      <div>
+                        <label className="text-[10px] text-warroom-muted uppercase tracking-wide">Emails Found</label>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {lead.emails.map((email, i) => (
+                            <button
+                              key={i}
+                              onClick={() => copyToClipboard(email)}
+                              className="text-xs px-2 py-1 bg-warroom-bg border border-warroom-border rounded flex items-center gap-1 hover:border-warroom-accent transition text-warroom-text"
+                              title="Click to copy"
+                            >
+                              <Mail size={10} /> {email}
+                              <Copy size={9} className="text-warroom-muted" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {lead.website_phones && lead.website_phones.length > 0 && (
+                      <div>
+                        <label className="text-[10px] text-warroom-muted uppercase tracking-wide">Phones Found</label>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {lead.website_phones.map((phone, i) => (
+                            <button
+                              key={i}
+                              onClick={() => copyToClipboard(phone)}
+                              className="text-xs px-2 py-1 bg-warroom-bg border border-warroom-border rounded flex items-center gap-1 hover:border-warroom-accent transition text-warroom-text"
+                              title="Click to copy"
+                            >
+                              <Phone size={10} /> {phone}
+                              <Copy size={9} className="text-warroom-muted" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {lead.enrichment_status === "pending" && lead.has_website && (
+                  <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex items-center gap-2 text-xs text-yellow-400">
+                    <Loader2 size={14} className="animate-spin" />
+                    Enrichment in progress — scraping website for contact details...
+                  </div>
+                )}
+
+                {!lead.has_website && (
+                  <div className="p-3 bg-warroom-bg border border-warroom-border rounded-lg text-xs text-warroom-muted">
+                    No website found — contact details must be gathered manually.
+                  </div>
+                )}
+
                 <h3 className="text-sm font-semibold text-warroom-text">Contact Information</h3>
                 
                 <div className="grid grid-cols-2 gap-4">

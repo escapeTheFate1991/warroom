@@ -224,10 +224,7 @@ export default function ContactsManager() {
 
         {/* Activity Tab */}
         {activeTab === "activity" && (
-          <div className="flex flex-col items-center justify-center py-20 text-warroom-muted">
-            <Mail size={48} className="mb-4 opacity-20" />
-            <p className="text-sm">Contact activity tracking coming soon</p>
-          </div>
+          <ActivityList contactId={selectedLead?.id} />
         )}
 
         {/* Contact History Tab */}
@@ -395,6 +392,44 @@ export default function ContactsManager() {
         onClose={closeDrawer}
         onUpdate={handleLeadUpdate}
       />
+    </div>
+  );
+}
+
+function ActivityList({ contactId }: { contactId?: number }) {
+  const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
+  const [activities, setActivities] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!contactId) { setLoading(false); return; }
+    fetch(`${API}/api/crm/activities?person_id=${contactId}&limit=50`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setActivities)
+      .catch(() => setActivities([]))
+      .finally(() => setLoading(false));
+  }, [contactId, API]);
+
+  if (loading) return <div className="flex justify-center py-8"><div className="animate-spin rounded-full h-5 w-5 border-2 border-warroom-accent border-t-transparent" /></div>;
+  if (activities.length === 0) return <div className="text-center py-8 text-warroom-muted text-xs">No activities for this contact yet</div>;
+
+  const typeIcons: Record<string, string> = { call: "📞", meeting: "👥", note: "📝", task: "✅", email: "📧", lunch: "☕" };
+
+  return (
+    <div className="divide-y divide-warroom-border">
+      {activities.map((a: any) => (
+        <div key={a.id} className="py-2 flex items-start gap-3">
+          <span className="text-base">{typeIcons[a.type] || "📋"}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-warroom-text">{a.title || a.type}</span>
+              {a.is_done && <span className="text-[9px] px-1 py-0.5 bg-green-500/10 text-green-400 rounded">Done</span>}
+            </div>
+            {a.comment && <p className="text-[10px] text-warroom-muted mt-0.5 line-clamp-2">{a.comment}</p>}
+            {a.schedule_from && <p className="text-[10px] text-warroom-muted mt-0.5">{new Date(a.schedule_from).toLocaleString()}</p>}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

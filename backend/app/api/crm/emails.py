@@ -4,6 +4,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -264,3 +265,54 @@ async def get_email_template(template_id: int, db: AsyncSession = Depends(get_cr
         raise HTTPException(status_code=404, detail="Email template not found")
     
     return template
+
+
+class EmailTemplateCreate(BaseModel):
+    name: str
+    subject: Optional[str] = None
+    content: Optional[str] = None
+
+
+class EmailTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    subject: Optional[str] = None
+    content: Optional[str] = None
+
+
+@router.post("/email-templates")
+async def create_email_template(data: EmailTemplateCreate, db: AsyncSession = Depends(get_crm_db)):
+    """Create a new email template."""
+    template = EmailTemplate(name=data.name, subject=data.subject, content=data.content)
+    db.add(template)
+    await db.commit()
+    await db.refresh(template)
+    return template
+
+
+@router.put("/email-templates/{template_id}")
+async def update_email_template(template_id: int, data: EmailTemplateUpdate, db: AsyncSession = Depends(get_crm_db)):
+    """Update an email template."""
+    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Email template not found")
+    
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(template, field, value)
+    
+    await db.commit()
+    await db.refresh(template)
+    return template
+
+
+@router.delete("/email-templates/{template_id}")
+async def delete_email_template(template_id: int, db: AsyncSession = Depends(get_crm_db)):
+    """Delete an email template."""
+    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
+    template = result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Email template not found")
+    
+    await db.execute(delete(EmailTemplate).where(EmailTemplate.id == template_id))
+    await db.commit()
+    return {"status": "deleted", "template_id": template_id}

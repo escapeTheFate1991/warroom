@@ -16,6 +16,8 @@ import ActivitiesPanel from "@/components/crm/ActivitiesPanel";
 import DealsKanban from "@/components/crm/DealsKanban";
 import ProductsPanel from "@/components/crm/ProductsPanel";
 import SocialDashboard from "@/components/social/SocialDashboard";
+import CampaignsPanel from "@/components/marketing/CampaignsPanel";
+import EmailTemplatesPanel from "@/components/marketing/EmailTemplatesPanel";
 
 const TABS = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -43,11 +45,9 @@ type TabId = "chat" | "kanban" | "team" | "library-search" | "library-educate" |
 
 export default function Page() {
   return (
-    <AuthProvider>
-      <Suspense>
-        <WarRoom />
-      </Suspense>
-    </AuthProvider>
+    <Suspense>
+      <WarRoom />
+    </Suspense>
   );
 }
 
@@ -208,18 +208,8 @@ function WarRoom() {
         {activeTab === "crm-activities" && <ActivitiesPanel />}
         {activeTab === "crm-products" && <ProductsPanel />}
         {activeTab === "leadgen" && <LeadgenPanel />}
-        {activeTab === "marketing-campaigns" && (
-          <div className="flex flex-col items-center justify-center h-full text-warroom-muted">
-            <Mail size={48} className="mb-4 opacity-20" />
-            <p className="text-sm">Marketing campaigns coming soon</p>
-          </div>
-        )}
-        {activeTab === "marketing-templates" && (
-          <div className="flex flex-col items-center justify-center h-full text-warroom-muted">
-            <FileText size={48} className="mb-4 opacity-20" />
-            <p className="text-sm">Email templates coming soon</p>
-          </div>
-        )}
+        {activeTab === "marketing-campaigns" && <CampaignsPanel />}
+        {activeTab === "marketing-templates" && <EmailTemplatesPanel />}
         {activeTab === "marketing-social" && <SocialDashboard />}
         {activeTab === "settings" && <SettingsPanel />}
       </main>

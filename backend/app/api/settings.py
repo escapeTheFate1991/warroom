@@ -68,6 +68,20 @@ DEFAULT_SETTINGS = [
         "is_secret": False,
     },
     {
+        "key": "your_name",
+        "value": "",
+        "category": "general",
+        "description": "Your name (used in call scripts and email templates)",
+        "is_secret": False,
+    },
+    {
+        "key": "your_phone",
+        "value": "",
+        "category": "general",
+        "description": "Your phone number (used in email signatures)",
+        "is_secret": False,
+    },
+    {
         "key": "default_search_location",
         "value": "",
         "category": "leadgen",
@@ -92,7 +106,9 @@ DEFAULT_SETTINGS = [
 
 
 async def init_settings_table(engine):
-    """Create settings table and seed defaults."""
+    """Create settings table and seed defaults, then load secrets into env."""
+    import os
+
     async with engine.begin() as conn:
         await conn.run_sync(SettingsBase.metadata.create_all)
 
@@ -105,6 +121,21 @@ async def init_settings_table(engine):
                 db.add(Setting(**s))
             await db.commit()
             logger.info("Seeded %d default settings", len(DEFAULT_SETTINGS))
+
+        # Load API keys from DB into environment so services can use them
+        api_key_settings = await db.execute(
+            select(Setting).where(Setting.category == "api_keys")
+        )
+        env_map = {
+            "google_maps_api_key": "GOOGLE_MAPS_API_KEY",
+            "serp_api_key": "SERP_API_KEY",
+            "openai_api_key": "OPENAI_API_KEY",
+        }
+        for setting in api_key_settings.scalars().all():
+            env_name = env_map.get(setting.key)
+            if env_name and setting.value:
+                os.environ[env_name] = setting.value
+                logger.info("Loaded %s from DB into environment", env_name)
 
 
 def _mask_value(value: str) -> str:

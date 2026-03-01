@@ -323,16 +323,50 @@ export default function SocialDashboard() {
             {/* Engagement Chart */}
             <div>
               <h3 className="text-sm font-medium text-gray-400 mb-3">Engagement (Last 30 Days)</h3>
-              <div className="bg-[#0d1117] border border-[#30363d] rounded p-4 h-48 flex items-center justify-center">
-                <p className="text-gray-500">Engagement chart coming soon</p>
+              <div className="bg-[#0d1117] border border-[#30363d] rounded p-4 h-48">
+                {accounts.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-gray-500 text-sm">Connect accounts to see engagement data</div>
+                ) : (
+                  <svg viewBox="0 0 400 160" className="w-full h-full" preserveAspectRatio="none">
+                    {accounts.map((acc, i) => {
+                      const barHeight = Math.max(8, Math.min(140, (acc.follower_count / Math.max(...accounts.map(a => a.follower_count || 1))) * 140));
+                      const barWidth = Math.max(20, 360 / accounts.length - 10);
+                      const x = 20 + i * (barWidth + 10);
+                      const platformColors: Record<string, string> = { instagram: "#E4405F", facebook: "#1877F2", youtube: "#FF0000", twitter: "#000", tiktok: "#00F2EA", threads: "#888" };
+                      return (
+                        <g key={acc.id}>
+                          <rect x={x} y={160 - barHeight} width={barWidth} height={barHeight} rx={4} fill={platformColors[acc.platform] || "#3B82F6"} opacity={0.8} />
+                          <text x={x + barWidth / 2} y={155} textAnchor="middle" className="text-[8px] fill-gray-500">{acc.platform.slice(0, 3)}</text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                )}
               </div>
             </div>
 
             {/* Follower Growth */}
             <div>
               <h3 className="text-sm font-medium text-gray-400 mb-3">Follower Growth</h3>
-              <div className="bg-[#0d1117] border border-[#30363d] rounded p-4 h-48 flex items-center justify-center">
-                <p className="text-gray-500">Follower growth chart coming soon</p>
+              <div className="bg-[#0d1117] border border-[#30363d] rounded p-4 h-48">
+                {accounts.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-gray-500 text-sm">Connect accounts to see follower data</div>
+                ) : (
+                  <div className="h-full flex items-end gap-2 px-2">
+                    {accounts.map((acc) => {
+                      const maxFollowers = Math.max(...accounts.map(a => a.follower_count || 1));
+                      const pct = ((acc.follower_count || 0) / maxFollowers) * 100;
+                      const platformColors: Record<string, string> = { instagram: "#E4405F", facebook: "#1877F2", youtube: "#FF0000", twitter: "#1DA1F2", tiktok: "#00F2EA", threads: "#888" };
+                      return (
+                        <div key={acc.id} className="flex-1 flex flex-col items-center gap-1">
+                          <span className="text-[10px] text-gray-400">{(acc.follower_count || 0).toLocaleString()}</span>
+                          <div className="w-full rounded-t-md transition-all" style={{ height: `${Math.max(4, pct)}%`, backgroundColor: platformColors[acc.platform] || "#3B82F6", opacity: 0.8 }} />
+                          <span className="text-[9px] text-gray-500 truncate w-full text-center">{acc.username || acc.platform}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -448,7 +482,7 @@ export default function SocialDashboard() {
               </div>
 
               <p className="text-xs text-gray-400">
-                OAuth integration coming soon. For now, enter your account details manually.
+                Enter your account details to connect. OAuth integration will be added in a future update.
               </p>
             </div>
 
