@@ -39,6 +39,70 @@ async def transcribe_via_tcp(wav_data: bytes) -> dict:
     return await loop.run_in_executor(None, _send)
 
 
+BT_SCAN_SCRIPT = "/home/eddy/.openclaw/workspace/skills/voice-io/scripts/bt-scan.sh"
+
+
+@router.get("/bt/status")
+async def bt_status():
+    """Return current Bluetooth audio device status."""
+    try:
+        proc = subprocess.run(["bash", BT_SCAN_SCRIPT, "info"], capture_output=True, timeout=5)
+        return json.loads(proc.stdout.decode().strip())
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
+
+@router.post("/bt/hfp")
+async def bt_switch_hfp():
+    """Auto-discover BT device and switch to HFP (mic mode). Reconnects if needed."""
+    try:
+        # Get current state
+        info_proc = subprocess.run(["bash", BT_SCAN_SCRIPT, "info"], capture_output=True, timeout=5)
+        info = json.loads(info_proc.stdout.decode().strip())
+
+        if not info.get("connected"):
+            return {"ok": False, "error": "No Bluetooth audio device connected"}
+
+        mac = info.get("mac", "")
+
+        # If already in HFP with mic, just return
+        if info.get("mic_active") and "headset-head-unit" in info.get("profile", ""):
+            return {"ok": True, "device": info.get("name"), "action": "already_hfp"}
+
+        # Disconnect and reconnect to force fresh SCO transport
+        subprocess.run(["bluetoothctl", "disconnect", mac], capture_output=True, timeout=5)
+        await asyncio.sleep(2)
+        subprocess.run(["bluetoothctl", "connect", mac], capture_output=True, timeout=10)
+        await asyncio.sleep(3)
+
+        # Switch to HFP
+        subprocess.run(["bash", BT_SCAN_SCRIPT, "hfp"], capture_output=True, timeout=5)
+        await asyncio.sleep(1)
+
+        # Set mic volume to 100%
+        card = info.get("card", "")
+        source = card.replace("bluez_card", "bluez_input") + ".0"
+        subprocess.run(
+            ["pactl", "set-source-volume", source, "100%"],
+            capture_output=True, timeout=5,
+            env={**os.environ, "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"},
+        )
+
+        return {"ok": True, "device": info.get("name"), "action": "switched_to_hfp"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/bt/a2dp")
+async def bt_switch_a2dp():
+    """Switch back to A2DP (hi-fi audio, no mic)."""
+    try:
+        proc = subprocess.run(["bash", BT_SCAN_SCRIPT, "a2dp"], capture_output=True, timeout=5)
+        return {"ok": True, "output": proc.stdout.decode().strip()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @router.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     """Receive audio from browser, convert to WAV, transcribe via Whisper."""
