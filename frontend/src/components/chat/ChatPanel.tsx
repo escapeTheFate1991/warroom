@@ -95,6 +95,10 @@ export default function ChatPanel() {
   // Magic prompt states
   const [isPolishing, setIsPolishing] = useState(false);
 
+  // Token usage
+  const [tokenUsage, setTokenUsage] = useState<{ totalTokens: number; contextWindow: number; percentage: number; compactionCount: number } | null>(null);
+  const lastCompactionRef = useRef<number>(-1);
+
   // UI states
   const [showScrollButton, setShowScrollButton] = useState(false);
 
@@ -120,6 +124,33 @@ export default function ChatPanel() {
 
   // Keep ref in sync with state
   useEffect(() => { streamTextRef.current = streamText; }, [streamText]);
+
+  // Fetch token usage
+  const fetchTokenUsage = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_URL}/api/chat/session-status`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setTokenUsage(data);
+        // Detect compaction
+        if (lastCompactionRef.current === -1) {
+          lastCompactionRef.current = data.compactionCount;
+        } else if (data.compactionCount > lastCompactionRef.current) {
+          lastCompactionRef.current = data.compactionCount;
+          setMessages(prev => [...prev, {
+            id: crypto.randomUUID(),
+            role: "system",
+            content: "🧹 Context compressed — older messages summarized to free up space.",
+            timestamp: new Date(),
+          }]);
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Poll token usage on mount + after each response
+  useEffect(() => { fetchTokenUsage(); }, [fetchTokenUsage]);
+  useEffect(() => { if (!isLoading && !streamText) fetchTokenUsage(); }, [isLoading, streamText, fetchTokenUsage]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -633,6 +664,13 @@ export default function ChatPanel() {
           )}
 
           {messages.map((msg) => (
+            msg.role === "system" ? (
+              <div key={msg.id} className="flex justify-center">
+                <div className="bg-warroom-surface/50 border border-warroom-border/50 rounded-full px-4 py-1.5 text-xs text-warroom-muted flex items-center gap-2">
+                  <span>{msg.content}</span>
+                </div>
+              </div>
+            ) : (
             <div key={msg.id} className={`flex gap-4 ${msg.role === "user" ? "justify-end" : ""}`}>
               {msg.role !== "user" && (
                 <div className="w-8 h-8 rounded-full bg-warroom-accent/10 flex items-center justify-center flex-shrink-0 mt-1">
@@ -656,6 +694,7 @@ export default function ChatPanel() {
                 </div>
               )}
             </div>
+            )
           ))}
 
           {/* Streaming response */}
@@ -824,9 +863,28 @@ export default function ChatPanel() {
             </div>
           </div>
 
-          <p className="text-center text-[10px] text-warroom-muted/50 mt-2">
-            WAR ROOM — stuffnthings
-          </p>
+          <div className="flex items-center justify-between mt-2 px-1">
+            <p className="text-[10px] text-warroom-muted/50">
+              WAR ROOM — stuffnthings
+            </p>
+            {tokenUsage && (
+              <p className="text-[10px] text-warroom-muted/50 font-mono">
+                {tokenUsage.totalTokens >= 1000
+                  ? `${Math.round(tokenUsage.totalTokens / 1000)}K`
+                  : tokenUsage.totalTokens}
+                {" / "}
+                {Math.round(tokenUsage.contextWindow / 1000)}K
+                {" · "}
+                <span className={
+                  tokenUsage.percentage > 80 ? "text-red-400" :
+                  tokenUsage.percentage > 60 ? "text-yellow-400" :
+                  "text-warroom-muted/50"
+                }>
+                  {tokenUsage.percentage}%
+                </span>
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>

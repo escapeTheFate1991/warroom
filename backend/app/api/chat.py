@@ -287,6 +287,33 @@ async def chat_ws(ws: WebSocket):
                 pass
 
 
+@router.get("/session-status")
+async def session_status():
+    """Return token usage for the active War Room session."""
+    import pathlib
+    # Mounted read-only from host at /openclaw-sessions
+    sessions_path = pathlib.Path("/openclaw-sessions/sessions.json")
+    if not sessions_path.exists():
+        # Fallback for local dev
+        sessions_path = pathlib.Path.home() / ".openclaw" / "agents" / "main" / "sessions" / "sessions.json"
+    session_key = f"agent:main:{DEFAULT_SESSION_KEY}"
+    try:
+        data = json.loads(sessions_path.read_text())
+        entry = data.get(session_key, {})
+        total = entry.get("totalTokens", 0)
+        context_window = entry.get("contextTokens", 200000)
+        compaction_count = entry.get("compactionCount", 0)
+        return {
+            "totalTokens": total,
+            "contextWindow": context_window,
+            "compactionCount": compaction_count,
+            "percentage": round((total / context_window * 100), 1) if context_window else 0,
+        }
+    except Exception as e:
+        logger.warning(f"Failed to read session status: {e}")
+        return {"totalTokens": 0, "contextWindow": 200000, "compactionCount": 0, "percentage": 0}
+
+
 @router.get("/sessions")
 async def list_sessions():
     import httpx
