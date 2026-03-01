@@ -308,39 +308,39 @@ export default function ChatPanel() {
 
   const processAudioQueue = async () => {
     if (audioPlayingRef.current) return;
-    while (audioQueueRef.current.length > 0 && conversationActiveRef.current) {
-      const next = audioQueueRef.current.shift();
-      if (!next) break;
-      audioPlayingRef.current = true;
-      await next();
-      audioPlayingRef.current = false;
+    const next = audioQueueRef.current.shift();
+    if (!next) return;
+    audioPlayingRef.current = true;
+    await next();
+    audioPlayingRef.current = false;
+    // Play next in queue if any
+    if (conversationActiveRef.current && audioQueueRef.current.length > 0) {
+      processAudioQueue();
     }
   };
 
   const speakText = async (text: string) => {
     if (!conversationActiveRef.current) return;
-    // Deduplicate — don't speak the same text twice (gateway can send multiple final events)
+    // Deduplicate — don't speak the same text twice
     if (text === lastSpokenTextRef.current) return;
     lastSpokenTextRef.current = text;
 
     const playTask = async () => {
-      // Check BEFORE fetch
       if (!conversationActiveRef.current) return;
       try {
         const resp = await fetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(text.slice(0, 500))}`, {
           method: "POST",
         });
-        // Check AFTER fetch — user may have hit End while waiting
-        if (!resp.ok || !conversationActiveRef.current) return;
-        const blob = await resp.blob();
-        if (!conversationActiveRef.current) return;
-        const audio = new Audio(URL.createObjectURL(blob));
-        currentAudioRef.current = audio;
-        await new Promise<void>((resolve) => {
-          audio.onended = () => { currentAudioRef.current = null; resolve(); };
-          audio.onerror = () => { currentAudioRef.current = null; resolve(); };
-          audio.play().catch(() => resolve());
-        });
+        if (resp.ok && conversationActiveRef.current) {
+          const blob = await resp.blob();
+          const audio = new Audio(URL.createObjectURL(blob));
+          currentAudioRef.current = audio;
+          await new Promise<void>((resolve) => {
+            audio.onended = () => { currentAudioRef.current = null; resolve(); };
+            audio.onerror = () => { currentAudioRef.current = null; resolve(); };
+            audio.play().catch(() => resolve());
+          });
+        }
       } catch (err) {
         console.error("TTS failed:", err);
       }
