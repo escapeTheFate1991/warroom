@@ -283,3 +283,51 @@ async def list_sessions():
             return resp.json()
     except Exception:
         return {"sessions": [], "note": "openclaw not reachable"}
+
+
+
+@router.post("/polish")
+async def polish_prompt(body: dict):
+    """Use OpenAI to clean up and organize a raw text prompt."""
+    import httpx
+
+    text = body.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        return {"polished": text}
+
+    system_prompt = (
+        "You are a prompt engineer. Take the user's rough text and rewrite it as a clear, "
+        "well-organized prompt. Keep the original intent. Fix grammar, structure it with clear "
+        "sections if needed, and make it specific. Return ONLY the polished prompt — no explanation, "
+        "no preamble, no quotes around it."
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": text},
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 1000,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                polished = data["choices"][0]["message"]["content"].strip()
+                return {"polished": polished}
+            else:
+                logger.warning(f"OpenAI polish failed: {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"Polish failed: {e}")
+
+    return {"polished": text}

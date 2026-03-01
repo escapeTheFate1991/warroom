@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  Send, Bot, User, Loader2, Mic, MicOff, Phone, PhoneOff,
+  Send, Bot, User, Loader2, Mic, MicOff,
   Plus, Sparkles, X, StopCircle, ArrowDown,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -26,6 +26,34 @@ interface GatewayRes {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
+
+/* ── Waveform Icon ─────────────────────────────────────── */
+
+function WaveformIcon({ size = 18, animated = false }: { size?: number; animated?: boolean }) {
+  const bars = [
+    { x: 3, h: 8 },
+    { x: 7, h: 14 },
+    { x: 11, h: 10 },
+    { x: 15, h: 16 },
+    { x: 19, h: 6 },
+  ];
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      {bars.map((bar, i) => {
+        const y1 = (24 - bar.h) / 2;
+        const y2 = y1 + bar.h;
+        return animated ? (
+          <line key={i} x1={bar.x} x2={bar.x} y1={12} y2={12}>
+            <animate attributeName="y1" values={`12;${y1};12`} dur={`${0.4 + i * 0.1}s`} repeatCount="indefinite" />
+            <animate attributeName="y2" values={`12;${y2};12`} dur={`${0.4 + i * 0.1}s`} repeatCount="indefinite" />
+          </line>
+        ) : (
+          <line key={i} x1={bar.x} x2={bar.x} y1={y1} y2={y2} />
+        );
+      })}
+    </svg>
+  );
+}
 
 /* ── Helpers ───────────────────────────────────────────── */
 
@@ -60,8 +88,12 @@ export default function ChatPanel() {
 
   // Voice states
   const [isRecording, setIsRecording] = useState(false);
-  const [isCallMode, setIsCallMode] = useState(false);
+  const [isConversationMode, setIsConversationMode] = useState(false);
+  const [hasVoiceActivity, setHasVoiceActivity] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
+
+  // Magic prompt states
+  const [isPolishing, setIsPolishing] = useState(false);
 
   // UI states
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -73,6 +105,12 @@ export default function ChatPanel() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const streamTextRef = useRef<string | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const vadFrameRef = useRef<number>(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const conversationStreamRef = useRef<MediaStream | null>(null);
+  const conversationRecorderRef = useRef<MediaRecorder | null>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keep ref in sync with state
   useEffect(() => { streamTextRef.current = streamText; }, [streamText]);
@@ -95,6 +133,17 @@ export default function ChatPanel() {
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Auto-resize textarea
+  const resizeTextarea = useCallback(() => {
+    const t = textareaRef.current;
+    if (!t) return;
+    t.style.height = "auto";
+    t.style.height = Math.min(t.scrollHeight, 200) + "px";
+    t.style.overflow = t.scrollHeight > 200 ? "auto" : "hidden";
+  }, []);
+
+  useEffect(() => { resizeTextarea(); }, [input, resizeTextarea]);
+
   /* ── WebSocket ─────────────────────────────────────── */
 
   useEffect(() => {
@@ -106,18 +155,14 @@ export default function ChatPanel() {
       const wsUrl = `${API_URL.replace("http", "ws")}/api/chat/ws`;
       const ws = new WebSocket(wsUrl);
 
-      ws.onopen = () => {
-        // Wait for relay "connected" message
-      };
+      ws.onopen = () => {};
 
       ws.onmessage = (event) => {
         let data: any;
         try { data = JSON.parse(event.data); } catch { return; }
 
-        // Relay status messages
         if (data.type === "connected") { setWsConnected(true); return; }
-        if (data.type === "status") return; // reconnecting notices
-        if (data.type === "pong") return;
+        if (data.type === "status" || data.type === "pong") return;
         if (data.type === "error") { setWsConnected(false); return; }
         if (data.type === "session_changed") {
           setMessages([]);
@@ -126,10 +171,8 @@ export default function ChatPanel() {
           return;
         }
 
-        // Gateway response frames
         if (data.type === "res") {
           const res = data as GatewayRes;
-
           if (res.ok && res.payload?.messages) {
             const history: Message[] = res.payload.messages
               .filter((m: any) => m.role === "user" || m.role === "assistant")
@@ -141,11 +184,7 @@ export default function ChatPanel() {
               }));
             setMessages(history);
           }
-
-          if (res.ok && res.payload?.runId) {
-            setIsLoading(true);
-          }
-
+          if (res.ok && res.payload?.runId) setIsLoading(true);
           if (!res.ok) {
             setIsLoading(false);
             setMessages(prev => [...prev, {
@@ -158,7 +197,6 @@ export default function ChatPanel() {
           return;
         }
 
-        // Chat events
         if (data.type === "event" && data.event === "chat") {
           const p = data.payload || {};
           const state = p.state;
@@ -184,6 +222,11 @@ export default function ChatPanel() {
             setStreamText(null);
             streamTextRef.current = null;
             setIsLoading(false);
+
+            // If in conversation mode, speak the response
+            if (text && isConversationMode) {
+              speakText(text);
+            }
           } else if (state === "aborted") {
             const partial = streamTextRef.current;
             if (partial) {
@@ -200,16 +243,11 @@ export default function ChatPanel() {
           }
           return;
         }
-
-        // Skip other events
-        if (data.type === "event") return;
       };
 
       ws.onclose = () => {
         setWsConnected(false);
-        if (!destroyed) {
-          reconnectTimer = setTimeout(connectWs, 3000);
-        }
+        if (!destroyed) reconnectTimer = setTimeout(connectWs, 3000);
       };
 
       ws.onerror = () => ws.close();
@@ -217,18 +255,17 @@ export default function ChatPanel() {
     };
 
     connectWs();
-
     return () => {
       destroyed = true;
       clearTimeout(reconnectTimer);
       wsRef.current?.close();
     };
-  }, []); // No dependencies — stable connection
+  }, []);
 
   /* ── Send ───────────────────────────────────────────── */
 
-  const sendMessage = () => {
-    const text = input.trim();
+  const sendMessage = (overrideText?: string) => {
+    const text = (overrideText || input).trim();
     if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
     setMessages(prev => [...prev, {
@@ -237,10 +274,13 @@ export default function ChatPanel() {
       content: text,
       timestamp: new Date(),
     }]);
-    setInput("");
+    if (!overrideText) setInput("");
     setIsLoading(true);
 
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.overflow = "hidden";
+    }
 
     wsRef.current.send(JSON.stringify({ action: "send", message: text }));
   };
@@ -259,7 +299,24 @@ export default function ChatPanel() {
     }
   };
 
-  /* ── Voice ──────────────────────────────────────────── */
+  /* ── TTS (for conversation mode) ────────────────────── */
+
+  const speakText = async (text: string) => {
+    try {
+      const resp = await fetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(text.slice(0, 500))}`, {
+        method: "POST",
+      });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const audio = new Audio(URL.createObjectURL(blob));
+        audio.play();
+      }
+    } catch (err) {
+      console.error("TTS failed:", err);
+    }
+  };
+
+  /* ── Voice Recording (STT — mic button) ─────────────── */
 
   const toggleRecording = async () => {
     if (isRecording) stopRecording();
@@ -271,12 +328,37 @@ export default function ChatPanel() {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
+
+      // Set up audio analyser for VAD visualization
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      audioContextRef.current = audioCtx;
+
+      // Monitor for voice activity
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const checkVAD = () => {
+        if (!analyserRef.current) return;
+        analyser.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        setHasVoiceActivity(avg > 15); // Threshold for voice detection
+        vadFrameRef.current = requestAnimationFrame(checkVAD);
+      };
+      checkVAD();
+
       const recorder = new MediaRecorder(stream);
       const chunks: Blob[] = [];
 
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
+        cancelAnimationFrame(vadFrameRef.current);
+        analyserRef.current = null;
+        audioCtx.close();
+        setHasVoiceActivity(false);
         const blob = new Blob(chunks, { type: "audio/webm" });
         await transcribeAudio(blob);
       };
@@ -302,8 +384,13 @@ export default function ChatPanel() {
       mediaRecorderRef.current.ondataavailable = null;
       mediaRecorderRef.current.onstop = null;
       mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
     }
+    cancelAnimationFrame(vadFrameRef.current);
+    analyserRef.current = null;
+    audioContextRef.current?.close();
     setIsRecording(false);
+    setHasVoiceActivity(false);
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
   };
 
@@ -314,11 +401,143 @@ export default function ChatPanel() {
       const resp = await fetch(`${API_URL}/api/voice/transcribe`, { method: "POST", body: formData });
       if (resp.ok) {
         const data = await resp.json();
-        setInput(prev => prev + (prev ? " " : "") + data.text);
-        textareaRef.current?.focus();
+        if (data.text) {
+          setInput(prev => prev + (prev ? " " : "") + data.text);
+          textareaRef.current?.focus();
+        }
       }
     } catch {
       console.error("Transcription failed");
+    }
+  };
+
+  /* ── Conversation Mode (waveform button) ────────────── */
+
+  const toggleConversationMode = async () => {
+    if (isConversationMode) {
+      stopConversationMode();
+    } else {
+      startConversationMode();
+    }
+  };
+
+  const startConversationMode = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      audioContextRef.current = audioCtx;
+      conversationStreamRef.current = stream;
+
+      setIsConversationMode(true);
+
+      // Continuous VAD loop — detect speech, record, transcribe, send, speak response
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let isListening = true;
+      let recording = false;
+      let recorder: MediaRecorder | null = null;
+      let chunks: Blob[] = [];
+      let silenceStart = 0;
+      const SILENCE_THRESHOLD = 15;
+      const SILENCE_DURATION = 1500; // 1.5s of silence = end of utterance
+
+      const vadLoop = () => {
+        if (!isListening || !analyserRef.current) return;
+        analyser.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        const isSpeaking = avg > SILENCE_THRESHOLD;
+
+        setHasVoiceActivity(isSpeaking);
+
+        if (isSpeaking && !recording) {
+          // Start recording
+          recording = true;
+          chunks = [];
+          recorder = new MediaRecorder(stream);
+          recorder.ondataavailable = (e) => chunks.push(e.data);
+          recorder.onstop = async () => {
+            const blob = new Blob(chunks, { type: "audio/webm" });
+            // Transcribe and send as message
+            const formData = new FormData();
+            formData.append("file", blob, "conversation.webm");
+            try {
+              const resp = await fetch(`${API_URL}/api/voice/transcribe`, { method: "POST", body: formData });
+              if (resp.ok) {
+                const data = await resp.json();
+                if (data.text && data.text.trim().length > 1) {
+                  sendMessage(data.text);
+                }
+              }
+            } catch (err) {
+              console.error("Conversation transcription failed:", err);
+            }
+          };
+          recorder.start();
+          silenceStart = 0;
+        } else if (!isSpeaking && recording) {
+          if (!silenceStart) silenceStart = Date.now();
+          if (Date.now() - silenceStart > SILENCE_DURATION) {
+            // End of utterance
+            recording = false;
+            recorder?.stop();
+            recorder = null;
+            silenceStart = 0;
+          }
+        } else if (isSpeaking && recording) {
+          silenceStart = 0; // Reset silence timer
+        }
+
+        vadFrameRef.current = requestAnimationFrame(vadLoop);
+      };
+
+      vadLoop();
+    } catch (err) {
+      console.error("Microphone access denied:", err);
+    }
+  };
+
+  const stopConversationMode = () => {
+    setIsConversationMode(false);
+    setHasVoiceActivity(false);
+    cancelAnimationFrame(vadFrameRef.current);
+    conversationStreamRef.current?.getTracks().forEach(t => t.stop());
+    conversationStreamRef.current = null;
+    conversationRecorderRef.current = null;
+    analyserRef.current = null;
+    audioContextRef.current?.close();
+    audioContextRef.current = null;
+  };
+
+  /* ── Magic Prompt Polish ────────────────────────────── */
+
+  const polishPrompt = async () => {
+    const text = input.trim();
+    if (!text || isPolishing) return;
+
+    setIsPolishing(true);
+    try {
+      const resp = await fetch(`${API_URL}/api/chat/polish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.polished) {
+          setInput(data.polished);
+        }
+      }
+    } catch (err) {
+      console.error("Prompt polish failed:", err);
+    } finally {
+      setIsPolishing(false);
     }
   };
 
@@ -407,15 +626,22 @@ export default function ChatPanel() {
         </div>
       )}
 
-      {/* Voice recording overlay */}
+      {/* Voice recording overlay (STT) */}
       {isRecording && (
         <div className="mx-auto max-w-3xl w-full px-4 mb-2">
           <div className="bg-warroom-surface border border-warroom-accent/30 rounded-2xl p-4 flex items-center gap-4">
-            <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+            <div className={`w-3 h-3 rounded-full ${hasVoiceActivity ? "bg-green-500" : "bg-red-500"} ${hasVoiceActivity ? "animate-pulse" : ""}`} />
             <span className="text-sm font-mono text-warroom-text">{formatDuration(recordingDuration)}</span>
             <div className="flex-1 flex items-center gap-0.5 h-8">
               {Array.from({ length: 40 }).map((_, i) => (
-                <div key={i} className="flex-1 bg-warroom-accent/40 rounded-full" style={{ height: `${Math.random() * 100}%`, minHeight: "4px" }} />
+                <div
+                  key={i}
+                  className="flex-1 bg-warroom-accent/40 rounded-full transition-all duration-75"
+                  style={{
+                    height: hasVoiceActivity ? `${Math.random() * 100}%` : "4px",
+                    minHeight: "4px",
+                  }}
+                />
               ))}
             </div>
             <button onClick={cancelRecording} className="text-warroom-muted hover:text-warroom-danger transition p-1">
@@ -423,6 +649,34 @@ export default function ChatPanel() {
             </button>
             <button onClick={stopRecording} className="bg-warroom-accent rounded-full p-2 hover:bg-warroom-accent/80 transition">
               <StopCircle size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Conversation mode banner */}
+      {isConversationMode && !isRecording && (
+        <div className="mx-auto max-w-3xl w-full px-4 mb-2">
+          <div className="bg-warroom-surface border border-green-500/30 rounded-2xl p-4 flex items-center gap-4">
+            <div className={`w-3 h-3 rounded-full ${hasVoiceActivity ? "bg-green-500 animate-pulse" : "bg-green-500/40"}`} />
+            <span className="text-sm text-warroom-text">
+              {hasVoiceActivity ? "Listening..." : "Conversation mode — speak to chat"}
+            </span>
+            <div className="flex-1 flex items-center gap-0.5 h-6">
+              {Array.from({ length: 30 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex-1 bg-green-500/40 rounded-full transition-all duration-75"
+                  style={{
+                    height: hasVoiceActivity ? `${Math.random() * 100}%` : "4px",
+                    minHeight: "4px",
+                  }}
+                />
+              ))}
+            </div>
+            <button onClick={stopConversationMode} className="bg-red-500/20 text-red-400 rounded-full px-3 py-1.5 text-sm hover:bg-red-500/30 transition flex items-center gap-1.5">
+              <StopCircle size={14} />
+              End
             </button>
           </div>
         </div>
@@ -440,35 +694,40 @@ export default function ChatPanel() {
                 onKeyDown={handleKeyDown}
                 placeholder="Message Friday..."
                 rows={1}
-                className="w-full bg-transparent text-sm text-warroom-text placeholder-warroom-muted resize-none outline-none min-h-[24px] max-h-[200px] leading-6"
-                style={{ height: "auto", overflow: "hidden" }}
-                onInput={(e) => {
-                  const t = e.target as HTMLTextAreaElement;
-                  t.style.height = "auto";
-                  t.style.height = Math.min(t.scrollHeight, 200) + "px";
-                }}
+                className="w-full bg-transparent text-sm text-warroom-text placeholder-warroom-muted resize-none outline-none min-h-[24px] max-h-[200px] leading-6 scrollbar-thin scrollbar-thumb-warroom-border scrollbar-track-transparent"
+                style={{ overflow: input.split("\n").length > 8 || input.length > 400 ? "auto" : "hidden" }}
+                onInput={resizeTextarea}
               />
             </div>
 
             <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
               <div className="flex items-center gap-1">
-                <button className="p-1.5 rounded-full hover:bg-warroom-border/50 text-warroom-muted hover:text-warroom-text transition">
+                <button className="p-1.5 rounded-full hover:bg-warroom-border/50 text-warroom-muted hover:text-warroom-text transition" title="Attach file">
                   <Plus size={18} />
                 </button>
-                <button className="p-1.5 rounded-full hover:bg-warroom-border/50 text-warroom-muted hover:text-warroom-text transition">
+                <button
+                  onClick={polishPrompt}
+                  disabled={!input.trim() || isPolishing}
+                  className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isPolishing ? "text-warroom-accent animate-spin" : "text-warroom-muted hover:text-warroom-text"} disabled:opacity-30`}
+                  title="Polish prompt with AI"
+                >
                   <Sparkles size={18} />
                 </button>
                 <button
                   onClick={toggleRecording}
-                  className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isRecording ? "text-red-400 bg-red-500/10" : "text-warroom-muted hover:text-warroom-text"}`}
+                  disabled={isConversationMode}
+                  className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isRecording ? "text-red-400 bg-red-500/10" : "text-warroom-muted hover:text-warroom-text"} disabled:opacity-30`}
+                  title="Speech to text"
                 >
                   {isRecording ? <MicOff size={18} /> : <Mic size={18} />}
                 </button>
                 <button
-                  onClick={() => setIsCallMode(!isCallMode)}
-                  className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isCallMode ? "text-warroom-accent bg-warroom-accent/10" : "text-warroom-muted hover:text-warroom-text"}`}
+                  onClick={toggleConversationMode}
+                  disabled={isRecording}
+                  className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isConversationMode ? "text-green-400 bg-green-500/10" : "text-warroom-muted hover:text-warroom-text"} disabled:opacity-30`}
+                  title="Voice conversation"
                 >
-                  {isCallMode ? <PhoneOff size={18} /> : <Phone size={18} />}
+                  <WaveformIcon size={18} animated={isConversationMode && hasVoiceActivity} />
                 </button>
                 <div className="w-px h-4 bg-warroom-border mx-1" />
                 <span className={`w-2 h-2 rounded-full ${wsConnected ? "bg-warroom-success" : "bg-warroom-danger animate-pulse"}`} />
@@ -482,7 +741,7 @@ export default function ChatPanel() {
                   </button>
                 ) : (
                   <button
-                    onClick={sendMessage}
+                    onClick={() => sendMessage()}
                     disabled={!input.trim() || !wsConnected}
                     className="p-2 rounded-full bg-warroom-accent text-white hover:bg-warroom-accent/80 disabled:opacity-20 disabled:hover:bg-warroom-accent transition"
                   >
@@ -494,7 +753,7 @@ export default function ChatPanel() {
           </div>
 
           <p className="text-center text-[10px] text-warroom-muted/50 mt-2">
-            WAR ROOM — yieldlabs
+            WAR ROOM — stuffnthings
           </p>
         </div>
       </div>

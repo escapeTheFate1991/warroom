@@ -62,7 +62,7 @@ DEFAULT_SETTINGS = [
     },
     {
         "key": "company_name",
-        "value": "yieldlabs",
+        "value": "stuffnthings",
         "category": "general",
         "description": "Your company/brand name",
         "is_secret": False,

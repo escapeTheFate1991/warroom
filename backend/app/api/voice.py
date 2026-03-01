@@ -3,6 +3,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 import tempfile
 import socket
+import struct
 import json
 import subprocess
 import os
@@ -10,18 +11,20 @@ import asyncio
 
 router = APIRouter()
 
-WHISPER_SOCKET = "/tmp/whisper-transcribe.sock"
+WHISPER_TCP_HOST = os.getenv("WHISPER_HOST", "127.0.0.1")
+WHISPER_TCP_PORT = int(os.getenv("WHISPER_PORT", "18796"))
 
 
-async def transcribe_via_whisper(wav_path: str) -> dict:
-    """Send audio file path to the Whisper Unix socket server."""
+async def transcribe_via_tcp(wav_data: bytes) -> dict:
+    """Send raw WAV bytes to Whisper TCP server, get JSON result back."""
     loop = asyncio.get_event_loop()
 
     def _send():
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(30)
-        sock.connect(WHISPER_SOCKET)
-        sock.sendall((wav_path + "\n").encode())
+        sock.connect((WHISPER_TCP_HOST, WHISPER_TCP_PORT))
+        # Protocol: 4-byte big-endian length prefix + wav data
+        sock.sendall(struct.pack(">I", len(wav_data)) + wav_data)
         data = b""
         while True:
             chunk = sock.recv(4096)
@@ -39,9 +42,6 @@ async def transcribe_via_whisper(wav_path: str) -> dict:
 @router.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     """Receive audio from browser, convert to WAV, transcribe via Whisper."""
-    if not os.path.exists(WHISPER_SOCKET):
-        raise HTTPException(status_code=503, detail="Whisper server not running")
-
     # Save uploaded audio to temp file
     suffix = ".webm" if "webm" in (file.content_type or "") else ".wav"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -49,7 +49,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         tmp.write(content)
         tmp_path = tmp.name
 
-    # Convert to WAV if needed (Whisper needs WAV/MP3)
+    # Convert to WAV if needed
     wav_path = tmp_path
     if suffix != ".wav":
         wav_path = tmp_path.replace(suffix, ".wav")
@@ -62,7 +62,13 @@ async def transcribe_audio(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail=f"ffmpeg failed: {proc.stderr.decode()[:200]}")
 
     try:
-        result = await transcribe_via_whisper(wav_path)
+        with open(wav_path, "rb") as f:
+            wav_data = f.read()
+        result = await transcribe_via_tcp(wav_data)
+    except ConnectionRefusedError:
+        raise HTTPException(status_code=503, detail="Whisper server not running (TCP port 18796)")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)[:200]}")
     finally:
         if os.path.exists(wav_path):
             os.unlink(wav_path)
@@ -79,7 +85,6 @@ async def text_to_speech(text: str = "", voice: str = "en-US-AvaNeural"):
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
 
-    # Generate audio with edge-tts
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
         tmp_path = tmp.name
 
@@ -108,7 +113,6 @@ async def tts_play_on_speaker(text: str = "", voice: str = "en-US-AvaNeural"):
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
         tmp_path = tmp.name
 
-    # Generate
     proc = subprocess.run(
         ["edge-tts", "--voice", voice, "--text", text, "--write-media", tmp_path],
         capture_output=True, timeout=30,
@@ -116,7 +120,6 @@ async def tts_play_on_speaker(text: str = "", voice: str = "en-US-AvaNeural"):
     if proc.returncode != 0:
         raise HTTPException(status_code=500, detail="TTS failed")
 
-    # Play on Bose speaker
     play_script = "/home/eddy/.openclaw/workspace/skills/voice-io/scripts/play-audio.sh"
     if os.path.exists(play_script):
         subprocess.Popen(["bash", play_script, tmp_path])

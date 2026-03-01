@@ -39,5 +39,4 @@ services:
     network_mode: host
     volumes:
       - /home/eddy/.openclaw/workspace/skills/mental-library/backend/data:/data/mental-library:ro
-      - /tmp/whisper-transcribe.sock:/tmp/whisper-transcribe.sock
       - /home/eddy/.openclaw/workspace/skills/voice-io/scripts:/voice-io-scripts:ro
