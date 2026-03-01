@@ -116,6 +116,7 @@ export default function ChatPanel() {
   const audioQueueRef = useRef<(() => Promise<void>)[]>([]);
   const audioPlayingRef = useRef<boolean>(false);
   const lastSpokenTextRef = useRef<string>("");
+  const lastSpokenTimeRef = useRef<number>(0);
 
   // Keep ref in sync with state
   useEffect(() => { streamTextRef.current = streamText; }, [streamText]);
@@ -322,10 +323,12 @@ export default function ChatPanel() {
 
   const speakText = async (text: string) => {
     if (!conversationActiveRef.current) return;
-    // Deduplicate — don't speak the same text twice
-    console.log(`[TTS] speakText called, dedup=${text === lastSpokenTextRef.current}, text=${text.slice(0, 60)}`);
-    if (text === lastSpokenTextRef.current) return;
-    lastSpokenTextRef.current = text;
+    // Deduplicate — don't speak the same text twice within 10s window
+    const now = Date.now();
+    const textHash = text.slice(0, 100);
+    if (textHash === lastSpokenTextRef.current && now - lastSpokenTimeRef.current < 10000) return;
+    lastSpokenTextRef.current = textHash;
+    lastSpokenTimeRef.current = now;
 
     const playTask = async () => {
       if (!conversationActiveRef.current) return;
