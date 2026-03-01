@@ -207,7 +207,7 @@ export default function ChatPanel() {
           const p = data.payload || {};
           const state = p.state;
           const message = p.message;
-          console.log(`[WS] event chat state=${state}`, message?.content?.slice?.(0, 60) || "");
+
 
           if (state === "delta") {
             const text = extractText(message);
