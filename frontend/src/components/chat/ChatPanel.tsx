@@ -111,6 +111,8 @@ export default function ChatPanel() {
   const conversationStreamRef = useRef<MediaStream | null>(null);
   const conversationRecorderRef = useRef<MediaRecorder | null>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const conversationActiveRef = useRef<boolean>(false);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Keep ref in sync with state
   useEffect(() => { streamTextRef.current = streamText; }, [streamText]);
@@ -224,7 +226,7 @@ export default function ChatPanel() {
             setIsLoading(false);
 
             // If in conversation mode, speak the response
-            if (text && isConversationMode) {
+            if (text && conversationActiveRef.current) {
               speakText(text);
             }
           } else if (state === "aborted") {
@@ -302,13 +304,16 @@ export default function ChatPanel() {
   /* ── TTS (for conversation mode) ────────────────────── */
 
   const speakText = async (text: string) => {
+    if (!conversationActiveRef.current) return;
     try {
       const resp = await fetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(text.slice(0, 500))}`, {
         method: "POST",
       });
-      if (resp.ok) {
+      if (resp.ok && conversationActiveRef.current) {
         const blob = await resp.blob();
         const audio = new Audio(URL.createObjectURL(blob));
+        currentAudioRef.current = audio;
+        audio.onended = () => { currentAudioRef.current = null; };
         audio.play();
       }
     } catch (err) {
@@ -437,10 +442,10 @@ export default function ChatPanel() {
       conversationStreamRef.current = stream;
 
       setIsConversationMode(true);
+      conversationActiveRef.current = true;
 
       // Continuous VAD loop — detect speech, record, transcribe, send, speak response
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      let isListening = true;
       let recording = false;
       let recorder: MediaRecorder | null = null;
       let chunks: Blob[] = [];
@@ -449,7 +454,7 @@ export default function ChatPanel() {
       const SILENCE_DURATION = 1500; // 1.5s of silence = end of utterance
 
       const vadLoop = () => {
-        if (!isListening || !analyserRef.current) return;
+        if (!conversationActiveRef.current || !analyserRef.current) return;
         analyser.getByteFrequencyData(dataArray);
         const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
         const isSpeaking = avg > SILENCE_THRESHOLD;
@@ -504,12 +509,27 @@ export default function ChatPanel() {
   };
 
   const stopConversationMode = () => {
+    // Hard kill — stop everything immediately
+    conversationActiveRef.current = false;
     setIsConversationMode(false);
     setHasVoiceActivity(false);
+
+    // Kill VAD loop
     cancelAnimationFrame(vadFrameRef.current);
+
+    // Kill any playing TTS audio
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.src = "";
+      currentAudioRef.current = null;
+    }
+
+    // Kill mic stream
     conversationStreamRef.current?.getTracks().forEach(t => t.stop());
     conversationStreamRef.current = null;
     conversationRecorderRef.current = null;
+
+    // Kill audio context
     analyserRef.current = null;
     audioContextRef.current?.close();
     audioContextRef.current = null;
