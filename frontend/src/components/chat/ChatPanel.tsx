@@ -506,6 +506,21 @@ export default function ChatPanel() {
               if (resp.ok) {
                 const data = await resp.json();
                 if (data.text && data.text.trim().length > 1) {
+                  // Voice command: "Stop Friday" — kill all audio, stay listening
+                  if (data.text.toLowerCase().includes("stop friday")) {
+                    // Kill any playing TTS
+                    if (currentAudioRef.current) {
+                      currentAudioRef.current.pause();
+                      currentAudioRef.current.src = "";
+                      currentAudioRef.current = null;
+                    }
+                    // Flush the queue
+                    audioQueueRef.current = [];
+                    audioPlayingRef.current = false;
+                    lastSpokenTextRef.current = "";
+                    // Don't send "stop friday" as a message — just resume listening
+                    return;
+                  }
                   sendMessage(data.text);
                 }
               }
