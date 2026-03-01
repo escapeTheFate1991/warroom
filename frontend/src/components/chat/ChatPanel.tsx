@@ -307,14 +307,12 @@ export default function ChatPanel() {
 
   const processAudioQueue = async () => {
     if (audioPlayingRef.current) return;
-    const next = audioQueueRef.current.shift();
-    if (!next) return;
-    audioPlayingRef.current = true;
-    await next();
-    audioPlayingRef.current = false;
-    // Play next in queue if any
-    if (conversationActiveRef.current && audioQueueRef.current.length > 0) {
-      processAudioQueue();
+    while (audioQueueRef.current.length > 0 && conversationActiveRef.current) {
+      const next = audioQueueRef.current.shift();
+      if (!next) break;
+      audioPlayingRef.current = true;
+      await next();
+      audioPlayingRef.current = false;
     }
   };
 
@@ -322,21 +320,23 @@ export default function ChatPanel() {
     if (!conversationActiveRef.current) return;
 
     const playTask = async () => {
+      // Check BEFORE fetch
       if (!conversationActiveRef.current) return;
       try {
         const resp = await fetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(text.slice(0, 500))}`, {
           method: "POST",
         });
-        if (resp.ok && conversationActiveRef.current) {
-          const blob = await resp.blob();
-          const audio = new Audio(URL.createObjectURL(blob));
-          currentAudioRef.current = audio;
-          await new Promise<void>((resolve) => {
-            audio.onended = () => { currentAudioRef.current = null; resolve(); };
-            audio.onerror = () => { currentAudioRef.current = null; resolve(); };
-            audio.play().catch(() => resolve());
-          });
-        }
+        // Check AFTER fetch — user may have hit End while waiting
+        if (!resp.ok || !conversationActiveRef.current) return;
+        const blob = await resp.blob();
+        if (!conversationActiveRef.current) return;
+        const audio = new Audio(URL.createObjectURL(blob));
+        currentAudioRef.current = audio;
+        await new Promise<void>((resolve) => {
+          audio.onended = () => { currentAudioRef.current = null; resolve(); };
+          audio.onerror = () => { currentAudioRef.current = null; resolve(); };
+          audio.play().catch(() => resolve());
+        });
       } catch (err) {
         console.error("TTS failed:", err);
       }
