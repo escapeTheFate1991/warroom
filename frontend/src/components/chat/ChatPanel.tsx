@@ -202,23 +202,53 @@ export default function ChatPanel() {
     setActiveArtifactIndex(prev => Math.max(0, prev - 1));
   }, []);
 
-  // Extract code blocks from message content
-  const extractCodeBlocks = useCallback((content: string): { language: string; code: string; title: string }[] => {
-    const blocks: { language: string; code: string; title: string }[] = [];
+  // Split message content into text segments and code blocks with metadata
+  type ContentSegment = { type: "text"; content: string } | { type: "code"; code: string; language: string; title: string; content?: never };
+
+  const splitContentWithCodeBlocks = useCallback((content: string): ContentSegment[] => {
+    const segments: ContentSegment[] = [];
     const regex = /```(\w+)?\n([\s\S]*?)```/g;
+    let lastIndex = 0;
     let match;
+
     while ((match = regex.exec(content)) !== null) {
+      // Text before this code block
+      const textBefore = content.slice(lastIndex, match.index).trim();
+      if (textBefore) {
+        segments.push({ type: "text", content: textBefore });
+      }
+
       const lang = match[1] || "text";
       const code = match[2].trim();
-      if (code.split("\n").length >= 4) { // Only extract blocks with 4+ lines
-        // Try to derive title from first line or filename patterns
-        const firstLine = code.split("\n")[0];
-        const filenameMatch = content.slice(Math.max(0, match.index - 100), match.index).match(/[`"]([^`"]+\.\w+)[`"]/);
-        const title = filenameMatch ? filenameMatch[1] : `${lang} snippet`;
-        blocks.push({ language: lang, code, title });
+      const lines = code.split("\n").length;
+
+      if (lines >= 4) {
+        // Look for a title in the text before
+        const preceding = content.slice(Math.max(0, match.index - 150), match.index);
+        const filenameMatch = preceding.match(/[`"]([^`"]+\.\w+)[`"]/);
+        const headerMatch = preceding.match(/\*\*(.+?)\*\*\s*$/);
+        const title = filenameMatch ? filenameMatch[1] : headerMatch ? headerMatch[1] : `${lang} snippet`;
+        segments.push({ type: "code", code, language: lang, title });
+      } else {
+        // Short code block — render as inline markdown
+        segments.push({ type: "text", content: match[0] });
       }
+
+      lastIndex = match.index + match[0].length;
     }
-    return blocks;
+
+    // Remaining text after last code block
+    const remaining = content.slice(lastIndex).trim();
+    if (remaining) {
+      segments.push({ type: "text", content: remaining });
+    }
+
+    // If no code blocks found, return the whole thing as text
+    if (segments.length === 0) {
+      segments.push({ type: "text", content });
+    }
+
+    return segments;
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -758,32 +788,39 @@ export default function ChatPanel() {
                   </div>
                 ) : (
                   <div>
-                    <div className="prose prose-invert prose-sm max-w-none overflow-hidden [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>pre]:overflow-x-auto [&>pre]:max-w-full [&>pre]:whitespace-pre [&>pre]:word-break-normal [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&>pre>code]:whitespace-pre [&>pre>code]:break-normal">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
-                    {/* Code block action buttons — extracted from raw content */}
-                    {extractCodeBlocks(msg.content).map((block, idx) => (
-                      <div key={idx} className="flex items-center gap-2 mt-1 mb-3 ml-0">
-                        <CodeCopyButton text={block.code} />
-                        <button
-                          onClick={() => openArtifact({
-                            id: crypto.randomUUID(),
-                            type: "code",
-                            title: block.title,
-                            content: block.code,
-                            language: block.language,
-                            timestamp: new Date(),
-                          })}
-                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warroom-surface border border-warroom-border/50 text-xs text-warroom-muted hover:text-warroom-accent transition"
-                          title="Open in side panel"
-                        >
-                          <PanelRightOpen size={13} />
-                          <span>Open</span>
-                        </button>
-                        <span className="text-[10px] text-warroom-muted/50 ml-auto">
-                          {getLanguageLabel(block.language)} · {block.code.split("\n").length} lines
-                        </span>
-                      </div>
+                    {splitContentWithCodeBlocks(msg.content).map((segment, idx) => (
+                      segment.type === "text" ? (
+                        <div key={idx} className="prose prose-invert prose-sm max-w-none overflow-hidden [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>pre]:overflow-x-auto [&>pre]:max-w-full [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&>pre>code]:whitespace-pre [&>pre>code]:break-normal">
+                          <ReactMarkdown>{segment.content}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <div key={idx} className="my-3">
+                          <div className="bg-black/40 rounded-xl p-4 overflow-x-auto max-w-full">
+                            <pre className="text-sm text-slate-300 font-mono whitespace-pre overflow-x-auto"><code>{segment.code}</code></pre>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <CodeCopyButton text={segment.code || ""} />
+                            <button
+                              onClick={() => openArtifact({
+                                id: crypto.randomUUID(),
+                                type: "code",
+                                title: segment.title || "snippet",
+                                content: segment.code || "",
+                                language: segment.language || "text",
+                                timestamp: new Date(),
+                              })}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warroom-surface border border-warroom-border/50 text-xs text-warroom-muted hover:text-warroom-accent transition"
+                              title="Open in side panel"
+                            >
+                              <PanelRightOpen size={13} />
+                              <span>Open</span>
+                            </button>
+                            <span className="text-[10px] text-warroom-muted/50 ml-auto">
+                              {getLanguageLabel(segment.language)} · {(segment.code || "").split("\n").length} lines
+                            </span>
+                          </div>
+                        </div>
+                      )
                     ))}
                   </div>
                 )}
