@@ -81,15 +81,25 @@ function extractRole(msg: any): "user" | "assistant" | "system" {
   return "system";
 }
 
+function getLanguageLabel(lang?: string): string {
+  const labels: Record<string, string> = {
+    typescript: "TypeScript", tsx: "TSX", javascript: "JavaScript", jsx: "JSX",
+    python: "Python", bash: "Bash", sh: "Shell", json: "JSON", yaml: "YAML",
+    html: "HTML", css: "CSS", sql: "SQL", markdown: "Markdown", md: "Markdown",
+  };
+  return lang ? (labels[lang.toLowerCase()] || lang.toUpperCase()) : "Text";
+}
+
 function CodeCopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="p-1.5 rounded-md bg-warroom-surface/80 border border-warroom-border/50 text-warroom-muted hover:text-warroom-text transition"
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warroom-surface border border-warroom-border/50 text-xs text-warroom-muted hover:text-warroom-text transition"
       title="Copy code"
     >
       {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
+      <span>{copied ? "Copied" : "Copy"}</span>
     </button>
   );
 }
@@ -757,12 +767,12 @@ export default function ChatPanel() {
                           const lines = typeof codeText === "string" ? codeText.split("\n").length : 0;
 
                           return (
-                            <div className="relative group my-3">
-                              <pre className="bg-black/40 rounded-xl p-4 overflow-x-auto" {...props}>
+                            <div className="not-prose relative my-3">
+                              <pre className="bg-black/40 rounded-xl p-4 overflow-x-auto text-sm" {...props}>
                                 {children}
                               </pre>
                               {lines >= 4 && (
-                                <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex items-center gap-2 mt-1.5">
                                   <CodeCopyButton text={typeof codeText === "string" ? codeText : ""} />
                                   <button
                                     onClick={() => openArtifact({
@@ -773,11 +783,13 @@ export default function ChatPanel() {
                                       language: lang,
                                       timestamp: new Date(),
                                     })}
-                                    className="p-1.5 rounded-md bg-warroom-surface/80 border border-warroom-border/50 text-warroom-muted hover:text-warroom-accent transition"
+                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warroom-surface border border-warroom-border/50 text-xs text-warroom-muted hover:text-warroom-accent transition"
                                     title="Open in side panel"
                                   >
                                     <PanelRightOpen size={13} />
+                                    <span>Open</span>
                                   </button>
+                                  <span className="text-[10px] text-warroom-muted/50 ml-auto">{getLanguageLabel(lang)} · {lines} lines</span>
                                 </div>
                               )}
                             </div>
