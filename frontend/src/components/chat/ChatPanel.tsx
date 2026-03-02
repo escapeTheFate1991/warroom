@@ -11,12 +11,19 @@ import ArtifactPanel, { Artifact } from "./ArtifactPanel";
 
 /* ── Types ─────────────────────────────────────────────── */
 
+interface ImageAttachment {
+  id: string;
+  dataUrl: string;  // base64 data URL
+  name: string;
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: Date;
   thinking?: string;
+  images?: ImageAttachment[];
 }
 
 interface GatewayRes {
@@ -107,6 +114,8 @@ function CodeCopyButton({ text }: { text: string }) {
 export default function ChatPanel() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [pendingImages, setPendingImages] = useState<ImageAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [streamText, setStreamText] = useState<string | null>(null);
@@ -399,19 +408,68 @@ export default function ChatPanel() {
     };
   }, []);
 
+  /* ── Image handling ──────────────────────────────────── */
+
+  const addImagesFromFiles = useCallback((files: FileList | File[]) => {
+    Array.from(files).forEach(file => {
+      if (!file.type.startsWith("image/")) return;
+      if (file.size > 10 * 1024 * 1024) return; // 10MB max
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        setPendingImages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          dataUrl,
+          name: file.name,
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      addImagesFromFiles(imageFiles);
+    }
+  }, [addImagesFromFiles]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length > 0) {
+      addImagesFromFiles(e.dataTransfer.files);
+    }
+  }, [addImagesFromFiles]);
+
+  const removeImage = useCallback((id: string) => {
+    setPendingImages(prev => prev.filter(img => img.id !== id));
+  }, []);
+
   /* ── Send ───────────────────────────────────────────── */
 
   const sendMessage = (overrideText?: string) => {
     const text = (overrideText || input).trim();
-    if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const images = pendingImages;
+    if ((!text && images.length === 0) || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
     setMessages(prev => [...prev, {
       id: crypto.randomUUID(),
       role: "user",
-      content: text,
+      content: text || "(image)",
       timestamp: new Date(),
+      images: images.length > 0 ? images : undefined,
     }]);
     if (!overrideText) setInput("");
+    setPendingImages([]);
     setIsLoading(true);
 
     if (textareaRef.current) {
@@ -419,7 +477,11 @@ export default function ChatPanel() {
       textareaRef.current.style.overflow = "hidden";
     }
 
-    wsRef.current.send(JSON.stringify({ action: "send", message: text }));
+    const payload: any = { action: "send", message: text || "What do you see in this image?" };
+    if (images.length > 0) {
+      payload.images = images.map(img => img.dataUrl);
+    }
+    wsRef.current.send(JSON.stringify(payload));
   };
 
   const abortResponse = () => {
@@ -784,7 +846,14 @@ export default function ChatPanel() {
               <div className={`max-w-[80%] ${msg.role === "user" ? "order-first" : ""}`}>
                 {msg.role === "user" ? (
                   <div className="bg-warroom-surface border border-warroom-border rounded-2xl px-4 py-2.5 text-sm">
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    {msg.images && msg.images.length > 0 && (
+                      <div className="flex gap-2 mb-2 flex-wrap">
+                        {msg.images.map(img => (
+                          <img key={img.id} src={img.dataUrl} alt={img.name} className="max-h-48 rounded-lg border border-warroom-border/50 cursor-pointer hover:opacity-90 transition" onClick={() => window.open(img.dataUrl, "_blank")} />
+                        ))}
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap">{msg.content !== "(image)" ? msg.content : ""}</p>
                   </div>
                 ) : (
                   <div>
@@ -933,24 +1002,59 @@ export default function ChatPanel() {
       {/* Input area */}
       <div className="pb-4 pt-2 px-4">
         <div className="max-w-3xl mx-auto">
-          <div className={`bg-warroom-surface border rounded-3xl shadow-lg transition-colors ${wsConnected ? "border-warroom-border" : "border-warroom-danger/30"}`}>
-            <div className="px-4 pt-3">
+          <div
+            className={`bg-warroom-surface border rounded-3xl shadow-lg transition-colors ${wsConnected ? "border-warroom-border" : "border-warroom-danger/30"}`}
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
+          >
+            {/* Image preview strip */}
+            {pendingImages.length > 0 && (
+              <div className="flex gap-2 px-4 pt-3 pb-1 overflow-x-auto">
+                {pendingImages.map(img => (
+                  <div key={img.id} className="relative group flex-shrink-0">
+                    <img src={img.dataUrl} alt={img.name} className="h-20 w-20 object-cover rounded-xl border border-warroom-border" />
+                    <button
+                      onClick={() => removeImage(img.id)}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-warroom-danger rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition"
+                    >
+                      <X size={12} />
+                    </button>
+                    <span className="absolute bottom-1 left-1 right-1 text-[8px] text-white bg-black/60 rounded px-1 truncate">{img.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className={`px-4 ${pendingImages.length > 0 ? "pt-1" : "pt-3"}`}>
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Message Friday..."
+                onPaste={handlePaste}
+                placeholder={pendingImages.length > 0 ? "Add a message about these images..." : "Message Friday..."}
                 rows={1}
                 className="w-full bg-transparent text-sm text-warroom-text placeholder-warroom-muted resize-none outline-none min-h-[24px] max-h-[200px] leading-6 scrollbar-thin scrollbar-thumb-warroom-border scrollbar-track-transparent"
                 style={{ overflow: input.split("\n").length > 8 || input.length > 400 ? "auto" : "hidden" }}
                 onInput={resizeTextarea}
               />
             </div>
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { if (e.target.files) addImagesFromFiles(e.target.files); e.target.value = ""; }}
+            />
 
             <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
               <div className="flex items-center gap-1">
-                <button className="p-1.5 rounded-full hover:bg-warroom-border/50 text-warroom-muted hover:text-warroom-text transition" title="Attach file">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-1.5 rounded-full hover:bg-warroom-border/50 text-warroom-muted hover:text-warroom-text transition"
+                  title="Attach image"
+                >
                   <Plus size={18} />
                 </button>
                 <button

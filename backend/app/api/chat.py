@@ -230,15 +230,22 @@ async def chat_ws(ws: WebSocket):
 
                     if action == "send":
                         message = data.get("message", "")
-                        if not message:
+                        images = data.get("images", [])
+                        if not message and not images:
                             continue
-                        logger.info(f"Client→GW: chat.send ({len(message)} chars)")
-                        await openclaw.send(make_req("chat.send", {
+                        logger.info(f"Client→GW: chat.send ({len(message)} chars, {len(images)} images)")
+                        send_params = {
                             "sessionKey": session_key,
                             "message": message,
                             "deliver": False,
                             "idempotencyKey": str(uuid.uuid4()),
-                        }))
+                        }
+                        if images:
+                            send_params["attachments"] = [
+                                {"type": "input_image", "source": {"type": "base64", "media_type": img.split(";")[0].split(":")[1] if ";" in img else "image/png", "data": img.split(",")[1] if "," in img else img}}
+                                for img in images
+                            ]
+                        await openclaw.send(make_req("chat.send", send_params))
 
                     elif action == "history":
                         await openclaw.send(make_req("chat.history", {
