@@ -423,6 +423,10 @@ export default function ChatPanel() {
 
   const speakText = async (text: string) => {
     if (!conversationActiveRef.current) return;
+    // Skip TTS for code-heavy responses
+    const codeBlockCount = (text.match(/```/g) || []).length / 2;
+    const codeRatio = text.replace(/```[\s\S]*?```/g, '').length / text.length;
+    if (codeBlockCount >= 1 && codeRatio < 0.3) return; // Mostly code, don't speak
     // Deduplicate — don't speak the same text twice within 10s window
     const now = Date.now();
     const textHash = text.slice(0, 100);
@@ -754,7 +758,7 @@ export default function ChatPanel() {
                   </div>
                 ) : (
                   <div>
-                    <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent">
+                    <div className="prose prose-invert prose-sm max-w-none overflow-hidden [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>pre]:overflow-x-auto [&>pre]:max-w-full [&>pre]:whitespace-pre [&>pre]:word-break-normal [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&>pre>code]:whitespace-pre [&>pre>code]:break-normal">
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
                     {/* Code block action buttons — extracted from raw content */}
