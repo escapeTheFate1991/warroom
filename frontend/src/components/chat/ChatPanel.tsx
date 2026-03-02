@@ -4,8 +4,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Send, Bot, User, Loader2, Mic, MicOff,
   Plus, Sparkles, X, StopCircle, ArrowDown,
+  PanelRightOpen, Copy, Check,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import ArtifactPanel, { Artifact } from "./ArtifactPanel";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -79,6 +81,19 @@ function extractRole(msg: any): "user" | "assistant" | "system" {
   return "system";
 }
 
+function CodeCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      className="p-1.5 rounded-md bg-warroom-surface/80 border border-warroom-border/50 text-warroom-muted hover:text-warroom-text transition"
+      title="Copy code"
+    >
+      {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
+    </button>
+  );
+}
+
 export default function ChatPanel() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -98,6 +113,11 @@ export default function ChatPanel() {
   // Token usage
   const [tokenUsage, setTokenUsage] = useState<{ totalTokens: number; contextWindow: number; percentage: number; compactionCount: number } | null>(null);
   const lastCompactionRef = useRef<number>(-1);
+
+  // Artifact panel
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [activeArtifactIndex, setActiveArtifactIndex] = useState(0);
+  const [showArtifacts, setShowArtifacts] = useState(false);
 
   // UI states
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -151,6 +171,45 @@ export default function ChatPanel() {
   // Poll token usage on mount + after each response
   useEffect(() => { fetchTokenUsage(); }, [fetchTokenUsage]);
   useEffect(() => { if (!isLoading && !streamText) fetchTokenUsage(); }, [isLoading, streamText, fetchTokenUsage]);
+
+  // Artifact helpers
+  const openArtifact = useCallback((artifact: Artifact) => {
+    setArtifacts(prev => {
+      const exists = prev.find(a => a.id === artifact.id);
+      if (exists) return prev;
+      return [...prev, artifact];
+    });
+    setActiveArtifactIndex(prev => artifacts.length); // select new one
+    setShowArtifacts(true);
+  }, [artifacts.length]);
+
+  const removeArtifact = useCallback((id: string) => {
+    setArtifacts(prev => {
+      const next = prev.filter(a => a.id !== id);
+      if (next.length === 0) setShowArtifacts(false);
+      return next;
+    });
+    setActiveArtifactIndex(prev => Math.max(0, prev - 1));
+  }, []);
+
+  // Extract code blocks from message content
+  const extractCodeBlocks = useCallback((content: string): { language: string; code: string; title: string }[] => {
+    const blocks: { language: string; code: string; title: string }[] = [];
+    const regex = /```(\w+)?\n([\s\S]*?)```/g;
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      const lang = match[1] || "text";
+      const code = match[2].trim();
+      if (code.split("\n").length >= 4) { // Only extract blocks with 4+ lines
+        // Try to derive title from first line or filename patterns
+        const firstLine = code.split("\n")[0];
+        const filenameMatch = content.slice(Math.max(0, match.index - 100), match.index).match(/[`"]([^`"]+\.\w+)[`"]/);
+        const title = filenameMatch ? filenameMatch[1] : `${lang} snippet`;
+        blocks.push({ language: lang, code, title });
+      }
+    }
+    return blocks;
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -649,7 +708,8 @@ export default function ChatPanel() {
   /* ── Render ─────────────────────────────────────────── */
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full">
+    <div className={`flex flex-col ${showArtifacts ? "w-1/2" : "w-full"} transition-all duration-300 h-full`}>
       {/* Messages area */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
@@ -683,8 +743,48 @@ export default function ChatPanel() {
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 ) : (
-                  <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent">
+                    <ReactMarkdown
+                      components={{
+                        pre: ({ children, ...props }) => {
+                          // Extract code content and language from the child <code> element
+                          const codeChild = Array.isArray(children) ? children[0] : children;
+                          const codeProps = (codeChild as any)?.props;
+                          const codeText = codeProps?.children?.[0] || "";
+                          const className = codeProps?.className || "";
+                          const langMatch = className.match(/language-(\w+)/);
+                          const lang = langMatch?.[1] || "text";
+                          const lines = typeof codeText === "string" ? codeText.split("\n").length : 0;
+
+                          return (
+                            <div className="relative group my-3">
+                              <pre className="bg-black/40 rounded-xl p-4 overflow-x-auto" {...props}>
+                                {children}
+                              </pre>
+                              {lines >= 4 && (
+                                <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <CodeCopyButton text={typeof codeText === "string" ? codeText : ""} />
+                                  <button
+                                    onClick={() => openArtifact({
+                                      id: crypto.randomUUID(),
+                                      type: "code",
+                                      title: `${lang} snippet`,
+                                      content: typeof codeText === "string" ? codeText : "",
+                                      language: lang,
+                                      timestamp: new Date(),
+                                    })}
+                                    className="p-1.5 rounded-md bg-warroom-surface/80 border border-warroom-border/50 text-warroom-muted hover:text-warroom-accent transition"
+                                    title="Open in side panel"
+                                  >
+                                    <PanelRightOpen size={13} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        },
+                      }}
+                    >{msg.content}</ReactMarkdown>
                   </div>
                 )}
               </div>
@@ -887,6 +987,20 @@ export default function ChatPanel() {
           </div>
         </div>
       </div>
+    </div>
+
+    {/* Artifact Panel */}
+    {showArtifacts && artifacts.length > 0 && (
+      <div className="w-1/2 h-full">
+        <ArtifactPanel
+          artifacts={artifacts}
+          activeIndex={activeArtifactIndex}
+          onClose={() => setShowArtifacts(false)}
+          onSelect={setActiveArtifactIndex}
+          onRemove={removeArtifact}
+        />
+      </div>
+    )}
     </div>
   );
 }
