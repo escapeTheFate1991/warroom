@@ -4,7 +4,10 @@ import { AuthGate } from "@/components/AuthGate";
 
 export const metadata: Metadata = {
   title: "WAR ROOM",
-  description: "Mission Control — yieldlabs",
+  description: "Mission Control — stuffnthings",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
