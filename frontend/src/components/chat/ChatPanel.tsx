@@ -753,50 +753,34 @@ export default function ChatPanel() {
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 ) : (
-                  <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent">
-                    <ReactMarkdown
-                      components={{
-                        pre: ({ children, ...props }) => {
-                          // Extract code content and language from the child <code> element
-                          const codeChild = Array.isArray(children) ? children[0] : children;
-                          const codeProps = (codeChild as any)?.props;
-                          const codeText = codeProps?.children?.[0] || "";
-                          const className = codeProps?.className || "";
-                          const langMatch = className.match(/language-(\w+)/);
-                          const lang = langMatch?.[1] || "text";
-                          const lines = typeof codeText === "string" ? codeText.split("\n").length : 0;
-
-                          return (
-                            <div className="not-prose relative my-3">
-                              <pre className="bg-black/40 rounded-xl p-4 overflow-x-auto text-sm" {...props}>
-                                {children}
-                              </pre>
-                              {lines >= 4 && (
-                                <div className="flex items-center gap-2 mt-1.5">
-                                  <CodeCopyButton text={typeof codeText === "string" ? codeText : ""} />
-                                  <button
-                                    onClick={() => openArtifact({
-                                      id: crypto.randomUUID(),
-                                      type: "code",
-                                      title: `${lang} snippet`,
-                                      content: typeof codeText === "string" ? codeText : "",
-                                      language: lang,
-                                      timestamp: new Date(),
-                                    })}
-                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warroom-surface border border-warroom-border/50 text-xs text-warroom-muted hover:text-warroom-accent transition"
-                                    title="Open in side panel"
-                                  >
-                                    <PanelRightOpen size={13} />
-                                    <span>Open</span>
-                                  </button>
-                                  <span className="text-[10px] text-warroom-muted/50 ml-auto">{getLanguageLabel(lang)} · {lines} lines</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        },
-                      }}
-                    >{msg.content}</ReactMarkdown>
+                  <div>
+                    <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent">
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    </div>
+                    {/* Code block action buttons — extracted from raw content */}
+                    {extractCodeBlocks(msg.content).map((block, idx) => (
+                      <div key={idx} className="flex items-center gap-2 mt-1 mb-3 ml-0">
+                        <CodeCopyButton text={block.code} />
+                        <button
+                          onClick={() => openArtifact({
+                            id: crypto.randomUUID(),
+                            type: "code",
+                            title: block.title,
+                            content: block.code,
+                            language: block.language,
+                            timestamp: new Date(),
+                          })}
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warroom-surface border border-warroom-border/50 text-xs text-warroom-muted hover:text-warroom-accent transition"
+                          title="Open in side panel"
+                        >
+                          <PanelRightOpen size={13} />
+                          <span>Open</span>
+                        </button>
+                        <span className="text-[10px] text-warroom-muted/50 ml-auto">
+                          {getLanguageLabel(block.language)} · {block.code.split("\n").length} lines
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
