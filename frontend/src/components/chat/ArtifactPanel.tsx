@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { X, Copy, Download, Check, FileCode, FileText, File, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, Copy, ExternalLink, Check, FileCode, FileText, File, ChevronLeft, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 export interface Artifact {
@@ -52,7 +52,8 @@ export default function ArtifactPanel({ artifacts, activeIndex, onClose, onSelec
     setTimeout(() => setCopied(false), 2000);
   }, [active]);
 
-  const downloadFile = useCallback(() => {
+  const openFile = useCallback(async () => {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
     const ext = active.language === "typescript" || active.language === "tsx" ? ".tsx"
       : active.language === "javascript" || active.language === "jsx" ? ".js"
       : active.language === "python" ? ".py"
@@ -66,13 +67,15 @@ export default function ArtifactPanel({ artifacts, activeIndex, onClose, onSelec
       : ".txt";
 
     const filename = active.filename || `${active.title.toLowerCase().replace(/\s+/g, "-")}${ext}`;
-    const blob = new Blob([active.content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      await fetch(`${API_URL}/api/files/open`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: active.content, filename }),
+      });
+    } catch (err) {
+      console.error("Failed to open file:", err);
+    }
   }, [active]);
 
   return (
@@ -95,11 +98,11 @@ export default function ArtifactPanel({ artifacts, activeIndex, onClose, onSelec
             {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
           </button>
           <button
-            onClick={downloadFile}
+            onClick={openFile}
             className="p-1.5 rounded-md hover:bg-warroom-border/50 text-warroom-muted hover:text-warroom-text transition"
-            title="Download file"
+            title="Open file"
           >
-            <Download size={14} />
+            <ExternalLink size={14} />
           </button>
           <button
             onClick={onClose}
