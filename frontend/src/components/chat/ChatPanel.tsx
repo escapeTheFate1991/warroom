@@ -207,7 +207,7 @@ export default function ChatPanel() {
 
   const splitContentWithCodeBlocks = useCallback((content: string): ContentSegment[] => {
     const segments: ContentSegment[] = [];
-    const regex = /```(\w+)?\n([\s\S]*?)```/g;
+    const regex = /```(\w+)?[\r\n]+([\s\S]*?)```/g;
     let lastIndex = 0;
     let match;
 
