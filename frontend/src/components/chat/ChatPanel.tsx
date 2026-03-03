@@ -97,17 +97,36 @@ function getLanguageLabel(lang?: string): string {
   return lang ? (labels[lang.toLowerCase()] || lang.toUpperCase()) : "Text";
 }
 
-function CodeCopyButton({ text }: { text: string }) {
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warroom-surface border border-warroom-border/50 text-xs text-warroom-muted hover:text-warroom-text transition"
-      title="Copy code"
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warroom-surface border border-warroom-border/50 text-xs text-warroom-muted hover:text-warroom-text transition flex-shrink-0"
+      title={`Copy ${label.toLowerCase()}`}
     >
       {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
-      <span>{copied ? "Copied" : "Copy"}</span>
+      <span>{copied ? "Copied" : label}</span>
     </button>
+  );
+}
+
+function UrlBox({ url }: { url: string }) {
+  return (
+    <div className="my-2">
+      <div className="bg-black/30 border border-warroom-border/50 rounded-xl px-4 py-2.5 flex items-center gap-3 min-w-0">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-warroom-accent hover:underline truncate min-w-0 flex-1 font-mono"
+          title={url}
+        >
+          {url}
+        </a>
+        <CopyButton text={url} label="Copy" />
+      </div>
+    </div>
   );
 }
 
@@ -211,8 +230,43 @@ export default function ChatPanel() {
     setActiveArtifactIndex(prev => Math.max(0, prev - 1));
   }, []);
 
-  // Split message content into text segments and code blocks with metadata
-  type ContentSegment = { type: "text"; content: string } | { type: "code"; code: string; language: string; title: string; content?: never };
+  // Split message content into text segments, code blocks, and URL boxes
+  type ContentSegment =
+    | { type: "text"; content: string }
+    | { type: "code"; code: string; language: string; title: string; content?: never }
+    | { type: "url"; url: string };
+
+  // Split text into text + url segments (for non-code parts)
+  const splitTextWithUrls = useCallback((text: string): ContentSegment[] => {
+    // Match standalone URLs (on their own line, or URLs that are long enough to warrant a box)
+    // This captures http/https URLs that aren't inside markdown links []()
+    const urlRegex = /(?:^|\n)\s*(https?:\/\/[^\s<>)"']+)/gm;
+    const segments: ContentSegment[] = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = urlRegex.exec(text)) !== null) {
+      const url = match[1];
+      const fullMatchStart = match.index;
+      const textBefore = text.slice(lastIndex, fullMatchStart).trim();
+      if (textBefore) {
+        segments.push({ type: "text", content: textBefore });
+      }
+      segments.push({ type: "url", url });
+      lastIndex = fullMatchStart + match[0].length;
+    }
+
+    const remaining = text.slice(lastIndex).trim();
+    if (remaining) {
+      segments.push({ type: "text", content: remaining });
+    }
+
+    if (segments.length === 0 && text.trim()) {
+      segments.push({ type: "text", content: text });
+    }
+
+    return segments;
+  }, []);
 
   const splitContentWithCodeBlocks = useCallback((content: string): ContentSegment[] => {
     const segments: ContentSegment[] = [];
@@ -221,10 +275,10 @@ export default function ChatPanel() {
     let match;
 
     while ((match = regex.exec(content)) !== null) {
-      // Text before this code block
+      // Text before this code block — split for URLs too
       const textBefore = content.slice(lastIndex, match.index).trim();
       if (textBefore) {
-        segments.push({ type: "text", content: textBefore });
+        segments.push(...splitTextWithUrls(textBefore));
       }
 
       const lang = match[1] || "text";
@@ -246,19 +300,19 @@ export default function ChatPanel() {
       lastIndex = match.index + match[0].length;
     }
 
-    // Remaining text after last code block
+    // Remaining text after last code block — split for URLs too
     const remaining = content.slice(lastIndex).trim();
     if (remaining) {
-      segments.push({ type: "text", content: remaining });
+      segments.push(...splitTextWithUrls(remaining));
     }
 
-    // If no code blocks found, return the whole thing as text
+    // If no segments found, return the whole thing as text
     if (segments.length === 0) {
       segments.push({ type: "text", content });
     }
 
     return segments;
-  }, []);
+  }, [splitTextWithUrls]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -858,7 +912,9 @@ export default function ChatPanel() {
                 ) : (
                   <div>
                     {splitContentWithCodeBlocks(msg.content).map((segment, idx) => (
-                      segment.type === "text" ? (
+                      segment.type === "url" ? (
+                        <UrlBox key={idx} url={segment.url} />
+                      ) : segment.type === "text" ? (
                         <div key={idx} className="prose prose-invert prose-sm max-w-none overflow-hidden [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>pre]:overflow-x-auto [&>pre]:max-w-full [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&>pre>code]:whitespace-pre [&>pre>code]:break-normal">
                           <ReactMarkdown>{segment.content}</ReactMarkdown>
                         </div>
@@ -868,7 +924,7 @@ export default function ChatPanel() {
                             <pre className="text-sm text-slate-300 font-mono whitespace-pre overflow-x-auto"><code>{segment.code}</code></pre>
                           </div>
                           <div className="flex items-center gap-2 mt-1.5">
-                            <CodeCopyButton text={segment.code || ""} />
+                            <CopyButton text={segment.code || ""} label="Copy" />
                             <button
                               onClick={() => openArtifact({
                                 id: crypto.randomUUID(),
