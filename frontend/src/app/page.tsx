@@ -26,15 +26,16 @@ import AgentServiceMap from "@/components/agents/AgentServiceMap";
 import ContentPipeline from "@/components/content/ContentPipeline";
 import CompetitorIntel from "@/components/intelligence/CompetitorIntel";
 import ActivityFeed from "@/components/agents/ActivityFeed";
+import CommandCenter from "@/components/dashboard/CommandCenter";
 
 // Sidebar section structure
 const SECTIONS = [
   {
     label: "COMMAND",
     items: [
+      { id: "dashboard", label: "Home", icon: Zap },
       { id: "chat", label: "Chat", icon: MessageSquare },
       { id: "agents", label: "Agents", icon: Activity },
-      { id: "activity", label: "Activity", icon: Zap },
     ],
   },
   {
@@ -74,7 +75,7 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "chat" | "agents" | "activity" | "social" | "pipeline" | "intelligence"
+  | "dashboard" | "chat" | "agents" | "activity" | "social" | "pipeline" | "intelligence"
   | "kanban" | "team" | "leadgen"
   | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products"
   | "library-search" | "library-educate"
@@ -100,7 +101,7 @@ function WarRoom() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = (searchParams.get("tab") as TabId) || "chat";
+  const initialTab = (searchParams.get("tab") as TabId) || "dashboard";
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -233,6 +234,7 @@ function WarRoom() {
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden">
+        {activeTab === "dashboard" && <CommandCenter />}
         {activeTab === "chat" && <ChatPanel />}
         {activeTab === "agents" && <AgentServiceMap />}
         {activeTab === "activity" && <ActivityFeed />}
