@@ -922,7 +922,7 @@ export default function ChatPanel() {
                       segment.type === "url" ? (
                         <UrlBox key={idx} url={segment.url} />
                       ) : segment.type === "text" ? (
-                        <div key={idx} className="prose prose-invert prose-sm max-w-none overflow-hidden [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>pre]:overflow-x-auto [&>pre]:max-w-full [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&>pre>code]:whitespace-pre [&>pre>code]:break-normal">
+                        <div key={idx} className="prose prose-invert prose-sm max-w-none overflow-hidden break-words [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>pre]:overflow-x-auto [&>pre]:max-w-full [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&>pre>code]:whitespace-pre [&>pre>code]:break-normal [&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline">
                           <ReactMarkdown>{segment.content}</ReactMarkdown>
                         </div>
                       ) : (
@@ -972,7 +972,7 @@ export default function ChatPanel() {
               <div className="w-8 h-8 rounded-full bg-warroom-accent/10 flex items-center justify-center flex-shrink-0 mt-1">
                 <Bot size={16} className="text-warroom-accent" />
               </div>
-              <div className="max-w-[80%] prose prose-invert prose-sm max-w-none [&>p]:mb-3 [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent">
+              <div className="max-w-[80%] prose prose-invert prose-sm max-w-none break-words [&>p]:mb-3 [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline">
                 <ReactMarkdown>{streamText}</ReactMarkdown>
                 <span className="inline-block w-2 h-4 bg-warroom-accent/60 animate-pulse ml-0.5" />
               </div>
