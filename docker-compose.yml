@@ -45,3 +45,26 @@ services:
       - /home/eddy/.openclaw/workspace/skills/mental-library/backend/data:/data/mental-library:ro
       - /home/eddy/.openclaw/workspace/skills/voice-io/scripts:/voice-io-scripts:ro
       - /home/eddy/.openclaw/agents/main/sessions:/openclaw-sessions:ro
+    depends_on:
+      leadgen-db:
+        condition: service_healthy
+
+  leadgen-db:
+    image: postgres:16-alpine
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: leadgen
+      POSTGRES_PASSWORD: leadgen-yieldlabs-2026
+      POSTGRES_DB: leadgen
+    volumes:
+      - leadgen-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leadgen -d leadgen"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  leadgen-data:
