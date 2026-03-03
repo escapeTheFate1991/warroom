@@ -238,22 +238,29 @@ export default function ChatPanel() {
 
   // Split text into text + url segments (for non-code parts)
   const splitTextWithUrls = useCallback((text: string): ContentSegment[] => {
-    // Match standalone URLs (on their own line, or URLs that are long enough to warrant a box)
-    // This captures http/https URLs that aren't inside markdown links []()
-    const urlRegex = /(?:^|\n)\s*(https?:\/\/[^\s<>)"']+)/gm;
+    // Match URLs that are NOT inside markdown link syntax [text](url)
+    // We capture any https?:// URL that isn't preceded by ]( 
+    const urlRegex = /(https?:\/\/[^\s<>)"'\]]+)/g;
     const segments: ContentSegment[] = [];
     let lastIndex = 0;
     let match;
 
     while ((match = urlRegex.exec(text)) !== null) {
       const url = match[1];
-      const fullMatchStart = match.index;
-      const textBefore = text.slice(lastIndex, fullMatchStart).trim();
-      if (textBefore) {
-        segments.push({ type: "text", content: textBefore });
+      const before = text.slice(Math.max(0, match.index - 2), match.index);
+      // Skip URLs inside markdown links like [text](url)
+      if (before.endsWith("](")) continue;
+      // Skip URLs inside inline code `url`
+      const textBefore = text.slice(lastIndex, match.index);
+      const backticksBefore = (textBefore.match(/`/g) || []).length;
+      if (backticksBefore % 2 === 1) continue; // Inside backticks
+
+      const trimmedBefore = text.slice(lastIndex, match.index).trim();
+      if (trimmedBefore) {
+        segments.push({ type: "text", content: trimmedBefore });
       }
-      segments.push({ type: "url", url });
-      lastIndex = fullMatchStart + match[0].length;
+      segments.push({ type: "url", url: url.replace(/[.,;:!?)]+$/, "") }); // Strip trailing punctuation
+      lastIndex = match.index + match[0].length;
     }
 
     const remaining = text.slice(lastIndex).trim();
