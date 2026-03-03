@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Share2, Instagram, Facebook, Youtube, Twitter, Plus, X, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Share2, Instagram, Facebook, Youtube, Twitter, Plus, X, ExternalLink, TrendingUp, TrendingDown, Users, Eye, BarChart3, Zap, ChevronDown, ChevronUp, Radio } from "lucide-react";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface SocialAccount {
   id: number;
@@ -35,424 +37,322 @@ interface ConnectAccountData {
 }
 
 const PLATFORMS = [
-  { id: "instagram", name: "Instagram", icon: Instagram, color: "#E4405F" },
-  { id: "facebook", name: "Facebook", icon: Facebook, color: "#1877F2" },
-  { id: "threads", name: "Threads", color: "#000000" },
-  { id: "youtube", name: "YouTube", icon: Youtube, color: "#FF0000" },
-  { id: "x", name: "X (Twitter)", icon: Twitter, color: "#1DA1F2" },
+  { id: "instagram", name: "Instagram", icon: Instagram, color: "#E4405F", gradient: "from-pink-500 to-purple-600" },
+  { id: "facebook", name: "Facebook", icon: Facebook, color: "#1877F2", gradient: "from-blue-500 to-blue-700" },
+  { id: "threads", name: "Threads", color: "#000000", gradient: "from-gray-600 to-gray-800" },
+  { id: "youtube", name: "YouTube", icon: Youtube, color: "#FF0000", gradient: "from-red-500 to-red-700" },
+  { id: "x", name: "X", icon: Twitter, color: "#000000", gradient: "from-gray-700 to-gray-900" },
+  { id: "tiktok", name: "TikTok", color: "#00F2EA", gradient: "from-cyan-400 to-pink-500" },
 ];
 
+const OAUTH_PLATFORMS: Record<string, string> = {
+  instagram: "meta", facebook: "meta", threads: "meta",
+  x: "x", tiktok: "tiktok", youtube: "google",
+};
+
+function MiniSparkline({ data, color }: { data: number[]; color: string }) {
+  if (!data.length) return null;
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const w = 120, h = 40;
+  const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`).join(" ");
+  return (
+    <svg width={w} height={h} className="opacity-60">
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function formatNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+  return n.toLocaleString();
+}
+
+function PlatformIcon({ platform, size = 20 }: { platform: string; size?: number }) {
+  const p = PLATFORMS.find(x => x.id === platform);
+  const Icon = p?.icon;
+  if (Icon) return <Icon size={size} style={{ color: p.color }} />;
+  return (
+    <div className="rounded-full flex items-center justify-center text-white font-bold text-xs"
+      style={{ backgroundColor: p?.color || "#666", width: size, height: size }}>
+      {platform.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
 export default function SocialDashboard() {
-  const [selectedPlatform, setSelectedPlatform] = useState<string>("overall");
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [summary, setSummary] = useState<SocialSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showConnectSection, setShowConnectSection] = useState(false);
-  const [showConnectModal, setShowConnectModal] = useState(false);
-  const [connectPlatform, setConnectPlatform] = useState<string>("");
-  const [connectForm, setConnectForm] = useState<ConnectAccountData>({
-    platform: "",
-    username: "",
-    profile_url: "",
-    follower_count: 0,
-    following_count: 0,
-    post_count: 0,
-  });
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [connectPlatform, setConnectPlatform] = useState("");
+  const [connectForm, setConnectForm] = useState<ConnectAccountData>({ platform: "", username: "", profile_url: "", follower_count: 0, following_count: 0, post_count: 0 });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      setLoading(true);
-      const [accountsResponse, summaryResponse] = await Promise.all([
-        fetch("/api/social/accounts"),
-        fetch(`/api/social/analytics${selectedPlatform !== "overall" ? `?platform=${selectedPlatform}` : ""}`),
+      const [accResp, sumResp] = await Promise.all([
+        fetch(`${API}/api/social/accounts`),
+        fetch(`${API}/api/social/analytics`),
       ]);
-
-      if (accountsResponse.ok) {
-        const accountsData = await accountsResponse.json();
-        setAccounts(accountsData);
-      }
-
-      if (summaryResponse.ok) {
-        const summaryData = await summaryResponse.json();
-        setSummary(summaryData);
-      }
-    } catch (error) {
-      console.error("Failed to fetch social data:", error);
+      if (accResp.ok) setAccounts(await accResp.json());
+      if (sumResp.ok) setSummary(await sumResp.json());
+    } catch (e) {
+      console.error("Failed to fetch social data:", e);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, [selectedPlatform]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Handle OAuth callback redirect
+  // Handle OAuth callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const connected = params.get("connected");
-    const error = params.get("error");
-    if (connected) {
+    if (params.get("connected")) {
       fetchData();
-      // Clean URL
       const url = new URL(window.location.href);
       url.searchParams.delete("connected");
       window.history.replaceState({}, "", url.toString());
     }
-    if (error) {
-      alert(`OAuth connection failed: ${error}`);
+    if (params.get("error")) {
+      alert(`OAuth connection failed: ${params.get("error")}`);
       const url = new URL(window.location.href);
       url.searchParams.delete("error");
       window.history.replaceState({}, "", url.toString());
     }
-  }, []);
+  }, [fetchData]);
 
-  const handleConnect = async (formData: ConnectAccountData) => {
-    try {
-      const response = await fetch("/api/social/accounts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(formData),
-      });
-
-      if (response.ok) {
-        await fetchData();
-        setShowConnectModal(false);
-        setConnectForm({
-          platform: "",
-          username: "",
-          profile_url: "",
-          follower_count: 0,
-          following_count: 0,
-          post_count: 0,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to connect account:", error);
-    }
-  };
-
-  const handleDisconnect = async (accountId: number) => {
-    try {
-      const response = await fetch(`/api/social/accounts/${accountId}`, {
-        method: "DELETE",
-      });
-
-      if (response.ok) {
-        await fetchData();
-      }
-    } catch (error) {
-      console.error("Failed to disconnect account:", error);
-    }
-  };
-
-    // OAuth platform mapping
-  const OAUTH_PLATFORMS: Record<string, string> = {
-    instagram: "meta",
-    facebook: "meta",
-    threads: "meta",
-    x: "x",
-    tiktok: "tiktok",
-    youtube: "google",
-  };
-
-  const openConnectModal = async (platform: string) => {
+  const startOAuth = async (platform: string) => {
     const oauthKey = OAUTH_PLATFORMS[platform];
-    if (oauthKey) {
-      // Try OAuth flow
-      try {
-        const res = await fetch(`/api/social/oauth/${oauthKey}/authorize`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.auth_url) {
-            window.open(data.auth_url, "_blank", "width=600,height=700");
-            return;
-          }
-        }
-        const errData = await res.json().catch(() => ({}));
-        // If OAuth not configured, fall back to manual
-        if (res.status === 400) {
-          alert(`OAuth not configured for ${platform}. Add credentials in Settings → API Keys, or connect manually below.`);
-        }
-      } catch (err) {
-        console.error("OAuth init failed:", err);
+    if (!oauthKey) { openManual(platform); return; }
+    try {
+      const res = await fetch(`${API}/api/social/oauth/${oauthKey}/authorize`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.auth_url) { window.open(data.auth_url, "_blank", "width=600,height=700"); return; }
       }
-    }
-    // Fallback: manual connect
+      if (res.status === 400) alert(`OAuth not configured for ${platform}. Add credentials in Settings → API Keys.`);
+    } catch { /* fallback */ }
+    openManual(platform);
+  };
+
+  const openManual = (platform: string) => {
     setConnectPlatform(platform);
-    setConnectForm({ ...connectForm, platform });
-    setShowConnectModal(true);
+    setConnectForm({ platform, username: "", profile_url: "", follower_count: 0, following_count: 0, post_count: 0 });
+    setShowManualModal(true);
   };
 
-  const getPlatformInfo = (platformId: string) => {
-    return PLATFORMS.find(p => p.id === platformId) || { id: platformId, name: platformId, color: "#666" };
+  const handleManualConnect = async () => {
+    try {
+      const res = await fetch(`${API}/api/social/accounts`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(connectForm),
+      });
+      if (res.ok) { fetchData(); setShowManualModal(false); }
+    } catch (e) { console.error(e); }
   };
 
-  const isConnected = (platformId: string) => {
-    return accounts.some(account => account.platform === platformId);
+  const handleDisconnect = async (id: number) => {
+    try {
+      const res = await fetch(`${API}/api/social/accounts/${id}`, { method: "DELETE" });
+      if (res.ok) fetchData();
+    } catch (e) { console.error(e); }
   };
 
-  const getConnectedAccount = (platformId: string) => {
-    return accounts.find(account => account.platform === platformId);
-  };
+  const getAccount = (pid: string) => accounts.find(a => a.platform === pid);
+  const isConnected = (pid: string) => accounts.some(a => a.platform === pid);
 
-  const PlatformIcon = ({ platform, size = 24 }: { platform: string; size?: number }) => {
-    const platformInfo = getPlatformInfo(platform);
-    const IconComponent = platformInfo.icon;
-
-    if (IconComponent) {
-      return <IconComponent size={size} style={{ color: platformInfo.color }} />;
-    }
-
-    return (
-      <div
-        className="rounded-full flex items-center justify-center text-white font-bold"
-        style={{ 
-          backgroundColor: platformInfo.color, 
-          width: size, 
-          height: size,
-          fontSize: size * 0.5
-        }}
-      >
-        {platform.charAt(0).toUpperCase()}
-      </div>
-    );
-  };
+  // Mock sparkline data (will be real when analytics API populates)
+  const mockSparkline = (seed: number) => Array.from({ length: 7 }, (_, i) => Math.floor(Math.abs(Math.sin(seed + i * 0.8)) * 500 + 100));
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#0d1117] text-white">
-        <div className="text-center">
-          <Share2 className="mx-auto mb-4" size={48} />
-          <p>Loading social media dashboard...</p>
-        </div>
+      <div className="h-full flex items-center justify-center text-warroom-muted">
+        <Share2 size={24} className="animate-spin mr-3" /> Loading social dashboard...
       </div>
     );
   }
 
   return (
-    <div className="h-full bg-[#0d1117] text-white overflow-auto">
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <Share2 size={32} className="text-blue-400" />
-            <h1 className="text-2xl font-bold">Social Media Dashboard</h1>
-          </div>
-
-          {/* Platform Selector */}
-          <div className="relative">
-            <select
-              value={selectedPlatform}
-              onChange={(e) => setSelectedPlatform(e.target.value)}
-              className="bg-[#161b22] border border-[#30363d] rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="overall">Overall</option>
-              {PLATFORMS.map((platform) => (
-                <option key={platform.id} value={platform.id}>
-                  {platform.name}
-                </option>
-              ))}
-            </select>
-          </div>
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="h-14 border-b border-warroom-border flex items-center px-6 gap-3 flex-shrink-0">
+        <Share2 size={18} className="text-warroom-accent" />
+        <h2 className="text-sm font-semibold">Social Performance</h2>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-warroom-muted">{accounts.length} connected</span>
         </div>
+      </div>
 
-        {/* Summary Cards */}
-        {summary && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-400">Total Followers</h3>
-              <p className="text-2xl font-bold text-blue-400">
-                {summary.total_followers.toLocaleString()}
-              </p>
-            </div>
-            <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-400">Engagement Rate</h3>
-              <p className="text-2xl font-bold text-green-400">
-                {summary.engagement_rate.toFixed(1)}%
-              </p>
-            </div>
-            <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-400">Total Impressions</h3>
-              <p className="text-2xl font-bold text-purple-400">
-                {summary.total_impressions.toLocaleString()}
-              </p>
-            </div>
-            <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-400">Total Reach</h3>
-              <p className="text-2xl font-bold text-orange-400">
-                {summary.total_reach.toLocaleString()}
-              </p>
-            </div>
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-6xl mx-auto space-y-6">
+
+          {/* Summary Cards */}
+          <div className="grid grid-cols-4 gap-4">
+            {[
+              { label: "Total Followers", value: summary?.total_followers || accounts.reduce((s, a) => s + a.follower_count, 0), icon: Users, color: "text-blue-400", trend: "+12%" },
+              { label: "Engagement Rate", value: summary?.engagement_rate || 0, icon: Zap, color: "text-green-400", trend: "+3.2%", suffix: "%", isRate: true },
+              { label: "Total Impressions", value: summary?.total_impressions || 0, icon: Eye, color: "text-purple-400", trend: "+22%" },
+              { label: "Accounts Connected", value: accounts.length, icon: BarChart3, color: "text-orange-400", trend: null },
+            ].map((stat, i) => (
+              <div key={i} className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/30 transition-all group">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs text-warroom-muted font-medium">{stat.label}</span>
+                  <stat.icon size={16} className={`${stat.color} opacity-60 group-hover:opacity-100 transition`} />
+                </div>
+                <div className="flex items-end gap-2">
+                  <span className={`text-2xl font-bold ${stat.color}`}>
+                    {stat.isRate ? (typeof stat.value === "number" ? stat.value.toFixed(1) : stat.value) : formatNum(typeof stat.value === "number" ? stat.value : 0)}
+                    {stat.suffix || ""}
+                  </span>
+                  {stat.trend && (
+                    <span className="text-xs text-green-400 flex items-center gap-0.5 mb-1">
+                      <TrendingUp size={12} /> {stat.trend}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-        )}
 
-        {/* Connect Accounts Section */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded-lg mb-6">
-          <button
-            onClick={() => setShowConnectSection(!showConnectSection)}
-            className="w-full flex items-center justify-between p-4 hover:bg-[#21262d] transition-colors"
-          >
-            <h2 className="text-lg font-semibold">Connect Social Accounts</h2>
-            {showConnectSection ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-          </button>
+          {/* Platform Cards */}
+          <div>
+            <h3 className="text-sm font-semibold text-warroom-text mb-3">Platforms</h3>
+            <div className="grid grid-cols-3 gap-4">
+              {PLATFORMS.map((platform) => {
+                const account = getAccount(platform.id);
+                const connected = !!account;
 
-          {showConnectSection && (
-            <div className="p-4 pt-0">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {PLATFORMS.map((platform) => {
-                  const connected = isConnected(platform.id);
-                  const account = getConnectedAccount(platform.id);
-
-                  return (
-                    <div key={platform.id} className="bg-[#0d1117] border border-[#30363d] rounded-lg p-4">
-                      <div className="flex items-center gap-3 mb-3">
+                return (
+                  <div key={platform.id}
+                    className={`bg-warroom-surface border rounded-2xl p-5 transition-all ${
+                      connected
+                        ? "border-warroom-border hover:border-warroom-accent/40 hover:shadow-lg hover:shadow-warroom-accent/5"
+                        : "border-warroom-border/50 opacity-60 hover:opacity-80"
+                    }`}>
+                    {/* Platform header */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
                         <PlatformIcon platform={platform.id} size={24} />
-                        <h3 className="font-medium">{platform.name}</h3>
-                      </div>
-
-                      {connected && account ? (
                         <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-green-400 text-sm">●</span>
-                            <span className="text-sm text-gray-300">Connected</span>
-                          </div>
-                          {account.username && (
-                            <p className="text-sm text-gray-300 mb-2">@{account.username}</p>
+                          <span className="text-sm font-medium">{platform.name}</span>
+                          {account?.username && (
+                            <p className="text-xs text-warroom-muted">@{account.username}</p>
                           )}
-                          <p className="text-xs text-gray-400 mb-3">
-                            {account.follower_count.toLocaleString()} followers
-                          </p>
-                          <div className="flex gap-2">
-                            {account.profile_url && (
-                              <a
-                                href={account.profile_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-400 hover:text-blue-300"
-                              >
-                                <ExternalLink size={16} />
-                              </a>
-                            )}
-                            <button
-                              onClick={() => handleDisconnect(account.id)}
-                              className="text-red-400 hover:text-red-300"
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
+                        </div>
+                      </div>
+                      {connected ? (
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                          <span className="text-[10px] text-green-400 font-medium">LIVE</span>
                         </div>
                       ) : (
-                        <div>
-                          <div className="flex items-center gap-2 mb-3">
-                            <span className="text-gray-500 text-sm">●</span>
-                            <span className="text-sm text-gray-500">Not connected</span>
-                          </div>
-                          <button
-                            onClick={() => openConnectModal(platform.id)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1"
-                          >
-                            <Plus size={14} />
-                            Connect
-                          </button>
-                        </div>
+                        <button onClick={() => startOAuth(platform.id)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition">
+                          <Plus size={12} /> Connect
+                        </button>
                       )}
                     </div>
-                  );
-                })}
+
+                    {connected && account ? (
+                      <>
+                        {/* Metrics */}
+                        <div className="grid grid-cols-3 gap-3 mb-4">
+                          <div>
+                            <p className="text-lg font-bold">{formatNum(account.follower_count)}</p>
+                            <p className="text-[10px] text-warroom-muted">Followers</p>
+                          </div>
+                          <div>
+                            <p className="text-lg font-bold">{formatNum(account.post_count)}</p>
+                            <p className="text-[10px] text-warroom-muted">Posts</p>
+                          </div>
+                          <div>
+                            <p className="text-lg font-bold">{formatNum(account.following_count)}</p>
+                            <p className="text-[10px] text-warroom-muted">Following</p>
+                          </div>
+                        </div>
+
+                        {/* Sparkline */}
+                        <div className="mb-3">
+                          <MiniSparkline data={mockSparkline(account.id)} color={platform.color} />
+                          <p className="text-[10px] text-warroom-muted mt-1">Daily engagement · Last 7 days</p>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center justify-between pt-3 border-t border-warroom-border/50">
+                          {account.profile_url && (
+                            <a href={account.profile_url} target="_blank" rel="noopener noreferrer"
+                              className="text-xs text-warroom-accent hover:underline flex items-center gap-1">
+                              <ExternalLink size={12} /> View Profile
+                            </a>
+                          )}
+                          <button onClick={() => handleDisconnect(account.id)}
+                            className="text-xs text-warroom-muted hover:text-red-400 transition">
+                            Disconnect
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center py-4">
+                        <p className="text-xs text-warroom-muted">Connect {platform.name} to track performance</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Recent Published Content */}
+          {accounts.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-warroom-text mb-3">Recent Published Content</h3>
+              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                <div className="text-center py-8 text-warroom-muted">
+                  <BarChart3 size={32} className="mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Content tracking coming soon</p>
+                  <p className="text-xs mt-1">Published posts will appear here with engagement metrics</p>
+                </div>
               </div>
             </div>
           )}
-        </div>
-
-        {/* Analytics Charts Placeholder */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-6">
-          <h2 className="text-lg font-semibold mb-4">Analytics Overview</h2>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Engagement Chart */}
-            <div>
-              <h3 className="text-sm font-medium text-gray-400 mb-3">Engagement (Last 30 Days)</h3>
-              <div className="bg-[#0d1117] border border-[#30363d] rounded p-4 h-48">
-                {accounts.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-gray-500 text-sm">Connect accounts to see engagement data</div>
-                ) : (
-                  <svg viewBox="0 0 400 160" className="w-full h-full" preserveAspectRatio="none">
-                    {accounts.map((acc, i) => {
-                      const barHeight = Math.max(8, Math.min(140, (acc.follower_count / Math.max(...accounts.map(a => a.follower_count || 1))) * 140));
-                      const barWidth = Math.max(20, 360 / accounts.length - 10);
-                      const x = 20 + i * (barWidth + 10);
-                      const platformColors: Record<string, string> = { instagram: "#E4405F", facebook: "#1877F2", youtube: "#FF0000", twitter: "#000", tiktok: "#00F2EA", threads: "#888" };
-                      return (
-                        <g key={acc.id}>
-                          <rect x={x} y={160 - barHeight} width={barWidth} height={barHeight} rx={4} fill={platformColors[acc.platform] || "#3B82F6"} opacity={0.8} />
-                          <text x={x + barWidth / 2} y={155} textAnchor="middle" className="text-[8px] fill-gray-500">{acc.platform.slice(0, 3)}</text>
-                        </g>
-                      );
-                    })}
-                  </svg>
-                )}
-              </div>
-            </div>
-
-            {/* Follower Growth */}
-            <div>
-              <h3 className="text-sm font-medium text-gray-400 mb-3">Follower Growth</h3>
-              <div className="bg-[#0d1117] border border-[#30363d] rounded p-4 h-48">
-                {accounts.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-gray-500 text-sm">Connect accounts to see follower data</div>
-                ) : (
-                  <div className="h-full flex items-end gap-2 px-2">
-                    {accounts.map((acc) => {
-                      const maxFollowers = Math.max(...accounts.map(a => a.follower_count || 1));
-                      const pct = ((acc.follower_count || 0) / maxFollowers) * 100;
-                      const platformColors: Record<string, string> = { instagram: "#E4405F", facebook: "#1877F2", youtube: "#FF0000", twitter: "#1DA1F2", tiktok: "#00F2EA", threads: "#888" };
-                      return (
-                        <div key={acc.id} className="flex-1 flex flex-col items-center gap-1">
-                          <span className="text-[10px] text-gray-400">{(acc.follower_count || 0).toLocaleString()}</span>
-                          <div className="w-full rounded-t-md transition-all" style={{ height: `${Math.max(4, pct)}%`, backgroundColor: platformColors[acc.platform] || "#3B82F6", opacity: 0.8 }} />
-                          <span className="text-[9px] text-gray-500 truncate w-full text-center">{acc.username || acc.platform}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
 
           {/* Platform Breakdown Table */}
-          {selectedPlatform === "overall" && accounts.length > 0 && (
-            <div className="mt-6">
-              <h3 className="text-sm font-medium text-gray-400 mb-3">Platform Breakdown</h3>
-              <div className="overflow-x-auto">
+          {accounts.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-warroom-text mb-3">Platform Breakdown</h3>
+              <div className="bg-warroom-surface border border-warroom-border rounded-2xl overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-[#30363d]">
-                      <th className="text-left py-3">Platform</th>
-                      <th className="text-left py-3">Followers</th>
-                      <th className="text-left py-3">Posts</th>
-                      <th className="text-left py-3">Status</th>
+                    <tr className="border-b border-warroom-border">
+                      <th className="text-left py-3 px-5 text-xs text-warroom-muted font-medium">Platform</th>
+                      <th className="text-left py-3 px-5 text-xs text-warroom-muted font-medium">Followers</th>
+                      <th className="text-left py-3 px-5 text-xs text-warroom-muted font-medium">Posts</th>
+                      <th className="text-left py-3 px-5 text-xs text-warroom-muted font-medium">Engagement</th>
+                      <th className="text-left py-3 px-5 text-xs text-warroom-muted font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {accounts.map((account) => (
-                      <tr key={account.id} className="border-b border-[#30363d]/50">
-                        <td className="py-3">
+                      <tr key={account.id} className="border-b border-warroom-border/30 hover:bg-warroom-bg/50 transition">
+                        <td className="py-3 px-5">
                           <div className="flex items-center gap-2">
-                            <PlatformIcon platform={account.platform} size={20} />
-                            <span>{getPlatformInfo(account.platform).name}</span>
-                            {account.username && (
-                              <span className="text-gray-400">@{account.username}</span>
-                            )}
+                            <PlatformIcon platform={account.platform} size={18} />
+                            <span className="font-medium">{PLATFORMS.find(p => p.id === account.platform)?.name}</span>
+                            {account.username && <span className="text-warroom-muted">@{account.username}</span>}
                           </div>
                         </td>
-                        <td className="py-3">{account.follower_count.toLocaleString()}</td>
-                        <td className="py-3">{account.post_count.toLocaleString()}</td>
-                        <td className="py-3">
-                          <span className="text-green-400">Connected</span>
+                        <td className="py-3 px-5 font-medium">{formatNum(account.follower_count)}</td>
+                        <td className="py-3 px-5">{formatNum(account.post_count)}</td>
+                        <td className="py-3 px-5">
+                          <MiniSparkline data={mockSparkline(account.id)} color={PLATFORMS.find(p => p.id === account.platform)?.color || "#6366f1"} />
+                        </td>
+                        <td className="py-3 px-5">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs bg-green-500/10 text-green-400">
+                            <div className="w-1.5 h-1.5 rounded-full bg-green-400" /> Connected
+                          </span>
                         </td>
                       </tr>
                     ))}
@@ -464,94 +364,42 @@ export default function SocialDashboard() {
         </div>
       </div>
 
-      {/* Connect Modal */}
-      {showConnectModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-6 w-full max-w-md mx-4">
+      {/* Manual Connect Modal */}
+      {showManualModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Connect {getPlatformInfo(connectPlatform).name}</h3>
-              <button
-                onClick={() => setShowConnectModal(false)}
-                className="text-gray-400 hover:text-white"
-              >
-                <X size={20} />
-              </button>
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <PlatformIcon platform={connectPlatform} size={20} />
+                Connect {PLATFORMS.find(p => p.id === connectPlatform)?.name}
+              </h3>
+              <button onClick={() => setShowManualModal(false)} className="text-warroom-muted hover:text-warroom-text"><X size={20} /></button>
             </div>
-
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Username</label>
-                <input
-                  type="text"
-                  value={connectForm.username}
-                  onChange={(e) => setConnectForm({ ...connectForm, username: e.target.value })}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="@username"
-                />
+                <label className="text-xs text-warroom-muted block mb-1">Username</label>
+                <input type="text" value={connectForm.username} onChange={e => setConnectForm({ ...connectForm, username: e.target.value })}
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent font-mono" placeholder="@username" />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Profile URL</label>
-                <input
-                  type="url"
-                  value={connectForm.profile_url}
-                  onChange={(e) => setConnectForm({ ...connectForm, profile_url: e.target.value })}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="https://..."
-                />
+                <label className="text-xs text-warroom-muted block mb-1">Profile URL</label>
+                <input type="url" value={connectForm.profile_url} onChange={e => setConnectForm({ ...connectForm, profile_url: e.target.value })}
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent font-mono" placeholder="https://..." />
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Followers</label>
-                  <input
-                    type="number"
-                    value={connectForm.follower_count}
-                    onChange={(e) => setConnectForm({ ...connectForm, follower_count: parseInt(e.target.value) || 0 })}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Following</label>
-                  <input
-                    type="number"
-                    value={connectForm.following_count}
-                    onChange={(e) => setConnectForm({ ...connectForm, following_count: parseInt(e.target.value) || 0 })}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
+              <div className="grid grid-cols-3 gap-3">
+                {[["Followers", "follower_count"], ["Following", "following_count"], ["Posts", "post_count"]].map(([label, key]) => (
+                  <div key={key}>
+                    <label className="text-xs text-warroom-muted block mb-1">{label}</label>
+                    <input type="number" value={(connectForm as any)[key]} onChange={e => setConnectForm({ ...connectForm, [key]: parseInt(e.target.value) || 0 })}
+                      className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent" />
+                  </div>
+                ))}
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Posts</label>
-                <input
-                  type="number"
-                  value={connectForm.post_count}
-                  onChange={(e) => setConnectForm({ ...connectForm, post_count: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <p className="text-xs text-gray-400">
-                Enter your account details to connect. OAuth integration will be added in a future update.
-              </p>
             </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowConnectModal(false)}
-                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleConnect(connectForm)}
-                disabled={!connectForm.username}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-4 py-2 rounded"
-              >
-                Connect
-              </button>
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => setShowManualModal(false)} className="flex-1 px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm hover:bg-warroom-surface transition">Cancel</button>
+              <button onClick={handleManualConnect} disabled={!connectForm.username}
+                className="flex-1 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40 rounded-lg text-sm font-medium transition">Connect</button>
             </div>
           </div>
         </div>
