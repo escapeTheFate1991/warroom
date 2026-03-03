@@ -13,6 +13,7 @@ class Base(DeclarativeBase):
 
 class SearchJob(Base):
     __tablename__ = "search_jobs"
+    __table_args__ = {"schema": "leadgen"}
 
     id = Column(Integer, primary_key=True)
     query = Column(Text, nullable=False)
@@ -30,9 +31,10 @@ class SearchJob(Base):
 
 class Lead(Base):
     __tablename__ = "leads"
+    __table_args__ = {"schema": "leadgen"}
 
     id = Column(Integer, primary_key=True)
-    search_job_id = Column(Integer, ForeignKey("search_jobs.id", ondelete="SET NULL"))
+    search_job_id = Column(Integer, ForeignKey("leadgen.search_jobs.id", ondelete="SET NULL"))
 
     # Google Maps data
     google_place_id = Column(Text, unique=True)

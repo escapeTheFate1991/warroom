@@ -18,10 +18,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Initialize database tables on startup."""
     try:
-        # Create leadgen tables if they don't exist
+        # Ensure leadgen schema exists, then create tables
+        from sqlalchemy import text as sa_text
         async with leadgen_engine.begin() as conn:
+            await conn.execute(sa_text("CREATE SCHEMA IF NOT EXISTS leadgen"))
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("LeadGen database initialized")
+        logger.info("LeadGen database initialized (schema: leadgen)")
         
         # Create settings table and seed defaults
         await settings.init_settings_table(leadgen_engine)
