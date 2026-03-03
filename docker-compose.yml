@@ -34,6 +34,8 @@ services:
       WHISPER_PORT: "18796"
       MENTAL_LIBRARY_API_URL: http://10.0.0.1:8100
       LEADGEN_BACKEND_URL: http://10.0.0.1:8200
+      BACKEND_URL: https://warroom.stuffnthings.io
+      FRONTEND_URL: http://localhost:3300
       LEADGEN_DB_URL: postgresql+asyncpg://leadgen:leadgen-yieldlabs-2026@10.0.0.1:5434/leadgen
       # SQLite read-only mount from the mental-library skill volume
       MENTAL_LIBRARY_DB: /data/mental-library/mental_library.db
