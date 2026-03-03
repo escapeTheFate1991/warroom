@@ -89,38 +89,64 @@ META_AUTH_URL = "https://www.facebook.com/v21.0/dialog/oauth"
 META_TOKEN_URL = "https://graph.facebook.com/v21.0/oauth/access_token"
 META_GRAPH_URL = "https://graph.facebook.com/v21.0"
 
-# Scopes for Instagram + Facebook + Threads
+# Threads uses a completely separate OAuth flow and API
+THREADS_AUTH_URL = "https://threads.net/oauth/authorize"
+THREADS_TOKEN_URL = "https://graph.threads.net/oauth/access_token"
+THREADS_GRAPH_URL = "https://graph.threads.net/v1.0"
+
+# Facebook + Instagram scopes (Facebook OAuth dialog)
 META_SCOPES = [
     "pages_show_list",
     "pages_read_engagement",
     "instagram_basic",
     "instagram_manage_insights",
     "instagram_content_publish",
+    "public_profile",
+]
+
+# Threads scopes (Threads OAuth dialog — completely separate)
+THREADS_SCOPES = [
     "threads_basic",
     "threads_content_publish",
     "threads_manage_insights",
-    "public_profile",
+    "threads_manage_replies",
 ]
 
 
 @router.get("/oauth/meta/authorize")
-async def meta_authorize(db: AsyncSession = Depends(get_crm_db)):
-    """Start Meta OAuth flow (Facebook + Instagram + Threads)."""
+async def meta_authorize(
+    platform: str = "meta",
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Start Meta OAuth flow. platform=meta for FB+IG, platform=threads for Threads."""
     client_id = await _get_setting(db, "meta_app_id")
     if not client_id:
         raise HTTPException(400, "Meta App ID not configured. Go to Settings → API Keys.")
 
     state = secrets.token_urlsafe(32)
-    redirect_uri = f"{BACKEND_URL}/api/social/oauth/meta/callback"
 
-    params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "scope": ",".join(META_SCOPES),
-        "response_type": "code",
-        "state": state,
-    }
-    return {"auth_url": f"{META_AUTH_URL}?{urlencode(params)}"}
+    if platform == "threads":
+        # Threads uses its own OAuth endpoint
+        redirect_uri = f"{BACKEND_URL}/api/social/oauth/threads/callback"
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": ",".join(THREADS_SCOPES),
+            "response_type": "code",
+            "state": state,
+        }
+        return {"auth_url": f"{THREADS_AUTH_URL}?{urlencode(params)}"}
+    else:
+        # Facebook + Instagram use the Facebook OAuth dialog
+        redirect_uri = f"{BACKEND_URL}/api/social/oauth/meta/callback"
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": ",".join(META_SCOPES),
+            "response_type": "code",
+            "state": state,
+        }
+        return {"auth_url": f"{META_AUTH_URL}?{urlencode(params)}"}
 
 
 @router.get("/oauth/meta/callback")
@@ -145,7 +171,7 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
 
         if token_resp.status_code != 200:
             logger.error(f"Meta token exchange failed: {token_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=marketing-social&error=token_failed")
+            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=token_failed")
 
         token_data = token_resp.json()
         short_token = token_data["access_token"]
@@ -228,7 +254,74 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
         except Exception as e:
             logger.warning(f"Threads API not available: {e}")
 
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=marketing-social&connected=meta")
+    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=meta")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THREADS — Separate OAuth flow (threads.net)
+# Same Meta App ID but different OAuth endpoint and API
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/oauth/threads/callback")
+async def threads_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
+    """Handle Threads OAuth callback (separate from Meta/Facebook)."""
+    client_id = await _get_setting(db, "meta_app_id")
+    client_secret = await _get_setting(db, "meta_app_secret")
+
+    if not client_id or not client_secret:
+        raise HTTPException(400, "Meta credentials not configured")
+
+    redirect_uri = f"{BACKEND_URL}/api/social/oauth/threads/callback"
+
+    async with httpx.AsyncClient() as client:
+        # Exchange code for short-lived token
+        token_resp = await client.post(THREADS_TOKEN_URL, data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+            "code": code,
+        })
+
+        if token_resp.status_code != 200:
+            logger.error(f"Threads token exchange failed: {token_resp.text}")
+            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=threads_token_failed")
+
+        token_data = token_resp.json()
+        short_token = token_data["access_token"]
+
+        # Exchange for long-lived token (60 days)
+        ll_resp = await client.get(f"{THREADS_GRAPH_URL}/access_token", params={
+            "grant_type": "th_exchange_token",
+            "client_secret": client_secret,
+            "access_token": short_token,
+        })
+
+        if ll_resp.status_code == 200:
+            ll_data = ll_resp.json()
+            access_token = ll_data["access_token"]
+        else:
+            access_token = short_token
+
+        # Get Threads user profile
+        me_resp = await client.get(f"{THREADS_GRAPH_URL}/me", params={
+            "fields": "id,username,threads_profile_picture_url",
+            "access_token": access_token,
+        })
+
+        if me_resp.status_code == 200:
+            me_data = me_resp.json()
+            await _upsert_social_account(
+                db, "threads",
+                me_data.get("username", ""),
+                access_token,
+                profile_url=f"https://threads.net/@{me_data.get('username', '')}",
+            )
+        else:
+            logger.error(f"Threads profile fetch failed: {me_resp.text}")
+            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=threads_profile_failed")
+
+    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=threads")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -302,7 +395,7 @@ async def x_callback(code: str, state: str = "", db: AsyncSession = Depends(get_
 
         if token_resp.status_code != 200:
             logger.error(f"X token exchange failed: {token_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=marketing-social&error=token_failed")
+            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=token_failed")
 
         token_data = token_resp.json()
         access_token = token_data["access_token"]
@@ -327,7 +420,7 @@ async def x_callback(code: str, state: str = "", db: AsyncSession = Depends(get_
             post_count=metrics.get("tweet_count", 0),
         )
 
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=marketing-social&connected=x")
+    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=x")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -397,7 +490,7 @@ async def tiktok_callback(code: str, state: str = "", db: AsyncSession = Depends
 
         if token_resp.status_code != 200:
             logger.error(f"TikTok token exchange failed: {token_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=marketing-social&error=token_failed")
+            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=token_failed")
 
         token_data = token_resp.json()
         access_token = token_data.get("access_token")
@@ -423,7 +516,7 @@ async def tiktok_callback(code: str, state: str = "", db: AsyncSession = Depends
             post_count=user_data.get("video_count", 0),
         )
 
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=marketing-social&connected=tiktok")
+    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=tiktok")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -484,7 +577,7 @@ async def google_callback(code: str, state: str = "", db: AsyncSession = Depends
 
         if token_resp.status_code != 200:
             logger.error(f"Google token exchange failed: {token_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=marketing-social&error=token_failed")
+            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=token_failed")
 
         token_data = token_resp.json()
         access_token = token_data["access_token"]
@@ -518,7 +611,7 @@ async def google_callback(code: str, state: str = "", db: AsyncSession = Depends
                 refresh_token=refresh_token,
             )
 
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=marketing-social&connected=google")
+    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=google")
 
 
 # ══════════════════════════════════════════════════════════════════════

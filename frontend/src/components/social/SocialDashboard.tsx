@@ -45,9 +45,15 @@ const PLATFORMS = [
   { id: "tiktok", name: "TikTok", color: "#00F2EA", gradient: "from-cyan-400 to-pink-500" },
 ];
 
-const OAUTH_PLATFORMS: Record<string, string> = {
-  instagram: "meta", facebook: "meta", threads: "meta",
-  x: "x", tiktok: "tiktok", youtube: "google",
+// Maps platform → OAuth provider key
+// Threads uses meta provider but needs platform=threads query param
+const OAUTH_PLATFORMS: Record<string, { provider: string; params?: Record<string, string> }> = {
+  instagram: { provider: "meta" },
+  facebook: { provider: "meta" },
+  threads: { provider: "meta", params: { platform: "threads" } },
+  x: { provider: "x" },
+  tiktok: { provider: "tiktok" },
+  youtube: { provider: "google" },
 };
 
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
@@ -125,10 +131,12 @@ export default function SocialDashboard() {
   }, [fetchData]);
 
   const startOAuth = async (platform: string) => {
-    const oauthKey = OAUTH_PLATFORMS[platform];
-    if (!oauthKey) { openManual(platform); return; }
+    const oauth = OAUTH_PLATFORMS[platform];
+    if (!oauth) { openManual(platform); return; }
     try {
-      const res = await fetch(`${API}/api/social/oauth/${oauthKey}/authorize`);
+      const params = new URLSearchParams(oauth.params || {});
+      const url = `${API}/api/social/oauth/${oauth.provider}/authorize${params.toString() ? "?" + params.toString() : ""}`;
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.auth_url) { window.open(data.auth_url, "_blank", "width=600,height=700"); return; }
