@@ -242,7 +242,11 @@ async def chat_ws(ws: WebSocket):
                         }
                         if images:
                             send_params["attachments"] = [
-                                {"type": "input_image", "source": {"type": "base64", "media_type": img.split(";")[0].split(":")[1] if ";" in img else "image/png", "data": img.split(",")[1] if "," in img else img}}
+                                {
+                                    "type": "image",
+                                    "mimeType": img.split(";")[0].split(":")[1] if ";" in img else "image/png",
+                                    "content": img.split(",")[1] if "," in img else img,
+                                }
                                 for img in images
                             ]
                         await openclaw.send(make_req("chat.send", send_params))
