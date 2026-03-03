@@ -10,7 +10,7 @@ class SettingsBase(DeclarativeBase):
 
 class Setting(SettingsBase):
     __tablename__ = "settings"
-    __table_args__ = {"schema": "leadgen"}
+    __table_args__ = {"schema": "public"}
 
     id = Column(Integer, primary_key=True)
     key = Column(String(255), unique=True, nullable=False, index=True)
