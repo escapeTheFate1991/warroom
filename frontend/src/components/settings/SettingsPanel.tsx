@@ -111,6 +111,7 @@ export default function SettingsPanel() {
   const [settings, setSettings] = useState<Setting[]>([]);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [editing, setEditing] = useState<Record<string, boolean>>({}); // Track if user is editing a secret
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -173,10 +174,10 @@ export default function SettingsPanel() {
       if (resp.ok) {
         const data = await resp.json();
         setSettings(data);
-        // Initialize edit values with current values
+        // Initialize edit values — use masked value for secrets so they show as filled
         const vals: Record<string, string> = {};
         data.forEach((s: Setting) => {
-          vals[s.key] = s.is_secret ? "" : s.value;
+          vals[s.key] = s.value; // Backend already masks secrets (••••••••xxxx)
         });
         setEditValues(vals);
       }
@@ -276,6 +277,7 @@ export default function SettingsPanel() {
         setErrors((p) => ({ ...p, [key]: err.detail || "Failed to save" }));
       } else {
         setSaved((p) => ({ ...p, [key]: true }));
+        setEditing((p) => ({ ...p, [key]: false })); // Exit edit mode after save
         setTimeout(() => setSaved((p) => ({ ...p, [key]: false })), 2000);
         loadSettings();
       }
@@ -380,11 +382,21 @@ export default function SettingsPanel() {
               <div className="mt-4 space-y-3">
                 {catSettings.map((setting) => {
                   const isRevealed = revealed[setting.key];
+                  const isEditing = editing[setting.key];
                   const isSaving = saving[setting.key];
                   const isSaved = saved[setting.key];
                   const error = errors[setting.key];
-                  const hasValue = setting.value && setting.value !== "" && setting.value !== "••••";
+                  const isMasked = setting.value?.startsWith("••••");
+                  const hasValue = setting.is_secret
+                    ? isMasked  // Secret has a saved value if API returns masked
+                    : !!(setting.value && setting.value !== "");
                   const editValue = editValues[setting.key] ?? "";
+                  // For saved secrets not being edited, show masked value; otherwise show edit value
+                  const displayValue = (setting.is_secret && hasValue && !isEditing) ? setting.value : editValue;
+                  // Can save if: editing a secret with new content, or non-secret with content
+                  const canSave = setting.is_secret
+                    ? (isEditing && editValue.length > 0 && !editValue.startsWith("••••"))
+                    : (editValue.length > 0);
 
                   return (
                     <div
@@ -415,22 +427,42 @@ export default function SettingsPanel() {
                       <div className="flex gap-2">
                         <div className="relative flex-1">
                           <input
-                            type={setting.is_secret && !isRevealed ? "password" : "text"}
-                            value={editValue}
-                            onChange={(e) =>
-                              setEditValues((p) => ({ ...p, [setting.key]: e.target.value }))
-                            }
+                            type={setting.is_secret && !isRevealed && !isEditing ? "password" : "text"}
+                            value={displayValue}
+                            onChange={(e) => {
+                              if (setting.is_secret && !isEditing) {
+                                // First keystroke on a saved secret — enter edit mode, start fresh
+                                setEditing((p) => ({ ...p, [setting.key]: true }));
+                                setEditValues((p) => ({ ...p, [setting.key]: e.target.value.replace(/^•+/, "") }));
+                              } else {
+                                setEditValues((p) => ({ ...p, [setting.key]: e.target.value }));
+                              }
+                            }}
+                            onFocus={() => {
+                              if (setting.is_secret && hasValue && !isEditing) {
+                                // On focus, switch to edit mode with empty field
+                                setEditing((p) => ({ ...p, [setting.key]: true }));
+                                setEditValues((p) => ({ ...p, [setting.key]: "" }));
+                              }
+                            }}
+                            onBlur={() => {
+                              // If user leaves without typing, restore masked view
+                              if (setting.is_secret && isEditing && !editValue) {
+                                setEditing((p) => ({ ...p, [setting.key]: false }));
+                                setEditValues((p) => ({ ...p, [setting.key]: setting.value }));
+                              }
+                            }}
                             onKeyDown={(e) => handleKeyDown(e, setting.key)}
                             placeholder={
                               setting.is_secret
                                 ? hasValue
-                                  ? "Enter new value to update..."
+                                  ? "Enter new value to replace..."
                                   : "Paste your API key here..."
                                 : "Enter value..."
                             }
                             className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent font-mono"
                           />
-                          {setting.is_secret && (
+                          {setting.is_secret && hasValue && !isEditing && (
                             <button
                               onClick={() =>
                                 setRevealed((p) => ({ ...p, [setting.key]: !p[setting.key] }))
@@ -443,7 +475,7 @@ export default function SettingsPanel() {
                         </div>
                         <button
                           onClick={() => saveSetting(setting.key)}
-                          disabled={isSaving || !editValue}
+                          disabled={isSaving || !canSave}
                           className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1.5 ${
                             isSaved
                               ? "bg-green-500/20 text-green-400"
