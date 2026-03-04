@@ -128,27 +128,27 @@ export default function CommandCenter() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="h-14 border-b border-warroom-border flex items-center px-6 gap-3 flex-shrink-0">
-        <Zap size={18} className="text-warroom-accent" />
-        <h2 className="text-sm font-semibold">Command Center</h2>
-        <span className="ml-auto text-xs text-warroom-muted">
+      <div className="h-16 border-b border-warroom-border flex items-center px-8 gap-3 flex-shrink-0">
+        <Zap size={22} className="text-warroom-accent" />
+        <h2 className="text-lg font-bold">Command Center</h2>
+        <span className="ml-auto text-sm text-warroom-muted">
           {currentTime.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} · {currentTime.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
         </span>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="p-6 max-w-7xl mx-auto space-y-6">
+        <div className="p-8 space-y-8">
 
           {/* Welcome + Quick Stats */}
           <div className="flex items-end justify-between">
             <div>
-              <h1 className="text-2xl font-bold">{greeting}, Eddy</h1>
-              <p className="text-sm text-warroom-muted mt-1">Here's your operations overview</p>
+              <h1 className="text-3xl font-bold">{greeting}, Eddy</h1>
+              <p className="text-base text-warroom-muted mt-1">Here's your operations overview</p>
             </div>
           </div>
 
           {/* Top Metrics Row */}
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-5 gap-5">
             {[
               { label: "Total Reach", value: summary?.total_reach || 0, icon: Eye, color: "text-purple-400", bgColor: "bg-purple-400/10", trend: "+22%", sparkColor: "#a78bfa" },
               { label: "Followers", value: summary?.total_followers || accounts.reduce((s, a) => s + a.follower_count, 0), icon: Users, color: "text-blue-400", bgColor: "bg-blue-400/10", trend: "+12%", sparkColor: "#60a5fa" },
@@ -156,24 +156,24 @@ export default function CommandCenter() {
               { label: "Content Pipeline", value: pipelineStats.total, icon: Film, color: "text-orange-400", bgColor: "bg-orange-400/10", trend: null, sparkColor: "#fb923c" },
               { label: "Agents Active", value: AGENTS.length, icon: Activity, color: "text-warroom-accent", bgColor: "bg-warroom-accent/10", trend: null, sparkColor: "#6366f1" },
             ].map((stat, i) => (
-              <div key={i} className="bg-warroom-surface border border-warroom-border rounded-2xl p-4 hover:border-warroom-accent/20 transition group relative overflow-hidden">
+              <div key={i} className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/20 transition group relative overflow-hidden">
                 <div className="absolute bottom-0 right-0 opacity-30">
                   <MiniSparkline color={stat.sparkColor} />
                 </div>
-                <div className="flex items-center justify-between mb-2 relative z-10">
-                  <div className={`w-8 h-8 rounded-lg ${stat.bgColor} flex items-center justify-center`}>
-                    <stat.icon size={16} className={stat.color} />
+                <div className="flex items-center justify-between mb-3 relative z-10">
+                  <div className={`w-10 h-10 rounded-xl ${stat.bgColor} flex items-center justify-center`}>
+                    <stat.icon size={20} className={stat.color} />
                   </div>
                   {stat.trend && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-green-400 font-medium">
-                      <ArrowUpRight size={10} /> {stat.trend}
+                    <span className="flex items-center gap-0.5 text-xs text-green-400 font-medium">
+                      <ArrowUpRight size={12} /> {stat.trend}
                     </span>
                   )}
                 </div>
-                <p className={`text-xl font-bold ${stat.color} relative z-10`}>
+                <p className={`text-2xl font-bold ${stat.color} relative z-10`}>
                   {stat.isRate ? `${(typeof stat.value === "number" ? stat.value : 0).toFixed(1)}%` : formatNum(typeof stat.value === "number" ? stat.value : 0)}
                 </p>
-                <p className="text-[10px] text-warroom-muted mt-0.5 relative z-10">{stat.label}</p>
+                <p className="text-xs text-warroom-muted mt-1 relative z-10">{stat.label}</p>
               </div>
             ))}
           </div>
@@ -185,29 +185,29 @@ export default function CommandCenter() {
             <div className="col-span-2 space-y-6">
 
               {/* AI Team Status */}
-              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold flex items-center gap-2">
-                    <Activity size={16} className="text-warroom-accent" /> AI Team
+              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-base font-bold flex items-center gap-2.5">
+                    <Activity size={18} className="text-warroom-accent" /> AI Team
                   </h3>
-                  <span className="text-xs text-warroom-muted">{AGENTS.length} agents</span>
+                  <span className="text-sm text-warroom-muted">{AGENTS.length} agents</span>
                 </div>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-4 gap-4">
                   {AGENTS.slice(0, 4).map(agent => {
                     const isRunning = agent.id === "friday";
                     return (
-                      <div key={agent.id} className="bg-warroom-bg border border-warroom-border rounded-xl p-3 hover:border-warroom-accent/30 transition">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-lg">{agent.emoji}</span>
+                      <div key={agent.id} className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/30 transition">
+                        <div className="flex items-center gap-2.5 mb-3">
+                          <span className="text-2xl">{agent.emoji}</span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold truncate">{agent.name}</p>
-                            <p className="text-[10px] text-warroom-muted">{agent.role}</p>
+                            <p className="text-sm font-semibold truncate">{agent.name}</p>
+                            <p className="text-xs text-warroom-muted">{agent.role}</p>
                           </div>
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isRunning ? "bg-green-400 animate-pulse" : "bg-gray-500"}`} />
+                          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isRunning ? "bg-green-400 animate-pulse" : "bg-gray-500"}`} />
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-warroom-accent/10 text-warroom-accent">{agent.model}</span>
-                          <span className={`text-[9px] ${isRunning ? "text-green-400" : "text-warroom-muted"}`}>
+                          <span className="text-[11px] px-2 py-0.5 rounded bg-warroom-accent/10 text-warroom-accent font-medium">{agent.model}</span>
+                          <span className={`text-[11px] ${isRunning ? "text-green-400" : "text-warroom-muted"}`}>
                             {isRunning ? "Running" : "Idle"}
                           </span>
                         </div>
@@ -215,47 +215,47 @@ export default function CommandCenter() {
                     );
                   })}
                 </div>
-                <div className="grid grid-cols-3 gap-3 mt-3">
+                <div className="grid grid-cols-3 gap-4 mt-4">
                   {AGENTS.slice(4).map(agent => (
-                    <div key={agent.id} className="flex items-center gap-2 bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2">
-                      <span>{agent.emoji}</span>
+                    <div key={agent.id} className="flex items-center gap-2.5 bg-warroom-bg border border-warroom-border rounded-xl px-4 py-3">
+                      <span className="text-xl">{agent.emoji}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">{agent.name}</p>
-                        <p className="text-[9px] text-warroom-muted">{agent.role}</p>
+                        <p className="text-sm font-medium truncate">{agent.name}</p>
+                        <p className="text-xs text-warroom-muted">{agent.role}</p>
                       </div>
-                      <div className="w-1.5 h-1.5 rounded-full bg-gray-500" />
+                      <div className="w-2 h-2 rounded-full bg-gray-500" />
                     </div>
                   ))}
                 </div>
               </div>
 
               {/* Social Performance Cards */}
-              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold flex items-center gap-2">
-                    <Share2 size={16} className="text-warroom-accent" /> Social Performance
+              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-base font-bold flex items-center gap-2.5">
+                    <Share2 size={18} className="text-warroom-accent" /> Social Performance
                   </h3>
-                  <span className="text-xs text-warroom-muted">{accounts.length} platforms</span>
+                  <span className="text-sm text-warroom-muted">{accounts.length} platforms</span>
                 </div>
                 {accounts.length > 0 ? (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 gap-4">
                     {accounts.map(acc => (
-                      <div key={acc.id} className="bg-warroom-bg border border-warroom-border rounded-xl p-3 hover:border-warroom-accent/30 transition">
-                        <div className="flex items-center justify-between mb-2">
+                      <div key={acc.id} className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/30 transition">
+                        <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PLATFORM_COLORS[acc.platform] || "#666" }} />
-                            <span className="text-xs font-medium capitalize">{acc.platform}</span>
+                            <div className="w-4 h-4 rounded-full" style={{ backgroundColor: PLATFORM_COLORS[acc.platform] || "#666" }} />
+                            <span className="text-sm font-semibold capitalize">{acc.platform}</span>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                            <span className="text-[9px] text-green-400">LIVE</span>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                            <span className="text-[11px] text-green-400 font-medium">LIVE</span>
                           </div>
                         </div>
-                        {acc.username && <p className="text-[10px] text-warroom-muted mb-1">@{acc.username}</p>}
+                        {acc.username && <p className="text-xs text-warroom-muted mb-2">@{acc.username}</p>}
                         <div className="flex items-end justify-between">
                           <div>
-                            <p className="text-lg font-bold">{formatNum(acc.follower_count)}</p>
-                            <p className="text-[9px] text-warroom-muted">followers</p>
+                            <p className="text-2xl font-bold">{formatNum(acc.follower_count)}</p>
+                            <p className="text-xs text-warroom-muted">followers</p>
                           </div>
                           <MiniSparkline color={PLATFORM_COLORS[acc.platform] || "#6366f1"} />
                         </div>

@@ -470,7 +470,7 @@ X_AUTH_URL = "https://twitter.com/i/oauth2/authorize"
 X_TOKEN_URL = "https://api.twitter.com/2/oauth2/token"
 X_API_URL = "https://api.twitter.com/2"
 
-X_SCOPES = ["tweet.read", "users.read", "follows.read", "offline.access"]
+X_SCOPES = ["tweet.read", "users.read", "offline.access"]
 
 # Store PKCE verifiers temporarily (in production, use Redis)
 _pkce_store: dict = {}

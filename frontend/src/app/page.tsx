@@ -147,18 +147,20 @@ function WarRoom() {
   return (
     <div className="flex h-screen bg-warroom-bg text-warroom-text">
       {/* Sidebar */}
-      <nav className="w-[72px] bg-warroom-surface border-r border-warroom-border flex flex-col items-center py-3 gap-0.5 flex-shrink-0">
+      <nav className="w-[180px] bg-warroom-surface border-r border-warroom-border flex flex-col py-3 gap-0.5 flex-shrink-0">
         {/* Logo */}
-        <div className="mb-4 flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-warroom-accent to-purple-600">
-          <Zap size={20} className="text-white" />
+        <div className="mb-4 flex items-center gap-2.5 px-4">
+          <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-warroom-accent to-purple-600">
+            <Zap size={18} className="text-white" />
+          </div>
+          <span className="text-sm font-bold tracking-wide text-warroom-text/90">WAR ROOM</span>
         </div>
-        <p className="text-[7px] text-warroom-muted/50 font-bold tracking-widest -mt-3 mb-2">WAR ROOM</p>
 
         {/* Sections */}
         {SECTIONS.map((section, si) => (
           <div key={section.label} className="w-full px-2">
-            {si > 0 && <div className="h-px bg-warroom-border/50 my-2" />}
-            <p className="text-[8px] text-warroom-muted/60 font-bold tracking-widest text-center mb-1">{section.label}</p>
+            {si > 0 && <div className="h-px bg-warroom-border/40 my-2.5" />}
+            <p className="text-[10px] text-warroom-text/40 font-semibold tracking-widest px-2 mb-1">{section.label}</p>
             {section.items.map((item) => {
               const Icon = item.icon;
               const hasChildren = "children" in item && item.children;
@@ -172,20 +174,19 @@ function WarRoom() {
                     onClick={() => {
                       if (!hasChildren) navigate(item.id as TabId);
                       else if (hasChildren) {
-                        // Click parent → go to first child
                         const firstChild = (item as any).children[0];
                         if (firstChild) navigate(firstChild.id as TabId);
                       }
                     }}
-                    className={`w-full h-11 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all ${
+                    className={`w-full h-9 rounded-lg flex items-center gap-2.5 px-2.5 transition-all ${
                       isActive
                         ? "bg-warroom-accent/15 text-warroom-accent"
-                        : "text-warroom-muted hover:text-warroom-text hover:bg-warroom-border/30"
+                        : "text-warroom-text/60 hover:text-warroom-text/90 hover:bg-warroom-border/30"
                     }`}
                     title={item.label}
                   >
-                    <Icon size={18} />
-                    <span className="text-[9px] font-medium leading-none">{item.label}</span>
+                    <Icon size={16} strokeWidth={1.5} />
+                    <span className="text-[13px] font-medium">{item.label}</span>
                   </button>
 
                   {/* Flyout dropdown for items with children */}
@@ -202,7 +203,7 @@ function WarRoom() {
                               className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-all ${
                                 activeTab === child.id
                                   ? "text-warroom-accent bg-warroom-accent/10"
-                                  : "text-warroom-text hover:bg-warroom-border/30"
+                                  : "text-warroom-text/70 hover:text-warroom-text hover:bg-warroom-border/30"
                               }`}>
                               <ChildIcon size={15} />
                               {child.label}
@@ -222,27 +223,29 @@ function WarRoom() {
         <div className="flex-1" />
 
         <div className="px-2 mb-2">
-          <div className="text-center mb-2">
-            <div className="w-8 h-8 rounded-full bg-warroom-accent/20 flex items-center justify-center mx-auto">
-              <span className="text-xs font-bold text-warroom-accent">{user?.name?.[0]?.toUpperCase()}</span>
+          <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-warroom-bg/40">
+            <div className="w-7 h-7 rounded-full bg-warroom-accent/20 flex items-center justify-center flex-shrink-0">
+              <span className="text-[11px] font-bold text-warroom-accent">{user?.name?.[0]?.toUpperCase()}</span>
             </div>
+            <span className="text-xs font-medium text-warroom-text/70 truncate">{user?.name}</span>
           </div>
         </div>
 
-        <button onClick={() => navigate("settings")}
-          className={`w-[56px] h-11 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all ${
-            activeTab === "settings" ? "bg-warroom-accent/15 text-warroom-accent" : "text-warroom-muted hover:text-warroom-text hover:bg-warroom-border/30"
-          }`} title="Settings">
-          <Settings size={18} />
-          <span className="text-[9px] font-medium">Settings</span>
-        </button>
+        <div className="px-2 space-y-0.5 mb-2">
+          <button onClick={() => navigate("settings")}
+            className={`w-full h-9 rounded-lg flex items-center gap-2.5 px-2.5 transition-all ${
+              activeTab === "settings" ? "bg-warroom-accent/15 text-warroom-accent" : "text-warroom-text/50 hover:text-warroom-text/80 hover:bg-warroom-border/30"
+            }`}>
+            <Settings size={16} strokeWidth={1.5} />
+            <span className="text-[13px] font-medium">Settings</span>
+          </button>
 
-        <button onClick={logout}
-          className="w-[56px] h-11 rounded-lg flex flex-col items-center justify-center gap-0.5 text-warroom-muted hover:text-red-400 hover:bg-red-400/10 transition-all mb-1"
-          title="Logout">
-          <LogOut size={18} />
-          <span className="text-[9px] font-medium">Logout</span>
-        </button>
+          <button onClick={logout}
+            className="w-full h-9 rounded-lg flex items-center gap-2.5 px-2.5 text-warroom-text/50 hover:text-red-400 hover:bg-red-400/10 transition-all">
+            <LogOut size={16} strokeWidth={1.5} />
+            <span className="text-[13px] font-medium">Logout</span>
+          </button>
+        </div>
       </nav>
 
       {/* Main content */}
