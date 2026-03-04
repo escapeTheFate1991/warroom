@@ -19,6 +19,7 @@ from .attribute import Attribute, AttributeOption, AttributeValue
 from .automation import Workflow, Webhook
 from .audit import AuditLog, Import, SavedFilter
 from .social import SocialAccount, SocialAnalytics
+from .organization import Tenant
 
 __all__ = [
     "CrmBase",
@@ -34,4 +35,5 @@ __all__ = [
     "Workflow", "Webhook",
     "AuditLog", "Import", "SavedFilter",
     "SocialAccount", "SocialAnalytics",
+    "Tenant",
 ]
