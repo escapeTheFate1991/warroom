@@ -113,21 +113,18 @@ export default function SocialDashboard() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Handle OAuth callback
+  // Listen for OAuth popup completion via postMessage
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("connected")) {
-      fetchData();
-      const url = new URL(window.location.href);
-      url.searchParams.delete("connected");
-      window.history.replaceState({}, "", url.toString());
-    }
-    if (params.get("error")) {
-      alert(`OAuth connection failed: ${params.get("error")}`);
-      const url = new URL(window.location.href);
-      url.searchParams.delete("error");
-      window.history.replaceState({}, "", url.toString());
-    }
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === "oauth_complete") {
+        fetchData(); // Refresh accounts list
+        if (event.data.status === "error" && event.data.error) {
+          alert(event.data.error);
+        }
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
   }, [fetchData]);
 
   const startOAuth = async (platform: string) => {

@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,26 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3300")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8300")
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+def _oauth_complete_page(success: bool, platform: str, error: str = "") -> HTMLResponse:
+    """Return an HTML page that notifies the parent window and closes the popup."""
+    status = "connected" if success else "error"
+    message = f"{platform} connected successfully!" if success else (error or f"Failed to connect {platform}")
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><title>OAuth Complete</title></head>
+<body style="background:#0a0a0f;color:#e2e8f0;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center">
+  <p style="font-size:18px;margin-bottom:8px">{"✅" if success else "❌"} {message}</p>
+  <p style="font-size:13px;color:#64748b">This window will close automatically...</p>
+</div>
+<script>
+  if (window.opener) {{
+    window.opener.postMessage({{ type: "oauth_complete", status: "{status}", platform: "{platform}", error: "{error}" }}, "*");
+  }}
+  setTimeout(() => window.close(), 1500);
+</script>
+</body></html>""")
+
 
 async def _get_setting(db: AsyncSession, key: str) -> Optional[str]:
     """Get a setting value from the settings table (in leadgen DB)."""
@@ -180,7 +200,7 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
 
         if token_resp.status_code != 200:
             logger.error(f"Meta token exchange failed: {token_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=token_failed")
+            return _oauth_complete_page(False, requested_platform, "Token exchange failed")
 
         token_data = token_resp.json()
         short_token = token_data["access_token"]
@@ -251,12 +271,10 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
 
             if not ig_found and requested_platform == "instagram":
                 logger.warning("Instagram requested but no Instagram Business account found on any Page")
-                return RedirectResponse(
-                    f"{FRONTEND_URL}/?tab=social&error=no_instagram_business"
-                )
+                return _oauth_complete_page(False, "instagram", "No Instagram Business account found. Link your Instagram to a Facebook Page first.")
 
     platform_str = ",".join(connected) if connected else requested_platform
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected={platform_str}")
+    return _oauth_complete_page(True, platform_str)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -287,7 +305,7 @@ async def threads_callback(code: str, state: str = "", db: AsyncSession = Depend
 
         if token_resp.status_code != 200:
             logger.error(f"Threads token exchange failed: {token_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=threads_token_failed")
+            return _oauth_complete_page(False, "threads", "Threads token exchange failed")
 
         token_data = token_resp.json()
         short_token = token_data["access_token"]
@@ -321,9 +339,9 @@ async def threads_callback(code: str, state: str = "", db: AsyncSession = Depend
             )
         else:
             logger.error(f"Threads profile fetch failed: {me_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=threads_profile_failed")
+            return _oauth_complete_page(False, "threads", "Failed to fetch Threads profile")
 
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=threads")
+    return _oauth_complete_page(True, "threads")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -397,7 +415,7 @@ async def x_callback(code: str, state: str = "", db: AsyncSession = Depends(get_
 
         if token_resp.status_code != 200:
             logger.error(f"X token exchange failed: {token_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=token_failed")
+            return _oauth_complete_page(False, requested_platform, "Token exchange failed")
 
         token_data = token_resp.json()
         access_token = token_data["access_token"]
@@ -422,7 +440,7 @@ async def x_callback(code: str, state: str = "", db: AsyncSession = Depends(get_
             post_count=metrics.get("tweet_count", 0),
         )
 
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=x")
+    return _oauth_complete_page(True, "x")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -492,7 +510,7 @@ async def tiktok_callback(code: str, state: str = "", db: AsyncSession = Depends
 
         if token_resp.status_code != 200:
             logger.error(f"TikTok token exchange failed: {token_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=token_failed")
+            return _oauth_complete_page(False, requested_platform, "Token exchange failed")
 
         token_data = token_resp.json()
         access_token = token_data.get("access_token")
@@ -518,7 +536,7 @@ async def tiktok_callback(code: str, state: str = "", db: AsyncSession = Depends
             post_count=user_data.get("video_count", 0),
         )
 
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=tiktok")
+    return _oauth_complete_page(True, "tiktok")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -579,7 +597,7 @@ async def google_callback(code: str, state: str = "", db: AsyncSession = Depends
 
         if token_resp.status_code != 200:
             logger.error(f"Google token exchange failed: {token_resp.text}")
-            return RedirectResponse(f"{FRONTEND_URL}/?tab=social&error=token_failed")
+            return _oauth_complete_page(False, requested_platform, "Token exchange failed")
 
         token_data = token_resp.json()
         access_token = token_data["access_token"]
@@ -613,7 +631,7 @@ async def google_callback(code: str, state: str = "", db: AsyncSession = Depends
                 refresh_token=refresh_token,
             )
 
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=google")
+    return _oauth_complete_page(True, "youtube")
 
 
 # ══════════════════════════════════════════════════════════════════════
