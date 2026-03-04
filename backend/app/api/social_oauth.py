@@ -109,19 +109,31 @@ META_AUTH_URL = "https://www.facebook.com/v21.0/dialog/oauth"
 META_TOKEN_URL = "https://graph.facebook.com/v21.0/oauth/access_token"
 META_GRAPH_URL = "https://graph.facebook.com/v21.0"
 
+# Instagram API with Instagram Login — direct OAuth, no Facebook Page required
+# Docs: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login
+INSTAGRAM_AUTH_URL = "https://www.instagram.com/oauth/authorize"
+INSTAGRAM_TOKEN_URL = "https://api.instagram.com/oauth/access_token"
+INSTAGRAM_GRAPH_URL = "https://graph.instagram.com"
+
 # Threads uses a completely separate OAuth flow and API
 THREADS_AUTH_URL = "https://threads.net/oauth/authorize"
 THREADS_TOKEN_URL = "https://graph.threads.net/oauth/access_token"
 THREADS_GRAPH_URL = "https://graph.threads.net/v1.0"
 
-# Facebook + Instagram scopes (Facebook OAuth dialog)
-META_SCOPES = [
+# Facebook scopes (Facebook OAuth dialog)
+FACEBOOK_SCOPES = [
     "pages_show_list",
     "pages_read_engagement",
-    "instagram_basic",
-    "instagram_manage_insights",
-    "instagram_content_publish",
     "public_profile",
+]
+
+# Instagram scopes (Instagram OAuth dialog — direct, no Page needed)
+INSTAGRAM_SCOPES = [
+    "instagram_business_basic",
+    "instagram_business_manage_messages",
+    "instagram_business_manage_comments",
+    "instagram_business_content_publish",
+    "instagram_business_manage_insights",
 ]
 
 # Threads scopes (Threads OAuth dialog — completely separate)
@@ -147,7 +159,20 @@ async def meta_authorize(
     nonce = secrets.token_urlsafe(24)
     state = f"{platform}:{nonce}"
 
-    if platform == "threads":
+    if platform == "instagram":
+        # Instagram API with Instagram Login — goes to instagram.com, not facebook.com
+        # No Facebook Page required. Works with Professional (Creator + Business) accounts.
+        redirect_uri = f"{BACKEND_URL}/api/social/oauth/instagram/callback"
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": ",".join(INSTAGRAM_SCOPES),
+            "response_type": "code",
+            "state": state,
+            "force_reauth": "true",
+        }
+        return {"auth_url": f"{INSTAGRAM_AUTH_URL}?{urlencode(params)}"}
+    elif platform == "threads":
         # Threads uses its own OAuth endpoint
         redirect_uri = f"{BACKEND_URL}/api/social/oauth/threads/callback"
         params = {
@@ -159,14 +184,12 @@ async def meta_authorize(
         }
         return {"auth_url": f"{THREADS_AUTH_URL}?{urlencode(params)}"}
     else:
-        # Facebook + Instagram use the Facebook OAuth dialog
+        # Facebook uses the Facebook OAuth dialog
         redirect_uri = f"{BACKEND_URL}/api/social/oauth/meta/callback"
-        # If specifically Instagram, request IG-focused scopes
-        scopes = META_SCOPES
         params = {
             "client_id": client_id,
             "redirect_uri": redirect_uri,
-            "scope": ",".join(scopes),
+            "scope": ",".join(FACEBOOK_SCOPES),
             "response_type": "code",
             "state": state,
         }
@@ -281,6 +304,81 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
 
     platform_str = ",".join(connected) if connected else requested_platform
     return _oauth_complete_page(True, platform_str)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# INSTAGRAM — Direct Instagram OAuth (instagram.com)
+# No Facebook Page required. Works with Professional accounts.
+# Docs: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login
+# ══════════════════════════════════════════════════════════════════════
+
+@router.get("/oauth/instagram/callback")
+async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
+    """Handle Instagram OAuth callback (direct Instagram login, no Facebook Page needed)."""
+    client_id = await _get_setting(db, "meta_app_id")
+    client_secret = await _get_setting(db, "meta_app_secret")
+
+    if not client_id or not client_secret:
+        raise HTTPException(400, "Meta credentials not configured")
+
+    redirect_uri = f"{BACKEND_URL}/api/social/oauth/instagram/callback"
+
+    async with httpx.AsyncClient() as client:
+        # Exchange code for short-lived token (Instagram uses POST with form data)
+        token_resp = await client.post(INSTAGRAM_TOKEN_URL, data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+            "code": code,
+        })
+
+        if token_resp.status_code != 200:
+            logger.error(f"Instagram token exchange failed: {token_resp.text}")
+            return _oauth_complete_page(False, "instagram", "Token exchange failed")
+
+        token_data = token_resp.json()
+        short_token = token_data["access_token"]
+        ig_user_id = token_data.get("user_id")
+
+        # Exchange for long-lived token (60 days)
+        ll_resp = await client.get(f"{INSTAGRAM_GRAPH_URL}/access_token", params={
+            "grant_type": "ig_exchange_token",
+            "client_secret": client_secret,
+            "access_token": short_token,
+        })
+
+        if ll_resp.status_code == 200:
+            ll_data = ll_resp.json()
+            access_token = ll_data["access_token"]
+        else:
+            logger.warning(f"Instagram long-lived token exchange failed: {ll_resp.text}")
+            access_token = short_token
+
+        # Get user profile
+        me_resp = await client.get(f"{INSTAGRAM_GRAPH_URL}/me", params={
+            "fields": "id,username,account_type,media_count,followers_count,follows_count,profile_picture_url",
+            "access_token": access_token,
+        })
+
+        if me_resp.status_code != 200:
+            logger.error(f"Instagram profile fetch failed: {me_resp.text}")
+            return _oauth_complete_page(False, "instagram", "Failed to fetch profile")
+
+        me_data = me_resp.json()
+        logger.info(f"Instagram profile: {me_data}")
+
+        await _upsert_social_account(
+            db, "instagram",
+            me_data.get("username", ""),
+            access_token,
+            profile_url=f"https://instagram.com/{me_data.get('username', '')}",
+            follower_count=me_data.get("followers_count", 0),
+            following_count=me_data.get("follows_count", 0),
+            post_count=me_data.get("media_count", 0),
+        )
+
+    return _oauth_complete_page(True, "instagram")
 
 
 # ══════════════════════════════════════════════════════════════════════

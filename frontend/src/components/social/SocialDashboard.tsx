@@ -46,11 +46,11 @@ const PLATFORMS = [
 ];
 
 // Maps platform → OAuth provider + query params
-// All Meta platforms use the meta authorize endpoint with platform= param
+// Each platform has its own OAuth flow via the meta authorize endpoint
 const OAUTH_PLATFORMS: Record<string, { provider: string; params?: Record<string, string> }> = {
-  instagram: { provider: "meta", params: { platform: "instagram" } },
-  facebook: { provider: "meta", params: { platform: "facebook" } },
-  threads: { provider: "meta", params: { platform: "threads" } },
+  instagram: { provider: "meta", params: { platform: "instagram" } },  // → instagram.com/oauth
+  facebook: { provider: "meta", params: { platform: "facebook" } },    // → facebook.com/dialog/oauth
+  threads: { provider: "meta", params: { platform: "threads" } },      // → threads.net/oauth
   x: { provider: "x" },
   tiktok: { provider: "tiktok" },
   youtube: { provider: "google" },
