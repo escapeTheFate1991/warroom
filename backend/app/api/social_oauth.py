@@ -151,9 +151,23 @@ async def meta_authorize(
     db: AsyncSession = Depends(get_crm_db),
 ):
     """Start Meta OAuth flow. platform=facebook|instagram|threads (or meta for both FB+IG)."""
-    client_id = await _get_setting(db, "meta_app_id")
+    # Each platform has its own App/Client ID in Meta Developer Dashboard
+    PLATFORM_SETTINGS = {
+        "instagram": "instagram_app_id",
+        "threads": "threads_client_id",
+        "facebook": "meta_app_id",
+        "meta": "meta_app_id",
+    }
+
+    setting_key = PLATFORM_SETTINGS.get(platform, "meta_app_id")
+    client_id = await _get_setting(db, setting_key)
+    
+    # Fallback to meta_app_id if platform-specific ID not set
+    if not client_id and setting_key != "meta_app_id":
+        client_id = await _get_setting(db, "meta_app_id")
+    
     if not client_id:
-        raise HTTPException(400, "Meta App ID not configured. Go to Settings → API Keys.")
+        raise HTTPException(400, f"App ID not configured for {platform}. Go to Settings → API Keys.")
 
     # Encode requested platform in state so callback knows what to save
     nonce = secrets.token_urlsafe(24)
@@ -315,11 +329,11 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
 @router.get("/oauth/instagram/callback")
 async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
     """Handle Instagram OAuth callback (direct Instagram login, no Facebook Page needed)."""
-    client_id = await _get_setting(db, "meta_app_id")
-    client_secret = await _get_setting(db, "meta_app_secret")
+    client_id = await _get_setting(db, "instagram_app_id") or await _get_setting(db, "meta_app_id")
+    client_secret = await _get_setting(db, "instagram_app_secret") or await _get_setting(db, "meta_app_secret")
 
     if not client_id or not client_secret:
-        raise HTTPException(400, "Meta credentials not configured")
+        raise HTTPException(400, "Instagram App ID not configured. Go to Settings → API Keys.")
 
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/instagram/callback"
 
@@ -389,11 +403,11 @@ async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depe
 @router.get("/oauth/threads/callback")
 async def threads_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
     """Handle Threads OAuth callback (separate from Meta/Facebook)."""
-    client_id = await _get_setting(db, "meta_app_id")
-    client_secret = await _get_setting(db, "meta_app_secret")
+    client_id = await _get_setting(db, "threads_client_id") or await _get_setting(db, "meta_app_id")
+    client_secret = await _get_setting(db, "threads_client_secret") or await _get_setting(db, "meta_app_secret")
 
     if not client_id or not client_secret:
-        raise HTTPException(400, "Meta credentials not configured")
+        raise HTTPException(400, "Threads Client ID not configured. Go to Settings → API Keys.")
 
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/threads/callback"
 
