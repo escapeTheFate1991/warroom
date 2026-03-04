@@ -18,6 +18,7 @@ from .quote import Quote, QuoteItem, DealQuote
 from .attribute import Attribute, AttributeOption, AttributeValue
 from .automation import Workflow, Webhook
 from .audit import AuditLog, Import, SavedFilter
+from .social import SocialAccount, SocialAnalytics
 
 __all__ = [
     "CrmBase",
@@ -31,5 +32,6 @@ __all__ = [
     "Quote", "QuoteItem", "DealQuote",
     "Attribute", "AttributeOption", "AttributeValue",
     "Workflow", "Webhook",
-    "AuditLog", "Import", "SavedFilter"
+    "AuditLog", "Import", "SavedFilter",
+    "SocialAccount", "SocialAnalytics",
 ]

@@ -1,12 +1,12 @@
 """Social media account and analytics models for CRM."""
 from sqlalchemy import Column, Integer, String, DateTime, Date, DECIMAL, Text, ForeignKey
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-Base = declarative_base()
+from . import CrmBase
 
 
-class SocialAccount(Base):
+class SocialAccount(CrmBase):
     """Social media account model."""
     __tablename__ = "social_accounts"
     __table_args__ = {"schema": "crm"}
@@ -29,7 +29,7 @@ class SocialAccount(Base):
     analytics = relationship("SocialAnalytics", back_populates="account", cascade="all, delete-orphan")
 
 
-class SocialAnalytics(Base):
+class SocialAnalytics(CrmBase):
     """Social media analytics model."""
     __tablename__ = "social_analytics"
     __table_args__ = {"schema": "crm"}
