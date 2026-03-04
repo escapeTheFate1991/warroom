@@ -1,0 +1,268 @@
+"""
+Social Content API — fetch real posts, videos, and metrics from connected platforms.
+"""
+import logging
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+import httpx
+
+from app.api.social import get_crm_db
+
+logger = logging.getLogger("social_content")
+router = APIRouter()
+
+# ═══════════════════════════════════════════════════════════
+# Helpers
+# ═══════════════════════════════════════════════════════════
+
+async def _get_account(db: AsyncSession, platform: str):
+    r = await db.execute(
+        text("SELECT id, access_token, refresh_token, username FROM crm.social_accounts WHERE platform = :p AND status = 'connected' LIMIT 1"),
+        {"p": platform},
+    )
+    row = r.fetchone()
+    if not row:
+        raise HTTPException(404, f"No connected {platform} account")
+    return {"id": row[0], "token": row[1], "refresh": row[2], "username": row[3]}
+
+
+# ═══════════════════════════════════════════════════════════
+# Instagram — Media + Insights
+# ═══════════════════════════════════════════════════════════
+
+INSTAGRAM_GRAPH = "https://graph.instagram.com"
+
+@router.get("/instagram/media")
+async def instagram_media(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
+    """Fetch recent Instagram posts with engagement metrics."""
+    acc = await _get_account(db, "instagram")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Get user's media
+        resp = await client.get(f"{INSTAGRAM_GRAPH}/me/media", params={
+            "fields": "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count",
+            "limit": limit,
+            "access_token": acc["token"],
+        })
+
+        if resp.status_code == 400:
+            data = resp.json()
+            logger.error(f"Instagram API error: {data}")
+            raise HTTPException(400, data.get("error", {}).get("message", "Instagram API error"))
+
+        if resp.status_code != 200:
+            raise HTTPException(502, f"Instagram API returned {resp.status_code}")
+
+        data = resp.json()
+        posts = data.get("data", [])
+
+        # Get profile info
+        profile_resp = await client.get(f"{INSTAGRAM_GRAPH}/me", params={
+            "fields": "id,username,account_type,media_count,followers_count,follows_count",
+            "access_token": acc["token"],
+        })
+        profile = profile_resp.json() if profile_resp.status_code == 200 else {}
+
+        return {
+            "profile": {
+                "username": profile.get("username", acc["username"]),
+                "followers": profile.get("followers_count", 0),
+                "following": profile.get("follows_count", 0),
+                "posts": profile.get("media_count", 0),
+                "account_type": profile.get("account_type", ""),
+            },
+            "media": [
+                {
+                    "id": p["id"],
+                    "caption": p.get("caption", ""),
+                    "type": p.get("media_type", ""),
+                    "url": p.get("media_url", ""),
+                    "thumbnail": p.get("thumbnail_url", p.get("media_url", "")),
+                    "permalink": p.get("permalink", ""),
+                    "timestamp": p.get("timestamp", ""),
+                    "likes": p.get("like_count", 0),
+                    "comments": p.get("comments_count", 0),
+                }
+                for p in posts
+            ],
+            "paging": data.get("paging", {}),
+        }
+
+
+@router.get("/instagram/insights")
+async def instagram_insights(db: AsyncSession = Depends(get_crm_db)):
+    """Fetch Instagram account-level insights (requires Business/Creator account)."""
+    acc = await _get_account(db, "instagram")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Account insights — last 30 days
+        resp = await client.get(f"{INSTAGRAM_GRAPH}/me/insights", params={
+            "metric": "impressions,reach,profile_views",
+            "period": "day",
+            "since": int((datetime.utcnow().timestamp()) - 30 * 86400),
+            "until": int(datetime.utcnow().timestamp()),
+            "access_token": acc["token"],
+        })
+
+        if resp.status_code != 200:
+            logger.warning(f"Instagram insights error {resp.status_code}: {resp.text[:200]}")
+            return {"insights": [], "error": "Insights may require a Business or Creator account"}
+
+        return {"insights": resp.json().get("data", [])}
+
+
+# ═══════════════════════════════════════════════════════════
+# YouTube — Videos + Analytics
+# ═══════════════════════════════════════════════════════════
+
+YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
+
+@router.get("/youtube/videos")
+async def youtube_videos(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
+    """Fetch recent YouTube videos with view/like/comment counts."""
+    acc = await _get_account(db, "youtube")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Get channel info
+        ch_resp = await client.get(f"{YOUTUBE_API}/channels", params={
+            "part": "snippet,statistics,contentDetails",
+            "mine": "true",
+        }, headers={"Authorization": f"Bearer {acc['token']}"})
+
+        if ch_resp.status_code != 200:
+            logger.error(f"YouTube channels error: {ch_resp.text[:200]}")
+            raise HTTPException(502, "Failed to fetch YouTube channel")
+
+        channels = ch_resp.json().get("items", [])
+        if not channels:
+            return {"channel": {}, "videos": []}
+
+        channel = channels[0]
+        stats = channel.get("statistics", {})
+        uploads_id = channel.get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads")
+
+        channel_info = {
+            "id": channel["id"],
+            "title": channel["snippet"]["title"],
+            "thumbnail": channel["snippet"].get("thumbnails", {}).get("default", {}).get("url", ""),
+            "subscribers": int(stats.get("subscriberCount", 0)),
+            "views": int(stats.get("viewCount", 0)),
+            "videos": int(stats.get("videoCount", 0)),
+        }
+
+        # Update DB with real subscriber count
+        await db.execute(
+            text("UPDATE crm.social_accounts SET follower_count = :f, post_count = :p, username = :u WHERE id = :id"),
+            {"f": channel_info["subscribers"], "p": channel_info["videos"], "u": channel_info["title"], "id": acc["id"]},
+        )
+        await db.commit()
+
+        videos = []
+        if uploads_id:
+            # Get video IDs from uploads playlist
+            pl_resp = await client.get(f"{YOUTUBE_API}/playlistItems", params={
+                "part": "snippet",
+                "playlistId": uploads_id,
+                "maxResults": limit,
+            }, headers={"Authorization": f"Bearer {acc['token']}"})
+
+            if pl_resp.status_code == 200:
+                items = pl_resp.json().get("items", [])
+                video_ids = [item["snippet"]["resourceId"]["videoId"] for item in items if item["snippet"]["resourceId"]["kind"] == "youtube#video"]
+
+                if video_ids:
+                    # Get video stats
+                    v_resp = await client.get(f"{YOUTUBE_API}/videos", params={
+                        "part": "snippet,statistics,contentDetails",
+                        "id": ",".join(video_ids[:25]),
+                    }, headers={"Authorization": f"Bearer {acc['token']}"})
+
+                    if v_resp.status_code == 200:
+                        for v in v_resp.json().get("items", []):
+                            s = v.get("statistics", {})
+                            snip = v["snippet"]
+                            videos.append({
+                                "id": v["id"],
+                                "title": snip.get("title", ""),
+                                "description": snip.get("description", "")[:200],
+                                "thumbnail": snip.get("thumbnails", {}).get("medium", {}).get("url", ""),
+                                "published": snip.get("publishedAt", ""),
+                                "views": int(s.get("viewCount", 0)),
+                                "likes": int(s.get("likeCount", 0)),
+                                "comments": int(s.get("commentCount", 0)),
+                                "duration": v.get("contentDetails", {}).get("duration", ""),
+                                "url": f"https://youtube.com/watch?v={v['id']}",
+                            })
+
+        return {"channel": channel_info, "videos": videos}
+
+
+# ═══════════════════════════════════════════════════════════
+# Facebook — Posts + Insights
+# ═══════════════════════════════════════════════════════════
+
+FB_GRAPH = "https://graph.facebook.com/v21.0"
+
+@router.get("/facebook/posts")
+async def facebook_posts(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
+    """Fetch recent Facebook page/profile posts."""
+    acc = await _get_account(db, "facebook")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{FB_GRAPH}/me/posts", params={
+            "fields": "id,message,created_time,permalink_url,full_picture,shares,likes.summary(true),comments.summary(true)",
+            "limit": limit,
+            "access_token": acc["token"],
+        })
+
+        if resp.status_code != 200:
+            logger.error(f"Facebook posts error: {resp.text[:200]}")
+            return {"posts": [], "error": "Failed to fetch posts"}
+
+        posts = resp.json().get("data", [])
+        return {
+            "posts": [
+                {
+                    "id": p["id"],
+                    "message": p.get("message", ""),
+                    "created": p.get("created_time", ""),
+                    "permalink": p.get("permalink_url", ""),
+                    "image": p.get("full_picture", ""),
+                    "likes": p.get("likes", {}).get("summary", {}).get("total_count", 0),
+                    "comments": p.get("comments", {}).get("summary", {}).get("total_count", 0),
+                    "shares": p.get("shares", {}).get("count", 0),
+                }
+                for p in posts
+            ]
+        }
+
+
+# ═══════════════════════════════════════════════════════════
+# Cross-platform summary
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/summary")
+async def content_summary(db: AsyncSession = Depends(get_crm_db)):
+    """Quick summary of all connected platforms — content counts and top posts."""
+    r = await db.execute(
+        text("SELECT platform, username, follower_count, post_count, following_count FROM crm.social_accounts WHERE status = 'connected'")
+    )
+    accounts = r.fetchall()
+
+    return {
+        "platforms": [
+            {
+                "platform": a[0],
+                "username": a[1],
+                "followers": a[2],
+                "posts": a[3],
+                "following": a[4],
+            }
+            for a in accounts
+        ],
+        "total_followers": sum(a[2] or 0 for a in accounts),
+        "total_posts": sum(a[3] or 0 for a in accounts),
+        "connected_count": len(accounts),
+    }

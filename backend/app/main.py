@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, files
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, files
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
@@ -94,6 +94,7 @@ app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(social.router, prefix="/api/social", tags=["social"])
 app.include_router(social_oauth.router, prefix="/api/social", tags=["social-oauth"])
+app.include_router(social_content.router, prefix="/api/social/content", tags=["social-content"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
 
 # CRM Routes
