@@ -509,7 +509,10 @@ async def x_authorize(db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.get("/oauth/x/callback")
-async def x_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
+async def x_callback(code: str = "", state: str = "", error: str = "", error_description: str = "", db: AsyncSession = Depends(get_crm_db)):
+    if error:
+        logger.error(f"X OAuth error: {error} — {error_description}")
+        return _oauth_complete_page(False, "x", f"{error}: {error_description}")
     """Handle X OAuth callback."""
     client_id = await _get_setting(db, "x_client_id")
     client_secret = await _get_setting(db, "x_client_secret")
@@ -533,7 +536,7 @@ async def x_callback(code: str, state: str = "", db: AsyncSession = Depends(get_
 
         if token_resp.status_code != 200:
             logger.error(f"X token exchange failed: {token_resp.text}")
-            return _oauth_complete_page(False, requested_platform, "Token exchange failed")
+            return _oauth_complete_page(False, "x", f"Token exchange failed: {token_resp.text[:200]}")
 
         token_data = token_resp.json()
         access_token = token_data["access_token"]

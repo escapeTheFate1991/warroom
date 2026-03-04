@@ -42,6 +42,12 @@ const SECTIONS = [
     ],
   },
   {
+    label: "SOCIALS",
+    items: [
+      { id: "social", label: "Analytics", icon: Share2 },
+    ],
+  },
+  {
     label: "CONTENT",
     items: [
       { id: "content-instagram", label: "Instagram", icon: Instagram },
@@ -50,12 +56,6 @@ const SECTIONS = [
       { id: "content-tracker", label: "Tracker", icon: BarChart3 },
       { id: "kanban", label: "Tasks", icon: ClipboardList },
       { id: "intelligence", label: "Reports", icon: FileBarChart },
-    ],
-  },
-  {
-    label: "SOCIALS",
-    items: [
-      { id: "social", label: "Platforms", icon: Share2 },
     ],
   },
   {
