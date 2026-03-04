@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   MessageSquare, Zap, Settings, LogOut, Share2, Activity, Film, Eye, Search,
   UserSquare, Briefcase, Users, Calendar, BookOpen, GraduationCap, Package,
-  Mail, FileText, LayoutGrid,
+  Mail, FileText, LayoutGrid, LayoutDashboard, Instagram, Youtube, BarChart3,
+  ClipboardList, FileBarChart, Telescope, Bot,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/components/AuthProvider";
 import ChatPanel from "@/components/chat/ChatPanel";
@@ -27,23 +28,34 @@ import ContentPipeline from "@/components/content/ContentPipeline";
 import CompetitorIntel from "@/components/intelligence/CompetitorIntel";
 import ActivityFeed from "@/components/agents/ActivityFeed";
 import CommandCenter from "@/components/dashboard/CommandCenter";
+import PlatformContent from "@/components/content/PlatformContent";
+import ContentTracker from "@/components/content/ContentTracker";
 
-// Sidebar section structure
+// Sidebar section structure (inspired by RAWGROWTH War Room)
 const SECTIONS = [
   {
     label: "COMMAND",
     items: [
-      { id: "dashboard", label: "Home", icon: Zap },
+      { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
       { id: "chat", label: "Chat", icon: MessageSquare },
-      { id: "agents", label: "Agents", icon: Activity },
+      { id: "agents", label: "Agents", icon: Bot },
     ],
   },
   {
     label: "CONTENT",
     items: [
-      { id: "social", label: "Social", icon: Share2 },
+      { id: "content-instagram", label: "Instagram", icon: Instagram },
+      { id: "content-youtube", label: "YouTube", icon: Youtube },
       { id: "pipeline", label: "Pipeline", icon: Film },
-      { id: "intelligence", label: "Intel", icon: Eye },
+      { id: "content-tracker", label: "Tracker", icon: BarChart3 },
+      { id: "kanban", label: "Tasks", icon: ClipboardList },
+      { id: "intelligence", label: "Reports", icon: FileBarChart },
+    ],
+  },
+  {
+    label: "SOCIALS",
+    items: [
+      { id: "social", label: "Platforms", icon: Share2 },
     ],
   },
   {
@@ -56,7 +68,6 @@ const SECTIONS = [
         { id: "crm-activities", label: "Activities", icon: Calendar },
         { id: "crm-products", label: "Products", icon: Package },
       ]},
-      { id: "kanban", label: "Tasks", icon: LayoutGrid },
     ],
   },
   {
@@ -76,6 +87,7 @@ const SECTIONS = [
 
 type TabId =
   | "dashboard" | "chat" | "agents" | "activity" | "social" | "pipeline" | "intelligence"
+  | "content-instagram" | "content-youtube" | "content-tracker"
   | "kanban" | "team" | "leadgen"
   | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products"
   | "library-search" | "library-educate"
@@ -140,6 +152,7 @@ function WarRoom() {
         <div className="mb-4 flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-warroom-accent to-purple-600">
           <Zap size={20} className="text-white" />
         </div>
+        <p className="text-[7px] text-warroom-muted/50 font-bold tracking-widest -mt-3 mb-2">WAR ROOM</p>
 
         {/* Sections */}
         {SECTIONS.map((section, si) => (
@@ -239,7 +252,10 @@ function WarRoom() {
         {activeTab === "agents" && <AgentServiceMap />}
         {activeTab === "activity" && <ActivityFeed />}
         {activeTab === "social" && <SocialDashboard />}
+        {activeTab === "content-instagram" && <PlatformContent platform="instagram" />}
+        {activeTab === "content-youtube" && <PlatformContent platform="youtube" />}
         {activeTab === "pipeline" && <ContentPipeline />}
+        {activeTab === "content-tracker" && <ContentTracker />}
         {activeTab === "intelligence" && <CompetitorIntel />}
         {activeTab === "kanban" && <KanbanPanel />}
         {activeTab === "leadgen" && <LeadgenPanel />}
