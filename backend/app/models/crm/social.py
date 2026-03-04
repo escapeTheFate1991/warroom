@@ -12,7 +12,7 @@ class SocialAccount(Base):
     __table_args__ = {"schema": "crm"}
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("crm.users.id", ondelete="CASCADE"))
+    user_id = Column(Integer, default=1)  # Single-user app — no users table needed
     platform = Column(String, nullable=False)  # instagram, facebook, threads, youtube, x
     username = Column(String)
     profile_url = Column(String)
