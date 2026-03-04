@@ -3,19 +3,36 @@
  * Handles JWT token storage, validation, and API calls
  */
 
+export interface UserOrg {
+  id: number;
+  name: string;
+  slug: string;
+}
+
+export interface UserRole {
+  id: number;
+  name: string;
+  permissions: string[];
+}
+
 export interface User {
   id: number;
   name: string;
   email: string;
+  email_verified: boolean;
+  is_superadmin: boolean;
+  org?: UserOrg | null;
+  role?: UserRole | null;
 }
 
 export interface AuthResponse {
   access_token: string;
   token_type: string;
+  expires_in: number;
   user: User;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8300';
 const TOKEN_KEY = 'warroom_token';
 const USER_KEY = 'warroom_user';
 
@@ -118,7 +135,7 @@ export async function login(email: string, password: string): Promise<AuthRespon
 /**
  * Sign up new user
  */
-export async function signup(name: string, email: string, password: string): Promise<User> {
+export async function signup(name: string, email: string, password: string): Promise<AuthResponse> {
   const response = await fetch(`${API_BASE}/api/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -130,7 +147,9 @@ export async function signup(name: string, email: string, password: string): Pro
     throw new Error(error.detail || 'Signup failed');
   }
 
-  return response.json();
+  const authResponse: AuthResponse = await response.json();
+  storeAuthData(authResponse);
+  return authResponse;
 }
 
 /**
