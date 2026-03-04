@@ -243,7 +243,11 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
             accounts_resp = await client.get(f"{META_GRAPH_URL}/me/accounts", params={
                 "access_token": access_token,
             })
-            pages = accounts_resp.json().get("data", [])
+            pages_data = accounts_resp.json()
+            pages = pages_data.get("data", [])
+            logger.info(f"Pages API returned {len(pages)} pages: {[p.get('name') for p in pages]}")
+            if not pages:
+                logger.warning(f"No pages found. Full response: {pages_data}")
             ig_found = False
 
             for page in pages:
@@ -255,7 +259,9 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
                         "access_token": page_token,
                     }
                 )
-                ig_data = ig_resp.json().get("instagram_business_account")
+                ig_result = ig_resp.json()
+                logger.info(f"Page '{page.get('name')}' IG lookup: {ig_result}")
+                ig_data = ig_result.get("instagram_business_account")
                 if ig_data:
                     await _upsert_social_account(
                         db, "instagram",
