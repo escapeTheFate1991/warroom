@@ -45,11 +45,11 @@ const PLATFORMS = [
   { id: "tiktok", name: "TikTok", color: "#00F2EA", gradient: "from-cyan-400 to-pink-500" },
 ];
 
-// Maps platform → OAuth provider key
-// Threads uses meta provider but needs platform=threads query param
+// Maps platform → OAuth provider + query params
+// All Meta platforms use the meta authorize endpoint with platform= param
 const OAUTH_PLATFORMS: Record<string, { provider: string; params?: Record<string, string> }> = {
-  instagram: { provider: "meta" },
-  facebook: { provider: "meta" },
+  instagram: { provider: "meta", params: { platform: "instagram" } },
+  facebook: { provider: "meta", params: { platform: "facebook" } },
   threads: { provider: "meta", params: { platform: "threads" } },
   x: { provider: "x" },
   tiktok: { provider: "tiktok" },

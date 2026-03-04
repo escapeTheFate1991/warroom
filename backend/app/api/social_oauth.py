@@ -118,12 +118,14 @@ async def meta_authorize(
     platform: str = "meta",
     db: AsyncSession = Depends(get_crm_db),
 ):
-    """Start Meta OAuth flow. platform=meta for FB+IG, platform=threads for Threads."""
+    """Start Meta OAuth flow. platform=facebook|instagram|threads (or meta for both FB+IG)."""
     client_id = await _get_setting(db, "meta_app_id")
     if not client_id:
         raise HTTPException(400, "Meta App ID not configured. Go to Settings → API Keys.")
 
-    state = secrets.token_urlsafe(32)
+    # Encode requested platform in state so callback knows what to save
+    nonce = secrets.token_urlsafe(24)
+    state = f"{platform}:{nonce}"
 
     if platform == "threads":
         # Threads uses its own OAuth endpoint
@@ -139,10 +141,12 @@ async def meta_authorize(
     else:
         # Facebook + Instagram use the Facebook OAuth dialog
         redirect_uri = f"{BACKEND_URL}/api/social/oauth/meta/callback"
+        # If specifically Instagram, request IG-focused scopes
+        scopes = META_SCOPES
         params = {
             "client_id": client_id,
             "redirect_uri": redirect_uri,
-            "scope": ",".join(META_SCOPES),
+            "scope": ",".join(scopes),
             "response_type": "code",
             "state": state,
         }
@@ -151,17 +155,22 @@ async def meta_authorize(
 
 @router.get("/oauth/meta/callback")
 async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
-    """Handle Meta OAuth callback."""
+    """Handle Meta OAuth callback. Respects requested platform from state."""
     client_id = await _get_setting(db, "meta_app_id")
     client_secret = await _get_setting(db, "meta_app_secret")
 
     if not client_id or not client_secret:
         raise HTTPException(400, "Meta credentials not configured")
 
+    # Parse requested platform from state (format: "platform:nonce")
+    requested_platform = "meta"  # default: save both FB + IG
+    if ":" in state:
+        requested_platform = state.split(":")[0]
+
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/meta/callback"
 
-    # Exchange code for short-lived token
     async with httpx.AsyncClient() as client:
+        # Exchange code for short-lived token
         token_resp = await client.get(META_TOKEN_URL, params={
             "client_id": client_id,
             "client_secret": client_secret,
@@ -187,12 +196,10 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
         if ll_resp.status_code == 200:
             ll_data = ll_resp.json()
             access_token = ll_data["access_token"]
-            expires_in = ll_data.get("expires_in", 5184000)
         else:
             access_token = short_token
-            expires_in = 3600
 
-        # Get user profile
+        # Get user profile (needed for FB save and as fallback)
         me_resp = await client.get(f"{META_GRAPH_URL}/me", params={
             "fields": "id,name",
             "access_token": access_token,
@@ -201,60 +208,55 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
         fb_name = me_data.get("name", "Unknown")
         fb_id = me_data.get("id")
 
-        # Save Facebook account
-        await _upsert_social_account(
-            db, "facebook", fb_name, access_token,
-            profile_url=f"https://facebook.com/{fb_id}",
-        )
+        connected = []
 
-        # Try to get Instagram Business account
-        accounts_resp = await client.get(f"{META_GRAPH_URL}/me/accounts", params={
-            "access_token": access_token,
-        })
-        pages = accounts_resp.json().get("data", [])
-
-        for page in pages:
-            page_token = page.get("access_token", access_token)
-            ig_resp = await client.get(
-                f"{META_GRAPH_URL}/{page['id']}",
-                params={
-                    "fields": "instagram_business_account{id,username,followers_count,follows_count,media_count,profile_picture_url}",
-                    "access_token": page_token,
-                }
+        # Save Facebook if requested (facebook or meta)
+        if requested_platform in ("facebook", "meta"):
+            await _upsert_social_account(
+                db, "facebook", fb_name, access_token,
+                profile_url=f"https://facebook.com/{fb_id}",
             )
-            ig_data = ig_resp.json().get("instagram_business_account")
-            if ig_data:
-                await _upsert_social_account(
-                    db, "instagram",
-                    ig_data.get("username", ""),
-                    page_token,
-                    profile_url=f"https://instagram.com/{ig_data.get('username', '')}",
-                    follower_count=ig_data.get("followers_count", 0),
-                    following_count=ig_data.get("follows_count", 0),
-                    post_count=ig_data.get("media_count", 0),
+            connected.append("facebook")
+
+        # Try Instagram if requested (instagram or meta)
+        if requested_platform in ("instagram", "meta"):
+            accounts_resp = await client.get(f"{META_GRAPH_URL}/me/accounts", params={
+                "access_token": access_token,
+            })
+            pages = accounts_resp.json().get("data", [])
+            ig_found = False
+
+            for page in pages:
+                page_token = page.get("access_token", access_token)
+                ig_resp = await client.get(
+                    f"{META_GRAPH_URL}/{page['id']}",
+                    params={
+                        "fields": "instagram_business_account{id,username,followers_count,follows_count,media_count,profile_picture_url}",
+                        "access_token": page_token,
+                    }
+                )
+                ig_data = ig_resp.json().get("instagram_business_account")
+                if ig_data:
+                    await _upsert_social_account(
+                        db, "instagram",
+                        ig_data.get("username", ""),
+                        page_token,
+                        profile_url=f"https://instagram.com/{ig_data.get('username', '')}",
+                        follower_count=ig_data.get("followers_count", 0),
+                        following_count=ig_data.get("follows_count", 0),
+                        post_count=ig_data.get("media_count", 0),
+                    )
+                    connected.append("instagram")
+                    ig_found = True
+
+            if not ig_found and requested_platform == "instagram":
+                logger.warning("Instagram requested but no Instagram Business account found on any Page")
+                return RedirectResponse(
+                    f"{FRONTEND_URL}/?tab=social&error=no_instagram_business"
                 )
 
-        # Try Threads (if available via same token)
-        try:
-            threads_resp = await client.get(
-                f"https://graph.threads.net/v1.0/me",
-                params={
-                    "fields": "id,username,threads_profile_picture_url",
-                    "access_token": access_token,
-                }
-            )
-            if threads_resp.status_code == 200:
-                threads_data = threads_resp.json()
-                await _upsert_social_account(
-                    db, "threads",
-                    threads_data.get("username", fb_name),
-                    access_token,
-                    profile_url=f"https://threads.net/@{threads_data.get('username', '')}",
-                )
-        except Exception as e:
-            logger.warning(f"Threads API not available: {e}")
-
-    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected=meta")
+    platform_str = ",".join(connected) if connected else requested_platform
+    return RedirectResponse(f"{FRONTEND_URL}/?tab=social&connected={platform_str}")
 
 
 # ══════════════════════════════════════════════════════════════════════
