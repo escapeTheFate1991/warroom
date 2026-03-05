@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
@@ -92,6 +92,7 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(mental_library.router, prefix="/api/ml", tags=["mental-library"])
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+app.include_router(usage.router, prefix="/api/usage", tags=["usage"])
 app.include_router(social.router, prefix="/api/social", tags=["social"])
 app.include_router(social_oauth.router, prefix="/api/social", tags=["social-oauth"])
 app.include_router(social_content.router, prefix="/api/social/content", tags=["social-content"])
@@ -100,6 +101,9 @@ app.include_router(competitors.router, prefix="/api", tags=["competitors"])
 app.include_router(content_intel.router, prefix="/api/content-intel", tags=["content-intelligence"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
 app.include_router(scraper.router, prefix="/api", tags=["scraper"])
+app.include_router(skills_manager.router, prefix="/api", tags=["skills"])
+app.include_router(soul.router, prefix="/api", tags=["soul"])
+app.include_router(cal_api.router, prefix="/api", tags=["calendar"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])
