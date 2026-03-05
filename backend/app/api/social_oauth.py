@@ -4,7 +4,7 @@ import os
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 import httpx
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -466,9 +466,9 @@ async def threads_callback(code: str, state: str = "", db: AsyncSession = Depend
 # X (Twitter) — OAuth 2.0 with PKCE
 # ══════════════════════════════════════════════════════════════════════
 
-X_AUTH_URL = "https://twitter.com/i/oauth2/authorize"
-X_TOKEN_URL = "https://api.twitter.com/2/oauth2/token"
-X_API_URL = "https://api.twitter.com/2"
+X_AUTH_URL = "https://x.com/i/oauth2/authorize"
+X_TOKEN_URL = "https://api.x.com/2/oauth2/token"
+X_API_URL = "https://api.x.com/2"
 
 X_SCOPES = ["tweet.read", "users.read", "offline.access"]
 
@@ -505,7 +505,7 @@ async def x_authorize(db: AsyncSession = Depends(get_crm_db)):
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
     }
-    return {"auth_url": f"{X_AUTH_URL}?{urlencode(params)}"}
+    return {"auth_url": f"{X_AUTH_URL}?{urlencode(params, quote_via=quote)}"}
 
 
 @router.get("/oauth/x/callback")
