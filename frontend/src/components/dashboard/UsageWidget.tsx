@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronDown, Cpu, DollarSign, Clock, Activity } from "lucide-react";
 
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
+
 interface UsageTier {
   label: string;
   percent: number;
@@ -37,7 +39,7 @@ export default function UsageWidget() {
 
   const fetchUsage = async () => {
     try {
-      const response = await fetch('/api/usage');
+      const response = await fetch(`${API}/api/usage`);
       if (!response.ok) throw new Error('Failed to fetch usage');
       const data = await response.json();
       setUsage(data);
@@ -50,7 +52,7 @@ export default function UsageWidget() {
 
   const fetchModels = async () => {
     try {
-      const response = await fetch('/api/usage/models');
+      const response = await fetch(`${API}/api/usage/models`);
       if (!response.ok) throw new Error('Failed to fetch models');
       const data = await response.json();
       setModels(data);
@@ -61,7 +63,7 @@ export default function UsageWidget() {
 
   const setModel = async (model: string) => {
     try {
-      const response = await fetch('/api/usage/model', {
+      const response = await fetch(`${API}/api/usage/model`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model })
