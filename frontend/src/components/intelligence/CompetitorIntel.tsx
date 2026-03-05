@@ -1,17 +1,29 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2 } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw } from "lucide-react";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Competitor {
-  id: string;
+  id: number;
   handle: string;
   platform: string;
   followers: number;
-  postingFrequency: string;
-  topAngles: string[];
-  signatureFormula: string;
-  notes: string;
+  following: number;
+  post_count: number;
+  bio?: string;
+  profile_image_url?: string;
+  posting_frequency?: string;
+  avg_engagement_rate: number;
+  top_angles?: string;
+  signature_formula?: string;
+  notes?: string;
+  is_auto_populated: boolean;
+  last_auto_sync?: string;
+  auto_sync_enabled: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 interface HookFormula {
@@ -29,7 +41,6 @@ interface TrendingTopic {
   source: string;
 }
 
-const LS_KEY_COMPETITORS = "warroom_competitors";
 const LS_KEY_TOPICS = "warroom_trending_topics";
 
 const DEFAULT_TOPICS: TrendingTopic[] = [
@@ -67,47 +78,117 @@ function formatNum(n: number): string {
   return n.toLocaleString();
 }
 
-function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-
 export default function CompetitorIntel() {
   const [activeTab, setActiveTab] = useState<"competitors" | "trending" | "hooks">("competitors");
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [topics, setTopics] = useState<TrendingTopic[]>(DEFAULT_TOPICS);
   const [showAddCompetitor, setShowAddCompetitor] = useState(false);
   const [copiedHook, setCopiedHook] = useState<number | null>(null);
-  const [newComp, setNewComp] = useState({ handle: "", platform: "instagram", followers: 0, postingFrequency: "", topAngles: "", signatureFormula: "", notes: "" });
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [refreshing, setRefreshing] = useState<number | null>(null);
+  const [newComp, setNewComp] = useState({ handle: "", platform: "instagram" });
+
+  // Load competitors from API
+  const fetchCompetitors = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API}/api/competitors`);
+      if (response.ok) {
+        const data = await response.json();
+        setCompetitors(data);
+      } else {
+        console.error("Failed to fetch competitors:", response.statusText);
+      }
+    } catch (error) {
+      console.error("Error fetching competitors:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
+    fetchCompetitors();
+  }, []);
+
+  // Load topics from localStorage
+  useEffect(() => {
     try {
-      const saved = localStorage.getItem(LS_KEY_COMPETITORS);
-      if (saved) setCompetitors(JSON.parse(saved));
+      const saved = localStorage.getItem(LS_KEY_TOPICS);
+      if (saved) setTopics(JSON.parse(saved));
     } catch {}
   }, []);
 
-  useEffect(() => {
-    if (competitors.length > 0 || localStorage.getItem(LS_KEY_COMPETITORS)) {
-      localStorage.setItem(LS_KEY_COMPETITORS, JSON.stringify(competitors));
-    }
-  }, [competitors]);
-
-  const addCompetitor = () => {
+  const addCompetitor = async () => {
     if (!newComp.handle.trim()) return;
-    const comp: Competitor = {
-      id: genId(),
-      handle: newComp.handle.trim(),
-      platform: newComp.platform,
-      followers: newComp.followers,
-      postingFrequency: newComp.postingFrequency,
-      topAngles: newComp.topAngles.split("\n").filter(Boolean),
-      signatureFormula: newComp.signatureFormula,
-      notes: newComp.notes,
-    };
-    setCompetitors(prev => [...prev, comp]);
-    setNewComp({ handle: "", platform: "instagram", followers: 0, postingFrequency: "", topAngles: "", signatureFormula: "", notes: "" });
-    setShowAddCompetitor(false);
+    
+    try {
+      setSubmitting(true);
+      const response = await fetch(`${API}/api/competitors`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          handle: newComp.handle.trim().replace('@', ''),
+          platform: newComp.platform,
+        }),
+      });
+
+      if (response.ok) {
+        const newCompetitor = await response.json();
+        setCompetitors(prev => [newCompetitor, ...prev]);
+        setNewComp({ handle: "", platform: "instagram" });
+        setShowAddCompetitor(false);
+      } else {
+        const error = await response.json();
+        alert(`Failed to add competitor: ${error.detail || response.statusText}`);
+      }
+    } catch (error) {
+      alert(`Error adding competitor: ${error}`);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const deleteCompetitor = (id: string) => setCompetitors(prev => prev.filter(c => c.id !== id));
+  const deleteCompetitor = async (id: number) => {
+    try {
+      const response = await fetch(`${API}/api/competitors/${id}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        setCompetitors(prev => prev.filter(c => c.id !== id));
+      } else {
+        alert("Failed to delete competitor");
+      }
+    } catch (error) {
+      alert(`Error deleting competitor: ${error}`);
+    }
+  };
+
+  const refreshCompetitor = async (id: number) => {
+    try {
+      setRefreshing(id);
+      const response = await fetch(`${API}/api/competitors/${id}/sync`, {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        const updatedCompetitor = await response.json();
+        setCompetitors(prev => 
+          prev.map(c => c.id === id ? updatedCompetitor : c)
+        );
+      } else {
+        const error = await response.json();
+        alert(`Failed to refresh data: ${error.detail || response.statusText}`);
+      }
+    } catch (error) {
+      alert(`Error refreshing data: ${error}`);
+    } finally {
+      setRefreshing(null);
+    }
+  };
 
   const copyHook = (formula: HookFormula) => {
     navigator.clipboard.writeText(formula.template);
@@ -155,14 +236,19 @@ export default function CompetitorIntel() {
           {activeTab === "competitors" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-warroom-muted">Track competitors to learn their winning angles and posting strategies.</p>
+                <p className="text-sm text-warroom-muted">Track competitors to learn their winning angles and posting strategies. Data auto-updates from connected social accounts.</p>
                 <button onClick={() => setShowAddCompetitor(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition">
                   <Plus size={14} /> Add Competitor
                 </button>
               </div>
 
-              {competitors.length === 0 ? (
+              {loading ? (
+                <div className="text-center py-16">
+                  <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
+                  <p className="text-sm text-warroom-muted">Loading competitors...</p>
+                </div>
+              ) : competitors.length === 0 ? (
                 <div className="text-center py-16 text-warroom-muted">
                   <Target size={48} className="mx-auto mb-4 opacity-20" />
                   <p className="text-sm">No competitors tracked yet</p>
@@ -175,42 +261,76 @@ export default function CompetitorIntel() {
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-full bg-warroom-accent/10 flex items-center justify-center">
-                            <User size={20} className="text-warroom-accent" />
+                            {comp.profile_image_url ? (
+                              <img src={comp.profile_image_url} alt="" className="w-10 h-10 rounded-full object-cover" />
+                            ) : (
+                              <User size={20} className="text-warroom-accent" />
+                            )}
                           </div>
                           <div>
                             <h4 className="font-semibold text-sm">@{comp.handle}</h4>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[comp.platform] || "bg-gray-500/20 text-gray-400"}`}>{comp.platform}</span>
                               <span className="text-xs text-warroom-muted">{formatNum(comp.followers)} followers</span>
+                              {!comp.is_auto_populated && (
+                                <span className="text-[10px] px-1.5 py-0.5 bg-orange-500/20 text-orange-400 rounded">manual</span>
+                              )}
                             </div>
                           </div>
                         </div>
-                        <button onClick={() => deleteCompetitor(comp.id)}
-                          className="opacity-0 group-hover:opacity-100 text-warroom-muted hover:text-red-400 transition">
-                          <Trash2 size={14} />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          {comp.is_auto_populated && (
+                            <button 
+                              onClick={() => refreshCompetitor(comp.id)}
+                              disabled={refreshing === comp.id}
+                              className="opacity-0 group-hover:opacity-100 text-warroom-muted hover:text-warroom-accent transition disabled:animate-spin"
+                              title="Refresh data"
+                            >
+                              <RefreshCw size={14} />
+                            </button>
+                          )}
+                          <button onClick={() => deleteCompetitor(comp.id)}
+                            className="opacity-0 group-hover:opacity-100 text-warroom-muted hover:text-red-400 transition">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
 
-                      {comp.postingFrequency && (
-                        <p className="text-xs text-warroom-muted mb-2">📅 {comp.postingFrequency}</p>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-warroom-muted mb-3">
+                        <div>Following: {formatNum(comp.following)}</div>
+                        <div>Posts: {formatNum(comp.post_count)}</div>
+                      </div>
+
+                      {comp.posting_frequency && (
+                        <p className="text-xs text-warroom-muted mb-2">📅 {comp.posting_frequency}</p>
                       )}
 
-                      {comp.topAngles.length > 0 && (
+                      {comp.bio && (
+                        <p className="text-xs text-warroom-text mb-2 line-clamp-2">{comp.bio}</p>
+                      )}
+
+                      {comp.top_angles && (
                         <div className="mb-2">
                           <p className="text-[10px] text-warroom-muted font-medium mb-1">Top Angles</p>
                           <div className="space-y-1">
-                            {comp.topAngles.map((angle, i) => (
+                            {comp.top_angles.split('\n').filter(Boolean).map((angle, i) => (
                               <p key={i} className="text-xs text-warroom-text">• {angle}</p>
                             ))}
                           </div>
                         </div>
                       )}
 
-                      {comp.signatureFormula && (
+                      {comp.signature_formula && (
                         <div className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 mt-2">
                           <p className="text-[10px] text-warroom-muted font-medium mb-0.5">Signature Formula</p>
-                          <p className="text-xs italic">{comp.signatureFormula}</p>
+                          <p className="text-xs italic">{comp.signature_formula}</p>
                         </div>
+                      )}
+
+                      {comp.last_auto_sync && (
+                        <p className="text-[10px] text-warroom-muted/60 mt-2">
+                          Last updated: {new Date(comp.last_auto_sync).toLocaleDateString()}
+                        </p>
                       )}
                     </div>
                   ))}
@@ -304,36 +424,19 @@ export default function CompetitorIntel() {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-warroom-muted block mb-1">Followers</label>
-                  <input type="number" value={newComp.followers} onChange={e => setNewComp({ ...newComp, followers: parseInt(e.target.value) || 0 })}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent" />
-                </div>
-                <div>
-                  <label className="text-xs text-warroom-muted block mb-1">Posting Frequency</label>
-                  <input type="text" value={newComp.postingFrequency} onChange={e => setNewComp({ ...newComp, postingFrequency: e.target.value })}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent" placeholder="e.g., 5-6x/week" />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Top Angles (one per line)</label>
-                <textarea value={newComp.topAngles} onChange={e => setNewComp({ ...newComp, topAngles: e.target.value })}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent h-20 resize-none"
-                  placeholder="AI replaces entire teams&#10;Behind the scenes content&#10;Income reveals" />
-              </div>
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Signature Formula</label>
-                <input type="text" value={newComp.signatureFormula} onChange={e => setNewComp({ ...newComp, signatureFormula: e.target.value })}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
-                  placeholder="e.g., Hook + AI demo + results + CTA" />
+              
+              <div className="text-xs text-warroom-muted bg-warroom-bg border border-warroom-border rounded-lg p-3">
+                <p className="mb-1"><strong>Auto-populated:</strong> Followers, posts, bio, profile image</p>
+                <p><strong>Manual entry:</strong> Top angles, signature formula, notes (edit after adding)</p>
               </div>
             </div>
 
             <div className="flex gap-3 mt-5">
               <button onClick={() => setShowAddCompetitor(false)} className="flex-1 px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm hover:bg-warroom-surface transition">Cancel</button>
-              <button onClick={addCompetitor} disabled={!newComp.handle.trim()}
-                className="flex-1 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40 rounded-lg text-sm font-medium transition">Add Competitor</button>
+              <button onClick={addCompetitor} disabled={!newComp.handle.trim() || submitting}
+                className="flex-1 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
+                {submitting ? <><Loader2 size={14} className="animate-spin" /> Adding...</> : "Add Competitor"}
+              </button>
             </div>
           </div>
         </div>
