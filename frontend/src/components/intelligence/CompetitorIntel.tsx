@@ -27,37 +27,35 @@ interface Competitor {
 }
 
 interface CompetitorPost {
-  id: string;
-  content: string;
+  text: string;
   likes: number;
   comments: number;
   shares: number;
   engagement_score: number;
-  created_at: string;
+  timestamp: string;
   url?: string;
+  hook?: string;
 }
 
 interface TopContentPost {
-  id: string;
-  content: string;
+  text: string;
+  hook: string;
   likes: number;
   comments: number;
   shares: number;
   engagement_score: number;
   platform: string;
   competitor_handle: string;
-  created_at: string;
+  timestamp: string;
   url?: string;
 }
 
 interface Hook {
-  id: number;
-  text: string;
+  hook: string;
   engagement_score: number;
-  style?: string;
   platform: string;
   competitor_handle: string;
-  post_id?: string;
+  source_url?: string;
 }
 
 interface Script {
@@ -153,7 +151,8 @@ export default function CompetitorIntel() {
       const response = await fetch(`${API}/api/content-intel/competitors/top-content`);
       if (response.ok) {
         const data = await response.json();
-        setTopContent(data.sort((a: any, b: any) => b.engagement_score - a.engagement_score));
+        const posts = Array.isArray(data) ? data : (data.posts || []);
+        setTopContent(posts.sort((a: any, b: any) => b.engagement_score - a.engagement_score));
       } else if (response.status === 404) {
         setTopContent([]);
         setError("No content data available. Refresh competitor data first.");
@@ -175,7 +174,7 @@ export default function CompetitorIntel() {
       const response = await fetch(`${API}/api/content-intel/competitors/hooks`);
       if (response.ok) {
         const data = await response.json();
-        setHooks(data);
+        setHooks(Array.isArray(data) ? data : (data.hooks || []));
       } else if (response.status === 404) {
         setHooks([]);
         setError("No hooks available. Refresh competitor data first.");
@@ -215,7 +214,8 @@ export default function CompetitorIntel() {
       const response = await fetch(`${API}/api/content-intel/competitors/${competitorId}/content`);
       if (response.ok) {
         const data = await response.json();
-        setCompetitorPosts(data);
+        // API returns { posts: [...] }, extract the array
+        setCompetitorPosts(Array.isArray(data) ? data : (data.posts || []));
       } else {
         setCompetitorPosts([]);
       }
@@ -488,70 +488,72 @@ export default function CompetitorIntel() {
                   <p className="text-xs mt-1">Add your first competitor to start gathering intelligence</p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {competitors.map(comp => (
-                    <div key={comp.id}>
-                      <div 
-                        className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/30 transition cursor-pointer"
-                        onClick={() => toggleCompetitorExpansion(comp.id)}
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-warroom-accent/10 flex items-center justify-center">
-                              {comp.profile_image_url ? (
-                                <img src={comp.profile_image_url} alt="" className="w-10 h-10 rounded-full object-cover" />
-                              ) : (
-                                <User size={20} className="text-warroom-accent" />
-                              )}
-                            </div>
-                            <div>
-                              <h4 className="font-semibold text-sm">@{comp.handle}</h4>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[comp.platform] || "bg-gray-500/20 text-gray-400"}`}>{comp.platform}</span>
-                                <span className="text-xs text-warroom-muted">{formatNum(comp.followers)} followers</span>
-                                <span className="text-xs text-warroom-muted">{comp.avg_engagement_rate.toFixed(1)}% engagement</span>
-                              </div>
-                            </div>
+                    <div key={comp.id}
+                      className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/30 transition cursor-pointer flex flex-col"
+                      onClick={() => toggleCompetitorExpansion(comp.id)}
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-warroom-accent/10 flex items-center justify-center text-lg font-bold text-warroom-accent">
+                            {comp.handle.charAt(0).toUpperCase()}
                           </div>
-                          <div className="flex items-center gap-1">
-                            <button onClick={(e) => { e.stopPropagation(); deleteCompetitor(comp.id); }}
-                              className="text-warroom-muted hover:text-red-400 transition">
-                              <Trash2 size={14} />
-                            </button>
+                          <div>
+                            <h4 className="font-semibold text-sm">@{comp.handle}</h4>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[comp.platform] || "bg-gray-500/20 text-gray-400"}`}>{comp.platform}</span>
                           </div>
                         </div>
+                        <button onClick={(e) => { e.stopPropagation(); deleteCompetitor(comp.id); }}
+                          className="text-warroom-muted hover:text-red-400 transition">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
 
-                        <div className="grid grid-cols-3 gap-2 text-xs text-warroom-muted mb-3">
-                          <div>Following: {formatNum(comp.following)}</div>
-                          <div>Posts: {formatNum(comp.post_count)}</div>
-                          <div>Last sync: {comp.last_auto_sync ? timeAgo(comp.last_auto_sync) : "Never"}</div>
+                      <div className="grid grid-cols-3 gap-1 text-center mb-3">
+                        <div className="bg-warroom-bg rounded-lg py-2">
+                          <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.followers)}</p>
+                          <p className="text-[10px] text-warroom-muted">Followers</p>
                         </div>
+                        <div className="bg-warroom-bg rounded-lg py-2">
+                          <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.post_count)}</p>
+                          <p className="text-[10px] text-warroom-muted">Posts</p>
+                        </div>
+                        <div className="bg-warroom-bg rounded-lg py-2">
+                          <p className="text-sm font-semibold text-warroom-text">{comp.avg_engagement_rate.toFixed(1)}%</p>
+                          <p className="text-[10px] text-warroom-muted">Eng Rate</p>
+                        </div>
+                      </div>
 
-                        {comp.bio && (
-                          <p className="text-xs text-warroom-text mb-2 line-clamp-2">{comp.bio}</p>
-                        )}
+                      {comp.bio && (
+                        <p className="text-xs text-warroom-muted line-clamp-2 mb-2 flex-1">{comp.bio}</p>
+                      )}
+
+                      <div className="flex items-center justify-between text-[10px] text-warroom-muted mt-auto pt-2 border-t border-warroom-border">
+                        <span>{comp.posting_frequency || "—"}</span>
+                        <span>{comp.last_auto_sync ? timeAgo(comp.last_auto_sync) : "Never synced"}</span>
                       </div>
 
                       {/* Expanded Posts */}
                       {expandedCompetitor === comp.id && (
-                        <div className="mt-2 ml-4 space-y-2">
+                        <div className="mt-3 pt-3 border-t border-warroom-border space-y-2" onClick={(e) => e.stopPropagation()}>
                           {loadingPosts ? (
-                            <div className="text-center py-8">
-                              <Loader2 size={20} className="mx-auto animate-spin text-warroom-accent" />
+                            <div className="text-center py-4">
+                              <Loader2 size={16} className="mx-auto animate-spin text-warroom-accent" />
                             </div>
                           ) : competitorPosts.length === 0 ? (
-                            <p className="text-xs text-warroom-muted py-4 text-center">No recent posts available</p>
+                            <p className="text-xs text-warroom-muted py-2 text-center">No recent posts</p>
                           ) : (
-                            competitorPosts.slice(0, 3).map(post => (
-                              <div key={post.id} className="bg-warroom-bg border border-warroom-border rounded-lg p-3">
-                                <p className="text-xs text-warroom-text mb-2">{post.content.slice(0, 100)}...</p>
+                            competitorPosts.slice(0, 3).map((post, idx) => (
+                              <div key={idx} className="bg-warroom-bg border border-warroom-border rounded-lg p-3">
+                                <p className="text-xs text-warroom-text mb-2 line-clamp-2">{post.text}</p>
                                 <div className="flex items-center justify-between text-xs text-warroom-muted">
                                   <div className="flex gap-3">
                                     <span>❤️ {formatNum(post.likes)}</span>
                                     <span>💬 {formatNum(post.comments)}</span>
-                                    <span>🔄 {formatNum(post.shares)}</span>
+                                    {post.shares > 0 && <span>👁 {formatNum(post.shares)}</span>}
                                   </div>
-                                  <span>{timeAgo(post.created_at)}</span>
+                                  {post.timestamp && <span>{timeAgo(post.timestamp)}</span>}
                                 </div>
                               </div>
                             ))
@@ -583,33 +585,37 @@ export default function CompetitorIntel() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {topContent.map(post => (
-                    <div key={post.id} className="bg-warroom-surface border border-warroom-border rounded-2xl p-4 hover:border-warroom-accent/30 transition">
+                  {topContent.map((post, idx) => (
+                    <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-2xl p-4 hover:border-warroom-accent/30 transition">
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[post.platform] || "bg-gray-500/20 text-gray-400"}`}>{post.platform}</span>
                           <span className="text-xs text-warroom-muted">@{post.competitor_handle}</span>
                         </div>
                         {post.url && (
-                          <a href={post.url} target="_blank" rel="noopener" className="text-warroom-muted hover:text-warroom-accent transition">
+                          <a href={post.url} target="_blank" rel="noopener noreferrer" className="text-warroom-muted hover:text-warroom-accent transition">
                             <ExternalLink size={14} />
                           </a>
                         )}
                       </div>
                       
-                      <p className="text-sm text-warroom-text mb-3 line-clamp-3">{post.content.slice(0, 150)}...</p>
+                      {post.hook && (
+                        <p className="text-sm font-medium text-warroom-accent mb-1">🪝 {post.hook}</p>
+                      )}
+                      <p className="text-xs text-warroom-text mb-3 line-clamp-3">{(post.text || "").slice(0, 200)}</p>
                       
                       <div className="flex items-center justify-between text-xs text-warroom-muted">
                         <div className="flex gap-3">
                           <span>❤️ {formatNum(post.likes)}</span>
                           <span>💬 {formatNum(post.comments)}</span>
-                          <span>🔄 {formatNum(post.shares)}</span>
+                          {post.shares > 0 && <span>👁 {formatNum(post.shares)}</span>}
                         </div>
-                        <span>{timeAgo(post.created_at)}</span>
+                        {post.timestamp && <span>{timeAgo(post.timestamp)}</span>}
                       </div>
                       
-                      <div className="mt-2 bg-warroom-bg rounded px-2 py-1">
-                        <span className="text-xs text-warroom-accent font-medium">Score: {post.engagement_score.toFixed(1)}</span>
+                      <div className="mt-2 bg-warroom-bg rounded px-2 py-1 flex items-center justify-between">
+                        <span className="text-xs text-warroom-accent font-medium">Score: {post.engagement_score.toFixed(0)}</span>
+                        <span className="text-[10px] text-warroom-muted">#{idx + 1}</span>
                       </div>
                     </div>
                   ))}
@@ -636,24 +642,28 @@ export default function CompetitorIntel() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {hooks.sort((a, b) => b.engagement_score - a.engagement_score).map(hook => (
-                    <div key={hook.id} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/30 transition">
+                  {hooks.sort((a, b) => b.engagement_score - a.engagement_score).map((hook, idx) => (
+                    <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/30 transition">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[hook.platform] || "bg-gray-500/20 text-gray-400"}`}>{hook.platform}</span>
                           <span className="text-xs text-warroom-muted">@{hook.competitor_handle}</span>
-                          {hook.style && <span className="text-xs text-warroom-accent">{hook.style}</span>}
                         </div>
-                        <button onClick={() => copyHook(hook)}
+                        <button onClick={() => { navigator.clipboard.writeText(hook.hook); setCopiedHook(idx); setTimeout(() => setCopiedHook(null), 2000); }}
                           className="flex items-center gap-1 px-2 py-1 bg-warroom-accent/10 hover:bg-warroom-accent/20 text-warroom-accent rounded text-xs transition">
-                          {copiedHook === hook.id ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                          {copiedHook === idx ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
                         </button>
                       </div>
                       
-                      <p className="text-sm text-warroom-text mb-2">{hook.text}</p>
+                      <p className="text-sm text-warroom-text mb-2">{hook.hook}</p>
                       
-                      <div className="text-xs text-warroom-muted">
-                        <span>Engagement Score: {hook.engagement_score.toFixed(1)}</span>
+                      <div className="flex items-center justify-between text-xs text-warroom-muted">
+                        <span>Score: {hook.engagement_score.toFixed(0)}</span>
+                        {hook.source_url && (
+                          <a href={hook.source_url} target="_blank" rel="noopener noreferrer" className="hover:text-warroom-accent transition">
+                            <ExternalLink size={12} />
+                          </a>
+                        )}
                       </div>
                     </div>
                   ))}
