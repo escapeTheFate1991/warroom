@@ -153,7 +153,7 @@ export default function CompetitorIntel() {
       const response = await fetch(`${API}/api/content-intel/competitors/top-content`);
       if (response.ok) {
         const data = await response.json();
-        setTopContent(data.sort((a, b) => b.engagement_score - a.engagement_score));
+        setTopContent(data.sort((a: any, b: any) => b.engagement_score - a.engagement_score));
       } else if (response.status === 404) {
         setTopContent([]);
         setError("No content data available. Refresh competitor data first.");
