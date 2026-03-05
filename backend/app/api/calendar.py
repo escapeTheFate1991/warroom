@@ -8,7 +8,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-MEMORY_DIR = Path.home() / ".openclaw" / "workspace" / "memory"
+MEMORY_DIR = Path("/openclaw-workspace/memory")
 
 
 @router.get("/calendar")

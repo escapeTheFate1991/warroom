@@ -10,7 +10,7 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-WORKSPACE = Path.home() / ".openclaw" / "workspace"
+WORKSPACE = Path("/openclaw-workspace")
 HISTORY_DIR = WORKSPACE / ".soul-history"
 SOUL_FILES = ["SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "MEMORY.md"]
 

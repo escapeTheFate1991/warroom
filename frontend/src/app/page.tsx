@@ -7,6 +7,7 @@ import {
   UserSquare, Briefcase, Users, Calendar, BookOpen, GraduationCap, Package,
   Mail, FileText, LayoutGrid, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Telescope, Bot, Facebook, Twitter,
+  CalendarDays, Puzzle, Heart,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/components/AuthProvider";
 import ChatPanel from "@/components/chat/ChatPanel";
@@ -28,6 +29,10 @@ import ContentPipeline from "@/components/content/ContentPipeline";
 import CompetitorIntel from "@/components/intelligence/CompetitorIntel";
 import ActivityFeed from "@/components/agents/ActivityFeed";
 import CommandCenter from "@/components/dashboard/CommandCenter";
+import UsageWidget from "@/components/dashboard/UsageWidget";
+import SkillsManager from "@/components/dashboard/SkillsManager";
+import SoulEditor from "@/components/dashboard/SoulEditor";
+import ActivityCalendar from "@/components/dashboard/ActivityCalendar";
 import PlatformContent from "@/components/content/PlatformContent";
 import ContentTracker from "@/components/content/ContentTracker";
 
@@ -39,6 +44,7 @@ const SECTIONS = [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
       { id: "chat", label: "Chat", icon: MessageSquare },
       { id: "agents", label: "Agents", icon: Bot },
+      { id: "calendar", label: "Calendar", icon: CalendarDays },
       { id: "kanban", label: "Tasks", icon: ClipboardList },
     ],
   },
@@ -75,6 +81,8 @@ const SECTIONS = [
   {
     label: "TOOLS",
     items: [
+      { id: "skills", label: "Skills", icon: Puzzle },
+      { id: "soul", label: "Soul", icon: Heart },
       { id: "library", label: "Library", icon: BookOpen, children: [
         { id: "library-search", label: "Search", icon: Search },
         { id: "library-educate", label: "Educate", icon: GraduationCap },
@@ -88,12 +96,13 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "activity" | "social" | "pipeline" | "intelligence"
+  | "dashboard" | "chat" | "agents" | "activity" | "calendar" | "social" | "pipeline" | "intelligence"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
   | "kanban" | "team" | "leadgen"
   | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products"
   | "library-search" | "library-educate"
   | "marketing-campaigns" | "marketing-templates"
+  | "skills" | "soul"
   | "settings";
 
 // Map parent IDs to their children active check
@@ -251,7 +260,11 @@ function WarRoom() {
       </nav>
 
       {/* Main content */}
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-hidden relative">
+        {/* Usage widget — always visible top-right */}
+        <div className="absolute top-3 right-4 z-40">
+          <UsageWidget />
+        </div>
         {activeTab === "dashboard" && <CommandCenter />}
         {activeTab === "chat" && <ChatPanel />}
         {activeTab === "agents" && <AgentServiceMap />}
@@ -274,6 +287,9 @@ function WarRoom() {
         {activeTab === "library-educate" && <EducatePanel />}
         {activeTab === "marketing-campaigns" && <CampaignsPanel />}
         {activeTab === "marketing-templates" && <EmailTemplatesPanel />}
+        {activeTab === "calendar" && <ActivityCalendar />}
+        {activeTab === "skills" && <SkillsManager />}
+        {activeTab === "soul" && <SoulEditor />}
         {activeTab === "settings" && <SettingsPanel />}
       </main>
     </div>

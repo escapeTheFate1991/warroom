@@ -11,8 +11,8 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-OPENCLAW_DIR = Path.home() / ".openclaw"
-SESSIONS_DIR = OPENCLAW_DIR / "agents" / "main" / "sessions"
+OPENCLAW_DIR = Path("/openclaw")
+SESSIONS_DIR = Path("/openclaw-sessions")
 CONFIG_PATH = OPENCLAW_DIR / "openclaw.json"
 
 

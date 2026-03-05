@@ -12,9 +12,9 @@ from typing import Optional, List
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-WORKSPACE_SKILLS = Path.home() / ".openclaw" / "workspace" / "skills"
-BUNDLED_SKILLS = Path.home() / ".npm-global" / "lib" / "node_modules" / "openclaw" / "skills"
-CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
+WORKSPACE_SKILLS = Path("/openclaw-workspace/skills")
+BUNDLED_SKILLS = Path("/openclaw-bundled-skills")
+CONFIG_PATH = Path("/openclaw/openclaw.json")
 
 
 def _read_config():
