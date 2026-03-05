@@ -3,6 +3,7 @@ import logging
 import json
 import re
 import httpx
+import random
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
@@ -61,14 +62,39 @@ class TrendingTopicsResponse(BaseModel):
 
 class ScriptGenerationRequest(BaseModel):
     """Request for script generation."""
+    platform: str
+    topic: str = "AI automation for small business"
+    hook_style: str = "bold_claim"  # bold_claim, question, confession, comparison, statistic
+    include_scene_map: bool = True
+    save: bool = False
+
+
+class SceneMap(BaseModel):
+    """Individual scene in a video script."""
+    scene_num: int
+    duration: str
+    type: str  # hook, problem, solution, example, cta
+    text: str
+    visual_notes: str
+
+
+class FullScript(BaseModel):
+    """Complete script with scene-by-scene breakdown."""
+    id: Optional[int] = None
     competitor_id: Optional[int] = None
     platform: str
-    topic: Optional[str] = None
-    hook_style: Optional[str] = None  # comparison, bold_claim, confession, etc.
+    title: str
+    hook: str
+    scenes: List[SceneMap]
+    cta: str
+    topic: str
+    source_hooks: List[str]  # hooks that inspired this script
+    estimated_duration: str
+    created_at: Optional[datetime] = None
 
 
 class GeneratedScript(BaseModel):
-    """Generated content script."""
+    """Generated content script (legacy model for compatibility)."""
     id: Optional[int] = None
     competitor_id: Optional[int] = None
     platform: str
@@ -79,6 +105,83 @@ class GeneratedScript(BaseModel):
     topic: Optional[str] = None
     source_post_url: Optional[str] = None
     estimated_duration: Optional[str] = None
+
+
+class PlatformContentCard(BaseModel):
+    """Content card format for platform content tab."""
+    id: str
+    title: str
+    description: str
+    platform: str
+    status: str = "draft"
+    estimated_duration: str
+    hook: str
+    cta: str
+    scenes: Optional[List[SceneMap]] = None
+    created_at: datetime
+
+
+# Hook style templates
+HOOK_TEMPLATES = {
+    "bold_claim": [
+        "Most people don't realize {problem} is costing them {cost} every month",
+        "{number}% of {audience} are making this expensive mistake",
+        "The truth about {topic} that {industry} doesn't want you to know",
+        "I've analyzed {number} {audience} accounts, and here's what separates the winners",
+        "This {solution} completely changed how I think about {topic}"
+    ],
+    "question": [
+        "What if I told you {solution} could {benefit} in half the time?",
+        "What would you do if you had an extra {number} hours per {timeframe}?",
+        "Why do some {audience} {succeed} while others struggle with {problem}?",
+        "Have you ever wondered why {situation} happens to some people and not others?",
+        "What's the real difference between {group_a} and {group_b}?"
+    ],
+    "confession": [
+        "I used to {bad_habit} until I discovered {solution}",
+        "For years, I believed {misconception}. Here's what changed my mind",
+        "I'll admit it: I was completely wrong about {topic}",
+        "My biggest mistake was thinking {wrong_assumption}",
+        "Here's the embarrassing truth about my first {number} years doing {activity}"
+    ],
+    "comparison": [
+        "{successful_person} does {topic} differently than everyone else. Here's why",
+        "The difference between {level_a} and {level_b} {audience} isn't what you think",
+        "While everyone else is focused on {wrong_focus}, smart {audience} are doing {right_focus}",
+        "Here's how {industry_leader} approaches {topic} vs how most people do it",
+        "The gap between those who {succeed} and those who {fail} comes down to this"
+    ],
+    "statistic": [
+        "{number}% of {audience} are {missing_out} and don't even know it",
+        "Only {small_number} out of {large_number} {audience} actually {achievement}",
+        "Studies show that {statistic} about {topic}, but here's the real story",
+        "The average {audience} spends {time/money} on {activity}. Here's a better way",
+        "After tracking {number} {audience} for {timeframe}, I found this pattern"
+    ]
+}
+
+# Platform-specific scene templates
+SCENE_TEMPLATES = {
+    "youtube": [
+        {"type": "hook", "duration": "0-5s", "purpose": "Grab attention immediately"},
+        {"type": "problem", "duration": "5-15s", "purpose": "Establish the pain point"},
+        {"type": "solution", "duration": "15-45s", "purpose": "Present your approach"},
+        {"type": "example", "duration": "45-75s", "purpose": "Show real-world application"},
+        {"type": "cta", "duration": "75-90s", "purpose": "Drive engagement"}
+    ],
+    "instagram": [
+        {"type": "hook", "duration": "0-3s", "purpose": "Stop the scroll"},
+        {"type": "problem", "duration": "3-10s", "purpose": "Connect with audience pain"},
+        {"type": "solution", "duration": "10-25s", "purpose": "Provide value"},
+        {"type": "cta", "duration": "25-30s", "purpose": "Drive action"}
+    ],
+    "tiktok": [
+        {"type": "hook", "duration": "0-3s", "purpose": "Instant engagement"},
+        {"type": "reveal", "duration": "3-8s", "purpose": "Build curiosity"},
+        {"type": "content", "duration": "8-25s", "purpose": "Deliver the payoff"},
+        {"type": "cta", "duration": "25-30s", "purpose": "Encourage interaction"}
+    ]
+}
 
 
 async def get_social_account_token(db: AsyncSession, platform: str) -> Optional[str]:
@@ -288,6 +391,181 @@ async def extract_hooks_from_posts(posts: List[CompetitorPost]) -> List[str]:
     return hooks
 
 
+def generate_hook_from_template(hook_style: str, topic: str, competitor_hooks: List[str]) -> str:
+    """Generate a hook based on style template and competitor analysis."""
+    templates = HOOK_TEMPLATES.get(hook_style, HOOK_TEMPLATES["bold_claim"])
+    template = random.choice(templates)
+    
+    # Extract common themes from competitor hooks for context
+    context_words = []
+    for hook in competitor_hooks:
+        words = re.findall(r'\b\w+\b', hook.lower())
+        context_words.extend([w for w in words if len(w) > 4])
+    
+    # Basic template filling with topic-specific content
+    replacements = {
+        "problem": f"{topic} inefficiency",
+        "cost": "$500-2000",
+        "number": str(random.choice([75, 80, 85, 90, 95])),
+        "audience": "business owners",
+        "industry": "tech",
+        "solution": topic,
+        "benefit": "increase productivity",
+        "timeframe": "week",
+        "succeed": "scale successfully",
+        "activity": topic.lower(),
+        "topic": topic,
+        "wrong_focus": "quick fixes",
+        "right_focus": "systematic solutions",
+        "achievement": "achieve consistent results",
+        "time/money": "5+ hours per week"
+    }
+    
+    # Fill template
+    filled_template = template
+    for key, value in replacements.items():
+        filled_template = filled_template.replace(f"{{{key}}}", value)
+    
+    return filled_template
+
+
+def generate_scene_content(scene_template: Dict, topic: str, hook: str, platform: str) -> SceneMap:
+    """Generate content for a specific scene based on template."""
+    scene_type = scene_template["type"]
+    duration = scene_template["duration"]
+    
+    if scene_type == "hook":
+        text = hook
+        visual_notes = "Strong eye contact, confident posture, clear text overlay with hook"
+    elif scene_type == "problem":
+        text = f"Here's the challenge most people face with {topic}..."
+        visual_notes = "Show problem visually - split screen, before/after, frustrated expressions"
+    elif scene_type == "solution":
+        text = f"But here's what actually works for {topic}..."
+        visual_notes = "Smooth transition to solution, step-by-step visuals, positive energy"
+    elif scene_type == "example":
+        text = f"Let me show you exactly how this applies to {topic}..."
+        visual_notes = "Real examples, screenshots, case study format, specific numbers"
+    elif scene_type == "reveal":
+        text = f"The surprising truth about {topic} is..."
+        visual_notes = "Build suspense, reveal animation, emphasis on key points"
+    elif scene_type == "content":
+        text = f"Here's the step-by-step breakdown of {topic}..."
+        visual_notes = "Clear bullet points, numbered steps, easy to follow visuals"
+    elif scene_type == "cta":
+        if platform == "youtube":
+            text = "If this helped you understand {topic}, smash that like button and subscribe for more insights!"
+        elif platform == "instagram":
+            text = "Save this post about {topic} and share it with someone who needs to see this!"
+        elif platform == "tiktok":
+            text = "Follow for more {topic} tips that actually work!"
+        else:
+            text = f"What's your biggest challenge with {topic}? Drop a comment!"
+        
+        visual_notes = "Clear call-to-action text, engaging gesture, subscribe/follow buttons highlighted"
+    
+    # Replace topic placeholder in text
+    text = text.replace("{topic}", topic)
+    
+    return SceneMap(
+        scene_num=0,  # Will be set by caller
+        duration=duration,
+        type=scene_type,
+        text=text,
+        visual_notes=visual_notes
+    )
+
+
+async def generate_intelligent_script(
+    topic: str, 
+    platform: str, 
+    hook_style: str, 
+    competitor_hooks: List[str],
+    competitor_id: Optional[int] = None
+) -> FullScript:
+    """Generate intelligent script with scene-by-scene breakdown."""
+    
+    # Generate hook using template and competitor analysis
+    hook = generate_hook_from_template(hook_style, topic, competitor_hooks)
+    
+    # Platform-specific title generation
+    if platform == "youtube":
+        title = f"The Truth About {topic} (What Nobody Tells You)"
+    elif platform == "instagram":
+        title = f"{topic}: The Reality Check You Need"
+    elif platform == "tiktok":
+        title = f"POV: You finally understand {topic}"
+    else:
+        title = f"{topic}: What Actually Works"
+    
+    # Generate scenes based on platform
+    scene_templates = SCENE_TEMPLATES.get(platform, SCENE_TEMPLATES["youtube"])
+    scenes = []
+    
+    for i, scene_template in enumerate(scene_templates):
+        scene = generate_scene_content(scene_template, topic, hook, platform)
+        scene.scene_num = i + 1
+        scenes.append(scene)
+    
+    # Platform-specific CTA
+    if platform == "youtube":
+        cta = f"Ready to master {topic}? Subscribe and hit the bell for weekly insights that actually move the needle!"
+    elif platform == "instagram":
+        cta = f"Save this {topic} breakdown and follow @youraccount for more game-changing insights!"
+    elif platform == "tiktok":
+        cta = f"Follow for daily {topic} tips that your competitors don't know! 🔥"
+    elif platform == "x":
+        cta = f"Retweet if this {topic} insight was valuable! What's your experience? 👇"
+    else:
+        cta = f"What's your biggest {topic} challenge? Let's solve it together!"
+    
+    # Calculate estimated duration
+    if platform == "youtube":
+        estimated_duration = "8-12 minutes"
+    elif platform == "instagram":
+        estimated_duration = "30-60 seconds"
+    elif platform == "tiktok":
+        estimated_duration = "15-30 seconds"
+    else:
+        estimated_duration = "2-3 minutes"
+    
+    return FullScript(
+        competitor_id=competitor_id,
+        platform=platform,
+        title=title,
+        hook=hook,
+        scenes=scenes,
+        cta=cta,
+        topic=topic,
+        source_hooks=competitor_hooks[:3],  # Top 3 hooks that inspired this
+        estimated_duration=estimated_duration,
+        created_at=datetime.now()
+    )
+
+
+def convert_to_legacy_format(full_script: FullScript) -> GeneratedScript:
+    """Convert FullScript to legacy GeneratedScript format for compatibility."""
+    
+    # Convert scenes to body outline
+    body_sections = []
+    for scene in full_script.scenes:
+        body_sections.append(f"**{scene.type.title()} ({scene.duration}):**\n{scene.text}\n*Visual: {scene.visual_notes}*")
+    
+    body_outline = "\n\n".join(body_sections)
+    
+    return GeneratedScript(
+        id=full_script.id,
+        competitor_id=full_script.competitor_id,
+        platform=full_script.platform,
+        title=full_script.title,
+        hook=full_script.hook,
+        body_outline=body_outline,
+        cta=full_script.cta,
+        topic=full_script.topic,
+        estimated_duration=full_script.estimated_duration
+    )
+
+
 async def analyze_trending_topics(posts: List[CompetitorPost]) -> List[TrendingTopic]:
     """Analyze posts to identify trending topics."""
     # Simple keyword extraction and frequency analysis
@@ -324,7 +602,8 @@ async def analyze_trending_topics(posts: List[CompetitorPost]) -> List[TrendingT
 
 
 def generate_script_content(competitor_handle: str, platform: str, topic: str, hooks: List[str]) -> GeneratedScript:
-    """Generate a content script based on competitor analysis."""
+    """Generate a content script based on competitor analysis (legacy function)."""
+    # This is the old hardcoded function, kept for backward compatibility
     # Select best performing hook if available
     best_hook = hooks[0] if hooks else f"Here's what I learned from studying {competitor_handle}"
     
@@ -548,14 +827,91 @@ async def get_trending_topics(
         raise HTTPException(status_code=500, detail="Failed to analyze trending topics")
 
 
-@router.post("/competitors/{competitor_id}/generate-script", response_model=GeneratedScript)
-async def generate_content_script(
+@router.post("/competitors/{competitor_id}/generate-script", response_model=FullScript)
+async def generate_content_script_new(
+    competitor_id: int,
+    request: ScriptGenerationRequest,
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Generate an intelligent script with scene-by-scene breakdown based on competitor analysis."""
+    try:
+        # Get competitor info
+        result = await db.execute(
+            select(Competitor).where(Competitor.id == competitor_id)
+        )
+        competitor = result.scalar_one_or_none()
+        
+        if not competitor:
+            raise HTTPException(status_code=404, detail="Competitor not found")
+        
+        # Fetch competitor's content to extract hooks
+        posts = []
+        platform_name = competitor.platform.lower()
+        handle = competitor.handle
+        
+        if platform_name == "instagram":
+            token = await get_social_account_token(db, "instagram")
+            if token:
+                posts = await fetch_instagram_content(handle, token)
+        elif platform_name == "x":
+            token = await get_social_account_token(db, "x")
+            if token:
+                posts = await fetch_x_content(handle, token)
+        
+        # Extract hooks from top-performing posts
+        sorted_posts = sorted(posts, key=lambda x: x.engagement_score, reverse=True)
+        top_posts = sorted_posts[:5]  # Top 5 posts
+        hooks = await extract_hooks_from_posts(top_posts)
+        
+        # Generate intelligent script
+        script = await generate_intelligent_script(
+            topic=request.topic,
+            platform=request.platform,
+            hook_style=request.hook_style,
+            competitor_hooks=hooks,
+            competitor_id=competitor_id
+        )
+        
+        # Save to database if requested
+        if request.save:
+            # Convert scenes to JSON string
+            scenes_json = json.dumps([scene.dict() for scene in script.scenes])
+            
+            content_script = ContentScript(
+                competitor_id=competitor_id,
+                platform=request.platform,
+                title=script.title,
+                hook=script.hook,
+                body="\n".join([f"{scene.type}: {scene.text}" for scene in script.scenes]),
+                cta=script.cta,
+                topic=request.topic,
+                scene_map=scenes_json,  # New field for scene data
+                status='generated'
+            )
+            
+            db.add(content_script)
+            await db.commit()
+            await db.refresh(content_script)
+            
+            script.id = content_script.id
+        
+        return script
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate script: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate script")
+
+
+@router.post("/competitors/{competitor_id}/generate-script-legacy", response_model=GeneratedScript)
+async def generate_content_script_legacy(
     competitor_id: int,
     request: ScriptGenerationRequest,
     save_to_db: bool = False,
     db: AsyncSession = Depends(get_crm_db)
 ):
-    """Generate a script document based on competitor analysis."""
+    """Generate a script document based on competitor analysis (legacy endpoint for backward compatibility)."""
     try:
         # Get competitor info
         result = await db.execute(
@@ -588,7 +944,7 @@ async def generate_content_script(
         # Use provided topic or derive from trending analysis
         topic = request.topic or "content creation"
         
-        # Generate script
+        # Generate script using legacy function
         script = generate_script_content(
             competitor_handle=handle,
             platform=request.platform,
@@ -626,6 +982,58 @@ async def generate_content_script(
     except Exception as e:
         logger.error(f"Failed to generate script: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate script")
+
+
+@router.post("/content-intel/scripts/{script_id}/save-to-pipeline", response_model=PlatformContentCard)
+async def save_script_to_pipeline(
+    script_id: int,
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Save a script to the platform content pipeline."""
+    try:
+        # Get the script
+        result = await db.execute(
+            select(ContentScript).where(ContentScript.id == script_id)
+        )
+        script = result.scalar_one_or_none()
+        
+        if not script:
+            raise HTTPException(status_code=404, detail="Script not found")
+        
+        # Parse scenes from JSON if available
+        scenes = []
+        if script.scene_map:
+            try:
+                scenes_data = json.loads(script.scene_map)
+                scenes = [SceneMap(**scene_data) for scene_data in scenes_data]
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse scene_map for script {script_id}")
+        
+        # Create content card format expected by frontend
+        content_card = PlatformContentCard(
+            id=f"script_{script.id}",
+            title=script.title or "Generated Script",
+            description=script.body[:200] + "..." if script.body else "Script generated from competitor analysis",
+            platform=script.platform,
+            status="draft",
+            estimated_duration=script.topic or "5-10 minutes",  # Using topic field as duration for now
+            hook=script.hook or "",
+            cta=script.cta or "",
+            scenes=scenes if scenes else None,
+            created_at=script.created_at or datetime.now()
+        )
+        
+        # Update script status to indicate it's been saved to pipeline
+        script.status = 'saved'
+        await db.commit()
+        
+        return content_card
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save script to pipeline: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save script to pipeline")
 
 
 @router.get("/competitors/scripts", response_model=List[GeneratedScript])

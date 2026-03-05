@@ -20,6 +20,7 @@ class ContentScript(CrmBase):
     cta = Column(Text)
     topic = Column(String)
     source_post_url = Column(String)
+    scene_map = Column(Text)  # JSON string of scenes array
     status = Column(String, default='draft')  # draft, generated, saved
     
     # Metadata
