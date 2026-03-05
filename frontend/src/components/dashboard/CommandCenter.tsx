@@ -18,6 +18,9 @@ interface SocialSummary {
   total_followers: number; total_engagement: number; total_impressions: number;
   total_reach: number; engagement_rate: number; accounts_connected: number;
 }
+interface SocialTrends {
+  followers: string; engagement: string; impressions: string;
+}
 interface AgentEvent {
   event_type: string; from_agent: string; to_agent: string;
   summary: string; timestamp: string;
@@ -54,11 +57,11 @@ function timeAgo(ts: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function MiniSparkline({ color }: { color: string }) {
-  const data = Array.from({ length: 12 }, () => Math.random() * 80 + 20);
-  const max = Math.max(...data);
+function MiniSparkline({ color, data }: { color: string; data?: number[] }) {
+  const sparkData = data?.length ? data : Array.from({ length: 12 }, () => Math.random() * 80 + 20);
+  const max = Math.max(...sparkData, 1);
   const w = 100, h = 30;
-  const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - (v / max) * h}`).join(" ");
+  const points = sparkData.map((v, i) => `${(i / (sparkData.length - 1)) * w},${h - (v / max) * h}`).join(" ");
   return (
     <svg width={w} height={h} className="opacity-40">
       <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -84,6 +87,8 @@ function getPipelineStats() {
 export default function CommandCenter() {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [summary, setSummary] = useState<SocialSummary | null>(null);
+  const [trends, setTrends] = useState<SocialTrends | null>(null);
+  const [sparklineData, setSparklineData] = useState<Record<string, number[]>>({});
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [pipelineStats, setPipelineStats] = useState(getPipelineStats());
   const [loading, setLoading] = useState(true);
@@ -91,12 +96,16 @@ export default function CommandCenter() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [accResp, sumResp] = await Promise.all([
+      const [accResp, sumResp, trendsResp, sparkResp] = await Promise.all([
         fetch(`${API}/api/social/accounts`).catch(() => null),
         fetch(`${API}/api/social/analytics`).catch(() => null),
+        fetch(`${API}/api/social/analytics/trends`).catch(() => null),
+        fetch(`${API}/api/social/analytics/sparkline?days=12`).catch(() => null),
       ]);
       if (accResp?.ok) setAccounts(await accResp.json());
       if (sumResp?.ok) setSummary(await sumResp.json());
+      if (trendsResp?.ok) setTrends(await trendsResp.json());
+      if (sparkResp?.ok) setSparklineData(await sparkResp.json());
 
       // Team events
       try {
@@ -150,9 +159,9 @@ export default function CommandCenter() {
           {/* Top Metrics Row */}
           <div className="grid grid-cols-5 gap-5">
             {[
-              { label: "Total Reach", value: summary?.total_reach || 0, icon: Eye, color: "text-purple-400", bgColor: "bg-purple-400/10", trend: "+22%", sparkColor: "#a78bfa" },
-              { label: "Followers", value: summary?.total_followers || accounts.reduce((s, a) => s + a.follower_count, 0), icon: Users, color: "text-blue-400", bgColor: "bg-blue-400/10", trend: "+12%", sparkColor: "#60a5fa" },
-              { label: "Engagement", value: summary?.engagement_rate || 0, icon: TrendingUp, color: "text-green-400", bgColor: "bg-green-400/10", trend: "+3.2%", sparkColor: "#4ade80", isRate: true },
+              { label: "Total Reach", value: summary?.total_reach || 0, icon: Eye, color: "text-purple-400", bgColor: "bg-purple-400/10", trend: trends?.impressions || "+0.0%", sparkColor: "#a78bfa" },
+              { label: "Followers", value: summary?.total_followers || accounts.reduce((s, a) => s + a.follower_count, 0), icon: Users, color: "text-blue-400", bgColor: "bg-blue-400/10", trend: trends?.followers || "+0.0%", sparkColor: "#60a5fa" },
+              { label: "Engagement", value: summary?.engagement_rate || 0, icon: TrendingUp, color: "text-green-400", bgColor: "bg-green-400/10", trend: trends?.engagement || "+0.0%", sparkColor: "#4ade80", isRate: true },
               { label: "Content Pipeline", value: pipelineStats.total, icon: Film, color: "text-orange-400", bgColor: "bg-orange-400/10", trend: null, sparkColor: "#fb923c" },
               { label: "Agents Active", value: AGENTS.length, icon: Activity, color: "text-warroom-accent", bgColor: "bg-warroom-accent/10", trend: null, sparkColor: "#6366f1" },
             ].map((stat, i) => (
@@ -257,7 +266,7 @@ export default function CommandCenter() {
                             <p className="text-2xl font-bold">{formatNum(acc.follower_count)}</p>
                             <p className="text-xs text-warroom-muted">followers</p>
                           </div>
-                          <MiniSparkline color={PLATFORM_COLORS[acc.platform] || "#6366f1"} />
+                          <MiniSparkline color={PLATFORM_COLORS[acc.platform] || "#6366f1"} data={sparklineData[acc.platform]} />
                         </div>
                       </div>
                     ))}

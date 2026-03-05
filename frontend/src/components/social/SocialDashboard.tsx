@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Share2, Instagram, Facebook, Youtube, Twitter, Plus, X, ExternalLink, TrendingUp, TrendingDown, Users, Eye, BarChart3, Zap, ChevronDown, ChevronUp, Radio } from "lucide-react";
+import { Share2, Instagram, Facebook, Youtube, Twitter, Plus, X, ExternalLink, TrendingUp, TrendingDown, Users, Eye, BarChart3, Zap, ChevronDown, ChevronUp, Radio, Loader2 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
@@ -91,19 +91,23 @@ function PlatformIcon({ platform, size = 20 }: { platform: string; size?: number
 export default function SocialDashboard() {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [summary, setSummary] = useState<SocialSummary | null>(null);
+  const [sparklineData, setSparklineData] = useState<Record<string, number[]>>({});
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [connectPlatform, setConnectPlatform] = useState("");
   const [connectForm, setConnectForm] = useState<ConnectAccountData>({ platform: "", username: "", profile_url: "", follower_count: 0, following_count: 0, post_count: 0 });
 
   const fetchData = useCallback(async () => {
     try {
-      const [accResp, sumResp] = await Promise.all([
+      const [accResp, sumResp, sparkResp] = await Promise.all([
         fetch(`${API}/api/social/accounts`),
         fetch(`${API}/api/social/analytics`),
+        fetch(`${API}/api/social/analytics/sparkline`),
       ]);
       if (accResp.ok) setAccounts(await accResp.json());
       if (sumResp.ok) setSummary(await sumResp.json());
+      if (sparkResp.ok) setSparklineData(await sparkResp.json());
     } catch (e) {
       console.error("Failed to fetch social data:", e);
     } finally {
@@ -166,11 +170,25 @@ export default function SocialDashboard() {
     } catch (e) { console.error(e); }
   };
 
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${API}/api/social/sync`, { method: "POST" });
+      if (res.ok) {
+        await fetchData(); // Refresh data after sync
+      }
+    } catch (e) {
+      console.error("Failed to sync:", e);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const getAccount = (pid: string) => accounts.find(a => a.platform === pid);
   const isConnected = (pid: string) => accounts.some(a => a.platform === pid);
 
-  // Mock sparkline data (will be real when analytics API populates)
-  const mockSparkline = (seed: number) => Array.from({ length: 7 }, (_, i) => Math.floor(Math.abs(Math.sin(seed + i * 0.8)) * 500 + 100));
+  // Get sparkline data for a platform
+  const getSparklineData = (platform: string) => sparklineData[platform] || Array(7).fill(0);
 
   if (loading) {
     return (
@@ -188,6 +206,20 @@ export default function SocialDashboard() {
         <h2 className="text-sm font-semibold">Social Performance</h2>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-warroom-muted">{accounts.length} connected</span>
+          {accounts.length > 0 && (
+            <button 
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-1 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 rounded-lg text-xs font-medium transition"
+            >
+              {syncing ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Share2 size={12} />
+              )}
+              {syncing ? "Syncing..." : "Sync Now"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -281,9 +313,18 @@ export default function SocialDashboard() {
 
                         {/* Sparkline */}
                         <div className="mb-3">
-                          <MiniSparkline data={mockSparkline(account.id)} color={platform.color} />
+                          <MiniSparkline data={getSparklineData(platform.id)} color={platform.color} />
                           <p className="text-[10px] text-warroom-muted mt-1">Daily engagement · Last 7 days</p>
                         </div>
+
+                        {/* Last Synced */}
+                        {account.last_synced && (
+                          <div className="mb-2">
+                            <p className="text-[10px] text-warroom-muted">
+                              Last synced: {new Date(account.last_synced).toLocaleString()}
+                            </p>
+                          </div>
+                        )}
 
                         {/* Actions */}
                         <div className="flex items-center justify-between pt-3 border-t border-warroom-border/50">
@@ -352,7 +393,7 @@ export default function SocialDashboard() {
                         <td className="py-3 px-5 font-medium">{formatNum(account.follower_count)}</td>
                         <td className="py-3 px-5">{formatNum(account.post_count)}</td>
                         <td className="py-3 px-5">
-                          <MiniSparkline data={mockSparkline(account.id)} color={PLATFORMS.find(p => p.id === account.platform)?.color || "#6366f1"} />
+                          <MiniSparkline data={getSparklineData(account.platform)} color={PLATFORMS.find(p => p.id === account.platform)?.color || "#6366f1"} />
                         </td>
                         <td className="py-3 px-5">
                           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs bg-green-500/10 text-green-400">

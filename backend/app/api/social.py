@@ -108,9 +108,6 @@ async def connect_social_account(
         await db.commit()
         await db.refresh(new_account)
         
-        # Generate some mock analytics for the new account
-        await _generate_mock_analytics(db, new_account.id)
-        
         return SocialAccountResponse.model_validate(new_account)
     except Exception as e:
         await db.rollback()
@@ -159,8 +156,15 @@ async def get_social_analytics(
         accounts = result.scalars().all()
         
         if not accounts:
-            # Return mock data if no accounts exist
-            return _generate_mock_summary(platform)
+            # Return empty data if no accounts exist
+            return SocialSummaryResponse(
+                total_followers=0,
+                total_engagement=0,
+                total_impressions=0,
+                total_reach=0,
+                engagement_rate=0.0,
+                accounts_connected=0
+            )
         
         # Get recent analytics (last 30 days)
         end_date = date.today()
@@ -225,8 +229,8 @@ async def get_platform_analytics(
         analytics = result.scalars().all()
         
         if not analytics:
-            # Generate mock data for the platform
-            return _generate_mock_platform_analytics(platform, days)
+            # Return empty data if no analytics exist
+            return []
         
         return [
             SocialAnalyticsResponse(
@@ -253,84 +257,173 @@ async def get_platform_analytics(
         raise HTTPException(status_code=500, detail="Failed to fetch platform analytics")
 
 
-async def _generate_mock_analytics(db: AsyncSession, account_id: int):
-    """Generate mock analytics data for a new account."""
-    end_date = date.today()
-    
-    for i in range(30):  # Last 30 days
-        metric_date = end_date - timedelta(days=i)
+@router.get("/analytics/sparkline")
+async def get_analytics_sparkline(
+    days: int = 7,
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Get sparkline data for each platform (engagement arrays for charts)."""
+    try:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
         
-        analytics = SocialAnalytics(
-            account_id=account_id,
-            metric_date=metric_date,
-            impressions=random.randint(500, 2000),
-            reach=random.randint(400, 1800),
-            engagement=random.randint(50, 200),
-            engagement_rate=random.uniform(2.5, 8.5),
-            followers_gained=random.randint(0, 15),
-            followers_lost=random.randint(0, 8),
-            profile_views=random.randint(20, 100),
-            link_clicks=random.randint(5, 30),
-            shares=random.randint(2, 15),
-            saves=random.randint(3, 20),
-            comments=random.randint(5, 25),
-            likes=random.randint(30, 150),
-            video_views=random.randint(100, 800)
-        )
+        # Get all accounts
+        accounts_query = select(SocialAccount)
+        accounts_result = await db.execute(accounts_query)
+        accounts = accounts_result.scalars().all()
         
-        db.add(analytics)
-    
-    await db.commit()
-
-
-def _generate_mock_summary(platform: Optional[str] = None) -> SocialSummaryResponse:
-    """Generate mock summary data when no accounts exist."""
-    if platform:
-        # Single platform mock data
-        return SocialSummaryResponse(
-            total_followers=random.randint(1000, 5000),
-            total_engagement=random.randint(500, 2000),
-            total_impressions=random.randint(10000, 50000),
-            total_reach=random.randint(8000, 40000),
-            engagement_rate=random.uniform(3.0, 7.5),
-            accounts_connected=1
-        )
-    else:
-        # Overall mock data
-        return SocialSummaryResponse(
-            total_followers=random.randint(5000, 20000),
-            total_engagement=random.randint(2000, 8000),
-            total_impressions=random.randint(50000, 200000),
-            total_reach=random.randint(40000, 160000),
-            engagement_rate=random.uniform(4.0, 6.5),
-            accounts_connected=3
-        )
-
-
-def _generate_mock_platform_analytics(platform: str, days: int) -> List[SocialAnalyticsResponse]:
-    """Generate mock analytics for a platform."""
-    analytics = []
-    end_date = date.today()
-    
-    for i in range(days):
-        metric_date = end_date - timedelta(days=i)
+        sparkline_data = {}
         
-        analytics.append(SocialAnalyticsResponse(
-            platform=platform,
-            metric_date=metric_date,
-            impressions=random.randint(500, 2000),
-            reach=random.randint(400, 1800),
-            engagement=random.randint(50, 200),
-            engagement_rate=random.uniform(2.5, 8.5),
-            followers_gained=random.randint(0, 15),
-            followers_lost=random.randint(0, 8),
-            profile_views=random.randint(20, 100),
-            link_clicks=random.randint(5, 30),
-            shares=random.randint(2, 15),
-            saves=random.randint(3, 20),
-            comments=random.randint(5, 25),
-            likes=random.randint(30, 150),
-            video_views=random.randint(100, 800)
-        ))
-    
-    return analytics
+        for account in accounts:
+            platform = account.platform
+            
+            # Get daily engagement data for this platform
+            analytics_query = text("""
+                SELECT metric_date, SUM(engagement) as total_engagement
+                FROM crm.social_analytics 
+                WHERE account_id = :account_id 
+                    AND metric_date >= :start_date 
+                    AND metric_date <= :end_date
+                GROUP BY metric_date
+                ORDER BY metric_date ASC
+            """)
+            
+            result = await db.execute(analytics_query, {
+                "account_id": account.id,
+                "start_date": start_date,
+                "end_date": end_date
+            })
+            
+            daily_data = result.fetchall()
+            
+            # Convert to engagement array (fill missing days with 0)
+            engagement_array = []
+            data_dict = {row.metric_date: row.total_engagement for row in daily_data}
+            
+            for i in range(days):
+                current_date = start_date + timedelta(days=i)
+                engagement_array.append(data_dict.get(current_date, 0))
+            
+            if platform not in sparkline_data:
+                sparkline_data[platform] = engagement_array
+            else:
+                # Add to existing platform data if multiple accounts
+                sparkline_data[platform] = [
+                    existing + new for existing, new in zip(sparkline_data[platform], engagement_array)
+                ]
+        
+        return sparkline_data
+    except Exception as e:
+        logger.error(f"Failed to fetch sparkline data: {e}")
+        return {}
+
+
+@router.get("/analytics/trends")
+async def get_analytics_trends(db: AsyncSession = Depends(get_crm_db)):
+    """Get percentage change trends (this week vs last week)."""
+    try:
+        today = date.today()
+        
+        # Calculate week boundaries
+        this_week_start = today - timedelta(days=7)
+        last_week_start = today - timedelta(days=14)
+        last_week_end = this_week_start - timedelta(days=1)
+        
+        # Query this week's data
+        this_week_query = text("""
+            SELECT 
+                SUM(sa.engagement) as total_engagement,
+                SUM(sa.impressions) as total_impressions,
+                SUM(sa.followers_gained - sa.followers_lost) as net_followers
+            FROM crm.social_analytics sa
+            JOIN crm.social_accounts acc ON sa.account_id = acc.id
+            WHERE sa.metric_date >= :start_date AND sa.metric_date <= :end_date
+        """)
+        
+        # Query last week's data  
+        last_week_query = text("""
+            SELECT 
+                SUM(sa.engagement) as total_engagement,
+                SUM(sa.impressions) as total_impressions,
+                SUM(sa.followers_gained - sa.followers_lost) as net_followers
+            FROM crm.social_analytics sa
+            JOIN crm.social_accounts acc ON sa.account_id = acc.id
+            WHERE sa.metric_date >= :start_date AND sa.metric_date <= :end_date
+        """)
+        
+        this_week_result = await db.execute(this_week_query, {
+            "start_date": this_week_start,
+            "end_date": today
+        })
+        this_week = this_week_result.fetchone()
+        
+        last_week_result = await db.execute(last_week_query, {
+            "start_date": last_week_start,
+            "end_date": last_week_end
+        })
+        last_week = last_week_result.fetchone()
+        
+        def calculate_percentage_change(current, previous):
+            if not previous or previous == 0:
+                return "+0.0%" if current == 0 else "+100.0%"
+            change = ((current - previous) / previous) * 100
+            sign = "+" if change >= 0 else ""
+            return f"{sign}{change:.1f}%"
+        
+        trends = {
+            "followers": calculate_percentage_change(
+                this_week.net_followers or 0,
+                last_week.net_followers or 0
+            ),
+            "engagement": calculate_percentage_change(
+                this_week.total_engagement or 0,
+                last_week.total_engagement or 0
+            ),
+            "impressions": calculate_percentage_change(
+                this_week.total_impressions or 0,
+                last_week.total_impressions or 0
+            )
+        }
+        
+        return trends
+    except Exception as e:
+        logger.error(f"Failed to fetch trends data: {e}")
+        return {
+            "followers": "+0.0%",
+            "engagement": "+0.0%", 
+            "impressions": "+0.0%"
+        }
+
+
+@router.post("/sync")
+async def sync_social_data(db: AsyncSession = Depends(get_crm_db)):
+    """Trigger sync of all connected social media accounts."""
+    try:
+        # Get all connected accounts
+        result = await db.execute(select(SocialAccount).where(SocialAccount.status == "connected"))
+        accounts = result.scalars().all()
+        
+        if not accounts:
+            return {"message": "No connected accounts to sync", "synced_accounts": 0}
+        
+        # Update last_synced timestamp for all accounts
+        for account in accounts:
+            account.last_synced = datetime.utcnow()
+        
+        await db.commit()
+        
+        return {
+            "message": f"Successfully triggered sync for {len(accounts)} accounts",
+            "synced_accounts": len(accounts)
+        }
+    except Exception as e:
+        logger.error(f"Failed to sync social data: {e}")
+        raise HTTPException(status_code=500, detail="Failed to sync social data")
+
+
+
+
+
+
+
+

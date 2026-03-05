@@ -19,6 +19,7 @@ from .attribute import Attribute, AttributeOption, AttributeValue
 from .automation import Workflow, Webhook
 from .audit import AuditLog, Import, SavedFilter
 from .social import SocialAccount, SocialAnalytics
+from .competitor import Competitor
 from .organization import Tenant
 
 __all__ = [
@@ -35,5 +36,6 @@ __all__ = [
     "Workflow", "Webhook",
     "AuditLog", "Import", "SavedFilter",
     "SocialAccount", "SocialAnalytics",
+    "Competitor",
     "Tenant",
 ]
