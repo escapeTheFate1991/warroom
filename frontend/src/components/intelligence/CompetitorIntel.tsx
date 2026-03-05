@@ -306,23 +306,27 @@ export default function CompetitorIntel() {
     }
   };
 
-  // Refresh all competitors
+  // Refresh all competitors via our own scraper (Playwright, no third-party services)
   const refreshAllCompetitors = async () => {
     try {
       setLoading(true);
       setError("");
-      const response = await fetch(`${API}/api/competitors/sync`, {
+      // Use our scraper sync endpoint — scrapes all IG competitors via headless browser
+      const response = await fetch(`${API}/api/scraper/instagram/sync`, {
         method: "POST",
       });
 
       if (response.ok) {
-        fetchCompetitors(); // Refresh data
+        const result = await response.json();
+        const msg = `Scraped ${result.success}/${result.total} competitors, ${result.posts_saved} posts cached`;
+        console.log(msg);
+        fetchCompetitors(); // Refresh UI with new data
       } else {
-        const error = await response.json();
-        setError(`Failed to refresh data: ${error.detail || response.statusText}`);
+        const errData = await response.json().catch(() => ({}));
+        setError(`Scraper sync failed: ${errData.detail || response.statusText}`);
       }
     } catch (error) {
-      setError(`Error refreshing data: ${error}`);
+      setError(`Error running scraper: ${error}`);
     } finally {
       setLoading(false);
     }
