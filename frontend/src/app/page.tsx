@@ -39,6 +39,7 @@ const SECTIONS = [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
       { id: "chat", label: "Chat", icon: MessageSquare },
       { id: "agents", label: "Agents", icon: Bot },
+      { id: "kanban", label: "Tasks", icon: ClipboardList },
     ],
   },
   {
@@ -51,13 +52,12 @@ const SECTIONS = [
   {
     label: "CONTENT",
     items: [
+      { id: "pipeline", label: "Pipeline", icon: Film },
+      { id: "intelligence", label: "Reports", icon: FileBarChart },
       { id: "content-instagram", label: "Instagram", icon: Instagram },
       { id: "content-youtube", label: "YouTube", icon: Youtube },
       { id: "content-facebook", label: "Facebook", icon: Facebook },
       { id: "content-x", label: "X", icon: Twitter },
-      { id: "pipeline", label: "Pipeline", icon: Film },
-      { id: "kanban", label: "Tasks", icon: ClipboardList },
-      { id: "intelligence", label: "Reports", icon: FileBarChart },
     ],
   },
   {

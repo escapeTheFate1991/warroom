@@ -1,6 +1,7 @@
 """Competitor tracking and intelligence models for CRM."""
 from sqlalchemy import Column, Integer, String, DateTime, Date, Text, DECIMAL, Boolean
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 
 from . import CrmBase
 
@@ -38,3 +39,6 @@ class Competitor(CrmBase):
     # Metadata
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    content_scripts = relationship("ContentScript", back_populates="competitor")
