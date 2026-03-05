@@ -156,7 +156,7 @@ export default function UsageWidget() {
 
       {/* Dropdown panel */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-80 bg-warroom-surface border border-warroom-border rounded-lg shadow-lg z-50">
+        <div className="absolute top-full right-0 mt-2 w-80 bg-warroom-surface border border-warroom-border rounded-lg shadow-lg z-50">
           <div className="p-4 space-y-4">
             {/* Active model and selector */}
             <div className="space-y-2">
