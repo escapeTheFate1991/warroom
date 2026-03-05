@@ -25,7 +25,14 @@ async def run_migration():
         # Execute the migration
         async with crm_engine.begin() as conn:
             await conn.execute(text("SET search_path TO crm, public"))
-            await conn.execute(text(migration_sql))
+            
+            # Split SQL into individual statements
+            statements = [stmt.strip() for stmt in migration_sql.split(';') if stmt.strip()]
+            
+            for stmt in statements:
+                if stmt:  # Skip empty statements
+                    await conn.execute(text(stmt))
+                    
             print("✅ Migration completed successfully - competitor_posts table created")
         return True
         
