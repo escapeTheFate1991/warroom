@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  Sparkles, Plus, Search, Filter, Instagram, Youtube,
+  Sparkles, Plus, Search, Filter, Instagram, Youtube, Facebook, Twitter,
   ChevronRight, Clock, Eye, Heart, MessageSquare, Share2,
 } from "lucide-react";
 
@@ -31,10 +31,12 @@ const STAGES = [
 const PLATFORM_CONFIG: Record<string, { name: string; icon: any; color: string }> = {
   instagram: { name: "Instagram", icon: Instagram, color: "#E4405F" },
   youtube: { name: "YouTube", icon: Youtube, color: "#FF0000" },
+  facebook: { name: "Facebook", icon: Facebook, color: "#1877F2" },
+  x: { name: "X", icon: Twitter, color: "#000000" },
 };
 
 interface PlatformContentProps {
-  platform: "instagram" | "youtube";
+  platform: "instagram" | "youtube" | "facebook" | "x";
 }
 
 export default function PlatformContent({ platform }: PlatformContentProps) {

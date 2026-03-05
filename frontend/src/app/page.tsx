@@ -6,7 +6,7 @@ import {
   MessageSquare, Zap, Settings, LogOut, Share2, Activity, Film, Eye, Search,
   UserSquare, Briefcase, Users, Calendar, BookOpen, GraduationCap, Package,
   Mail, FileText, LayoutGrid, LayoutDashboard, Instagram, Youtube, BarChart3,
-  ClipboardList, FileBarChart, Telescope, Bot,
+  ClipboardList, FileBarChart, Telescope, Bot, Facebook, Twitter,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/components/AuthProvider";
 import ChatPanel from "@/components/chat/ChatPanel";
@@ -44,6 +44,7 @@ const SECTIONS = [
   {
     label: "SOCIALS",
     items: [
+      { id: "content-tracker", label: "Tracker", icon: BarChart3 },
       { id: "social", label: "Analytics", icon: Share2 },
     ],
   },
@@ -52,8 +53,9 @@ const SECTIONS = [
     items: [
       { id: "content-instagram", label: "Instagram", icon: Instagram },
       { id: "content-youtube", label: "YouTube", icon: Youtube },
+      { id: "content-facebook", label: "Facebook", icon: Facebook },
+      { id: "content-x", label: "X", icon: Twitter },
       { id: "pipeline", label: "Pipeline", icon: Film },
-      { id: "content-tracker", label: "Tracker", icon: BarChart3 },
       { id: "kanban", label: "Tasks", icon: ClipboardList },
       { id: "intelligence", label: "Reports", icon: FileBarChart },
     ],
@@ -87,7 +89,7 @@ const SECTIONS = [
 
 type TabId =
   | "dashboard" | "chat" | "agents" | "activity" | "social" | "pipeline" | "intelligence"
-  | "content-instagram" | "content-youtube" | "content-tracker"
+  | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
   | "kanban" | "team" | "leadgen"
   | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products"
   | "library-search" | "library-educate"
@@ -257,6 +259,8 @@ function WarRoom() {
         {activeTab === "social" && <SocialDashboard />}
         {activeTab === "content-instagram" && <PlatformContent platform="instagram" />}
         {activeTab === "content-youtube" && <PlatformContent platform="youtube" />}
+        {activeTab === "content-facebook" && <PlatformContent platform="facebook" />}
+        {activeTab === "content-x" && <PlatformContent platform="x" />}
         {activeTab === "pipeline" && <ContentPipeline />}
         {activeTab === "content-tracker" && <ContentTracker />}
         {activeTab === "intelligence" && <CompetitorIntel />}
