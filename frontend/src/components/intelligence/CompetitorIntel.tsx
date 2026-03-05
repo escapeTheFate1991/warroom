@@ -398,9 +398,9 @@ export default function CompetitorIntel() {
   };
 
   // Copy hook
-  const copyHook = (hook: Hook) => {
-    navigator.clipboard.writeText(hook.text);
-    setCopiedHook(hook.id);
+  const copyHook = (hookText: string, idx: number) => {
+    navigator.clipboard.writeText(hookText);
+    setCopiedHook(idx);
     setTimeout(() => setCopiedHook(null), 2000);
   };
 
