@@ -1,12 +1,11 @@
 """Social media API endpoints."""
 import logging
 from datetime import datetime, date, timedelta
-from typing import List, Optional
-import random
+from typing import List, Optional, Dict
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.crm_db import get_crm_db

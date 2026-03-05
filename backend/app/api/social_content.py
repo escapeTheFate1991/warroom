@@ -240,6 +240,77 @@ async def facebook_posts(limit: int = 25, db: AsyncSession = Depends(get_crm_db)
 
 
 # ═══════════════════════════════════════════════════════════
+# X (Twitter) — Tweets + Metrics
+# ═══════════════════════════════════════════════════════════
+
+X_API = "https://api.x.com/2"
+
+@router.get("/x/tweets")
+async def x_tweets(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
+    """Fetch recent tweets with engagement metrics."""
+    acc = await _get_account(db, "x")
+    headers = {"Authorization": f"Bearer {acc['token']}"}
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        # Get user ID
+        me_resp = await client.get(f"{X_API}/users/me", params={
+            "user.fields": "public_metrics,profile_image_url,username,name",
+        }, headers=headers)
+
+        if me_resp.status_code != 200:
+            logger.error(f"X /users/me error: {me_resp.text[:200]}")
+            raise HTTPException(502, f"X API returned {me_resp.status_code}")
+
+        me = me_resp.json().get("data", {})
+        user_id = me.get("id")
+        metrics = me.get("public_metrics", {})
+
+        # Update DB with real counts
+        await db.execute(
+            text("UPDATE crm.social_accounts SET follower_count = :f, following_count = :fw, post_count = :p, username = :u WHERE id = :id"),
+            {"f": metrics.get("followers_count", 0), "fw": metrics.get("following_count", 0),
+             "p": metrics.get("tweet_count", 0), "u": me.get("username", acc["username"]), "id": acc["id"]},
+        )
+        await db.commit()
+
+        profile = {
+            "username": me.get("username", ""),
+            "name": me.get("name", ""),
+            "followers": metrics.get("followers_count", 0),
+            "following": metrics.get("following_count", 0),
+            "tweets": metrics.get("tweet_count", 0),
+            "profile_image": me.get("profile_image_url", ""),
+        }
+
+        # Get recent tweets
+        tweets = []
+        if user_id:
+            t_resp = await client.get(f"{X_API}/users/{user_id}/tweets", params={
+                "max_results": min(limit, 100),
+                "tweet.fields": "created_at,public_metrics,text",
+            }, headers=headers)
+
+            if t_resp.status_code == 200:
+                for t in t_resp.json().get("data", []):
+                    pm = t.get("public_metrics", {})
+                    tweets.append({
+                        "id": t["id"],
+                        "text": t.get("text", ""),
+                        "created_at": t.get("created_at", ""),
+                        "likes": pm.get("like_count", 0),
+                        "retweets": pm.get("retweet_count", 0),
+                        "replies": pm.get("reply_count", 0),
+                        "quotes": pm.get("quote_count", 0),
+                        "impressions": pm.get("impression_count", 0),
+                        "url": f"https://x.com/{me.get('username', '')}/status/{t['id']}",
+                    })
+            else:
+                logger.warning(f"X tweets fetch failed: {t_resp.status_code} {t_resp.text[:200]}")
+
+        return {"profile": profile, "tweets": tweets}
+
+
+# ═══════════════════════════════════════════════════════════
 # Cross-platform summary
 # ═══════════════════════════════════════════════════════════
 
