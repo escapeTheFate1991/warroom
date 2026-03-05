@@ -97,7 +97,7 @@ app.include_router(social_oauth.router, prefix="/api/social", tags=["social-oaut
 app.include_router(social_content.router, prefix="/api/social/content", tags=["social-content"])
 app.include_router(social_sync.router, prefix="/api/social", tags=["social-sync"])
 app.include_router(competitors.router, prefix="/api", tags=["competitors"])
-app.include_router(content_intel.router, prefix="/api", tags=["content-intelligence"])
+app.include_router(content_intel.router, prefix="/api/content-intel", tags=["content-intelligence"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
 
 # CRM Routes
