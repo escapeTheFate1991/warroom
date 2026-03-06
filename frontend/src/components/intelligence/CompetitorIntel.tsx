@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3 } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
@@ -68,6 +68,29 @@ interface Script {
   created_at: string;
 }
 
+interface TopVideoItem {
+  post_url?: string;
+  title: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  engagement_score: number;
+  posted_at?: string;
+  hook?: string;
+}
+
+interface FollowerAnalysis {
+  themes: string[];
+  audience_type: string;
+  engagement_style: string;
+  key_interests: string[];
+}
+
+interface HashtagItem {
+  tag: string;
+  count: number;
+}
+
 const PLATFORM_COLORS: Record<string, string> = {
   instagram: "bg-pink-500/20 text-pink-400",
   tiktok: "bg-cyan-500/20 text-cyan-400",
@@ -124,6 +147,14 @@ export default function CompetitorIntel() {
   });
   
   const [error, setError] = useState<string>("");
+
+  // New state for upgraded Reports features
+  const [followerAnalysis, setFollowerAnalysis] = useState<FollowerAnalysis | null>(null);
+  const [loadingFollowerAnalysis, setLoadingFollowerAnalysis] = useState(false);
+  const [topVideos, setTopVideos] = useState<TopVideoItem[]>([]);
+  const [loadingTopVideos, setLoadingTopVideos] = useState(false);
+  const [hashtags, setHashtags] = useState<HashtagItem[]>([]);
+  const [loadingHashtags, setLoadingHashtags] = useState(false);
 
   // Fetch competitors
   const fetchCompetitors = async () => {
@@ -227,11 +258,61 @@ export default function CompetitorIntel() {
     }
   };
 
+  // Fetch follower analysis summary
+  const fetchFollowerAnalysis = async () => {
+    try {
+      setLoadingFollowerAnalysis(true);
+      const response = await fetch(`${API}/api/content-intel/competitors/follower-analysis`);
+      if (response.ok) {
+        setFollowerAnalysis(await response.json());
+      }
+    } catch (err) {
+      console.error("Failed to fetch follower analysis", err);
+    } finally {
+      setLoadingFollowerAnalysis(false);
+    }
+  };
+
+  // Fetch top videos for a competitor
+  const fetchTopVideos = async (competitorId: number) => {
+    try {
+      setLoadingTopVideos(true);
+      const response = await fetch(`${API}/api/content-intel/competitors/${competitorId}/top-videos?limit=5`);
+      if (response.ok) {
+        setTopVideos(await response.json());
+      } else {
+        setTopVideos([]);
+      }
+    } catch (err) {
+      setTopVideos([]);
+    } finally {
+      setLoadingTopVideos(false);
+    }
+  };
+
+  // Fetch hashtags for a competitor
+  const fetchHashtags = async (competitorId: number) => {
+    try {
+      setLoadingHashtags(true);
+      const response = await fetch(`${API}/api/content-intel/competitors/${competitorId}/hashtags`);
+      if (response.ok) {
+        setHashtags(await response.json());
+      } else {
+        setHashtags([]);
+      }
+    } catch (err) {
+      setHashtags([]);
+    } finally {
+      setLoadingHashtags(false);
+    }
+  };
+
   // Load data based on active tab
   useEffect(() => {
     switch (activeTab) {
       case "competitors":
         fetchCompetitors();
+        fetchFollowerAnalysis();
         break;
       case "top-content":
         fetchTopContent();
@@ -409,13 +490,19 @@ export default function CompetitorIntel() {
   const focusOnCompetitor = (comp: Competitor) => {
     setFocusedCompetitor(comp);
     setCompetitorPosts([]);
+    setTopVideos([]);
+    setHashtags([]);
     fetchCompetitorPosts(comp.id);
+    fetchTopVideos(comp.id);
+    fetchHashtags(comp.id);
   };
 
   // Back to grid
   const unfocusCompetitor = () => {
     setFocusedCompetitor(null);
     setCompetitorPosts([]);
+    setTopVideos([]);
+    setHashtags([]);
   };
 
   const TABS = [
@@ -465,6 +552,63 @@ export default function CompetitorIntel() {
           {/* COMPETITORS TAB */}
           {activeTab === "competitors" && (
             <div className="space-y-4">
+
+              {/* ── Follower Analysis Summary ── */}
+              {!focusedCompetitor && (
+                <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Users size={18} className="text-warroom-accent" />
+                    <h3 className="text-sm font-semibold">Audience Intelligence</h3>
+                  </div>
+
+                  {loadingFollowerAnalysis ? (
+                    <div className="flex items-center gap-2 text-sm text-warroom-muted py-4">
+                      <Loader2 size={16} className="animate-spin" /> Analyzing audience…
+                    </div>
+                  ) : followerAnalysis ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Audience type + engagement style */}
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-1">Audience Type</p>
+                          <p className="text-sm font-medium text-warroom-text">{followerAnalysis.audience_type}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-1">Engagement Style</p>
+                          <p className="text-sm font-medium text-warroom-text">{followerAnalysis.engagement_style}</p>
+                        </div>
+                        {/* Key interests */}
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-1.5">Key Interests</p>
+                          <ul className="space-y-1">
+                            {followerAnalysis.key_interests.map((interest, i) => (
+                              <li key={i} className="text-xs text-warroom-text flex items-center gap-1.5">
+                                <Sparkles size={12} className="text-warroom-accent flex-shrink-0" />
+                                {interest}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+
+                      {/* Themes as badges */}
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Content Themes</p>
+                        <div className="flex flex-wrap gap-2">
+                          {followerAnalysis.themes.map((theme, i) => (
+                            <span key={i} className="px-2.5 py-1 bg-warroom-accent/10 text-warroom-accent text-xs rounded-full font-medium">
+                              {theme}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-warroom-muted py-2">No audience data yet. Refresh competitor data to generate analysis.</p>
+                  )}
+                </div>
+              )}
+
               {/* FOCUSED VIEW — single competitor detail */}
               {focusedCompetitor ? (
                 <div className="space-y-6">
@@ -598,6 +742,94 @@ export default function CompetitorIntel() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Top Videos / Posts ── */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Flame size={16} className="text-orange-400" />
+                      <h4 className="text-sm font-semibold">Top Performing Posts</h4>
+                    </div>
+
+                    {loadingTopVideos ? (
+                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-6">
+                        <Loader2 size={16} className="animate-spin" /> Loading top posts…
+                      </div>
+                    ) : topVideos.length === 0 ? (
+                      <p className="text-xs text-warroom-muted py-4">No top posts data available.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {topVideos.map((vid, idx) => (
+                          <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition">
+                            <p className="text-sm text-warroom-text font-medium line-clamp-2 mb-2">{vid.title || "Untitled"}</p>
+                            {vid.hook && (
+                              <p className="text-xs text-warroom-accent mb-2 line-clamp-1">🪝 {vid.hook}</p>
+                            )}
+                            <div className="flex items-center gap-3 text-xs text-warroom-muted mb-2">
+                              <span className="flex items-center gap-1 text-pink-400"><Heart size={12} /> {formatNum(vid.likes)}</span>
+                              <span className="flex items-center gap-1 text-blue-400"><MessageCircle size={12} /> {formatNum(vid.comments)}</span>
+                              {vid.shares > 0 && (
+                                <span className="flex items-center gap-1 text-purple-400">{formatNum(vid.shares)} shares</span>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-warroom-muted">
+                              <span>Score: <span className="text-warroom-accent font-medium">{vid.engagement_score.toFixed(0)}</span></span>
+                              <div className="flex items-center gap-2">
+                                {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
+                                {vid.post_url && (
+                                  <a href={vid.post_url} target="_blank" rel="noopener noreferrer"
+                                    className="text-warroom-muted hover:text-warroom-accent transition">
+                                    <ExternalLink size={12} />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Hashtag Cloud ── */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Hash size={16} className="text-cyan-400" />
+                      <h4 className="text-sm font-semibold">Hashtag Cloud</h4>
+                    </div>
+
+                    {loadingHashtags ? (
+                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-4">
+                        <Loader2 size={16} className="animate-spin" /> Loading hashtags…
+                      </div>
+                    ) : hashtags.length === 0 ? (
+                      <p className="text-xs text-warroom-muted py-2">No hashtags found in posts.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {hashtags.slice(0, 20).map((ht, idx) => {
+                          const colors = [
+                            "bg-pink-500/15 text-pink-400",
+                            "bg-blue-500/15 text-blue-400",
+                            "bg-cyan-500/15 text-cyan-400",
+                            "bg-purple-500/15 text-purple-400",
+                            "bg-orange-500/15 text-orange-400",
+                            "bg-green-500/15 text-green-400",
+                            "bg-yellow-500/15 text-yellow-400",
+                            "bg-red-500/15 text-red-400",
+                          ];
+                          const color = colors[idx % colors.length];
+                          // Scale font size based on relative frequency
+                          const maxCount = hashtags[0]?.count || 1;
+                          const scale = 0.7 + 0.6 * (ht.count / maxCount);
+                          return (
+                            <span key={idx}
+                              className={`px-2.5 py-1 rounded-full font-medium ${color}`}
+                              style={{ fontSize: `${scale}rem` }}>
+                              {ht.tag} <span className="opacity-60">({ht.count})</span>
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

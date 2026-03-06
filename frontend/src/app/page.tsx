@@ -53,13 +53,13 @@ const SECTIONS = [
     items: [
       { id: "content-tracker", label: "Tracker", icon: BarChart3 },
       { id: "social", label: "Analytics", icon: Share2 },
+      { id: "intelligence", label: "Reports", icon: FileBarChart },
     ],
   },
   {
     label: "CONTENT",
     items: [
       { id: "pipeline", label: "Pipeline", icon: Film },
-      { id: "intelligence", label: "Reports", icon: FileBarChart },
       { id: "content-instagram", label: "Instagram", icon: Instagram },
       { id: "content-youtube", label: "YouTube", icon: Youtube },
       { id: "content-facebook", label: "Facebook", icon: Facebook },

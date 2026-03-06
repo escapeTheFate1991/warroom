@@ -119,6 +119,32 @@ async def create_personal_event(event: dict):
     return {"ok": True, "event": event}
 
 
+@router.patch("/calendar/personal/events/{event_id}")
+async def update_personal_event(event_id: str, updates: dict):
+    """Partially update a local personal calendar event."""
+    if not PERSONAL_EVENTS_FILE.exists():
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    all_events = json.loads(PERSONAL_EVENTS_FILE.read_text())
+    found = False
+    for i, ev in enumerate(all_events):
+        if ev.get("id") == event_id:
+            # Don't allow overwriting id, source, created_at
+            protected = {"id", "source", "created_at"}
+            for key, val in updates.items():
+                if key not in protected:
+                    all_events[i][key] = val
+            all_events[i]["updated_at"] = datetime.now().isoformat()
+            found = True
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    PERSONAL_EVENTS_FILE.write_text(json.dumps(all_events, indent=2))
+    return {"ok": True, "event": all_events[i]}
+
+
 @router.delete("/calendar/personal/events/{event_id}")
 async def delete_personal_event(event_id: str):
     """Delete a local personal calendar event."""

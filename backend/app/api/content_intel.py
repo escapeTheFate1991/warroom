@@ -1149,3 +1149,199 @@ async def delete_script(
         await db.rollback()
         logger.error(f"Failed to delete script: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete script")
+
+
+# ── New endpoints: Top Videos, Follower Analysis, Hashtags ──────────────
+
+
+class TopVideoItem(BaseModel):
+    """Top-performing video/post for a competitor."""
+    post_url: Optional[str] = None
+    title: str
+    likes: int = 0
+    comments: int = 0
+    shares: int = 0
+    engagement_score: float = 0.0
+    posted_at: Optional[datetime] = None
+    hook: Optional[str] = None
+
+
+class FollowerAnalysisResponse(BaseModel):
+    """Audience/follower analysis summary derived from post content."""
+    themes: List[str]
+    audience_type: str
+    engagement_style: str
+    key_interests: List[str]
+
+
+class HashtagItem(BaseModel):
+    """A hashtag with its frequency count."""
+    tag: str
+    count: int
+
+
+@router.get("/competitors/{competitor_id}/top-videos", response_model=List[TopVideoItem])
+async def get_competitor_top_videos(
+    competitor_id: int,
+    limit: int = 5,
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Return the top-performing posts for a competitor, ordered by engagement_score."""
+    try:
+        result = await db.execute(
+            text("""
+                SELECT post_url, post_text, likes, comments, shares,
+                       engagement_score, posted_at, hook
+                FROM crm.competitor_posts
+                WHERE competitor_id = :cid
+                ORDER BY engagement_score DESC
+                LIMIT :lim
+            """),
+            {"cid": competitor_id, "lim": limit},
+        )
+        rows = result.fetchall()
+
+        return [
+            TopVideoItem(
+                post_url=r.post_url,
+                title=(r.post_text or "")[:100],
+                likes=r.likes or 0,
+                comments=r.comments or 0,
+                shares=r.shares or 0,
+                engagement_score=r.engagement_score or 0,
+                posted_at=r.posted_at,
+                hook=r.hook,
+            )
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"Failed to get top videos for competitor {competitor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get top videos")
+
+
+@router.get("/competitors/follower-analysis", response_model=FollowerAnalysisResponse)
+async def get_follower_analysis(
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Analyze themes and audience demographics from all competitor post texts using TF-IDF."""
+    try:
+        result = await db.execute(
+            text("SELECT post_text, likes, comments, shares FROM crm.competitor_posts WHERE post_text IS NOT NULL")
+        )
+        rows = result.fetchall()
+
+        if not rows:
+            return FollowerAnalysisResponse(
+                themes=[], audience_type="Unknown", engagement_style="Unknown", key_interests=[]
+            )
+
+        texts = [r.post_text for r in rows if r.post_text and len(r.post_text.strip()) > 10]
+        total_likes = sum(r.likes or 0 for r in rows)
+        total_comments = sum(r.comments or 0 for r in rows)
+        total_shares = sum(r.shares or 0 for r in rows)
+        post_count = len(rows)
+
+        # ── Extract themes via TF-IDF ──
+        themes: List[str] = []
+        if NLTK_AVAILABLE and texts:
+            try:
+                vectorizer = TfidfVectorizer(
+                    max_features=200,
+                    ngram_range=(1, 2),
+                    stop_words="english",
+                    min_df=2,
+                    max_df=0.8,
+                )
+                tfidf_matrix = vectorizer.fit_transform(texts)
+                feature_names = vectorizer.get_feature_names_out()
+
+                # Sum TF-IDF scores per term across all docs and pick top 8
+                scores = tfidf_matrix.sum(axis=0).A1
+                top_indices = scores.argsort()[-8:][::-1]
+                themes = [str(feature_names[i]).title() for i in top_indices]
+            except Exception as nlp_err:
+                logger.warning(f"TF-IDF theme extraction failed: {nlp_err}")
+
+        # Fallback: simple word frequency if TF-IDF failed
+        if not themes:
+            all_words: Counter = Counter()
+            stop = set(string.punctuation) | {"the", "a", "an", "and", "or", "is", "to", "in", "for", "of", "on", "it", "this", "that", "with", "you", "your", "i", "my", "we"}
+            for t in texts:
+                for w in t.lower().split():
+                    w = w.strip(string.punctuation)
+                    if len(w) > 3 and w not in stop:
+                        all_words[w] += 1
+            themes = [word.title() for word, _ in all_words.most_common(8)]
+
+        # ── Derive audience type ──
+        avg_comments = total_comments / post_count if post_count else 0
+        avg_likes = total_likes / post_count if post_count else 0
+        if avg_comments > 50:
+            audience_type = "Highly Engaged Community"
+        elif avg_comments > 20:
+            audience_type = "Active Niche Audience"
+        elif avg_likes > 500:
+            audience_type = "Broad Passive Audience"
+        else:
+            audience_type = "Growing Micro-Audience"
+
+        # ── Derive engagement style ──
+        if total_comments and total_likes:
+            ratio = total_comments / total_likes
+            if ratio > 0.1:
+                engagement_style = "Conversation-driven (high comment-to-like ratio)"
+            elif ratio > 0.03:
+                engagement_style = "Balanced engagement (likes + comments)"
+            else:
+                engagement_style = "Like-heavy (passive consumption)"
+        else:
+            engagement_style = "Insufficient data"
+
+        # ── Key interests (hashtag + bigram mix) ──
+        hashtag_counter: Counter = Counter()
+        for t in texts:
+            for tag in re.findall(r"#(\w+)", t):
+                hashtag_counter[tag.lower()] += 1
+        key_interests = [f"#{tag}" for tag, _ in hashtag_counter.most_common(6)]
+        # Pad with top themes if not enough hashtags
+        if len(key_interests) < 4:
+            key_interests += [th for th in themes if th not in key_interests][: 4 - len(key_interests)]
+
+        return FollowerAnalysisResponse(
+            themes=themes,
+            audience_type=audience_type,
+            engagement_style=engagement_style,
+            key_interests=key_interests,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to run follower analysis: {e}")
+        raise HTTPException(status_code=500, detail="Failed to run follower analysis")
+
+
+@router.get("/competitors/{competitor_id}/hashtags", response_model=List[HashtagItem])
+async def get_competitor_hashtags(
+    competitor_id: int,
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Extract hashtags from all post_text for a competitor, sorted by frequency."""
+    try:
+        result = await db.execute(
+            text("""
+                SELECT post_text FROM crm.competitor_posts
+                WHERE competitor_id = :cid AND post_text IS NOT NULL
+            """),
+            {"cid": competitor_id},
+        )
+        rows = result.fetchall()
+
+        counter: Counter = Counter()
+        for r in rows:
+            for tag in re.findall(r"#\w+", r.post_text or ""):
+                counter[tag.lower()] += 1
+
+        return [HashtagItem(tag=tag, count=count) for tag, count in counter.most_common(50)]
+
+    except Exception as e:
+        logger.error(f"Failed to get hashtags for competitor {competitor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get hashtags")

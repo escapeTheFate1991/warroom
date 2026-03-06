@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Calendar, ChevronLeft, ChevronRight, Clock, FileText, Loader2, Eye, X,
-  Plus, Trash2, CalendarDays, Activity, ExternalLink
+  Plus, Trash2, CalendarDays, Activity, ExternalLink, Pencil, Mail,
+  MoreHorizontal, MapPin, Users, Bell, Type, CheckSquare, BellRing,
+  Repeat, Globe, Briefcase
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
@@ -37,6 +39,13 @@ interface PersonalEvent {
   type?: string;
   source: string;
   created_at: string;
+  location?: string;
+  guests?: string;
+  notification?: string;
+  recurrence?: string;
+  all_day?: boolean;
+  visibility?: string;
+  status?: string;
 }
 
 interface PersonalCalendarData {
@@ -45,6 +54,28 @@ interface PersonalCalendarData {
   events: PersonalEvent[];
   google_connected: boolean;
 }
+
+type EventFormData = {
+  title: string;
+  date: string;
+  time: string;
+  end_time: string;
+  description: string;
+  type: string;
+  location: string;
+  guests: string;
+  notification: string;
+  recurrence: string;
+  all_day: boolean;
+  visibility: string;
+  status: string;
+};
+
+const EMPTY_FORM: EventFormData = {
+  title: "", date: "", time: "09:00", end_time: "10:00", description: "",
+  type: "event", location: "", guests: "", notification: "30",
+  recurrence: "none", all_day: false, visibility: "default", status: "busy",
+};
 
 /* ── Constants ──────────────────────────────────────────── */
 
@@ -63,8 +94,544 @@ const EVENT_COLORS: Record<string, string> = {
   task: "bg-amber-500",
   deadline: "bg-red-500",
   personal: "bg-purple-500",
+  event: "bg-blue-500",
+  reminder: "bg-teal-500",
   default: "bg-warroom-accent",
 };
+
+const EVENT_DOT_COLORS: Record<string, string> = {
+  meeting: "bg-blue-400",
+  call: "bg-green-400",
+  task: "bg-amber-400",
+  deadline: "bg-red-400",
+  personal: "bg-purple-400",
+  event: "bg-blue-400",
+  reminder: "bg-teal-400",
+  default: "bg-warroom-accent",
+};
+
+type QuickAddTab = "event" | "task" | "reminder";
+
+/* ── Quick-Add Event Modal ──────────────────────────────── */
+
+function QuickAddModal({
+  date,
+  onClose,
+  onSave,
+  onMoreOptions,
+}: {
+  date: string;
+  onClose: () => void;
+  onSave: (data: EventFormData) => void;
+  onMoreOptions: (data: EventFormData) => void;
+}) {
+  const [activeTab, setActiveTab] = useState<QuickAddTab>("event");
+  const [form, setForm] = useState<EventFormData>({
+    ...EMPTY_FORM,
+    date,
+    type: "event",
+  });
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { titleRef.current?.focus(); }, []);
+
+  const update = (patch: Partial<EventFormData>) => setForm((f) => ({ ...f, ...patch }));
+
+  const handleTabChange = (tab: QuickAddTab) => {
+    setActiveTab(tab);
+    update({ type: tab });
+  };
+
+  const formattedDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-warroom-surface border border-warroom-border rounded-2xl w-full max-w-md shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Title input */}
+        <div className="p-4 pb-0">
+          <input
+            ref={titleRef}
+            value={form.title}
+            onChange={(e) => update({ title: e.target.value })}
+            placeholder="Add title"
+            className="w-full bg-transparent text-xl font-semibold text-warroom-text placeholder-warroom-muted/50 focus:outline-none border-b border-warroom-border pb-3"
+          />
+        </div>
+
+        {/* Type tabs */}
+        <div className="flex items-center gap-1 px-4 pt-3 pb-2">
+          {([
+            { key: "event" as QuickAddTab, label: "Event", icon: CalendarDays },
+            { key: "task" as QuickAddTab, label: "Task", icon: CheckSquare },
+            { key: "reminder" as QuickAddTab, label: "Reminder", icon: BellRing },
+          ]).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => handleTabChange(key)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                activeTab === key
+                  ? "bg-warroom-accent text-white"
+                  : "text-warroom-muted hover:text-warroom-text hover:bg-warroom-bg"
+              }`}
+            >
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="px-4 pb-4 space-y-3">
+          {/* Date + Time */}
+          <div className="flex items-center gap-2 text-sm text-warroom-muted">
+            <Clock size={15} className="shrink-0" />
+            <span>{formattedDate}</span>
+          </div>
+
+          {!form.all_day && (
+            <div className="flex items-center gap-2 pl-6">
+              <input
+                type="time"
+                value={form.time}
+                onChange={(e) => update({ time: e.target.value })}
+                className="bg-warroom-bg border border-warroom-border rounded-lg px-2 py-1.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+              />
+              <span className="text-warroom-muted text-sm">–</span>
+              <input
+                type="time"
+                value={form.end_time}
+                onChange={(e) => update({ end_time: e.target.value })}
+                className="bg-warroom-bg border border-warroom-border rounded-lg px-2 py-1.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+              />
+            </div>
+          )}
+
+          {/* Guests */}
+          {activeTab === "event" && (
+            <div className="flex items-center gap-2">
+              <Users size={15} className="text-warroom-muted shrink-0" />
+              <input
+                value={form.guests}
+                onChange={(e) => update({ guests: e.target.value })}
+                placeholder="Add guests"
+                className="flex-1 bg-warroom-bg border border-warroom-border rounded-lg px-3 py-1.5 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent"
+              />
+            </div>
+          )}
+
+          {/* Location */}
+          <div className="flex items-center gap-2">
+            <MapPin size={15} className="text-warroom-muted shrink-0" />
+            <input
+              value={form.location}
+              onChange={(e) => update({ location: e.target.value })}
+              placeholder="Add location"
+              className="flex-1 bg-warroom-bg border border-warroom-border rounded-lg px-3 py-1.5 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent"
+            />
+          </div>
+
+          {/* Description */}
+          <div className="flex items-start gap-2">
+            <FileText size={15} className="text-warroom-muted shrink-0 mt-2" />
+            <textarea
+              value={form.description}
+              onChange={(e) => update({ description: e.target.value })}
+              placeholder="Add description"
+              rows={2}
+              className="flex-1 bg-warroom-bg border border-warroom-border rounded-lg px-3 py-1.5 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent resize-none"
+            />
+          </div>
+
+          {/* Notification */}
+          <div className="flex items-center gap-2">
+            <Bell size={15} className="text-warroom-muted shrink-0" />
+            <select
+              value={form.notification}
+              onChange={(e) => update({ notification: e.target.value })}
+              className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-1.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+            >
+              <option value="10">10 minutes before</option>
+              <option value="30">30 minutes before</option>
+              <option value="60">1 hour before</option>
+              <option value="none">No notification</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between p-4 border-t border-warroom-border">
+          <button
+            onClick={() => onMoreOptions(form)}
+            className="text-sm text-warroom-muted hover:text-warroom-accent transition"
+          >
+            More options
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm text-warroom-muted hover:text-warroom-text hover:bg-warroom-bg transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onSave(form)}
+              disabled={!form.title}
+              className="px-5 py-2 rounded-lg text-sm bg-warroom-accent text-white hover:bg-warroom-accent/80 disabled:opacity-30 transition font-medium"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Event Detail Popover ───────────────────────────────── */
+
+function EventDetailPopover({
+  event,
+  onClose,
+  onEdit,
+  onDelete,
+}: {
+  event: PersonalEvent;
+  onClose: () => void;
+  onEdit: (event: PersonalEvent) => void;
+  onDelete: (eventId: string) => void;
+}) {
+  const dotColor = EVENT_DOT_COLORS[event.type || "default"] || EVENT_DOT_COLORS.default;
+
+  const formattedDate = new Date(event.date + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-warroom-surface border border-warroom-border rounded-2xl w-full max-w-sm shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header with close */}
+        <div className="flex items-start justify-between p-4 pb-2">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className={`w-3 h-3 rounded-full shrink-0 ${dotColor}`} />
+            <h3 className="font-semibold text-warroom-text text-lg truncate">{event.title}</h3>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-warroom-bg transition shrink-0 ml-2">
+            <X size={16} className="text-warroom-muted" />
+          </button>
+        </div>
+
+        {/* Date + Time */}
+        <div className="px-4 pb-3">
+          <div className="flex items-center gap-2 text-sm text-warroom-muted">
+            <Clock size={14} />
+            <span>{formattedDate}</span>
+            {event.time && (
+              <span className="text-warroom-text font-medium">
+                {event.time}{event.end_time ? ` – ${event.end_time}` : ""}
+              </span>
+            )}
+          </div>
+
+          {event.location && (
+            <div className="flex items-center gap-2 text-sm text-warroom-muted mt-2">
+              <MapPin size={14} />
+              <span>{event.location}</span>
+            </div>
+          )}
+
+          {event.guests && (
+            <div className="flex items-center gap-2 text-sm text-warroom-muted mt-2">
+              <Users size={14} />
+              <span>{event.guests}</span>
+            </div>
+          )}
+
+          {event.description && (
+            <div className="flex items-start gap-2 text-sm text-warroom-muted mt-2">
+              <FileText size={14} className="shrink-0 mt-0.5" />
+              <span className="whitespace-pre-wrap">{event.description}</span>
+            </div>
+          )}
+
+          {event.notification && event.notification !== "none" && (
+            <div className="flex items-center gap-2 text-sm text-warroom-muted mt-2">
+              <Bell size={14} />
+              <span>
+                {event.notification === "10" ? "10 minutes before" :
+                 event.notification === "30" ? "30 minutes before" :
+                 event.notification === "60" ? "1 hour before" : `${event.notification} min before`}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        {event.source === "local" && (
+          <div className="flex items-center gap-1 px-4 pb-4 pt-1 border-t border-warroom-border mt-1">
+            <button
+              onClick={() => onEdit(event)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-warroom-muted hover:text-warroom-text hover:bg-warroom-bg transition"
+              title="Edit"
+            >
+              <Pencil size={15} />
+              <span>Edit</span>
+            </button>
+            <button
+              onClick={() => { onDelete(event.id); onClose(); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-warroom-muted hover:text-red-400 hover:bg-red-500/10 transition"
+              title="Delete"
+            >
+              <Trash2 size={15} />
+              <span>Delete</span>
+            </button>
+            <div className="flex-1" />
+            <button
+              className="p-2 rounded-lg text-warroom-muted hover:text-warroom-text hover:bg-warroom-bg transition"
+              title="More options"
+              onClick={() => onEdit(event)}
+            >
+              <MoreHorizontal size={16} />
+            </button>
+          </div>
+        )}
+
+        {/* Calendar owner */}
+        <div className="px-4 pb-3 pt-1">
+          <div className="flex items-center gap-2 text-xs text-warroom-muted">
+            <CalendarDays size={12} />
+            <span>{event.source === "local" ? "War Room Calendar" : "Google Calendar"}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Full Event Editor Modal ────────────────────────────── */
+
+function FullEventEditorModal({
+  initialData,
+  editingEvent,
+  onClose,
+  onSave,
+}: {
+  initialData: EventFormData;
+  editingEvent?: PersonalEvent | null;
+  onClose: () => void;
+  onSave: (data: EventFormData, existingId?: string) => void;
+}) {
+  const [form, setForm] = useState<EventFormData>(initialData);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { titleRef.current?.focus(); }, []);
+
+  const update = (patch: Partial<EventFormData>) => setForm((f) => ({ ...f, ...patch }));
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-warroom-surface border border-warroom-border rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-warroom-border">
+          <input
+            ref={titleRef}
+            value={form.title}
+            onChange={(e) => update({ title: e.target.value })}
+            placeholder="Add title"
+            className="flex-1 bg-transparent text-xl font-semibold text-warroom-text placeholder-warroom-muted/50 focus:outline-none mr-4"
+          />
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm text-warroom-muted hover:text-warroom-text hover:bg-warroom-bg transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onSave(form, editingEvent?.id)}
+              disabled={!form.title || !form.date}
+              className="px-5 py-2 rounded-lg text-sm bg-warroom-accent text-white hover:bg-warroom-accent/80 disabled:opacity-30 transition font-medium"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-auto p-5 space-y-5">
+          {/* Date + Time section */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Clock size={18} className="text-warroom-muted shrink-0" />
+              <div className="flex items-center gap-3 flex-wrap">
+                <input
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => update({ date: e.target.value })}
+                  className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                />
+                {!form.all_day && (
+                  <>
+                    <input
+                      type="time"
+                      value={form.time}
+                      onChange={(e) => update({ time: e.target.value })}
+                      className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                    />
+                    <span className="text-warroom-muted">–</span>
+                    <input
+                      type="time"
+                      value={form.end_time}
+                      onChange={(e) => update({ end_time: e.target.value })}
+                      className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* All day toggle */}
+            <div className="flex items-center gap-3 pl-8">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.all_day}
+                  onChange={(e) => update({ all_day: e.target.checked })}
+                  className="w-4 h-4 rounded border-warroom-border bg-warroom-bg text-warroom-accent focus:ring-warroom-accent focus:ring-offset-0"
+                />
+                <span className="text-sm text-warroom-text">All day</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Recurrence */}
+          <div className="flex items-center gap-3">
+            <Repeat size={18} className="text-warroom-muted shrink-0" />
+            <select
+              value={form.recurrence}
+              onChange={(e) => update({ recurrence: e.target.value })}
+              className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+            >
+              <option value="none">Does not repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="custom">Custom...</option>
+            </select>
+          </div>
+
+          {/* Guests */}
+          <div className="flex items-center gap-3">
+            <Users size={18} className="text-warroom-muted shrink-0" />
+            <input
+              value={form.guests}
+              onChange={(e) => update({ guests: e.target.value })}
+              placeholder="Add guests"
+              className="flex-1 bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent"
+            />
+          </div>
+
+          {/* Location */}
+          <div className="flex items-center gap-3">
+            <MapPin size={18} className="text-warroom-muted shrink-0" />
+            <input
+              value={form.location}
+              onChange={(e) => update({ location: e.target.value })}
+              placeholder="Add location"
+              className="flex-1 bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent"
+            />
+          </div>
+
+          {/* Notification */}
+          <div className="flex items-center gap-3">
+            <Bell size={18} className="text-warroom-muted shrink-0" />
+            <div className="flex items-center gap-2">
+              <select
+                value={form.notification}
+                onChange={(e) => update({ notification: e.target.value })}
+                className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+              >
+                <option value="10">10 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="60">1 hour</option>
+                <option value="120">2 hours</option>
+                <option value="1440">1 day</option>
+                <option value="none">None</option>
+              </select>
+              <span className="text-sm text-warroom-muted">before</span>
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="flex items-start gap-3">
+            <FileText size={18} className="text-warroom-muted shrink-0 mt-2" />
+            <textarea
+              value={form.description}
+              onChange={(e) => update({ description: e.target.value })}
+              placeholder="Add description"
+              rows={4}
+              className="flex-1 bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent resize-none"
+            />
+          </div>
+
+          {/* Type */}
+          <div className="flex items-center gap-3">
+            <Type size={18} className="text-warroom-muted shrink-0" />
+            <select
+              value={form.type}
+              onChange={(e) => update({ type: e.target.value })}
+              className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+            >
+              <option value="event">Event</option>
+              <option value="task">Task</option>
+              <option value="reminder">Reminder</option>
+              <option value="meeting">Meeting</option>
+              <option value="call">Call</option>
+              <option value="deadline">Deadline</option>
+              <option value="personal">Personal</option>
+            </select>
+          </div>
+
+          {/* Visibility + Status row */}
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <Globe size={18} className="text-warroom-muted shrink-0" />
+              <select
+                value={form.visibility}
+                onChange={(e) => update({ visibility: e.target.value })}
+                className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+              >
+                <option value="default">Default visibility</option>
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-3">
+              <Briefcase size={18} className="text-warroom-muted shrink-0" />
+              <select
+                value={form.status}
+                onChange={(e) => update({ status: e.target.value })}
+                className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+              >
+                <option value="busy">Busy</option>
+                <option value="free">Free</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ── Main Component ─────────────────────────────────────── */
 
@@ -86,9 +653,11 @@ export default function ActivityCalendar() {
   /* Personal state */
   const [personalData, setPersonalData] = useState<PersonalCalendarData | null>(null);
   const [personalLoading, setPersonalLoading] = useState(false);
-  const [showAddEvent, setShowAddEvent] = useState(false);
-  const [newEvent, setNewEvent] = useState({ title: "", date: "", time: "", end_time: "", description: "", type: "meeting" });
-  const [selectedPersonalDay, setSelectedPersonalDay] = useState<string | null>(null);
+
+  /* Personal modals */
+  const [quickAddDate, setQuickAddDate] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<PersonalEvent | null>(null);
+  const [fullEditorData, setFullEditorData] = useState<{ form: EventFormData; event?: PersonalEvent } | null>(null);
 
   /* ── Activity Calendar Logic ──────────────────────────── */
 
@@ -137,19 +706,46 @@ export default function ActivityCalendar() {
     }
   }, [currentDate]);
 
-  const createEvent = async () => {
-    if (!newEvent.title || !newEvent.date) return;
+  const saveEvent = async (data: EventFormData, existingId?: string) => {
+    if (!data.title || !data.date) return;
+
+    const payload: Record<string, unknown> = {
+      title: data.title,
+      date: data.date,
+      type: data.type,
+      description: data.description || undefined,
+      location: data.location || undefined,
+      guests: data.guests || undefined,
+      notification: data.notification || undefined,
+      recurrence: data.recurrence || undefined,
+      all_day: data.all_day,
+      visibility: data.visibility,
+      status: data.status,
+    };
+
+    if (!data.all_day) {
+      payload.time = data.time || undefined;
+      payload.end_time = data.end_time || undefined;
+    }
+
     try {
-      const resp = await fetch(`${API}/api/calendar/personal/events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newEvent),
-      });
-      if (resp.ok) {
-        setShowAddEvent(false);
-        setNewEvent({ title: "", date: "", time: "", end_time: "", description: "", type: "meeting" });
-        loadPersonalData();
+      if (existingId) {
+        await fetch(`${API}/api/calendar/personal/events/${existingId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetch(`${API}/api/calendar/personal/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
       }
+      setQuickAddDate(null);
+      setFullEditorData(null);
+      setSelectedEvent(null);
+      loadPersonalData();
     } catch {}
   };
 
@@ -158,6 +754,38 @@ export default function ActivityCalendar() {
       await fetch(`${API}/api/calendar/personal/events/${eventId}`, { method: "DELETE" });
       loadPersonalData();
     } catch {}
+  };
+
+  const openQuickAdd = (dateStr: string) => {
+    setQuickAddDate(dateStr);
+  };
+
+  const openFullEditor = (form: EventFormData, event?: PersonalEvent) => {
+    setQuickAddDate(null);
+    setSelectedEvent(null);
+    setFullEditorData({ form, event });
+  };
+
+  const openEditFromEvent = (event: PersonalEvent) => {
+    setSelectedEvent(null);
+    setFullEditorData({
+      form: {
+        title: event.title,
+        date: event.date,
+        time: event.time || "09:00",
+        end_time: event.end_time || "10:00",
+        description: event.description || "",
+        type: event.type || "event",
+        location: event.location || "",
+        guests: event.guests || "",
+        notification: event.notification || "30",
+        recurrence: event.recurrence || "none",
+        all_day: event.all_day || false,
+        visibility: event.visibility || "default",
+        status: event.status || "busy",
+      },
+      event,
+    });
   };
 
   /* ── Navigation ───────────────────────────────────────── */
@@ -189,11 +817,8 @@ export default function ActivityCalendar() {
         const isCurrentMonth = d.getMonth() === currentDate.month - 1;
         const isToday = dateStr === todayStr;
 
-        // Activity data
         const hasMemory = calendarData?.days[dateStr]?.has_memory || false;
         const memoryData = calendarData?.days[dateStr];
-
-        // Personal events for this day
         const dayEvents = personalData?.events?.filter((e) => e.date === dateStr) || [];
 
         weekDays.push({ date: d, dateStr, day: d.getDate(), isCurrentMonth, isToday, hasMemory, memoryData, dayEvents });
@@ -247,8 +872,8 @@ export default function ActivityCalendar() {
               {tab === "personal" && (
                 <button
                   onClick={() => {
-                    setNewEvent((e) => ({ ...e, date: `${currentDate.year}-${String(currentDate.month).padStart(2, "0")}-01` }));
-                    setShowAddEvent(true);
+                    const todayStr = new Date().toISOString().split("T")[0];
+                    openQuickAdd(todayStr);
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warroom-accent text-white text-sm hover:bg-warroom-accent/80 transition"
                 >
@@ -325,8 +950,19 @@ export default function ActivityCalendar() {
                         <button
                           key={di}
                           onClick={() => {
-                            if (tab === "activities" && info.hasMemory) loadDayDetail(info.dateStr);
-                            if (tab === "personal") setSelectedPersonalDay(info.dateStr === selectedPersonalDay ? null : info.dateStr);
+                            if (tab === "activities" && info.hasMemory) {
+                              loadDayDetail(info.dateStr);
+                            }
+                            if (tab === "personal") {
+                              if (info.dayEvents.length === 0 && info.isCurrentMonth) {
+                                openQuickAdd(info.dateStr);
+                              }
+                              // If has events, clicking the day cell with no specific event opens quick-add too
+                              // Individual events are clickable separately below
+                              if (info.dayEvents.length > 0 && info.isCurrentMonth) {
+                                openQuickAdd(info.dateStr);
+                              }
+                            }
                           }}
                           className={`
                             relative rounded-lg p-2 text-sm transition-colors border min-h-[72px] flex flex-col
@@ -367,13 +1003,17 @@ export default function ActivityCalendar() {
                             </>
                           )}
 
-                          {/* Personal event dots */}
+                          {/* Personal event chips (clickable individually) */}
                           {tab === "personal" && info.dayEvents.length > 0 && (
                             <div className="mt-1 flex flex-col gap-0.5 overflow-hidden">
                               {info.dayEvents.slice(0, 2).map((ev) => (
                                 <div
                                   key={ev.id}
-                                  className={`text-[9px] px-1 rounded truncate text-white ${EVENT_COLORS[ev.type || "default"] || EVENT_COLORS.default}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedEvent(ev);
+                                  }}
+                                  className={`text-[9px] px-1 rounded truncate text-white cursor-pointer hover:opacity-80 transition ${EVENT_COLORS[ev.type || "default"] || EVENT_COLORS.default}`}
                                 >
                                   {ev.time ? `${ev.time} ` : ""}{ev.title}
                                 </div>
@@ -392,60 +1032,6 @@ export default function ActivityCalendar() {
             </div>
           )}
         </div>
-
-        {/* Personal day detail panel */}
-        {tab === "personal" && selectedPersonalDay && (
-          <div className="border-t border-warroom-border p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-warroom-text">
-                {new Date(selectedPersonalDay + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-              </h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    setNewEvent((e) => ({ ...e, date: selectedPersonalDay }));
-                    setShowAddEvent(true);
-                  }}
-                  className="flex items-center gap-1 text-xs text-warroom-accent hover:underline"
-                >
-                  <Plus size={12} />
-                  Add
-                </button>
-                <button onClick={() => setSelectedPersonalDay(null)} className="text-warroom-muted hover:text-warroom-text">
-                  <X size={14} />
-                </button>
-              </div>
-            </div>
-            {(() => {
-              const events = personalData?.events?.filter((e) => e.date === selectedPersonalDay) || [];
-              if (events.length === 0) return <p className="text-xs text-warroom-muted">No events scheduled</p>;
-              return (
-                <div className="space-y-2">
-                  {events.map((ev) => (
-                    <div key={ev.id} className="flex items-start gap-3 p-2 bg-warroom-bg rounded-lg border border-warroom-border">
-                      <div className={`w-1 h-full min-h-[32px] rounded-full ${EVENT_COLORS[ev.type || "default"] || EVENT_COLORS.default}`} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-warroom-text">{ev.title}</p>
-                        {ev.time && (
-                          <p className="text-xs text-warroom-muted flex items-center gap-1 mt-0.5">
-                            <Clock size={10} />
-                            {ev.time}{ev.end_time ? ` – ${ev.end_time}` : ""}
-                          </p>
-                        )}
-                        {ev.description && <p className="text-xs text-warroom-muted mt-1">{ev.description}</p>}
-                      </div>
-                      {ev.source === "local" && (
-                        <button onClick={() => deleteEvent(ev.id)} className="text-warroom-muted hover:text-red-400 transition p-1">
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-          </div>
-        )}
       </div>
 
       {/* ── Activity Day Detail Modal ─────────────────────── */}
@@ -481,97 +1067,34 @@ export default function ActivityCalendar() {
         </div>
       )}
 
-      {/* ── Add Event Modal ───────────────────────────────── */}
-      {showAddEvent && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAddEvent(false)}>
-          <div className="bg-warroom-surface border border-warroom-border rounded-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-warroom-border">
-              <h3 className="font-semibold text-warroom-text flex items-center gap-2">
-                <Plus size={18} className="text-warroom-accent" />
-                New Event
-              </h3>
-              <button onClick={() => setShowAddEvent(false)} className="p-1 rounded hover:bg-warroom-bg transition">
-                <X size={16} className="text-warroom-muted" />
-              </button>
-            </div>
-            <div className="p-4 space-y-3">
-              <div>
-                <label className="text-xs text-warroom-muted mb-1 block">Title *</label>
-                <input
-                  value={newEvent.title}
-                  onChange={(e) => setNewEvent((ev) => ({ ...ev, title: e.target.value }))}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
-                  placeholder="Customer call, deadline..."
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-warroom-muted mb-1 block">Date *</label>
-                  <input
-                    type="date"
-                    value={newEvent.date}
-                    onChange={(e) => setNewEvent((ev) => ({ ...ev, date: e.target.value }))}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-warroom-muted mb-1 block">Type</label>
-                  <select
-                    value={newEvent.type}
-                    onChange={(e) => setNewEvent((ev) => ({ ...ev, type: e.target.value }))}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
-                  >
-                    <option value="meeting">Meeting</option>
-                    <option value="call">Call</option>
-                    <option value="task">Task</option>
-                    <option value="deadline">Deadline</option>
-                    <option value="personal">Personal</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-warroom-muted mb-1 block">Start Time</label>
-                  <input
-                    type="time"
-                    value={newEvent.time}
-                    onChange={(e) => setNewEvent((ev) => ({ ...ev, time: e.target.value }))}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-warroom-muted mb-1 block">End Time</label>
-                  <input
-                    type="time"
-                    value={newEvent.end_time}
-                    onChange={(e) => setNewEvent((ev) => ({ ...ev, end_time: e.target.value }))}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-warroom-muted mb-1 block">Description</label>
-                <textarea
-                  value={newEvent.description}
-                  onChange={(e) => setNewEvent((ev) => ({ ...ev, description: e.target.value }))}
-                  rows={2}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent resize-none"
-                  placeholder="Notes..."
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 p-4 border-t border-warroom-border">
-              <button onClick={() => setShowAddEvent(false)} className="px-4 py-2 rounded-lg text-sm text-warroom-muted hover:text-warroom-text hover:bg-warroom-bg transition">Cancel</button>
-              <button
-                onClick={createEvent}
-                disabled={!newEvent.title || !newEvent.date}
-                className="px-4 py-2 rounded-lg text-sm bg-warroom-accent text-white hover:bg-warroom-accent/80 disabled:opacity-30 transition"
-              >
-                Create Event
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* ── Quick-Add Event Modal ─────────────────────────── */}
+      {quickAddDate && (
+        <QuickAddModal
+          date={quickAddDate}
+          onClose={() => setQuickAddDate(null)}
+          onSave={(data) => saveEvent(data)}
+          onMoreOptions={(data) => openFullEditor(data)}
+        />
+      )}
+
+      {/* ── Event Detail Popover ──────────────────────────── */}
+      {selectedEvent && (
+        <EventDetailPopover
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onEdit={openEditFromEvent}
+          onDelete={deleteEvent}
+        />
+      )}
+
+      {/* ── Full Event Editor Modal ──────────────────────── */}
+      {fullEditorData && (
+        <FullEventEditorModal
+          initialData={fullEditorData.form}
+          editingEvent={fullEditorData.event}
+          onClose={() => setFullEditorData(null)}
+          onSave={saveEvent}
+        />
       )}
     </div>
   );
