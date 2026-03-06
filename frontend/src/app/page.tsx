@@ -8,6 +8,7 @@ import {
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
   CalendarDays, Puzzle, Heart, Inbox, FileSignature, DollarSign,
+  BarChart2, PieChart, TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import ChatPanel from "@/components/chat/ChatPanel";
@@ -39,6 +40,7 @@ import ContractsPanel from "@/components/contracts/ContractsPanel";
 import NotificationBell from "@/components/notifications/NotificationBell";
 import InvoicingPanel from "@/components/invoicing/InvoicingPanel";
 import EmailInbox from "@/components/email/EmailInbox";
+import ReportsOverview from "@/components/reports/ReportsOverview";
 
 // Sidebar section structure (inspired by RAWGROWTH War Room)
 const SECTIONS = [
@@ -58,7 +60,7 @@ const SECTIONS = [
     items: [
       { id: "content-tracker", label: "Tracker", icon: BarChart3 },
       { id: "social", label: "Analytics", icon: Share2 },
-      { id: "intelligence", label: "Reports", icon: FileBarChart },
+      { id: "intelligence", label: "Influencers", icon: FileBarChart },
     ],
   },
   {
@@ -94,6 +96,16 @@ const SECTIONS = [
     ],
   },
   {
+    label: "REPORTS",
+    items: [
+      { id: "reports", label: "Reports", icon: BarChart2, children: [
+        { id: "reports-overview", label: "Overview", icon: PieChart },
+        { id: "reports-revenue", label: "Revenue", icon: DollarSign },
+        { id: "reports-sales", label: "Sales Activity", icon: TrendingUp },
+      ]},
+    ],
+  },
+  {
     label: "TOOLS",
     items: [
       { id: "skills", label: "Skills", icon: Puzzle },
@@ -119,6 +131,7 @@ type TabId =
   | "marketing-campaigns" | "marketing-templates"
   | "skills" | "soul"
   | "invoices" | "contracts"
+  | "reports-overview" | "reports-revenue" | "reports-sales"
   | "settings";
 
 // Map parent IDs to their children active check
@@ -127,6 +140,7 @@ const PARENT_CHILDREN: Record<string, string[]> = {
   library: ["library-search", "library-educate"],
   marketing: ["marketing-campaigns", "marketing-templates"],
   finance: ["invoices", "contracts"],
+  reports: ["reports-overview", "reports-revenue", "reports-sales"],
 };
 
 export default function Page() {
@@ -317,6 +331,9 @@ function WarRoom() {
         {activeTab === "soul" && <SoulEditor />}
         {activeTab === "invoices" && <InvoicingPanel />}
         {activeTab === "contracts" && <ContractsPanel />}
+        {activeTab === "reports-overview" && <ReportsOverview />}
+        {activeTab === "reports-revenue" && <div className="p-8 text-warroom-muted text-center">Revenue Reports — coming soon</div>}
+        {activeTab === "reports-sales" && <div className="p-8 text-warroom-muted text-center">Sales Activity — coming soon</div>}
         {activeTab === "settings" && <SettingsPanel />}
       </main>
     </div>

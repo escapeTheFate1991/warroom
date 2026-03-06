@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Zap, Users, Eye, BarChart3, TrendingUp, Activity, Share2, Film,
   Target, Clock, CheckCircle2, Loader2, AlertCircle, ArrowRight, ArrowUpRight,
-  Flame, Calendar, MessageSquare,
+  Flame, Calendar, MessageSquare, DollarSign, FileText, Mail, UserPlus,
+  AlertTriangle,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
@@ -84,6 +85,43 @@ function getPipelineStats() {
   } catch { return { total: 0, ideas: 0, inProduction: 0, posted: 0, scheduled: 0 }; }
 }
 
+interface BusinessMetrics {
+  revenueThisMonth: number | null;
+  activeContracts: number | null;
+  mrr: number | null;
+  coldEmailsSent: number | null;
+  newLeads: number | null;
+  avgCloseTime: number | null;
+  pipelineValue: number | null;
+  overdueInvoices: number | null;
+}
+
+const INITIAL_METRICS: BusinessMetrics = {
+  revenueThisMonth: null,
+  activeContracts: null,
+  mrr: null,
+  coldEmailsSent: null,
+  newLeads: null,
+  avgCloseTime: null,
+  pipelineValue: null,
+  overdueInvoices: null,
+};
+
+function isCurrentMonth(dateStr: string): boolean {
+  const d = new Date(dateStr);
+  const now = new Date();
+  return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+}
+
+function isCurrentWeek(dateStr: string): boolean {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+  startOfWeek.setHours(0, 0, 0, 0);
+  return d >= startOfWeek;
+}
+
 export default function CommandCenter() {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [summary, setSummary] = useState<SocialSummary | null>(null);
@@ -93,6 +131,7 @@ export default function CommandCenter() {
   const [pipelineStats, setPipelineStats] = useState(getPipelineStats());
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [metrics, setMetrics] = useState<BusinessMetrics>(INITIAL_METRICS);
 
   const fetchData = useCallback(async () => {
     try {
@@ -118,12 +157,82 @@ export default function CommandCenter() {
     } catch {} finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchMetrics = useCallback(async () => {
+    const safeJson = async (resp: Response | null) => {
+      if (!resp?.ok) return null;
+      try { return await resp.json(); } catch { return null; }
+    };
+
+    const [invoicesResp, contractsResp, allContractsResp, coldEmailsResp, leadsResp, overdueResp] = await Promise.all([
+      authFetch(`${API}/api/invoices`).catch(() => null),
+      authFetch(`${API}/api/contracts?status=active`).catch(() => null),
+      authFetch(`${API}/api/contracts`).catch(() => null),
+      authFetch(`${API}/api/cold-emails/drafts?status=sent`).catch(() => null),
+      authFetch(`${API}/api/contact-submissions`).catch(() => null),
+      authFetch(`${API}/api/invoices?status=overdue`).catch(() => null),
+    ]);
+
+    const invoices: any[] = (await safeJson(invoicesResp)) || [];
+    const activeContracts: any[] = (await safeJson(contractsResp)) || [];
+    const allContracts: any[] = (await safeJson(allContractsResp)) || [];
+    const coldEmails: any[] = (await safeJson(coldEmailsResp)) || [];
+    const leads: any[] = (await safeJson(leadsResp)) || [];
+    const overdueInvoices: any[] = (await safeJson(overdueResp)) || [];
+
+    // Revenue this month: sum of paid invoices in current month
+    const paidThisMonth = invoices
+      .filter((inv: any) => inv.status === "paid" && inv.paid_at && isCurrentMonth(inv.paid_at))
+      .reduce((sum: number, inv: any) => sum + (Number(inv.total) || Number(inv.amount) || 0), 0);
+
+    // MRR from active contracts
+    const mrr = activeContracts.reduce(
+      (sum: number, c: any) => sum + (Number(c.monthly_price) || Number(c.monthly_amount) || 0), 0
+    );
+
+    // Cold emails sent this week
+    const emailsThisWeek = coldEmails.filter(
+      (e: any) => e.sent_at && isCurrentWeek(e.sent_at)
+    ).length || coldEmails.length;
+
+    // New leads this week
+    const leadsThisWeek = leads.filter(
+      (l: any) => l.created_at && isCurrentWeek(l.created_at)
+    ).length || leads.length;
+
+    // Average close time: days from created to signed for signed contracts
+    const signedContracts = allContracts.filter((c: any) => c.status === "signed" && c.created_at && c.signed_at);
+    const avgClose = signedContracts.length > 0
+      ? signedContracts.reduce((sum: number, c: any) => {
+          const days = (new Date(c.signed_at).getTime() - new Date(c.created_at).getTime()) / 86400000;
+          return sum + days;
+        }, 0) / signedContracts.length
+      : null;
+
+    // Pipeline value: total of unsigned contracts
+    const unsignedValue = allContracts
+      .filter((c: any) => c.status !== "signed" && c.status !== "cancelled")
+      .reduce((sum: number, c: any) => sum + (Number(c.total) || Number(c.value) || Number(c.monthly_price) || 0), 0);
+
+    setMetrics({
+      revenueThisMonth: paidThisMonth,
+      activeContracts: activeContracts.length,
+      mrr,
+      coldEmailsSent: emailsThisWeek,
+      newLeads: leadsThisWeek,
+      avgCloseTime: avgClose !== null ? Math.round(avgClose) : null,
+      pipelineValue: unsignedValue,
+      overdueInvoices: overdueInvoices.length,
+    });
+  }, []);
+
+  useEffect(() => { fetchData(); fetchMetrics(); }, [fetchData, fetchMetrics]);
   useEffect(() => { setPipelineStats(getPipelineStats()); }, []);
   useEffect(() => {
     const t = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(t);
-  }, []);
+    // Refresh metrics every 5 minutes
+    const metricsInterval = setInterval(fetchMetrics, 300000);
+    return () => { clearInterval(t); clearInterval(metricsInterval); };
+  }, [fetchMetrics]);
 
   // Demo events if none from API
   const displayEvents = events.length > 0 ? events : [
@@ -154,6 +263,34 @@ export default function CommandCenter() {
               <h1 className="text-3xl font-bold">{greeting}, Eddy</h1>
               <p className="text-base text-warroom-muted mt-1">Here's your operations overview</p>
             </div>
+          </div>
+
+          {/* Business Metrics */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {([
+              { label: "Revenue This Month", value: metrics.revenueThisMonth, icon: DollarSign, color: "text-green-400", bg: "bg-green-400/10", prefix: "$", suffix: "" },
+              { label: "Active Contracts", value: metrics.activeContracts, icon: FileText, color: "text-blue-400", bg: "bg-blue-400/10", prefix: "", suffix: "" },
+              { label: "MRR", value: metrics.mrr, icon: TrendingUp, color: "text-emerald-400", bg: "bg-emerald-400/10", prefix: "$", suffix: "" },
+              { label: "Cold Emails Sent", value: metrics.coldEmailsSent, icon: Mail, color: "text-indigo-400", bg: "bg-indigo-400/10", prefix: "", suffix: "" },
+              { label: "New Leads", value: metrics.newLeads, icon: UserPlus, color: "text-cyan-400", bg: "bg-cyan-400/10", prefix: "", suffix: "" },
+              { label: "Avg Close Time", value: metrics.avgCloseTime, icon: Clock, color: "text-amber-400", bg: "bg-amber-400/10", prefix: "", suffix: "d" },
+              { label: "Pipeline Value", value: metrics.pipelineValue, icon: Target, color: "text-purple-400", bg: "bg-purple-400/10", prefix: "$", suffix: "" },
+              { label: "Overdue Invoices", value: metrics.overdueInvoices, icon: AlertTriangle, color: "text-red-400", bg: "bg-red-400/10", prefix: "", suffix: "" },
+            ]).map((tile, i) => {
+              const Icon = tile.icon;
+              const displayValue = tile.value === null
+                ? "—"
+                : `${tile.prefix}${tile.prefix === "$" ? (tile.value as number).toLocaleString() : tile.value}${tile.suffix}`;
+              return (
+                <div key={i} className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+                  <div className={`w-8 h-8 rounded-lg ${tile.bg} flex items-center justify-center mb-3`}>
+                    <Icon size={16} className={tile.color} />
+                  </div>
+                  <p className="text-xl font-bold text-warroom-text">{displayValue}</p>
+                  <p className="text-xs text-warroom-muted mt-1">{tile.label}</p>
+                </div>
+              );
+            })}
           </div>
 
           {/* Top Metrics Row */}

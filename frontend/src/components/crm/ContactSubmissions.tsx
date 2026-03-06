@@ -52,9 +52,11 @@ const REFRESH_INTERVAL_MS = 60_000;
 
 /* ── Helpers ───────────────────────────────────────────────── */
 
-function relativeTime(dateStr: string): string {
-  const now = Date.now();
+function relativeTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
   const then = new Date(dateStr).getTime();
+  if (isNaN(then)) return "—";
+  const now = Date.now();
   const diffSec = Math.floor((now - then) / 1000);
   if (diffSec < 60) return "just now";
   const diffMin = Math.floor(diffSec / 60);
@@ -66,7 +68,27 @@ function relativeTime(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString();
 }
 
-function truncate(text: string, max: number): string {
+/** Safely extract an array from a response that may be a raw array or wrapped in an object. */
+function extractArray<T>(data: unknown, key: string): T[] {
+  if (Array.isArray(data)) return data as T[];
+  if (data && typeof data === "object" && key in data) {
+    const val = (data as Record<string, unknown>)[key];
+    if (Array.isArray(val)) return val as T[];
+  }
+  return [];
+}
+
+/** Safely extract a numeric total from a response object. */
+function extractTotal(data: unknown, fallbackLength: number): number {
+  if (data && typeof data === "object" && "total" in data) {
+    const t = (data as Record<string, unknown>).total;
+    return typeof t === "number" ? t : fallbackLength;
+  }
+  return fallbackLength;
+}
+
+function truncate(text: string | null | undefined, max: number): string {
+  if (!text) return "—";
   return text.length > max ? text.slice(0, max) + "…" : text;
 }
 
@@ -83,9 +105,9 @@ export default function ContactSubmissions() {
   const [users, setUsers] = useState<CRMUser[]>([]);
   const [patchingId, setPatchingId] = useState<number | null>(null);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const notesRef = useRef<HTMLTextAreaElement | null>(null);
 
   /* ── Data fetching ──────────────────────────────────────── */
 
@@ -99,13 +121,19 @@ export default function ContactSubmissions() {
       params.set("limit", String(PER_PAGE));
 
       const res = await authFetch(`${API}/api/contact-submissions?${params}`);
-      if (res.ok) {
-        const data: PaginatedResponse = await res.json();
-        setSubmissions(data.submissions);
-        setTotal(data.total);
+      if (!res.ok) {
+        if (!silent) setError(`Failed to load submissions (${res.status})`);
+        return;
       }
+      const data: unknown = await res.json();
+      const items = extractArray<Submission>(data, "submissions");
+      const count = extractTotal(data, items.length);
+      setSubmissions(items);
+      setTotal(count);
+      setError(null);
     } catch (err) {
       console.error("Failed to fetch submissions:", err);
+      if (!silent) setError("Network error loading submissions");
     } finally {
       setLoading(false);
     }
@@ -114,12 +142,16 @@ export default function ContactSubmissions() {
   const fetchUsers = useCallback(async () => {
     try {
       const res = await authFetch(`${API}/api/crm/users`);
-      if (res.ok) {
-        const data: CRMUser[] = await res.json();
-        setUsers(data);
+      if (!res.ok) {
+        // 404 = endpoint not implemented yet — silently use empty list
+        setUsers([]);
+        return;
       }
-    } catch (err) {
-      console.error("Failed to fetch users:", err);
+      const data: unknown = await res.json();
+      setUsers(extractArray<CRMUser>(data, "users"));
+    } catch {
+      // Network error or JSON parse failure — silently degrade
+      setUsers([]);
     }
   }, []);
 
@@ -142,11 +174,19 @@ export default function ContactSubmissions() {
     try {
       const res = await authFetch(`${API}/api/contact-submissions/${id}`, {
         method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (res.ok) {
-        const updated: Submission = await res.json();
-        setSubmissions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updated } : s)));
+      if (!res.ok) {
+        console.error(`Patch failed (${res.status}) for submission ${id}`);
+        return;
+      }
+      const data: unknown = await res.json();
+      // Merge response back — if it's a valid object with an id, use it; otherwise optimistically apply the body
+      if (data && typeof data === "object" && "id" in data) {
+        setSubmissions((prev) => prev.map((s) => (s.id === id ? { ...s, ...(data as Partial<Submission>) } : s)));
+      } else {
+        setSubmissions((prev) => prev.map((s) => (s.id === id ? { ...s, ...body } : s)));
       }
     } catch (err) {
       console.error("Failed to patch submission:", err);
@@ -234,6 +274,14 @@ export default function ContactSubmissions() {
           )}
         </div>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="mx-6 mt-3 px-4 py-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => { setError(null); fetchSubmissions(); }} className="ml-3 text-xs underline hover:text-red-300 transition-colors">Retry</button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-y-auto">
@@ -456,7 +504,7 @@ function SubmissionRow({ submission, isExpanded, statusConfig, users, patching, 
                   <span className="text-xs font-medium text-warroom-muted uppercase tracking-wider">Full Message</span>
                 </div>
                 <div className="bg-warroom-bg rounded-lg p-4 border border-warroom-border/50 text-sm text-warroom-text whitespace-pre-wrap min-h-[80px]">
-                  {submission.message}
+                  {submission.message || "No message provided."}
                 </div>
               </div>
 
