@@ -137,7 +137,7 @@ export default function SocialDashboard() {
     try {
       const params = new URLSearchParams(oauth.params || {});
       const url = `${API}/api/social/oauth/${oauth.provider}/authorize${params.toString() ? "?" + params.toString() : ""}`;
-      const res = await fetch(url);
+      const res = await authFetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.auth_url) { window.open(data.auth_url, "_blank", "width=600,height=700"); return; }

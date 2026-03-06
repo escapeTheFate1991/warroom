@@ -169,7 +169,7 @@ export default function CustomFields() {
       
       const method = editingAttribute ? 'PUT' : 'POST';
       
-      const resp = await fetch(url, {
+      const resp = await authFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

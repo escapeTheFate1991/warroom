@@ -100,7 +100,7 @@ export default function ProductsPanel() {
 
       const method = editingProduct ? "PUT" : "POST";
 
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",

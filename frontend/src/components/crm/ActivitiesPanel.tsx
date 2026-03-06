@@ -88,7 +88,7 @@ export default function ActivitiesPanel() {
         if (filterDone === "pending") params.set("is_done", "false");
         if (params.toString()) url += `?${params}`;
       }
-      const res = await fetch(url);
+      const res = await authFetch(url);
       if (res.ok) setActivities(await res.json());
     } catch (err) {
       console.error("Failed to load activities:", err);
@@ -148,7 +148,7 @@ export default function ActivitiesPanel() {
       const url = editingActivity
         ? `${API}/api/crm/activities/${editingActivity.id}`
         : `${API}/api/crm/activities`;
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method: editingActivity ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

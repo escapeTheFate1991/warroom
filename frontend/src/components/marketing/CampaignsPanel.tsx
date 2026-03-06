@@ -107,7 +107,7 @@ export default function CampaignsPanel() {
       const url = editing
         ? `${API}/api/crm/campaigns/${editing.id}`
         : `${API}/api/crm/campaigns`;
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method: editing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

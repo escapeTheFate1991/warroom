@@ -72,7 +72,7 @@ export default function EmailTemplatesPanel() {
       const url = editing
         ? `${API}/api/crm/email-templates/${editing.id}`
         : `${API}/api/crm/email-templates`;
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method: editing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
