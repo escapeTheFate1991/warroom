@@ -88,8 +88,10 @@ export default function NotificationBell() {
     try {
       const res = await authFetch(`${API}/api/notifications`);
       if (!res.ok) return;
-      const data: Notification[] = await res.json();
-      setNotifications(data);
+      const data = await res.json();
+      // Backend returns { notifications: [...], total, page, limit }
+      const list = Array.isArray(data) ? data : (data.notifications ?? []);
+      setNotifications(list);
     } catch {
       // Silently ignore network errors; will retry on next poll
     }
@@ -135,7 +137,7 @@ export default function NotificationBell() {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     try {
       await authFetch(`${API}/api/notifications/read-all`, {
-        method: "PATCH",
+        method: "POST",
       });
     } catch {
       // Same optimistic approach
