@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Plus, GripVertical, CheckCircle2, Circle, Clock, Archive, Trash2, X, Lock, CheckCheck, Link, Unlink, Brain, Play } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Plus, GripVertical, CheckCircle2, Circle, Clock, Archive, Trash2, X, Lock, CheckCheck, Link, Unlink, Brain, Play, Save, Edit3, Eye, Tag, Paperclip, Calendar, User, Hash } from "lucide-react";
 import AIPlanningModal from "./AIPlanningModal";
 import BoardExecutionModal from "./BoardExecutionModal";
 
@@ -16,12 +16,13 @@ interface Task {
   priority: string;
   tags: string[];
   created_at: string;
+  updated_at?: string;
   completed_at: string | null;
 }
 
 interface DepEntry {
-  id: number;     // row id in task_dependencies table
-  task_id: number; // the referenced task id
+  id: number;
+  task_id: number;
 }
 
 interface TaskDeps {
@@ -43,6 +44,9 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: "bg-blue-500/20 text-blue-400",
 };
 
+const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"];
+const STATUS_OPTIONS = COLUMNS.map((c) => c.id);
+
 export default function KanbanPanel() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [draggedTask, setDraggedTask] = useState<number | null>(null);
@@ -50,6 +54,28 @@ export default function KanbanPanel() {
   const [mouseDownPosition, setMouseDownPosition] = useState<{ x: number; y: number } | null>(null);
   const [showAIPlanning, setShowAIPlanning] = useState(false);
   const [showExecution, setShowExecution] = useState(false);
+  const [showNewTask, setShowNewTask] = useState(false);
+
+  // Edit state for task detail
+  const [editMode, setEditMode] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editPriority, setEditPriority] = useState("medium");
+  const [editStatus, setEditStatus] = useState("todo");
+  const [editAssignee, setEditAssignee] = useState("friday");
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // New task state
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newPriority, setNewPriority] = useState("medium");
+  const [newStatus, setNewStatus] = useState("todo");
+  const [newAssignee, setNewAssignee] = useState("friday");
+  const [newTags, setNewTags] = useState<string[]>([]);
+  const [newTagText, setNewTagText] = useState("");
+  const [creating, setCreating] = useState(false);
 
   // Dependency state
   const [allDeps, setAllDeps] = useState<Record<number, TaskDeps>>({});
@@ -111,6 +137,73 @@ export default function KanbanPanel() {
       setSelectedTaskDeps(null);
     }
   }, [selectedTask, fetchSelectedDeps]);
+
+  // ── Create Task ──
+  const createTask = async () => {
+    if (!newTitle.trim()) return;
+    setCreating(true);
+    try {
+      await fetch(`${API}/api/kanban/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTitle.trim(),
+          description: newDesc.trim(),
+          priority: newPriority,
+          status: newStatus,
+          assignee: newAssignee,
+          tags: newTags,
+        }),
+      });
+      setShowNewTask(false);
+      setNewTitle(""); setNewDesc(""); setNewPriority("medium"); setNewStatus("todo"); setNewAssignee("friday"); setNewTags([]); setNewTagText("");
+      fetchTasks();
+    } catch { console.error("Failed to create task"); }
+    setCreating(false);
+  };
+
+  // ── Edit helpers ──
+  const enterEditMode = () => {
+    if (!selectedTask) return;
+    setEditTitle(selectedTask.title);
+    setEditDesc(selectedTask.description || "");
+    setEditPriority(selectedTask.priority);
+    setEditStatus(selectedTask.status);
+    setEditAssignee(selectedTask.assignee);
+    setEditTags([...(selectedTask.tags || [])]);
+    setEditMode(true);
+  };
+
+  const saveTask = async () => {
+    if (!selectedTask || !editTitle.trim()) return;
+    setSaving(true);
+    try {
+      const resp = await fetch(`${API}/api/kanban/tasks/${selectedTask.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          description: editDesc.trim(),
+          priority: editPriority,
+          status: editStatus,
+          assignee: editAssignee,
+          tags: editTags,
+        }),
+      });
+      if (resp.ok) {
+        const updated = await resp.json();
+        setSelectedTask(updated);
+        setEditMode(false);
+        fetchTasks();
+      }
+    } catch { console.error("Failed to save task"); }
+    setSaving(false);
+  };
+
+  const addEditTag = () => {
+    const t = newTagInput.trim();
+    if (t && !editTags.includes(t)) { setEditTags([...editTags, t]); setNewTagInput(""); }
+  };
 
   const updateTaskStatus = async (taskId: number, newStatus: string) => {
     await fetch(`${API}/api/kanban/tasks/${taskId}`, {
@@ -240,7 +333,10 @@ export default function KanbanPanel() {
           >
             <Brain size={14} /> AI Plan
           </button>
-          <button className="flex items-center gap-1.5 text-xs bg-warroom-accent/20 text-warroom-accent px-3 py-1.5 rounded-lg hover:bg-warroom-accent/30 transition">
+          <button
+            onClick={() => setShowNewTask(true)}
+            className="flex items-center gap-1.5 text-xs bg-warroom-accent/20 text-warroom-accent px-3 py-1.5 rounded-lg hover:bg-warroom-accent/30 transition"
+          >
             <Plus size={14} /> New Task
           </button>
         </div>
@@ -323,76 +419,204 @@ export default function KanbanPanel() {
         </div>
       </div>
 
-      {/* Task Detail Modal */}
-      {selectedTask && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-warroom-surface border border-warroom-border rounded-lg p-6 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">{selectedTask.title}</h3>
-              <button
-                onClick={() => setSelectedTask(null)}
-                className="text-warroom-muted hover:text-warroom-text transition p-1"
-              >
-                <X size={20} />
-              </button>
+      {/* ══════ New Task Modal ══════ */}
+      {showNewTask && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowNewTask(false)}>
+          <div className="bg-warroom-surface border border-warroom-border rounded-xl p-0 max-w-xl w-full mx-4 max-h-[85vh] overflow-hidden shadow-2xl shadow-black/40" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-warroom-border">
+              <h3 className="text-base font-semibold flex items-center gap-2"><Plus size={16} className="text-warroom-accent" /> New Task</h3>
+              <button onClick={() => setShowNewTask(false)} className="text-warroom-muted hover:text-warroom-text transition p-1"><X size={18} /></button>
             </div>
 
-            <div className="space-y-4">
+            <div className="p-5 space-y-4 overflow-y-auto max-h-[calc(85vh-130px)] scrollbar-thin scrollbar-thumb-warroom-border">
+              {/* Title */}
               <div>
-                <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1">Description</label>
-                <p className="text-sm text-warroom-text">{selectedTask.description || "No description"}</p>
+                <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Title *</label>
+                <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Task title…"
+                  className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2.5 text-warroom-text focus:border-warroom-accent outline-none transition"
+                  autoFocus onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && createTask()} />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* Description */}
+              <div>
+                <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Description</label>
+                <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Describe the task… (Markdown supported)"
+                  rows={4} className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2.5 text-warroom-text focus:border-warroom-accent outline-none transition resize-y" />
+              </div>
+
+              {/* Row: Status + Priority + Assignee */}
+              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1">Status</label>
-                  <p className="text-sm text-warroom-text capitalize">{selectedTask.status.replace("-", " ")}</p>
+                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Status</label>
+                  <select value={newStatus} onChange={(e) => setNewStatus(e.target.value)}
+                    className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2.5 text-warroom-text focus:border-warroom-accent outline-none">
+                    {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace("-", " ")}</option>)}
+                  </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1">Assignee</label>
-                  <p className="text-sm text-warroom-text">{selectedTask.assignee}</p>
+                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Priority</label>
+                  <select value={newPriority} onChange={(e) => setNewPriority(e.target.value)}
+                    className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2.5 text-warroom-text focus:border-warroom-accent outline-none">
+                    {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Assignee</label>
+                  <input value={newAssignee} onChange={(e) => setNewAssignee(e.target.value)} placeholder="friday"
+                    className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2.5 text-warroom-text focus:border-warroom-accent outline-none" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1">Priority</label>
-                  {selectedTask.priority && (
-                    <span className={`inline-block text-xs px-2 py-1 rounded-full font-medium ${PRIORITY_COLORS[selectedTask.priority] || ""}`}>
-                      {selectedTask.priority}
+              {/* Tags */}
+              <div>
+                <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Tags</label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {newTags.map((tag, i) => (
+                    <span key={i} className="text-xs bg-warroom-accent/20 text-warroom-accent px-2 py-0.5 rounded-full flex items-center gap-1">
+                      {tag}
+                      <button onClick={() => setNewTags(newTags.filter((_, j) => j !== i))} className="hover:text-red-400"><X size={10} /></button>
                     </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input value={newTagText} onChange={(e) => setNewTagText(e.target.value)} placeholder="Add tag…"
+                    className="flex-1 text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-1.5 text-warroom-text focus:border-warroom-accent outline-none"
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const t = newTagText.trim(); if (t && !newTags.includes(t)) { setNewTags([...newTags, t]); setNewTagText(""); }}}} />
+                  <button onClick={() => { const t = newTagText.trim(); if (t && !newTags.includes(t)) { setNewTags([...newTags, t]); setNewTagText(""); }}}
+                    className="text-xs bg-warroom-border/50 text-warroom-muted px-3 py-1.5 rounded-lg hover:bg-warroom-border transition">Add</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-warroom-border">
+              <button onClick={() => setShowNewTask(false)} className="text-xs text-warroom-muted hover:text-warroom-text px-3 py-2 transition">Cancel</button>
+              <button onClick={createTask} disabled={!newTitle.trim() || creating}
+                className="flex items-center gap-1.5 text-xs bg-warroom-accent text-white px-4 py-2 rounded-lg hover:bg-warroom-accent/90 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                {creating ? "Creating…" : <><Plus size={14} /> Create Task</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ Task Detail Modal (View + Edit) ══════ */}
+      {selectedTask && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => { setSelectedTask(null); setEditMode(false); }}>
+          <div className="bg-warroom-surface border border-warroom-border rounded-xl p-0 max-w-xl w-full mx-4 max-h-[85vh] overflow-hidden shadow-2xl shadow-black/40" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-warroom-border">
+              {editMode ? (
+                <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
+                  className="text-base font-semibold bg-warroom-bg border border-warroom-border rounded-lg px-3 py-1.5 text-warroom-text focus:border-warroom-accent outline-none flex-1 mr-3" />
+              ) : (
+                <h3 className="text-base font-semibold flex-1 mr-3 truncate">{selectedTask.title}</h3>
+              )}
+              <div className="flex items-center gap-1">
+                {!editMode ? (
+                  <button onClick={enterEditMode} className="text-warroom-muted hover:text-warroom-accent transition p-1.5 rounded-lg hover:bg-warroom-accent/10" title="Edit task">
+                    <Edit3 size={16} />
+                  </button>
+                ) : (
+                  <button onClick={saveTask} disabled={saving || !editTitle.trim()} className="text-warroom-accent hover:text-warroom-accent/80 transition p-1.5 rounded-lg hover:bg-warroom-accent/10 disabled:opacity-40" title="Save">
+                    <Save size={16} />
+                  </button>
+                )}
+                <button onClick={() => { setSelectedTask(null); setEditMode(false); }} className="text-warroom-muted hover:text-warroom-text transition p-1.5"><X size={18} /></button>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto max-h-[calc(85vh-130px)] scrollbar-thin scrollbar-thumb-warroom-border">
+              {/* Description */}
+              <div>
+                <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Description</label>
+                {editMode ? (
+                  <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} rows={5} placeholder="Describe the task… (Markdown supported)"
+                    className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2.5 text-warroom-text focus:border-warroom-accent outline-none transition resize-y" />
+                ) : (
+                  <div className="text-sm text-warroom-text whitespace-pre-wrap bg-warroom-bg/50 rounded-lg p-3 min-h-[60px]">
+                    {selectedTask.description || <span className="text-warroom-muted italic">No description</span>}
+                  </div>
+                )}
+              </div>
+
+              {/* Row: Status + Priority + Assignee */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Status</label>
+                  {editMode ? (
+                    <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}
+                      className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-warroom-text focus:border-warroom-accent outline-none">
+                      {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace("-", " ")}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-sm text-warroom-text capitalize">{selectedTask.status.replace("-", " ")}</p>
                   )}
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1">Tags</label>
-                  {selectedTask.tags && selectedTask.tags.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {selectedTask.tags.map((tag, idx) => (
-                        <span key={idx} className="text-xs bg-warroom-accent/20 text-warroom-accent px-2 py-0.5 rounded">
+                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Priority</label>
+                  {editMode ? (
+                    <select value={editPriority} onChange={(e) => setEditPriority(e.target.value)}
+                      className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-warroom-text focus:border-warroom-accent outline-none">
+                      {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  ) : (
+                    <span className={`inline-block text-xs px-2 py-1 rounded-full font-medium ${PRIORITY_COLORS[selectedTask.priority] || ""}`}>{selectedTask.priority}</span>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Assignee</label>
+                  {editMode ? (
+                    <input value={editAssignee} onChange={(e) => setEditAssignee(e.target.value)}
+                      className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-warroom-text focus:border-warroom-accent outline-none" />
+                  ) : (
+                    <p className="text-sm text-warroom-text">{selectedTask.assignee}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Tags */}
+              <div>
+                <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Tags</label>
+                {editMode ? (
+                  <>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {editTags.map((tag, i) => (
+                        <span key={i} className="text-xs bg-warroom-accent/20 text-warroom-accent px-2 py-0.5 rounded-full flex items-center gap-1">
                           {tag}
+                          <button onClick={() => setEditTags(editTags.filter((_, j) => j !== i))} className="hover:text-red-400"><X size={10} /></button>
                         </span>
                       ))}
                     </div>
+                    <div className="flex gap-2">
+                      <input value={newTagInput} onChange={(e) => setNewTagInput(e.target.value)} placeholder="Add tag…"
+                        className="flex-1 text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-1.5 text-warroom-text focus:border-warroom-accent outline-none"
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addEditTag(); }}} />
+                      <button onClick={addEditTag} className="text-xs bg-warroom-border/50 text-warroom-muted px-3 py-1.5 rounded-lg hover:bg-warroom-border transition">Add</button>
+                    </div>
+                  </>
+                ) : (
+                  selectedTask.tags && selectedTask.tags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedTask.tags.map((tag, idx) => (
+                        <span key={idx} className="text-xs bg-warroom-accent/20 text-warroom-accent px-2 py-0.5 rounded-full">{tag}</span>
+                      ))}
+                    </div>
                   ) : (
-                    <p className="text-sm text-warroom-muted">No tags</p>
-                  )}
-                </div>
+                    <p className="text-sm text-warroom-muted italic">No tags</p>
+                  )
+                )}
               </div>
 
-              <div>
-                <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1">Created</label>
-                <p className="text-sm text-warroom-text">{formatDate(selectedTask.created_at)}</p>
+              {/* Metadata */}
+              <div className="grid grid-cols-2 gap-3 text-xs text-warroom-muted">
+                <div><Calendar size={12} className="inline mr-1" />Created: {formatDate(selectedTask.created_at)}</div>
+                {selectedTask.completed_at && <div><CheckCircle2 size={12} className="inline mr-1" />Completed: {formatDate(selectedTask.completed_at)}</div>}
               </div>
-
-              {selectedTask.completed_at && (
-                <div>
-                  <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1">Completed</label>
-                  <p className="text-sm text-warroom-text">{formatDate(selectedTask.completed_at)}</p>
-                </div>
-              )}
 
               {/* ── Dependencies Section ── */}
-              <div className="border-t border-warroom-border pt-4 mt-4">
+              <div className="border-t border-warroom-border pt-4 mt-2">
                 <div className="flex items-center gap-2 mb-3">
                   <Link size={14} className="text-warroom-accent" />
                   <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider">Dependencies</label>
@@ -414,26 +638,12 @@ export default function KanbanPanel() {
                             const isDone = depTask?.status === "done";
                             return (
                               <div key={dep.id} className="flex items-center gap-2 group/dep">
-                                <span className="flex-shrink-0">
-                                  {isDone ? (
-                                    <CheckCheck size={12} className="text-green-400" />
-                                  ) : (
-                                    <Lock size={12} className="text-yellow-400" />
-                                  )}
-                                </span>
-                                <button
-                                  onClick={() => depTask && setSelectedTask(depTask)}
-                                  className="text-xs text-warroom-accent hover:underline truncate text-left"
-                                >
+                                <span className="flex-shrink-0">{isDone ? <CheckCheck size={12} className="text-green-400" /> : <Lock size={12} className="text-yellow-400" />}</span>
+                                <button onClick={() => depTask && setSelectedTask(depTask)} className="text-xs text-warroom-accent hover:underline truncate text-left">
                                   {depTask ? depTask.title : `Task #${dep.task_id}`}
                                 </button>
-                                <button
-                                  onClick={() => removeDependency(selectedTask!.id, dep.id)}
-                                  className="opacity-0 group-hover/dep:opacity-100 text-warroom-muted hover:text-red-400 transition flex-shrink-0"
-                                  title="Remove dependency"
-                                >
-                                  <X size={12} />
-                                </button>
+                                <button onClick={() => removeDependency(selectedTask!.id, dep.id)}
+                                  className="opacity-0 group-hover/dep:opacity-100 text-warroom-muted hover:text-red-400 transition flex-shrink-0" title="Remove"><X size={12} /></button>
                               </div>
                             );
                           })}
@@ -453,10 +663,7 @@ export default function KanbanPanel() {
                             return (
                               <div key={dep.id} className="flex items-center gap-2">
                                 <Unlink size={12} className="text-warroom-muted flex-shrink-0" />
-                                <button
-                                  onClick={() => blockedTask && setSelectedTask(blockedTask)}
-                                  className="text-xs text-warroom-accent hover:underline truncate text-left"
-                                >
+                                <button onClick={() => blockedTask && setSelectedTask(blockedTask)} className="text-xs text-warroom-accent hover:underline truncate text-left">
                                   {blockedTask ? blockedTask.title : `Task #${dep.task_id}`}
                                 </button>
                               </div>
@@ -468,46 +675,45 @@ export default function KanbanPanel() {
 
                     {/* Add Dependency */}
                     {!addingDep ? (
-                      <button
-                        onClick={() => setAddingDep(true)}
-                        className="flex items-center gap-1.5 text-xs text-warroom-accent hover:text-warroom-accent/80 transition mt-1"
-                      >
+                      <button onClick={() => setAddingDep(true)} className="flex items-center gap-1.5 text-xs text-warroom-accent hover:text-warroom-accent/80 transition mt-1">
                         <Plus size={12} /> Add Dependency
                       </button>
                     ) : (
                       <div className="flex items-center gap-2 mt-1">
-                        <select
-                          value={depDropdownValue}
-                          onChange={(e) => setDepDropdownValue(e.target.value ? Number(e.target.value) : "")}
-                          className="flex-1 text-xs bg-warroom-surface border border-warroom-border rounded px-2 py-1.5 text-warroom-text focus:border-warroom-accent outline-none"
-                        >
+                        <select value={depDropdownValue} onChange={(e) => setDepDropdownValue(e.target.value ? Number(e.target.value) : "")}
+                          className="flex-1 text-xs bg-warroom-bg border border-warroom-border rounded px-2 py-1.5 text-warroom-text focus:border-warroom-accent outline-none">
                           <option value="">Select task…</option>
-                          {availableDepTargets.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.title}
-                            </option>
-                          ))}
+                          {availableDepTargets.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
                         </select>
-                        <button
-                          disabled={depDropdownValue === ""}
-                          onClick={() => {
-                            if (depDropdownValue !== "") {
-                              addDependency(selectedTask!.id, depDropdownValue as number);
-                            }
-                          }}
-                          className="text-xs bg-warroom-accent/20 text-warroom-accent px-2.5 py-1.5 rounded hover:bg-warroom-accent/30 transition disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          Add
-                        </button>
-                        <button
-                          onClick={() => { setAddingDep(false); setDepDropdownValue(""); }}
-                          className="text-warroom-muted hover:text-warroom-text transition"
-                        >
-                          <X size={14} />
-                        </button>
+                        <button disabled={depDropdownValue === ""} onClick={() => { if (depDropdownValue !== "") addDependency(selectedTask!.id, depDropdownValue as number); }}
+                          className="text-xs bg-warroom-accent/20 text-warroom-accent px-2.5 py-1.5 rounded hover:bg-warroom-accent/30 transition disabled:opacity-30 disabled:cursor-not-allowed">Add</button>
+                        <button onClick={() => { setAddingDep(false); setDepDropdownValue(""); }} className="text-warroom-muted hover:text-warroom-text transition"><X size={14} /></button>
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-5 py-4 border-t border-warroom-border">
+              <button onClick={() => deleteTask(selectedTask.id)} className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-400/10 px-3 py-2 rounded-lg transition">
+                <Trash2 size={14} /> Delete
+              </button>
+              <div className="flex items-center gap-2">
+                {editMode && (
+                  <button onClick={() => setEditMode(false)} className="text-xs text-warroom-muted hover:text-warroom-text px-3 py-2 transition">Cancel</button>
+                )}
+                {editMode ? (
+                  <button onClick={saveTask} disabled={saving || !editTitle.trim()}
+                    className="flex items-center gap-1.5 text-xs bg-warroom-accent text-white px-4 py-2 rounded-lg hover:bg-warroom-accent/90 transition disabled:opacity-40">
+                    {saving ? "Saving…" : <><Save size={14} /> Save Changes</>}
+                  </button>
+                ) : (
+                  <button onClick={enterEditMode}
+                    className="flex items-center gap-1.5 text-xs bg-warroom-accent/20 text-warroom-accent px-4 py-2 rounded-lg hover:bg-warroom-accent/30 transition">
+                    <Edit3 size={14} /> Edit
+                  </button>
                 )}
               </div>
             </div>
