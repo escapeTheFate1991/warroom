@@ -347,7 +347,12 @@ export default function SettingsPanel() {
       const res = await authFetch(`${API}/api/email/accounts`);
       if (res.ok) {
         const data = await res.json();
-        setEmailAccounts(data);
+        const list = Array.isArray(data) ? data : (data.accounts ?? []);
+        setEmailAccounts(list.map((a: Record<string, unknown>) => ({
+          ...a,
+          status: a.is_active ? 'connected' : 'disconnected',
+          last_synced: a.last_sync_at,
+        })));
       }
     } catch {
       console.error("Failed to load email accounts");
