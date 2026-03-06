@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { X, Save, Loader2, Search, Plus } from "lucide-react";
 import { Pipeline, PipelineStage, Person, Organization, LeadSource, LeadType, DealFull, DealFormData } from "./types";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface DealFormProps {
   deal: DealFull | null;
@@ -86,10 +86,10 @@ export default function DealForm({ deal, isOpen, onClose, onSave, pipelines, sta
     setLoading(true);
     try {
       const [sourcesResp, typesResp, personsResp, orgsResp] = await Promise.all([
-        fetch(`${API}/api/crm/lead-sources`),
-        fetch(`${API}/api/crm/lead-types`),
-        fetch(`${API}/api/crm/contacts/persons?limit=50`),
-        fetch(`${API}/api/crm/contacts/organizations?limit=50`),
+        authFetch(`${API}/api/crm/lead-sources`),
+        authFetch(`${API}/api/crm/lead-types`),
+        authFetch(`${API}/api/crm/contacts/persons?limit=50`),
+        authFetch(`${API}/api/crm/contacts/organizations?limit=50`),
       ]);
 
       if (sourcesResp.ok) {
@@ -122,7 +122,7 @@ export default function DealForm({ deal, isOpen, onClose, onSave, pipelines, sta
     if (query.length < 2) return;
     
     try {
-      const response = await fetch(`${API}/api/crm/contacts/persons/search?q=${encodeURIComponent(query)}`);
+      const response = await authFetch(`${API}/api/crm/contacts/persons/search?q=${encodeURIComponent(query)}`);
       if (response.ok) {
         const data = await response.json();
         setPersons(data);
@@ -136,7 +136,7 @@ export default function DealForm({ deal, isOpen, onClose, onSave, pipelines, sta
     if (query.length < 2) return;
     
     try {
-      const response = await fetch(`${API}/api/crm/contacts/organizations/search?q=${encodeURIComponent(query)}`);
+      const response = await authFetch(`${API}/api/crm/contacts/organizations/search?q=${encodeURIComponent(query)}`);
       if (response.ok) {
         const data = await response.json();
         setOrganizations(data);

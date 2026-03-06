@@ -5,8 +5,8 @@ import {
   GraduationCap, Link, Send, Loader2, CheckCircle, AlertCircle,
   Clock, User, Hash, Calendar, ExternalLink, Eye, Trash2, RefreshCw,
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 const ML_API = API + "/api/ml"; // Mental Library via WAR ROOM backend
 
 interface Video {

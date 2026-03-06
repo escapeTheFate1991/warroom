@@ -6,8 +6,8 @@ import {
   ToggleLeft, ToggleRight, X,
   ChevronDown, ChevronUp, Package, Wrench
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Skill {
   id: string;
@@ -41,7 +41,7 @@ export default function SkillsManager() {
   // Fetch skills
   const fetchSkills = async () => {
     try {
-      const res = await fetch(`${API}/api/skills`);
+      const res = await authFetch(`${API}/api/skills`);
       if (res.ok) {
         const data = await res.json();
         setSkills(data);
@@ -56,7 +56,7 @@ export default function SkillsManager() {
   // Toggle skill enabled/disabled
   const toggleSkill = async (skillId: string, enabled: boolean) => {
     try {
-      const res = await fetch(`${API}/api/skills/${skillId}/toggle`, {
+      const res = await authFetch(`${API}/api/skills/${skillId}/toggle`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled })
@@ -73,7 +73,7 @@ export default function SkillsManager() {
   const fetchSkillContent = async (skillId: string) => {
     if (skillContent[skillId]) return; // Already cached
     try {
-      const res = await fetch(`${API}/api/skills/${skillId}/content`);
+      const res = await authFetch(`${API}/api/skills/${skillId}/content`);
       if (res.ok) {
         const data: SkillContent = await res.json();
         setSkillContent(prev => ({ ...prev, [skillId]: data.content }));
@@ -87,7 +87,7 @@ export default function SkillsManager() {
   const createSkill = async () => {
     if (!createData.name.trim()) return;
     try {
-      const res = await fetch(`${API}/api/skills/create`, {
+      const res = await authFetch(`${API}/api/skills/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(createData)
@@ -105,7 +105,7 @@ export default function SkillsManager() {
   // Delete skill
   const deleteSkill = async (skillId: string) => {
     try {
-      const res = await fetch(`${API}/api/skills/${skillId}`, { method: "DELETE" });
+      const res = await authFetch(`${API}/api/skills/${skillId}`, { method: "DELETE" });
       if (res.ok) {
         setDeleteConfirm(null);
         fetchSkills();

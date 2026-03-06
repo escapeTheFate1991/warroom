@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus } from "lucide-react";
+import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Setting {
   key: string;
@@ -31,11 +31,49 @@ const CATEGORY_META: Record<string, { label: string; icon: typeof Key; descripti
   },
 };
 
+// Group API keys into logical drawers
+const API_KEY_GROUPS: Record<string, { label: string; keys: string[] }> = {
+  google: {
+    label: "Google",
+    keys: ["google_maps_api_key", "google_oauth_client_id", "google_oauth_client_secret"],
+  },
+  meta: {
+    label: "Meta (Facebook / Instagram / Threads)",
+    keys: ["meta_app_id", "meta_app_secret", "instagram_app_id", "instagram_app_secret", "threads_client_id", "threads_client_secret"],
+  },
+  x: {
+    label: "X (Twitter)",
+    keys: ["x_client_id", "x_client_secret"],
+  },
+  tiktok: {
+    label: "TikTok",
+    keys: ["tiktok_client_key", "tiktok_client_secret"],
+  },
+  ai: {
+    label: "AI & Search",
+    keys: ["openai_api_key", "serp_api_key"],
+  },
+};
+
 const KEY_LABELS: Record<string, string> = {
   google_maps_api_key: "Google Maps API Key",
+  google_oauth_client_id: "OAuth Client ID (YouTube + Calendar)",
+  google_oauth_client_secret: "OAuth Client Secret (YouTube + Calendar)",
   serp_api_key: "SerpAPI Key",
   openai_api_key: "OpenAI API Key",
+  meta_app_id: "App ID",
+  meta_app_secret: "App Secret",
+  instagram_app_id: "Instagram App ID",
+  instagram_app_secret: "Instagram App Secret",
+  threads_client_id: "Threads Client ID",
+  threads_client_secret: "Threads Client Secret",
+  x_client_id: "Client ID",
+  x_client_secret: "Client Secret",
+  tiktok_client_key: "Client Key",
+  tiktok_client_secret: "Client Secret",
   company_name: "Company Name",
+  your_name: "Your Name",
+  your_phone: "Your Phone",
   default_search_location: "Default Search Location",
   max_search_results: "Max Search Results",
   auto_enrich: "Auto-Enrich Leads",
@@ -43,7 +81,7 @@ const KEY_LABELS: Record<string, string> = {
 
 const SETTINGS_TABS = [
   { id: "general", label: "General", icon: Building2 },
-  { id: "email", label: "Email Integration", icon: Mail },
+  { id: "email", label: "Email & Calendar", icon: Mail },
   { id: "social", label: "Social Media", icon: Share2 },
   { id: "scoring", label: "Lead Scoring", icon: Target },
   { id: "automation", label: "Automation", icon: Bot },
@@ -116,7 +154,13 @@ export default function SettingsPanel() {
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [openDrawers, setOpenDrawers] = useState<Record<string, boolean>>({});
   
+  // Google Calendar state
+  const [googleCalStatus, setGoogleCalStatus] = useState<{ connected: boolean; email?: string }>({ connected: false });
+  const [googleCalLoading, setGoogleCalLoading] = useState(false);
+  const [googleCalError, setGoogleCalError] = useState("");
+
   // Email settings state
   const [emailSettings, setEmailSettings] = useState<EmailSettings>({
     smtp_host: '',
@@ -170,7 +214,7 @@ export default function SettingsPanel() {
 
   const loadSettings = useCallback(async () => {
     try {
-      const resp = await fetch(`${API}/api/settings`);
+      const resp = await authFetch(`${API}/api/settings`);
       if (resp.ok) {
         const data = await resp.json();
         setSettings(data);
@@ -190,7 +234,7 @@ export default function SettingsPanel() {
 
   const loadEmailSettings = async () => {
     try {
-      const resp = await fetch(`${API}/api/settings/email`);
+      const resp = await authFetch(`${API}/api/settings/email`);
       if (resp.ok) {
         const data = await resp.json();
         setEmailSettings(data);
@@ -202,7 +246,7 @@ export default function SettingsPanel() {
 
   const loadScoringSettings = async () => {
     try {
-      const scoringResp = await fetch(`${API}/api/settings/lead-scoring`);
+      const scoringResp = await authFetch(`${API}/api/settings/lead-scoring`);
       if (scoringResp.ok) {
         const scoringData = await scoringResp.json();
         if (scoringData.weights) setScoringWeights(scoringData.weights);
@@ -215,7 +259,7 @@ export default function SettingsPanel() {
 
   const loadRoles = async () => {
     try {
-      const resp = await fetch(`${API}/api/crm/roles`);
+      const resp = await authFetch(`${API}/api/crm/roles`);
       if (resp.ok) {
         const data = await resp.json();
         setRoles(data);
@@ -227,7 +271,7 @@ export default function SettingsPanel() {
 
   const loadUsers = async () => {
     try {
-      const resp = await fetch(`${API}/api/crm/users`);
+      const resp = await authFetch(`${API}/api/crm/users`);
       if (resp.ok) {
         const data = await resp.json();
         setUsers(data);
@@ -239,7 +283,7 @@ export default function SettingsPanel() {
 
   const loadWorkflows = async () => {
     try {
-      const resp = await fetch(`${API}/api/crm/workflows`);
+      const resp = await authFetch(`${API}/api/crm/workflows`);
       if (resp.ok) {
         const data = await resp.json();
         setWorkflows(data);
@@ -249,6 +293,64 @@ export default function SettingsPanel() {
     }
   };
 
+  const loadGoogleCalStatus = async () => {
+    try {
+      const res = await authFetch(`${API}/api/calendar/google/status`);
+      if (res.ok) setGoogleCalStatus(await res.json());
+    } catch {
+      setGoogleCalStatus({ connected: false });
+    }
+  };
+
+  const connectGoogleCal = async () => {
+    setGoogleCalLoading(true);
+    setGoogleCalError("");
+    try {
+      const res = await authFetch(`${API}/api/calendar/google/auth-url`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || "Failed to get auth URL");
+      }
+      const { auth_url } = await res.json();
+      const popup = window.open(auth_url, "google-calendar-auth", "width=500,height=700,left=200,top=100");
+
+      const handler = (event: MessageEvent) => {
+        if (event.data?.type === "google-calendar-connected") {
+          window.removeEventListener("message", handler);
+          loadGoogleCalStatus();
+          setGoogleCalLoading(false);
+        } else if (event.data?.type === "google-calendar-error") {
+          window.removeEventListener("message", handler);
+          setGoogleCalError(event.data.error || "OAuth failed");
+          setGoogleCalLoading(false);
+        }
+      };
+      window.addEventListener("message", handler);
+
+      const check = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(check);
+          window.removeEventListener("message", handler);
+          loadGoogleCalStatus();
+          setGoogleCalLoading(false);
+        }
+      }, 1000);
+    } catch (e: any) {
+      setGoogleCalError(e.message || "Failed to connect");
+      setGoogleCalLoading(false);
+    }
+  };
+
+  const disconnectGoogleCal = async () => {
+    if (!confirm("Disconnect Google Calendar? You'll need to reconnect to sync events again.")) return;
+    setGoogleCalLoading(true);
+    try {
+      await authFetch(`${API}/api/calendar/google/disconnect`, { method: "POST" });
+      setGoogleCalStatus({ connected: false });
+    } catch {}
+    setGoogleCalLoading(false);
+  };
+
   useEffect(() => { 
     loadSettings(); 
     loadEmailSettings();
@@ -256,6 +358,7 @@ export default function SettingsPanel() {
     loadRoles();
     loadUsers();
     loadWorkflows();
+    loadGoogleCalStatus();
   }, [loadSettings]);
 
   const saveSetting = async (key: string) => {
@@ -267,7 +370,7 @@ export default function SettingsPanel() {
     setSaved((p) => ({ ...p, [key]: false }));
 
     try {
-      const resp = await fetch(`${API}/api/settings/${key}`, {
+      const resp = await authFetch(`${API}/api/settings/${key}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value }),
@@ -294,7 +397,7 @@ export default function SettingsPanel() {
 
   const saveEmailSettings = async () => {
     try {
-      const resp = await fetch(`${API}/api/settings/email`, {
+      const resp = await authFetch(`${API}/api/settings/email`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(emailSettings),
@@ -310,7 +413,7 @@ export default function SettingsPanel() {
   const testEmailConnection = async () => {
     setTestingConnection(true);
     try {
-      const resp = await fetch(`${API}/api/settings/email/test`, {
+      const resp = await authFetch(`${API}/api/settings/email/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(emailSettings),
@@ -329,7 +432,7 @@ export default function SettingsPanel() {
 
   const saveScoringSettings = async () => {
     try {
-      const resp = await fetch(`${API}/api/settings/lead-scoring`, {
+      const resp = await authFetch(`${API}/api/settings/lead-scoring`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -356,18 +459,132 @@ export default function SettingsPanel() {
     return acc;
   }, {});
 
+  const toggleDrawer = (id: string) => {
+    setOpenDrawers((p) => ({ ...p, [id]: !p[id] }));
+  };
+
+  const renderSettingField = (setting: Setting) => {
+    const isRevealed = revealed[setting.key];
+    const isEditing = editing[setting.key];
+    const isSaving = saving[setting.key];
+    const isSaved = saved[setting.key];
+    const error = errors[setting.key];
+    const isMasked = setting.value?.startsWith("••••");
+    const hasValue = setting.is_secret
+      ? isMasked
+      : !!(setting.value && setting.value !== "");
+    const editValue = editValues[setting.key] ?? "";
+    const displayValue = (setting.is_secret && hasValue && !isEditing) ? setting.value : editValue;
+    const canSave = setting.is_secret
+      ? (isEditing && editValue.length > 0 && !editValue.startsWith("••••"))
+      : (editValue.length > 0);
+
+    return (
+      <div key={setting.key} className="bg-warroom-bg/50 border border-warroom-border/50 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-sm font-medium">
+            {KEY_LABELS[setting.key] || setting.key}
+          </label>
+          {setting.is_secret && hasValue && (
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">
+              Configured
+            </span>
+          )}
+          {setting.is_secret && !hasValue && (
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400">
+              Not Set
+            </span>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type={setting.is_secret && !isRevealed && !isEditing ? "password" : "text"}
+              value={displayValue}
+              onChange={(e) => {
+                if (setting.is_secret && !isEditing) {
+                  setEditing((p) => ({ ...p, [setting.key]: true }));
+                  setEditValues((p) => ({ ...p, [setting.key]: e.target.value.replace(/^•+/, "") }));
+                } else {
+                  setEditValues((p) => ({ ...p, [setting.key]: e.target.value }));
+                }
+              }}
+              onFocus={() => {
+                if (setting.is_secret && hasValue && !isEditing) {
+                  setEditing((p) => ({ ...p, [setting.key]: true }));
+                  setEditValues((p) => ({ ...p, [setting.key]: "" }));
+                }
+              }}
+              onBlur={() => {
+                if (setting.is_secret && isEditing && !editValue) {
+                  setEditing((p) => ({ ...p, [setting.key]: false }));
+                  setEditValues((p) => ({ ...p, [setting.key]: setting.value }));
+                }
+              }}
+              onKeyDown={(e) => handleKeyDown(e, setting.key)}
+              placeholder={
+                setting.is_secret
+                  ? hasValue ? "Enter new value to replace..." : "Paste your API key here..."
+                  : "Enter value..."
+              }
+              className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent font-mono"
+            />
+            {setting.is_secret && hasValue && !isEditing && (
+              <button
+                onClick={() => setRevealed((p) => ({ ...p, [setting.key]: !p[setting.key] }))}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted hover:text-warroom-text transition"
+              >
+                {isRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => saveSetting(setting.key)}
+            disabled={isSaving || !canSave}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1.5 ${
+              isSaved
+                ? "bg-green-500/20 text-green-400"
+                : "bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40"
+            }`}
+          >
+            {isSaved ? (<><Check size={14} /> Saved</>) : isSaving ? "Saving..." : (<><Save size={14} /> Save</>)}
+          </button>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-1.5 mt-2 text-xs text-red-400">
+            <AlertCircle size={12} /> {error}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderGeneralTab = () => {
+    // Collect all api_keys settings into a lookup
+    const apiKeySettings = (grouped["api_keys"] || []).reduce<Record<string, Setting>>((acc, s) => {
+      acc[s.key] = s;
+      return acc;
+    }, {});
+
+    // Keys that are in a drawer group
+    const groupedKeys = new Set(Object.values(API_KEY_GROUPS).flatMap((g) => g.keys));
+
+    // Ungrouped api_keys (fallback)
+    const ungroupedApiKeys = (grouped["api_keys"] || []).filter((s) => !groupedKeys.has(s.key));
+
     return (
       <div className="space-y-8">
-        {Object.entries(CATEGORY_META).map(([catKey, meta]) => {
+        {/* General & Leadgen — render flat like before */}
+        {["general", "leadgen"].map((catKey) => {
+          const meta = CATEGORY_META[catKey];
           const catSettings = grouped[catKey];
-          if (!catSettings || catSettings.length === 0) return null;
-
+          if (!meta || !catSettings || catSettings.length === 0) return null;
           const Icon = meta.icon;
 
           return (
             <section key={catKey}>
-              {/* Category header */}
               <div className="flex items-center gap-3 mb-1">
                 <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center">
                   <Icon size={16} className="text-warroom-accent" />
@@ -377,137 +594,94 @@ export default function SettingsPanel() {
                   <p className="text-xs text-warroom-muted">{meta.description}</p>
                 </div>
               </div>
-
-              {/* Settings fields */}
               <div className="mt-4 space-y-3">
-                {catSettings.map((setting) => {
-                  const isRevealed = revealed[setting.key];
-                  const isEditing = editing[setting.key];
-                  const isSaving = saving[setting.key];
-                  const isSaved = saved[setting.key];
-                  const error = errors[setting.key];
-                  const isMasked = setting.value?.startsWith("••••");
-                  const hasValue = setting.is_secret
-                    ? isMasked  // Secret has a saved value if API returns masked
-                    : !!(setting.value && setting.value !== "");
-                  const editValue = editValues[setting.key] ?? "";
-                  // For saved secrets not being edited, show masked value; otherwise show edit value
-                  const displayValue = (setting.is_secret && hasValue && !isEditing) ? setting.value : editValue;
-                  // Can save if: editing a secret with new content, or non-secret with content
-                  const canSave = setting.is_secret
-                    ? (isEditing && editValue.length > 0 && !editValue.startsWith("••••"))
-                    : (editValue.length > 0);
-
-                  return (
-                    <div
-                      key={setting.key}
-                      className="bg-warroom-surface border border-warroom-border rounded-lg p-4"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <label className="text-sm font-medium">
-                            {KEY_LABELS[setting.key] || setting.key}
-                          </label>
-                          {setting.description && (
-                            <p className="text-xs text-warroom-muted mt-0.5">{setting.description}</p>
-                          )}
-                        </div>
-                        {setting.is_secret && hasValue && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">
-                            Configured
-                          </span>
-                        )}
-                        {setting.is_secret && !hasValue && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400">
-                            Not Set
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <input
-                            type={setting.is_secret && !isRevealed && !isEditing ? "password" : "text"}
-                            value={displayValue}
-                            onChange={(e) => {
-                              if (setting.is_secret && !isEditing) {
-                                // First keystroke on a saved secret — enter edit mode, start fresh
-                                setEditing((p) => ({ ...p, [setting.key]: true }));
-                                setEditValues((p) => ({ ...p, [setting.key]: e.target.value.replace(/^•+/, "") }));
-                              } else {
-                                setEditValues((p) => ({ ...p, [setting.key]: e.target.value }));
-                              }
-                            }}
-                            onFocus={() => {
-                              if (setting.is_secret && hasValue && !isEditing) {
-                                // On focus, switch to edit mode with empty field
-                                setEditing((p) => ({ ...p, [setting.key]: true }));
-                                setEditValues((p) => ({ ...p, [setting.key]: "" }));
-                              }
-                            }}
-                            onBlur={() => {
-                              // If user leaves without typing, restore masked view
-                              if (setting.is_secret && isEditing && !editValue) {
-                                setEditing((p) => ({ ...p, [setting.key]: false }));
-                                setEditValues((p) => ({ ...p, [setting.key]: setting.value }));
-                              }
-                            }}
-                            onKeyDown={(e) => handleKeyDown(e, setting.key)}
-                            placeholder={
-                              setting.is_secret
-                                ? hasValue
-                                  ? "Enter new value to replace..."
-                                  : "Paste your API key here..."
-                                : "Enter value..."
-                            }
-                            className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent font-mono"
-                          />
-                          {setting.is_secret && hasValue && !isEditing && (
-                            <button
-                              onClick={() =>
-                                setRevealed((p) => ({ ...p, [setting.key]: !p[setting.key] }))
-                              }
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted hover:text-warroom-text transition"
-                            >
-                              {isRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
-                            </button>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => saveSetting(setting.key)}
-                          disabled={isSaving || !canSave}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1.5 ${
-                            isSaved
-                              ? "bg-green-500/20 text-green-400"
-                              : "bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40"
-                          }`}
-                        >
-                          {isSaved ? (
-                            <>
-                              <Check size={14} /> Saved
-                            </>
-                          ) : isSaving ? (
-                            "Saving..."
-                          ) : (
-                            <>
-                              <Save size={14} /> Save
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                      {error && (
-                        <div className="flex items-center gap-1.5 mt-2 text-xs text-red-400">
-                          <AlertCircle size={12} /> {error}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {catSettings.map((setting) => renderSettingField(setting))}
               </div>
             </section>
           );
         })}
+
+        {/* API Keys — collapsible drawers */}
+        {(grouped["api_keys"] || []).length > 0 && (
+          <section>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center">
+                <Key size={16} className="text-warroom-accent" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">API Keys & Credentials</h3>
+                <p className="text-xs text-warroom-muted">Grouped by provider — click to expand</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {Object.entries(API_KEY_GROUPS).map(([groupId, group]) => {
+                const groupSettings = group.keys
+                  .map((k) => apiKeySettings[k])
+                  .filter(Boolean);
+                if (groupSettings.length === 0) return null;
+
+                const isOpen = openDrawers[groupId] ?? false;
+                const configuredCount = groupSettings.filter((s) =>
+                  s.is_secret ? s.value?.startsWith("••••") : !!(s.value && s.value !== "")
+                ).length;
+
+                return (
+                  <div key={groupId} className="bg-warroom-surface border border-warroom-border rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => toggleDrawer(groupId)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-warroom-accent/5 transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium">{group.label}</span>
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                          configuredCount === groupSettings.length
+                            ? "bg-green-500/20 text-green-400"
+                            : configuredCount > 0
+                            ? "bg-yellow-500/20 text-yellow-400"
+                            : "bg-warroom-border text-warroom-muted"
+                        }`}>
+                          {configuredCount}/{groupSettings.length}
+                        </span>
+                      </div>
+                      <ChevronDown
+                        size={16}
+                        className={`text-warroom-muted transition-transform ${isOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+
+                    {isOpen && (
+                      <div className="px-4 pb-4 space-y-3 border-t border-warroom-border/50 pt-3">
+                        {groupSettings.map((setting) => renderSettingField(setting))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Ungrouped api keys */}
+              {ungroupedApiKeys.length > 0 && (
+                <div className="bg-warroom-surface border border-warroom-border rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => toggleDrawer("_other")}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-warroom-accent/5 transition"
+                  >
+                    <span className="text-sm font-medium">Other</span>
+                    <ChevronDown
+                      size={16}
+                      className={`text-warroom-muted transition-transform ${openDrawers["_other"] ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {openDrawers["_other"] && (
+                    <div className="px-4 pb-4 space-y-3 border-t border-warroom-border/50 pt-3">
+                      {ungroupedApiKeys.map((setting) => renderSettingField(setting))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
       </div>
     );
   };
@@ -596,7 +770,85 @@ export default function SettingsPanel() {
 
   const renderEmailTab = () => {
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
+        {/* ── Google Calendar ────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center">
+              <Calendar size={16} className="text-warroom-accent" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold">Google Calendar</h3>
+              <p className="text-xs text-warroom-muted">Sync your personal Google Calendar events</p>
+            </div>
+          </div>
+
+          <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4">
+            {googleCalStatus.connected ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                  <div>
+                    <p className="text-sm font-medium text-warroom-text">Connected</p>
+                    <p className="text-xs text-warroom-muted">{googleCalStatus.email}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={disconnectGoogleCal}
+                  disabled={googleCalLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-red-400 hover:bg-red-500/10 border border-red-500/20 transition"
+                >
+                  {googleCalLoading ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-2.5 h-2.5 rounded-full bg-gray-500" />
+                  <div>
+                    <p className="text-sm font-medium text-warroom-text">Not connected</p>
+                    <p className="text-xs text-warroom-muted">Connect to sync Google Calendar events to your Personal calendar</p>
+                  </div>
+                </div>
+                <button
+                  onClick={connectGoogleCal}
+                  disabled={googleCalLoading}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm bg-warroom-accent hover:bg-warroom-accent/80 text-white font-medium transition"
+                >
+                  {googleCalLoading ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
+                  Connect
+                </button>
+              </div>
+            )}
+
+            {googleCalError && (
+              <div className="flex items-center gap-1.5 mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400">
+                <AlertCircle size={12} />
+                <span>{googleCalError}</span>
+                <button onClick={() => setGoogleCalError("")} className="ml-auto hover:text-red-300">✕</button>
+              </div>
+            )}
+
+            <p className="text-[11px] text-warroom-muted/60 mt-3">
+              Events sync automatically every 2 minutes while viewing the calendar. Use the Resync button on the calendar for instant refresh.
+            </p>
+          </div>
+        </section>
+
+        {/* ── Email Configuration ─────────────────────── */}
+        <section>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center">
+              <Mail size={16} className="text-warroom-accent" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold">Email Configuration</h3>
+              <p className="text-xs text-warroom-muted">SMTP and IMAP settings for email integration</p>
+            </div>
+          </div>
+        </section>
+
         <div>
           <h3 className="text-sm font-semibold text-warroom-text mb-4">SMTP Configuration</h3>
           <div className="grid grid-cols-2 gap-4">

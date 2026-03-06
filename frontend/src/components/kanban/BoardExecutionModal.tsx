@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { X, Play, Square, CheckCircle2, Circle, Loader2, XCircle, Ban } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface QueueItem {
   task_id: number;
@@ -53,7 +53,7 @@ export default function BoardExecutionModal({ onClose, onComplete }: BoardExecut
 
   const fetchStatus = useCallback(async () => {
     try {
-      const resp = await fetch(`${API}/api/task-execution/status`);
+      const resp = await authFetch(`${API}/api/task-execution/status`);
       const data: ExecutionStatus = await resp.json();
       setStatus(data);
 
@@ -97,7 +97,7 @@ export default function BoardExecutionModal({ onClose, onComplete }: BoardExecut
     setStarting(true);
     setError(null);
     try {
-      const resp = await fetch(`${API}/api/task-execution/start`, {
+      const resp = await authFetch(`${API}/api/task-execution/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -116,7 +116,7 @@ export default function BoardExecutionModal({ onClose, onComplete }: BoardExecut
 
   const cancelExecution = async () => {
     try {
-      await fetch(`${API}/api/task-execution/cancel`, { method: "POST" });
+      await authFetch(`${API}/api/task-execution/cancel`, { method: "POST" });
       await fetchStatus();
     } catch {
       console.error("Failed to cancel execution");

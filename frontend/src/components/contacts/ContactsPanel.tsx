@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { Phone, Search, Filter, X, Loader2 } from "lucide-react";
 import LeadDrawer, { LeadFull } from "../leadgen/LeadDrawer";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Contact {
   id: number;
@@ -44,7 +44,7 @@ export default function ContactsPanel() {
       if (outcomeFilter) params.set("outcome", outcomeFilter);
       if (contactedByFilter) params.set("contacted_by", contactedByFilter);
 
-      const response = await fetch(`${API}/api/leadgen/contacts?${params}`);
+      const response = await authFetch(`${API}/api/leadgen/contacts?${params}`);
       if (response.ok) {
         const data = await response.json();
         setContacts(data);
@@ -63,7 +63,7 @@ export default function ContactsPanel() {
   const handleContactClick = async (contact: Contact) => {
     try {
       // Fetch full lead data
-      const response = await fetch(`${API}/api/leadgen/leads/${contact.id}`);
+      const response = await authFetch(`${API}/api/leadgen/leads/${contact.id}`);
       if (response.ok) {
         const fullLead: LeadFull = await response.json();
         setSelectedLead(fullLead);

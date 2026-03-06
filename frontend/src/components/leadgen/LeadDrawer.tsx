@@ -23,8 +23,8 @@ import {
   Loader2,
   UserPlus
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 export interface LeadFull {
   id: number;
@@ -105,7 +105,7 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
   const [success, setSuccess] = useState<{ dealId: number; assignee: string } | null>(null);
 
   useEffect(() => {
-    fetch(`${API}/api/crm/users`).then(r => r.json()).then(setUsers).catch(() => {});
+    authFetch(`${API}/api/crm/users`).then(r => r.json()).then(setUsers).catch(() => {});
   }, []);
 
   const handleAssign = async () => {
@@ -113,7 +113,7 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
     setLoading(true);
     try {
       // Convert lead to CRM deal
-      const res = await fetch(`${API}/api/crm/deals/convert-from-lead`, {
+      const res = await authFetch(`${API}/api/crm/deals/convert-from-lead`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -133,7 +133,7 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
       if (res.ok) {
         const deal = await res.json();
         // Mark lead as in_progress
-        await fetch(`${API}/api/leadgen/leads/${lead.id}/contact`, {
+        await authFetch(`${API}/api/leadgen/leads/${lead.id}/contact`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -244,7 +244,7 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
 
   // Load platform settings for script generation
   useEffect(() => {
-    fetch(`${API}/api/settings?category=general`)
+    authFetch(`${API}/api/settings?category=general`)
       .then(r => r.ok ? r.json() : [])
       .then((items: any[]) => {
         const map: Record<string, string> = {};
@@ -275,7 +275,7 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
   const handleContactSubmit = async () => {
     setSaving(true);
     try {
-      const response = await fetch(`${API}/api/leadgen/leads/${lead.id}/contact`, {
+      const response = await authFetch(`${API}/api/leadgen/leads/${lead.id}/contact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(contactForm),
@@ -294,7 +294,7 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
   const handleNotesSubmit = async () => {
     setSaving(true);
     try {
-      const response = await fetch(`${API}/api/leadgen/leads/${lead.id}`, {
+      const response = await authFetch(`${API}/api/leadgen/leads/${lead.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes }),
@@ -313,13 +313,13 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
   const triggerAudit = async () => {
     setAuditLoading(true);
     try {
-      const response = await fetch(`${API}/api/leadgen/leads/${lead.id}/audit`, {
+      const response = await authFetch(`${API}/api/leadgen/leads/${lead.id}/audit`, {
         method: "POST",
       });
       if (response.ok) {
         // Poll for results
         const checkAudit = async () => {
-          const auditResponse = await fetch(`${API}/api/leadgen/leads/${lead.id}/audit`);
+          const auditResponse = await authFetch(`${API}/api/leadgen/leads/${lead.id}/audit`);
           if (auditResponse.ok) {
             const updatedLead = await auditResponse.json();
             onUpdate?.(updatedLead);

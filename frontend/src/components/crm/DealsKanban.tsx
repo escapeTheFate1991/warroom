@@ -5,8 +5,8 @@ import { Plus, Briefcase, DollarSign, Calendar, RefreshCw, Filter, User, Buildin
 import DealDrawer from "./DealDrawer";
 import DealForm from "./DealForm";
 import { Pipeline, PipelineStage, Deal, DealFull } from "./types";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 const STAGE_COLORS: Record<number, string> = {
   0: "bg-gray-500/20 text-gray-400 border-gray-500/30", // 0% probability (lost)
@@ -48,7 +48,7 @@ export default function DealsKanban() {
 
   const loadPipelines = async () => {
     try {
-      const response = await fetch(`${API}/api/crm/pipelines`);
+      const response = await authFetch(`${API}/api/crm/pipelines`);
       if (response.ok) {
         const data = await response.json();
         setPipelines(data);
@@ -69,13 +69,13 @@ export default function DealsKanban() {
     setLoading(true);
     try {
       // Load stages
-      const stagesResponse = await fetch(`${API}/api/crm/pipelines/${selectedPipeline.id}/stages`);
+      const stagesResponse = await authFetch(`${API}/api/crm/pipelines/${selectedPipeline.id}/stages`);
       if (stagesResponse.ok) {
         const stagesData = await stagesResponse.json();
         setStages(stagesData);
         
         // Load deals for this pipeline
-        const dealsResponse = await fetch(`${API}/api/crm/deals?pipeline_id=${selectedPipeline.id}`);
+        const dealsResponse = await authFetch(`${API}/api/crm/deals?pipeline_id=${selectedPipeline.id}`);
         if (dealsResponse.ok) {
           const dealsData = await dealsResponse.json();
           
@@ -97,7 +97,7 @@ export default function DealsKanban() {
   const handleDealClick = async (deal: Deal) => {
     try {
       // Fetch full deal data
-      const response = await fetch(`${API}/api/crm/deals/${deal.id}`);
+      const response = await authFetch(`${API}/api/crm/deals/${deal.id}`);
       if (response.ok) {
         const fullDeal: DealFull = await response.json();
         setSelectedDeal(fullDeal);
@@ -184,7 +184,7 @@ export default function DealsKanban() {
 
     try {
       // Update deal stage on server
-      const response = await fetch(`${API}/api/crm/deals/${draggedDeal.id}/stage`, {
+      const response = await authFetch(`${API}/api/crm/deals/${draggedDeal.id}/stage`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stage_id: targetStageId })

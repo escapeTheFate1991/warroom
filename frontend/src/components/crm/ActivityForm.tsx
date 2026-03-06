@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { X, Save, Search } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface ActivityFormProps {
   isOpen: boolean;
@@ -87,7 +87,7 @@ export default function ActivityForm({ isOpen, onClose, onActivityCreated }: Act
   const fetchPeople = async (search = "") => {
     try {
       const params = search ? `?search=${encodeURIComponent(search)}` : "";
-      const response = await fetch(`${API}/api/crm/persons${params}`);
+      const response = await authFetch(`${API}/api/crm/persons${params}`);
       if (response.ok) {
         const data = await response.json();
         setPeople(data);
@@ -100,7 +100,7 @@ export default function ActivityForm({ isOpen, onClose, onActivityCreated }: Act
   const fetchDeals = async (search = "") => {
     try {
       const params = search ? `?search=${encodeURIComponent(search)}` : "";
-      const response = await fetch(`${API}/api/crm/deals${params}`);
+      const response = await authFetch(`${API}/api/crm/deals${params}`);
       if (response.ok) {
         const data = await response.json();
         setDeals(data);
@@ -126,7 +126,7 @@ export default function ActivityForm({ isOpen, onClose, onActivityCreated }: Act
         deal_id: formData.deal_id ? parseInt(formData.deal_id) : null,
       };
 
-      const response = await fetch(`${API}/api/crm/activities`, {
+      const response = await authFetch(`${API}/api/crm/activities`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

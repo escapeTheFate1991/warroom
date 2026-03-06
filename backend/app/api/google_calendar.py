@@ -21,10 +21,22 @@ SCOPES = [
 ]
 
 
-def _get_client_config() -> dict:
-    """Return Google OAuth client config from env vars."""
-    client_id = os.environ.get("GOOGLE_CLIENT_ID")
-    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+async def _get_setting_value(key: str) -> str | None:
+    """Read a setting from the DB (same store as Settings → API Keys)."""
+    from app.api.settings import Setting
+    from app.db.leadgen_db import leadgen_session
+    from sqlalchemy import select
+
+    async with leadgen_session() as db:
+        result = await db.execute(select(Setting).where(Setting.key == key))
+        setting = result.scalar_one_or_none()
+        return setting.value if setting and setting.value else None
+
+
+async def _get_client_config() -> dict:
+    """Return Google OAuth client config from the settings DB (same creds as YouTube)."""
+    client_id = await _get_setting_value("google_oauth_client_id")
+    client_secret = await _get_setting_value("google_oauth_client_secret")
     redirect_uri = os.environ.get(
         "GOOGLE_REDIRECT_URI",
         "https://warroom.stuffnthings.io/api/calendar/google/callback",
@@ -33,7 +45,7 @@ def _get_client_config() -> dict:
     if not client_id or not client_secret:
         raise HTTPException(
             status_code=503,
-            detail="Google Calendar not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.",
+            detail="Google Calendar not configured. Add your Google OAuth Client ID & Secret in Settings → API Keys.",
         )
 
     return {
@@ -63,7 +75,7 @@ def _save_tokens(tokens: dict) -> None:
     logger.info("Google Calendar tokens saved")
 
 
-def _get_credentials():
+async def _get_credentials():
     """Build google.oauth2.credentials.Credentials from stored tokens."""
     from google.oauth2.credentials import Credentials
 
@@ -71,7 +83,7 @@ def _get_credentials():
     if not tokens:
         return None
 
-    cfg = _get_client_config()
+    cfg = await _get_client_config()
     creds = Credentials(
         token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
@@ -109,7 +121,7 @@ async def get_auth_url():
     """Return the Google OAuth authorization URL."""
     from google_auth_oauthlib.flow import Flow
 
-    cfg = _get_client_config()
+    cfg = await _get_client_config()
 
     flow = Flow.from_client_config(
         {
@@ -142,50 +154,57 @@ async def oauth_callback(code: str = Query(...), error: Optional[str] = Query(No
             f"<html><body><script>window.opener?.postMessage({{type:'google-calendar-error',error:'{error}'}},'*');window.close();</script><p>Error: {error}. You can close this window.</p></body></html>"
         )
 
-    from google_auth_oauthlib.flow import Flow
+    import httpx
 
-    cfg = _get_client_config()
+    cfg = await _get_client_config()
 
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": cfg["client_id"],
-                "client_secret": cfg["client_secret"],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [cfg["redirect_uri"]],
-            }
-        },
-        scopes=SCOPES,
-        redirect_uri=cfg["redirect_uri"],
-    )
-
+    # Exchange auth code for tokens directly via HTTP — avoids
+    # google-auth-oauthlib's strict scope validation which rejects
+    # expanded scopes from include_granted_scopes=true.
     try:
-        flow.fetch_token(code=code)
+        async with httpx.AsyncClient() as client:
+            token_resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": cfg["client_id"],
+                    "client_secret": cfg["client_secret"],
+                    "redirect_uri": cfg["redirect_uri"],
+                    "grant_type": "authorization_code",
+                },
+            )
+            if token_resp.status_code != 200:
+                logger.error("Token exchange failed: %s", token_resp.text)
+                raise Exception(f"HTTP {token_resp.status_code}: {token_resp.text[:200]}")
+
+            token_data = token_resp.json()
     except Exception as exc:
         logger.error("Token exchange failed: %s", exc)
         return HTMLResponse(
             f"<html><body><script>window.opener?.postMessage({{type:'google-calendar-error',error:'token_exchange_failed'}},'*');window.close();</script><p>Token exchange failed. You can close this window.</p></body></html>"
         )
 
-    creds = flow.credentials
+    access_token = token_data["access_token"]
+    refresh_token = token_data.get("refresh_token")
 
     # Fetch user email
     email = None
     try:
-        from googleapiclient.discovery import build
-
-        svc = build("oauth2", "v2", credentials=creds)
-        user_info = svc.userinfo().get().execute()
-        email = user_info.get("email")
+        async with httpx.AsyncClient() as client:
+            me_resp = await client.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if me_resp.status_code == 200:
+                email = me_resp.json().get("email")
     except Exception as exc:
         logger.warning("Could not fetch user email: %s", exc)
 
     _save_tokens(
         {
-            "access_token": creds.token,
-            "refresh_token": creds.refresh_token,
-            "expiry": creds.expiry.isoformat() if creds.expiry else None,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expiry": token_data.get("expires_in"),
             "email": email,
             "connected_at": datetime.now().isoformat(),
         }
@@ -218,7 +237,7 @@ async def google_status():
 @router.get("/calendar/google/events")
 async def get_google_events(month: str = Query(..., description="YYYY-MM")):
     """Fetch events from Google Calendar for a given month."""
-    creds = _get_credentials()
+    creds = await _get_credentials()
     if not creds:
         raise HTTPException(status_code=401, detail="Google Calendar not connected")
 
@@ -297,7 +316,7 @@ async def get_google_events(month: str = Query(..., description="YYYY-MM")):
 @router.post("/calendar/google/disconnect")
 async def disconnect_google():
     """Revoke token and clear stored credentials."""
-    creds = _get_credentials()
+    creds = await _get_credentials()
 
     # Try to revoke the token
     if creds and creds.token:

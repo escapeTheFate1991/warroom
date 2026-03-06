@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Plus, GripVertical, CheckCircle2, Circle, Clock, Archive, Trash2, X, Lock, CheckCheck, Link, Unlink, Brain, Play, Save, Edit3, Eye, Tag, Paperclip, Calendar, User, Hash } from "lucide-react";
 import AIPlanningModal from "./AIPlanningModal";
 import BoardExecutionModal from "./BoardExecutionModal";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Task {
   id: number;
@@ -85,7 +85,7 @@ export default function KanbanPanel() {
 
   const fetchTasks = useCallback(async () => {
     try {
-      const resp = await fetch(`${API}/api/kanban/tasks`);
+      const resp = await authFetch(`${API}/api/kanban/tasks`);
       const data = await resp.json();
       setTasks(Array.isArray(data) ? data : data.tasks || []);
     } catch {
@@ -99,7 +99,7 @@ export default function KanbanPanel() {
     await Promise.all(
       taskList.map(async (t) => {
         try {
-          const resp = await fetch(`${API}/api/tasks/${t.id}/dependencies`);
+          const resp = await authFetch(`${API}/api/tasks/${t.id}/dependencies`);
           if (resp.ok) {
             depsMap[t.id] = await resp.json();
           }
@@ -118,7 +118,7 @@ export default function KanbanPanel() {
 
   const fetchSelectedDeps = useCallback(async (taskId: number) => {
     try {
-      const resp = await fetch(`${API}/api/tasks/${taskId}/dependencies`);
+      const resp = await authFetch(`${API}/api/tasks/${taskId}/dependencies`);
       if (resp.ok) {
         setSelectedTaskDeps(await resp.json());
       }
@@ -143,7 +143,7 @@ export default function KanbanPanel() {
     if (!newTitle.trim()) return;
     setCreating(true);
     try {
-      await fetch(`${API}/api/kanban/tasks`, {
+      await authFetch(`${API}/api/kanban/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -178,7 +178,7 @@ export default function KanbanPanel() {
     if (!selectedTask || !editTitle.trim()) return;
     setSaving(true);
     try {
-      const resp = await fetch(`${API}/api/kanban/tasks/${selectedTask.id}`, {
+      const resp = await authFetch(`${API}/api/kanban/tasks/${selectedTask.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -206,7 +206,7 @@ export default function KanbanPanel() {
   };
 
   const updateTaskStatus = async (taskId: number, newStatus: string) => {
-    await fetch(`${API}/api/kanban/tasks/${taskId}`, {
+    await authFetch(`${API}/api/kanban/tasks/${taskId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
@@ -224,8 +224,8 @@ export default function KanbanPanel() {
   const deleteTask = async (taskId: number) => {
     if (!window.confirm("Are you sure you want to delete this task? This will also stop any agent working on it.")) return;
     try {
-      await fetch(`${API}/api/kanban/tasks/${taskId}`, { method: "DELETE" });
-      fetch(`${API}/api/kanban/tasks/${taskId}/agent`, { method: "DELETE" }).catch(() => {});
+      await authFetch(`${API}/api/kanban/tasks/${taskId}`, { method: "DELETE" });
+      authFetch(`${API}/api/kanban/tasks/${taskId}/agent`, { method: "DELETE" }).catch(() => {});
       fetchTasks();
       if (selectedTask?.id === taskId) setSelectedTask(null);
     } catch {
@@ -235,7 +235,7 @@ export default function KanbanPanel() {
 
   const addDependency = async (taskId: number, dependsOn: number) => {
     try {
-      const resp = await fetch(`${API}/api/tasks/${taskId}/dependencies`, {
+      const resp = await authFetch(`${API}/api/tasks/${taskId}/dependencies`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ depends_on: dependsOn }),
@@ -256,7 +256,7 @@ export default function KanbanPanel() {
 
   const removeDependency = async (taskId: number, depRowId: number) => {
     try {
-      await fetch(`${API}/api/tasks/${taskId}/dependencies/${depRowId}`, { method: "DELETE" });
+      await authFetch(`${API}/api/tasks/${taskId}/dependencies/${depRowId}`, { method: "DELETE" });
       fetchSelectedDeps(taskId);
       fetchAllDeps(tasks);
     } catch {

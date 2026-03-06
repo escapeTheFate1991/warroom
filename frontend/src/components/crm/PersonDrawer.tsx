@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { X, Mail, Phone, Building2, User, Clock, Plus, CheckCircle2, Circle } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Person {
   id: number;
@@ -89,7 +89,7 @@ export default function PersonDrawer({ person, isOpen, onClose, onUpdate }: Pers
     if (!person) return;
     setLoading(true);
     try {
-      const response = await fetch(`${API}/api/crm/persons/${person.id}/deals`);
+      const response = await authFetch(`${API}/api/crm/persons/${person.id}/deals`);
       if (response.ok) {
         const data = await response.json();
         setDeals(data);
@@ -105,7 +105,7 @@ export default function PersonDrawer({ person, isOpen, onClose, onUpdate }: Pers
     if (!person) return;
     setLoading(true);
     try {
-      const response = await fetch(`${API}/api/crm/activities?person_id=${person.id}`);
+      const response = await authFetch(`${API}/api/crm/activities?person_id=${person.id}`);
       if (response.ok) {
         const data = await response.json();
         setActivities(data);
@@ -119,7 +119,7 @@ export default function PersonDrawer({ person, isOpen, onClose, onUpdate }: Pers
 
   const toggleActivityDone = async (activityId: number, isDone: boolean) => {
     try {
-      const response = await fetch(`${API}/api/crm/activities/${activityId}/done`, {
+      const response = await authFetch(`${API}/api/crm/activities/${activityId}/done`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_done: isDone }),
@@ -138,7 +138,7 @@ export default function PersonDrawer({ person, isOpen, onClose, onUpdate }: Pers
     if (!person) return;
     
     try {
-      const response = await fetch(`${API}/api/crm/activities`, {
+      const response = await authFetch(`${API}/api/crm/activities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { X, Building2, MapPin, Users, DollarSign } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Organization {
   id: number;
@@ -58,7 +58,7 @@ export default function OrgDrawer({ organization, isOpen, onClose, onUpdate }: O
     if (!organization) return;
     setLoading(true);
     try {
-      const response = await fetch(`${API}/api/crm/organizations/${organization.id}/persons`);
+      const response = await authFetch(`${API}/api/crm/organizations/${organization.id}/persons`);
       if (response.ok) {
         const data = await response.json();
         setPeople(data);
@@ -74,7 +74,7 @@ export default function OrgDrawer({ organization, isOpen, onClose, onUpdate }: O
     if (!organization) return;
     setLoading(true);
     try {
-      const response = await fetch(`${API}/api/crm/organizations/${organization.id}/deals`);
+      const response = await authFetch(`${API}/api/crm/organizations/${organization.id}/deals`);
       if (response.ok) {
         const data = await response.json();
         setDeals(data);

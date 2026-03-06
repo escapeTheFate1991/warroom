@@ -19,8 +19,8 @@ import {
   X,
   MapPin,
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Activity {
   id: number;
@@ -98,7 +98,7 @@ export default function ActivitiesPanel() {
 
   const loadTypes = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/crm/activities/types`);
+      const res = await authFetch(`${API}/api/crm/activities/types`);
       if (res.ok) {
         const data = await res.json();
         setTypes(data.types || []);
@@ -165,9 +165,9 @@ export default function ActivitiesPanel() {
   async function toggleDone(activity: Activity) {
     try {
       if (!activity.is_done) {
-        await fetch(`${API}/api/crm/activities/${activity.id}/done`, { method: "PUT" });
+        await authFetch(`${API}/api/crm/activities/${activity.id}/done`, { method: "PUT" });
       } else {
-        await fetch(`${API}/api/crm/activities/${activity.id}`, {
+        await authFetch(`${API}/api/crm/activities/${activity.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ is_done: false }),
@@ -180,7 +180,7 @@ export default function ActivitiesPanel() {
   async function deleteActivity(id: number) {
     if (!confirm("Delete this activity?")) return;
     try {
-      await fetch(`${API}/api/crm/activities/${id}`, { method: "DELETE" });
+      await authFetch(`${API}/api/crm/activities/${id}`, { method: "DELETE" });
       loadActivities();
     } catch {}
   }

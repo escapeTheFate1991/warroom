@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { X, Copy, ExternalLink, Check, FileCode, FileText, File, ChevronLeft, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { API, authFetch } from "@/lib/api";
 
 export interface Artifact {
   id: string;
@@ -53,7 +54,7 @@ export default function ArtifactPanel({ artifacts, activeIndex, onClose, onSelec
   }, [active]);
 
   const openFile = useCallback(async () => {
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
+    const API_URL = API;
     const ext = active.language === "typescript" || active.language === "tsx" ? ".tsx"
       : active.language === "javascript" || active.language === "jsx" ? ".js"
       : active.language === "python" ? ".py"
@@ -68,7 +69,7 @@ export default function ArtifactPanel({ artifacts, activeIndex, onClose, onSelec
 
     const filename = active.filename || `${active.title.toLowerCase().replace(/\s+/g, "-")}${ext}`;
     try {
-      await fetch(`${API_URL}/api/files/open`, {
+      await authFetch(`${API_URL}/api/files/open`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: active.content, filename }),

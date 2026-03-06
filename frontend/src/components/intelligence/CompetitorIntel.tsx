@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Competitor {
   id: number;
@@ -161,7 +161,7 @@ export default function CompetitorIntel() {
     try {
       setLoading(true);
       setError("");
-      const response = await fetch(`${API}/api/competitors`);
+      const response = await authFetch(`${API}/api/competitors`);
       if (response.ok) {
         const data = await response.json();
         setCompetitors(data);
@@ -180,7 +180,7 @@ export default function CompetitorIntel() {
     try {
       setLoading(true);
       setError("");
-      const response = await fetch(`${API}/api/content-intel/competitors/top-content`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/top-content`);
       if (response.ok) {
         const data = await response.json();
         const posts = Array.isArray(data) ? data : (data.posts || []);
@@ -203,7 +203,7 @@ export default function CompetitorIntel() {
     try {
       setLoading(true);
       setError("");
-      const response = await fetch(`${API}/api/content-intel/competitors/hooks`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/hooks`);
       if (response.ok) {
         const data = await response.json();
         setHooks(Array.isArray(data) ? data : (data.hooks || []));
@@ -225,7 +225,7 @@ export default function CompetitorIntel() {
     try {
       setLoading(true);
       setError("");
-      const response = await fetch(`${API}/api/content-intel/competitors/scripts`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/scripts`);
       if (response.ok) {
         const data = await response.json();
         setScripts(data);
@@ -243,7 +243,7 @@ export default function CompetitorIntel() {
   const fetchCompetitorPosts = async (competitorId: number) => {
     try {
       setLoadingPosts(true);
-      const response = await fetch(`${API}/api/content-intel/competitors/${competitorId}/content`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/${competitorId}/content`);
       if (response.ok) {
         const data = await response.json();
         // API returns { posts: [...] }, extract the array
@@ -262,7 +262,7 @@ export default function CompetitorIntel() {
   const fetchFollowerAnalysis = async () => {
     try {
       setLoadingFollowerAnalysis(true);
-      const response = await fetch(`${API}/api/content-intel/competitors/follower-analysis`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/follower-analysis`);
       if (response.ok) {
         setFollowerAnalysis(await response.json());
       }
@@ -277,7 +277,7 @@ export default function CompetitorIntel() {
   const fetchTopVideos = async (competitorId: number) => {
     try {
       setLoadingTopVideos(true);
-      const response = await fetch(`${API}/api/content-intel/competitors/${competitorId}/top-videos?limit=5`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/${competitorId}/top-videos?limit=5`);
       if (response.ok) {
         setTopVideos(await response.json());
       } else {
@@ -294,7 +294,7 @@ export default function CompetitorIntel() {
   const fetchHashtags = async (competitorId: number) => {
     try {
       setLoadingHashtags(true);
-      const response = await fetch(`${API}/api/content-intel/competitors/${competitorId}/hashtags`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/${competitorId}/hashtags`);
       if (response.ok) {
         setHashtags(await response.json());
       } else {
@@ -345,7 +345,7 @@ export default function CompetitorIntel() {
       setError("");
       
       // Create competitor
-      const createResponse = await fetch(`${API}/api/competitors`, {
+      const createResponse = await authFetch(`${API}/api/competitors`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -359,7 +359,7 @@ export default function CompetitorIntel() {
         
         // Auto-populate data
         try {
-          await fetch(`${API}/api/competitors/${newCompetitor.id}/auto-populate`, {
+          await authFetch(`${API}/api/competitors/${newCompetitor.id}/auto-populate`, {
             method: "POST",
           });
         } catch (error) {
@@ -384,7 +384,7 @@ export default function CompetitorIntel() {
   // Delete competitor
   const deleteCompetitor = async (id: number) => {
     try {
-      const response = await fetch(`${API}/api/competitors/${id}`, {
+      const response = await authFetch(`${API}/api/competitors/${id}`, {
         method: "DELETE",
       });
 
@@ -404,7 +404,7 @@ export default function CompetitorIntel() {
       setLoading(true);
       setError("");
       // Use our scraper sync endpoint — scrapes all IG competitors via headless browser
-      const response = await fetch(`${API}/api/scraper/instagram/sync`, {
+      const response = await authFetch(`${API}/api/scraper/instagram/sync`, {
         method: "POST",
       });
 
@@ -431,7 +431,7 @@ export default function CompetitorIntel() {
     try {
       setSubmitting(true);
       setError("");
-      const response = await fetch(`${API}/api/content-intel/competitors/${scriptForm.competitor_id}/generate-script`, {
+      const response = await authFetch(`${API}/api/content-intel/competitors/${scriptForm.competitor_id}/generate-script`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -460,7 +460,7 @@ export default function CompetitorIntel() {
   // Delete script
   const deleteScript = async (id: number) => {
     try {
-      const response = await fetch(`${API}/api/content-intel/competitors/scripts/${id}`, {
+      const response = await authFetch(`${API}/api/content-intel/competitors/scripts/${id}`, {
         method: "DELETE",
       });
 

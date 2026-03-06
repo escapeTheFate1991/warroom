@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { X, Brain, ChevronRight, Check, Loader2, RefreshCw, AlertTriangle } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface PlanTask {
   title: string;
@@ -66,7 +66,7 @@ export default function AIPlanningModal({ onClose, onTasksCreated }: AIPlanningM
     setError(null);
 
     try {
-      const resp = await fetch(`${API}/api/ai-planning/generate`, {
+      const resp = await authFetch(`${API}/api/ai-planning/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description: description.trim() }),
@@ -96,7 +96,7 @@ export default function AIPlanningModal({ onClose, onTasksCreated }: AIPlanningM
     setProgress({ current: 0, total: indices.length });
 
     try {
-      const resp = await fetch(`${API}/api/ai-planning/plans/${plan.plan_id}/execute`, {
+      const resp = await authFetch(`${API}/api/ai-planning/plans/${plan.plan_id}/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ selected_task_indices: indices }),

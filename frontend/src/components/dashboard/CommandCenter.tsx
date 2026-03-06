@@ -6,8 +6,8 @@ import {
   Target, Clock, CheckCircle2, Loader2, AlertCircle, ArrowRight, ArrowUpRight,
   Flame, Calendar, MessageSquare,
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 const TEAM_API = "http://10.0.0.11:18795";
 
 interface SocialAccount {
@@ -97,10 +97,10 @@ export default function CommandCenter() {
   const fetchData = useCallback(async () => {
     try {
       const [accResp, sumResp, trendsResp, sparkResp] = await Promise.all([
-        fetch(`${API}/api/social/accounts`).catch(() => null),
-        fetch(`${API}/api/social/analytics`).catch(() => null),
-        fetch(`${API}/api/social/analytics/trends`).catch(() => null),
-        fetch(`${API}/api/social/analytics/sparkline?days=12`).catch(() => null),
+        authFetch(`${API}/api/social/accounts`).catch(() => null),
+        authFetch(`${API}/api/social/analytics`).catch(() => null),
+        authFetch(`${API}/api/social/analytics/trends`).catch(() => null),
+        authFetch(`${API}/api/social/analytics/sparkline?days=12`).catch(() => null),
       ]);
       if (accResp?.ok) setAccounts(await accResp.json());
       if (sumResp?.ok) setSummary(await sumResp.json());

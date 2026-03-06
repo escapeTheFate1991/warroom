@@ -5,8 +5,8 @@ import {
   Save, History, FileText, User, Settings, Brain, Clock,
   Loader2, AlertCircle, CheckCircle2, RotateCcw
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 const SOUL_FILES = [
   { key: "SOUL.md", label: "SOUL", icon: Brain, description: "Core personality & behavior" },
@@ -46,7 +46,7 @@ export default function SoulEditor() {
   const loadSoulData = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API}/api/soul`);
+      const response = await authFetch(`${API}/api/soul`);
       if (!response.ok) throw new Error("Failed to load soul data");
       const data = await response.json();
       setSoulData(data);
@@ -66,7 +66,7 @@ export default function SoulEditor() {
     
     try {
       setHistoryLoading(true);
-      const response = await fetch(`${API}/api/soul/history/${activeTab}`);
+      const response = await authFetch(`${API}/api/soul/history/${activeTab}`);
       if (!response.ok) throw new Error("Failed to load history");
       const data = await response.json();
       setHistory(data);
@@ -84,7 +84,7 @@ export default function SoulEditor() {
       setSaveSuccess(false);
       setError("");
       
-      const response = await fetch(`${API}/api/soul`, {
+      const response = await authFetch(`${API}/api/soul`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -114,7 +114,7 @@ export default function SoulEditor() {
     
     try {
       setSaving(true);
-      const response = await fetch(`${API}/api/soul/revert/${activeTab}`, {
+      const response = await authFetch(`${API}/api/soul/revert/${activeTab}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ version: selectedVersion })
@@ -139,7 +139,7 @@ export default function SoulEditor() {
   // Preview version content
   const previewVersion = async (version: string) => {
     try {
-      const response = await fetch(`${API}/soul/history/${version}`);
+      const response = await authFetch(`${API}/soul/history/${version}`);
       if (response.ok) {
         const data = await response.text();
         setPreviewContent(data);

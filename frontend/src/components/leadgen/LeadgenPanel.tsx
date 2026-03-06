@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, MapPin, Globe, Mail, Phone, Loader2, Building2, RefreshCw, Star, Filter, X, AlertTriangle, Clock, Trash2 } from "lucide-react";
 import LeadDrawer, { LeadFull } from "./LeadDrawer";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 const PAGE_SIZE = 10;
 
 interface Lead {
@@ -315,7 +315,7 @@ export default function LeadgenPanel() {
     }
     (async () => {
       try {
-        const resp = await fetch(`${API}/api/leadgen/search/${activeJobId}/status`);
+        const resp = await authFetch(`${API}/api/leadgen/search/${activeJobId}/status`);
         if (resp.ok) {
           const data: SearchJobStatus = await resp.json();
           setActiveJobAge(data.age_days);
@@ -327,7 +327,7 @@ export default function LeadgenPanel() {
   // Handle lead row click
   const handleLeadClick = async (lead: Lead) => {
     try {
-      const response = await fetch(`${API}/api/leadgen/leads/${lead.id}`);
+      const response = await authFetch(`${API}/api/leadgen/leads/${lead.id}`);
       if (!response.ok) {
         const detail = await response.text().catch(() => "");
         throw new Error(`Failed to load lead details (${response.status}): ${detail}`);
@@ -407,7 +407,7 @@ export default function LeadgenPanel() {
   const refreshSearchJob = async (jobId: number) => {
     try {
       // Get the original search params
-      const resp = await fetch(`${API}/api/leadgen/search/${jobId}`);
+      const resp = await authFetch(`${API}/api/leadgen/search/${jobId}`);
       if (!resp.ok) throw new Error("Failed to fetch search job");
       const job = await resp.json();
 
@@ -418,7 +418,7 @@ export default function LeadgenPanel() {
       setSearchStatus(`Refreshing: ${job.query} in ${job.location}...`);
       setErrorMessage(null);
 
-      const searchResp = await fetch(`${API}/api/leadgen/search`, {
+      const searchResp = await authFetch(`${API}/api/leadgen/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: job.query, location: job.location, max_results: 60 }),
@@ -443,7 +443,7 @@ export default function LeadgenPanel() {
   const startSearchPolling = (jobId: number, searchQuery: string, searchLocation: string) => {
     const poll = setInterval(async () => {
       try {
-        const statusResp = await fetch(`${API}/api/leadgen/search/${jobId}/status`);
+        const statusResp = await authFetch(`${API}/api/leadgen/search/${jobId}/status`);
         if (!statusResp.ok) {
           clearInterval(poll);
           setSearching(false);
@@ -493,7 +493,7 @@ export default function LeadgenPanel() {
     setErrorMessage(null);
 
     try {
-      const resp = await fetch(`${API}/api/leadgen/search`, {
+      const resp = await authFetch(`${API}/api/leadgen/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, location, max_results: 60 }),

@@ -156,14 +156,14 @@ DEFAULT_SETTINGS = [
         "key": "google_oauth_client_id",
         "value": "",
         "category": "api_keys",
-        "description": "Google OAuth Client ID (for YouTube)",
+        "description": "Google OAuth Client ID (YouTube + Calendar)",
         "is_secret": False,
     },
     {
         "key": "google_oauth_client_secret",
         "value": "",
         "category": "api_keys",
-        "description": "Google OAuth Client Secret (for YouTube)",
+        "description": "Google OAuth Client Secret (YouTube + Calendar)",
         "is_secret": True,
     },
     {

@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Share2, Instagram, Facebook, Youtube, Twitter, Plus, X, ExternalLink, TrendingUp, TrendingDown, Users, Eye, BarChart3, Zap, ChevronDown, ChevronUp, Radio, Loader2 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface SocialAccount {
   id: number;
@@ -101,9 +101,9 @@ export default function SocialDashboard() {
   const fetchData = useCallback(async () => {
     try {
       const [accResp, sumResp, sparkResp] = await Promise.all([
-        fetch(`${API}/api/social/accounts`),
-        fetch(`${API}/api/social/analytics`),
-        fetch(`${API}/api/social/analytics/sparkline`),
+        authFetch(`${API}/api/social/accounts`),
+        authFetch(`${API}/api/social/analytics`),
+        authFetch(`${API}/api/social/analytics/sparkline`),
       ]);
       if (accResp.ok) setAccounts(await accResp.json());
       if (sumResp.ok) setSummary(await sumResp.json());
@@ -155,7 +155,7 @@ export default function SocialDashboard() {
 
   const handleManualConnect = async () => {
     try {
-      const res = await fetch(`${API}/api/social/accounts`, {
+      const res = await authFetch(`${API}/api/social/accounts`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(connectForm),
       });
@@ -165,7 +165,7 @@ export default function SocialDashboard() {
 
   const handleDisconnect = async (id: number) => {
     try {
-      const res = await fetch(`${API}/api/social/accounts/${id}`, { method: "DELETE" });
+      const res = await authFetch(`${API}/api/social/accounts/${id}`, { method: "DELETE" });
       if (res.ok) fetchData();
     } catch (e) { console.error(e); }
   };
@@ -173,7 +173,7 @@ export default function SocialDashboard() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const res = await fetch(`${API}/api/social/sync`, { method: "POST" });
+      const res = await authFetch(`${API}/api/social/sync`, { method: "POST" });
       if (res.ok) {
         await fetchData(); // Refresh data after sync
       }

@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Plus, Edit, Trash2, Settings, Type, Hash, Calendar, CheckSquare, List } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface CustomAttribute {
   id: number;
@@ -65,7 +65,7 @@ export default function CustomFields() {
   const loadAttributes = async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${API}/api/crm/attributes?entity_type=${selectedEntityType}`);
+      const resp = await authFetch(`${API}/api/crm/attributes?entity_type=${selectedEntityType}`);
       if (resp.ok) {
         const data = await resp.json();
         setAttributes(data);
@@ -193,7 +193,7 @@ export default function CustomFields() {
     }
 
     try {
-      const resp = await fetch(`${API}/api/crm/attributes/${id}`, {
+      const resp = await authFetch(`${API}/api/crm/attributes/${id}`, {
         method: 'DELETE'
       });
 

@@ -15,8 +15,8 @@ import {
   BarChart3,
   Clock,
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Campaign {
   id: number;
@@ -53,7 +53,7 @@ export default function CampaignsPanel() {
   const loadCampaigns = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/crm/campaigns`);
+      const res = await authFetch(`${API}/api/crm/campaigns`);
       if (res.ok) setCampaigns(await res.json());
     } catch {}
     setLoading(false);
@@ -61,7 +61,7 @@ export default function CampaignsPanel() {
 
   const loadTypes = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/crm/campaign-types`);
+      const res = await authFetch(`${API}/api/crm/campaign-types`);
       if (res.ok) {
         const data = await res.json();
         setTypes(data.types || []);
@@ -122,7 +122,7 @@ export default function CampaignsPanel() {
   async function deleteCampaign(id: number) {
     if (!confirm("Delete this campaign?")) return;
     try {
-      await fetch(`${API}/api/crm/campaigns/${id}`, { method: "DELETE" });
+      await authFetch(`${API}/api/crm/campaigns/${id}`, { method: "DELETE" });
       loadCampaigns();
     } catch {}
   }
@@ -130,7 +130,7 @@ export default function CampaignsPanel() {
   async function sendCampaign(id: number) {
     if (!confirm("Send this campaign now?")) return;
     try {
-      await fetch(`${API}/api/crm/campaigns/${id}/send`, { method: "POST" });
+      await authFetch(`${API}/api/crm/campaigns/${id}/send`, { method: "POST" });
       loadCampaigns();
     } catch {}
   }

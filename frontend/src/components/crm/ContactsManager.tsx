@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { Users, Phone, Search, Filter, X, Loader2, UserPlus, Mail } from "lucide-react";
 import LeadDrawer, { LeadFull } from "../leadgen/LeadDrawer";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Contact {
   id: number;
@@ -53,7 +53,7 @@ export default function ContactsManager() {
 
   const loadCrmContacts = async () => {
     try {
-      const response = await fetch(`${API}/api/crm/contacts`);
+      const response = await authFetch(`${API}/api/crm/contacts`);
       if (response.ok) {
         const data = await response.json();
         setCrmContacts(data);
@@ -69,7 +69,7 @@ export default function ContactsManager() {
       if (outcomeFilter) params.set("outcome", outcomeFilter);
       if (contactedByFilter) params.set("contacted_by", contactedByFilter);
 
-      const response = await fetch(`${API}/api/leadgen/contacts?${params}`);
+      const response = await authFetch(`${API}/api/leadgen/contacts?${params}`);
       if (response.ok) {
         const data = await response.json();
         setContactHistory(data);
@@ -90,7 +90,7 @@ export default function ContactsManager() {
   const handleContactClick = async (contact: Contact) => {
     try {
       // Fetch full lead data
-      const response = await fetch(`${API}/api/leadgen/leads/${contact.id}`);
+      const response = await authFetch(`${API}/api/leadgen/leads/${contact.id}`);
       if (response.ok) {
         const fullLead: LeadFull = await response.json();
         setSelectedLead(fullLead);
@@ -397,13 +397,12 @@ export default function ContactsManager() {
 }
 
 function ActivityList({ contactId }: { contactId?: number }) {
-  const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
   const [activities, setActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!contactId) { setLoading(false); return; }
-    fetch(`${API}/api/crm/activities?person_id=${contactId}&limit=50`)
+    authFetch(`${API}/api/crm/activities?person_id=${contactId}&limit=50`)
       .then(r => r.ok ? r.json() : [])
       .then(setActivities)
       .catch(() => setActivities([]))

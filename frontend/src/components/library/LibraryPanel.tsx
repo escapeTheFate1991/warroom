@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Search, Database, FileText, Loader2 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Collection {
   name: string;
@@ -25,7 +25,7 @@ export default function LibraryPanel() {
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/api/library/collections`)
+    authFetch(`${API}/api/library/collections`)
       .then((r) => r.json())
       .then((data) => setCollections(data.collections || []))
       .catch(() => {});
@@ -35,7 +35,7 @@ export default function LibraryPanel() {
     if (!query.trim()) return;
     setSearching(true);
     try {
-      const resp = await fetch(`${API}/api/library/search`, {
+      const resp = await authFetch(`${API}/api/library/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, collection: selectedCollection, limit: 10 }),

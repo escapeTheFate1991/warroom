@@ -111,7 +111,7 @@ async def get_personal_calendar(month: Optional[str] = None):
                     from app.api.google_calendar import _get_credentials
                     from googleapiclient.discovery import build
 
-                    creds = _get_credentials()
+                    creds = await _get_credentials()
                     if creds:
                         service = build("calendar", "v3", credentials=creds)
                         time_min = datetime(year, mon, 1).isoformat() + "Z"

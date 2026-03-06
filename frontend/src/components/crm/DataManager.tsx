@@ -2,8 +2,8 @@
 
 import { useState, useRef } from "react";
 import { Upload, Download, Search, ArrowRight, FileText, AlertCircle, Check } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface ImportMapping {
   csvColumn: string;
@@ -100,7 +100,7 @@ export default function DataManager() {
     formData.append('mappings', JSON.stringify(fieldMappings));
 
     try {
-      const resp = await fetch(`${API}/api/crm/import`, {
+      const resp = await authFetch(`${API}/api/crm/import`, {
         method: 'POST',
         body: formData
       });
@@ -127,7 +127,7 @@ export default function DataManager() {
         ...(exportDateTo && { to_date: exportDateTo })
       });
       
-      const resp = await fetch(`${API}/api/crm/export/${selectedEntityType}?${params}`);
+      const resp = await authFetch(`${API}/api/crm/export/${selectedEntityType}?${params}`);
       if (resp.ok) {
         const blob = await resp.blob();
         const url = URL.createObjectURL(blob);
@@ -147,7 +147,7 @@ export default function DataManager() {
   const findDuplicates = async () => {
     setFindingDuplicates(true);
     try {
-      const resp = await fetch(`${API}/api/crm/deduplicate/${selectedEntityType}`, {
+      const resp = await authFetch(`${API}/api/crm/deduplicate/${selectedEntityType}`, {
         method: 'POST'
       });
       
@@ -164,7 +164,7 @@ export default function DataManager() {
 
   const mergeDuplicates = async (id1: number, id2: number, keepId: number) => {
     try {
-      const resp = await fetch(`${API}/api/crm/merge/${selectedEntityType}`, {
+      const resp = await authFetch(`${API}/api/crm/merge/${selectedEntityType}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

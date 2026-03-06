@@ -21,8 +21,8 @@ import {
   MessageSquare
 } from "lucide-react";
 import { DealFull, Activity, Product, Email } from "./types";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface DealDrawerProps {
   deal: DealFull | null;
@@ -90,7 +90,7 @@ export default function DealDrawer({ deal, isOpen, onClose, onUpdate, onEdit }: 
     
     setLoadingActivities(true);
     try {
-      const response = await fetch(`${API}/api/crm/activities?deal_id=${deal.id}`);
+      const response = await authFetch(`${API}/api/crm/activities?deal_id=${deal.id}`);
       if (response.ok) {
         const data = await response.json();
         setActivities(data);
@@ -107,7 +107,7 @@ export default function DealDrawer({ deal, isOpen, onClose, onUpdate, onEdit }: 
     
     setLoadingProducts(true);
     try {
-      const response = await fetch(`${API}/api/crm/deals/${deal.id}/products`);
+      const response = await authFetch(`${API}/api/crm/deals/${deal.id}/products`);
       if (response.ok) {
         const data = await response.json();
         setProducts(data);
@@ -124,7 +124,7 @@ export default function DealDrawer({ deal, isOpen, onClose, onUpdate, onEdit }: 
     
     setLoadingEmails(true);
     try {
-      const response = await fetch(`${API}/api/crm/emails?deal_id=${deal.id}`);
+      const response = await authFetch(`${API}/api/crm/emails?deal_id=${deal.id}`);
       if (response.ok) {
         const data = await response.json();
         setEmails(data);
@@ -152,7 +152,7 @@ export default function DealDrawer({ deal, isOpen, onClose, onUpdate, onEdit }: 
     
     setSaving(true);
     try {
-      const response = await fetch(`${API}/api/crm/deals/${deal.id}`, {
+      const response = await authFetch(`${API}/api/crm/deals/${deal.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description: notes }),
@@ -180,7 +180,7 @@ export default function DealDrawer({ deal, isOpen, onClose, onUpdate, onEdit }: 
         schedule_to: newActivity.schedule_to || null,
       };
       
-      const response = await fetch(`${API}/api/crm/activities`, {
+      const response = await authFetch(`${API}/api/crm/activities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(activityData),
@@ -189,7 +189,7 @@ export default function DealDrawer({ deal, isOpen, onClose, onUpdate, onEdit }: 
       if (response.ok) {
         // Link activity to deal
         const activity = await response.json();
-        await fetch(`${API}/api/crm/deals/${deal.id}/activities`, {
+        await authFetch(`${API}/api/crm/deals/${deal.id}/activities`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ activity_id: activity.id }),
@@ -215,7 +215,7 @@ export default function DealDrawer({ deal, isOpen, onClose, onUpdate, onEdit }: 
   const handleToggleActivity = async (activity: Activity) => {
     setSaving(true);
     try {
-      const response = await fetch(`${API}/api/crm/activities/${activity.id}`, {
+      const response = await authFetch(`${API}/api/crm/activities/${activity.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_done: !activity.is_done }),

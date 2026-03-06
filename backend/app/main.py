@@ -74,6 +74,11 @@ async def verify_crm_schema():
 
 app = FastAPI(title="WAR ROOM", version="0.1.0", lifespan=lifespan)
 
+# Auth guard — requires valid JWT for all /api/* routes except whitelist.
+# Must be added before CORS so CORS headers are always present (even on 401).
+from app.middleware.auth_guard import AuthGuardMiddleware
+app.add_middleware(AuthGuardMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

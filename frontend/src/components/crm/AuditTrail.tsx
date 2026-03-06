@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Eye, Filter, Calendar, User, FileText } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface AuditLogEntry {
   id: number;
@@ -76,7 +76,7 @@ export default function AuditTrail() {
         ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v))
       });
       
-      const resp = await fetch(`${API}/api/crm/audit-log?${params}`);
+      const resp = await authFetch(`${API}/api/crm/audit-log?${params}`);
       if (resp.ok) {
         const data = await resp.json();
         setAuditEntries(data.entries || []);
@@ -92,7 +92,7 @@ export default function AuditTrail() {
 
   const loadUsers = async () => {
     try {
-      const resp = await fetch(`${API}/api/crm/users`);
+      const resp = await authFetch(`${API}/api/crm/users`);
       if (resp.ok) {
         const data = await resp.json();
         setUsers(data);

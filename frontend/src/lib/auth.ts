@@ -32,7 +32,7 @@ export interface AuthResponse {
   user: User;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8300';
+import { API as API_BASE } from "@/lib/api";
 const TOKEN_KEY = 'warroom_token';
 const USER_KEY = 'warroom_user';
 

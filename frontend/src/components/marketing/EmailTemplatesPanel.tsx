@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { FileText, Plus, Edit, Trash2, X, Copy, Eye } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface EmailTemplate {
   id: number;
@@ -28,7 +28,7 @@ export default function EmailTemplatesPanel() {
   const loadTemplates = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/crm/email-templates`);
+      const res = await authFetch(`${API}/api/crm/email-templates`);
       if (res.ok) setTemplates(await res.json());
     } catch {}
     setLoading(false);
@@ -87,7 +87,7 @@ export default function EmailTemplatesPanel() {
   async function deleteTemplate(id: number) {
     if (!confirm("Delete this template?")) return;
     try {
-      await fetch(`${API}/api/crm/email-templates/${id}`, { method: "DELETE" });
+      await authFetch(`${API}/api/crm/email-templates/${id}`, { method: "DELETE" });
       loadTemplates();
     } catch {}
   }

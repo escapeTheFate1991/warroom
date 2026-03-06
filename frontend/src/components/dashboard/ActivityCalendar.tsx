@@ -7,8 +7,8 @@ import {
   MoreHorizontal, MapPin, Users, Bell, Type, CheckSquare, BellRing,
   Repeat, Globe, Briefcase
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 /* ── Types ──────────────────────────────────────────────── */
 
@@ -656,7 +656,8 @@ export default function ActivityCalendar() {
 
   /* Google Calendar state */
   const [googleStatus, setGoogleStatus] = useState<{ connected: boolean; email?: string } | null>(null);
-  const [googleLoading, setGoogleLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
 
   /* Personal modals */
   const [quickAddDate, setQuickAddDate] = useState<string | null>(null);
@@ -670,7 +671,7 @@ export default function ActivityCalendar() {
       setLoading(true);
       setError("");
       const monthStr = `${currentDate.year}-${currentDate.month.toString().padStart(2, "0")}`;
-      const response = await fetch(`${API}/api/calendar?month=${monthStr}`);
+      const response = await authFetch(`${API}/api/calendar?month=${monthStr}`);
       if (!response.ok) throw new Error("Failed to load calendar data");
       setCalendarData(await response.json());
     } catch {
@@ -684,7 +685,7 @@ export default function ActivityCalendar() {
     try {
       setDayLoading(true);
       setSelectedDay(day);
-      const response = await fetch(`${API}/api/calendar/day/${day}`);
+      const response = await authFetch(`${API}/api/calendar/day/${day}`);
       if (!response.ok) { setDayDetail(null); return; }
       setDayDetail(await response.json());
     } catch {
@@ -700,7 +701,7 @@ export default function ActivityCalendar() {
     try {
       setPersonalLoading(true);
       const monthStr = `${currentDate.year}-${currentDate.month.toString().padStart(2, "0")}`;
-      const response = await fetch(`${API}/api/calendar/personal?month=${monthStr}`);
+      const response = await authFetch(`${API}/api/calendar/personal?month=${monthStr}`);
       if (!response.ok) throw new Error("Failed to load personal calendar");
       setPersonalData(await response.json());
     } catch {
@@ -734,13 +735,13 @@ export default function ActivityCalendar() {
 
     try {
       if (existingId) {
-        await fetch(`${API}/api/calendar/personal/events/${existingId}`, {
+        await authFetch(`${API}/api/calendar/personal/events/${existingId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
       } else {
-        await fetch(`${API}/api/calendar/personal/events`, {
+        await authFetch(`${API}/api/calendar/personal/events`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -755,7 +756,7 @@ export default function ActivityCalendar() {
 
   const deleteEvent = async (eventId: string) => {
     try {
-      await fetch(`${API}/api/calendar/personal/events/${eventId}`, { method: "DELETE" });
+      await authFetch(`${API}/api/calendar/personal/events/${eventId}`, { method: "DELETE" });
       loadPersonalData();
     } catch {}
   };
@@ -764,59 +765,23 @@ export default function ActivityCalendar() {
 
   const loadGoogleStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/calendar/google/status`);
+      const res = await authFetch(`${API}/api/calendar/google/status`);
       if (res.ok) setGoogleStatus(await res.json());
     } catch {
       setGoogleStatus({ connected: false });
     }
   }, []);
 
-  const connectGoogle = async () => {
-    setGoogleLoading(true);
+  const resyncCalendar = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
     try {
-      const res = await fetch(`${API}/api/calendar/google/auth-url`);
-      if (!res.ok) throw new Error("Failed to get auth URL");
-      const { auth_url } = await res.json();
-
-      const popup = window.open(auth_url, "google-calendar-auth", "width=500,height=700,left=200,top=100");
-
-      const handler = (event: MessageEvent) => {
-        if (event.data?.type === "google-calendar-connected") {
-          window.removeEventListener("message", handler);
-          loadGoogleStatus();
-          loadPersonalData();
-          setGoogleLoading(false);
-        } else if (event.data?.type === "google-calendar-error") {
-          window.removeEventListener("message", handler);
-          setGoogleLoading(false);
-        }
-      };
-      window.addEventListener("message", handler);
-
-      // Fallback: if popup closes without message
-      const check = setInterval(() => {
-        if (popup?.closed) {
-          clearInterval(check);
-          window.removeEventListener("message", handler);
-          loadGoogleStatus();
-          loadPersonalData();
-          setGoogleLoading(false);
-        }
-      }, 1000);
-    } catch {
-      setGoogleLoading(false);
+      await loadPersonalData();
+      setLastSync(new Date());
+    } finally {
+      setSyncing(false);
     }
-  };
-
-  const disconnectGoogle = async () => {
-    setGoogleLoading(true);
-    try {
-      await fetch(`${API}/api/calendar/google/disconnect`, { method: "POST" });
-      setGoogleStatus({ connected: false });
-      loadPersonalData();
-    } catch {}
-    setGoogleLoading(false);
-  };
+  }, [syncing, loadPersonalData]);
 
   const openQuickAdd = (dateStr: string) => {
     setQuickAddDate(dateStr);
@@ -896,6 +861,15 @@ export default function ActivityCalendar() {
   useEffect(() => { if (tab === "personal") loadPersonalData(); }, [tab, loadPersonalData]);
   useEffect(() => { loadGoogleStatus(); }, [loadGoogleStatus]);
 
+  // Auto-sync personal calendar every 2 minutes when on that tab
+  useEffect(() => {
+    if (tab !== "personal" || !googleStatus?.connected) return;
+    const interval = setInterval(() => {
+      loadPersonalData().then(() => setLastSync(new Date()));
+    }, 120_000);
+    return () => clearInterval(interval);
+  }, [tab, googleStatus?.connected, loadPersonalData]);
+
   const grid = generateCalendarGrid();
 
   /* ── Render ───────────────────────────────────────────── */
@@ -971,29 +945,31 @@ export default function ActivityCalendar() {
             <div className="flex items-center gap-2 text-xs bg-warroom-bg rounded-lg px-3 py-2">
               {googleStatus?.connected ? (
                 <>
-                  <span className="text-green-400">✅</span>
-                  <span className="text-warroom-muted">Connected as <span className="text-warroom-text">{googleStatus.email}</span></span>
+                  <div className="w-2 h-2 rounded-full bg-green-400" />
+                  <span className="text-warroom-muted">
+                    Synced with <span className="text-warroom-text">{googleStatus.email}</span>
+                  </span>
+                  {lastSync && (
+                    <span className="text-warroom-muted/60">
+                      · {lastSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  )}
                   <button
-                    onClick={disconnectGoogle}
-                    disabled={googleLoading}
-                    className="ml-auto text-red-400 hover:text-red-300 text-xs flex items-center gap-1 transition"
+                    onClick={resyncCalendar}
+                    disabled={syncing}
+                    className="ml-auto flex items-center gap-1 text-warroom-muted hover:text-warroom-accent transition"
+                    title="Resync now"
                   >
-                    {googleLoading ? <Loader2 size={10} className="animate-spin" /> : <X size={10} />}
-                    Disconnect
+                    <Loader2 size={12} className={syncing ? "animate-spin" : ""} />
+                    {syncing ? "Syncing..." : "Resync"}
                   </button>
                 </>
               ) : (
                 <>
                   <CalendarDays size={13} className="text-amber-400" />
-                  <span className="text-warroom-muted">Google Calendar not connected — showing local events only.</span>
-                  <button
-                    onClick={connectGoogle}
-                    disabled={googleLoading}
-                    className="ml-auto text-warroom-accent hover:underline flex items-center gap-1 transition"
-                  >
-                    {googleLoading ? <Loader2 size={10} className="animate-spin" /> : <Globe size={12} />}
-                    Connect Google Calendar
-                  </button>
+                  <span className="text-warroom-muted">
+                    Google Calendar not connected — go to <span className="text-warroom-accent">Settings → Email & Calendar</span> to connect.
+                  </span>
                 </>
               )}
             </div>

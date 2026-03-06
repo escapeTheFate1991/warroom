@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { TrendingUp, DollarSign, Target, Calendar, BarChart3, RefreshCw } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface ForecastData {
   total_pipeline_value: number;
@@ -43,7 +43,7 @@ export default function ForecastPanel() {
   const loadForecast = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API}/api/crm/deals/forecast?timeframe=${selectedTimeframe}`);
+      const response = await authFetch(`${API}/api/crm/deals/forecast?timeframe=${selectedTimeframe}`);
       if (response.ok) {
         const data = await response.json();
         setForecast(data);

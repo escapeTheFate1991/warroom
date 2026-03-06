@@ -5,8 +5,8 @@ import {
   Bot, Activity, Clock, Circle, ArrowRight, BarChart3,
   RefreshCw, Plus, Trash2, Edit2, X, Check, Zap,
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Agent {
   id: string;
@@ -73,10 +73,10 @@ export default function TeamPanel() {
     setLoading(true);
     try {
       const [agentsRes, eventsRes, flowsRes, statsRes] = await Promise.all([
-        fetch(`${API}/api/team/agents`),
-        fetch(`${API}/api/team/events?limit=100&hours=168`),
-        fetch(`${API}/api/team/flows`),
-        fetch(`${API}/api/team/stats`),
+        authFetch(`${API}/api/team/agents`),
+        authFetch(`${API}/api/team/events?limit=100&hours=168`),
+        authFetch(`${API}/api/team/flows`),
+        authFetch(`${API}/api/team/stats`),
       ]);
 
       const agentsData = await agentsRes.json();
@@ -100,13 +100,13 @@ export default function TeamPanel() {
 
   const deleteAgent = async (id: string) => {
     if (!confirm(`Delete agent "${id}"?`)) return;
-    await fetch(`${API}/api/team/agents/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/api/team/agents/${id}`, { method: "DELETE" });
     fetchAll();
   };
 
   const addAgent = async () => {
     if (!newAgent.id || !newAgent.name || !newAgent.role) return;
-    await fetch(`${API}/api/team/agents`, {
+    await authFetch(`${API}/api/team/agents`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(newAgent),
@@ -275,7 +275,7 @@ export default function TeamPanel() {
                   <span className="text-[10px] text-warroom-muted">{timeAgo(event.created_at)}</span>
                   <button
                     onClick={async () => {
-                      await fetch(`${API}/api/team/events/${event.id}`, { method: "DELETE" });
+                      await authFetch(`${API}/api/team/events/${event.id}`, { method: "DELETE" });
                       fetchAll();
                     }}
                     className="opacity-0 group-hover:opacity-100 text-warroom-muted hover:text-warroom-danger transition"

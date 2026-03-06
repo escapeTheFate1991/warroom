@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Package, Plus, Edit, Trash2, X, Save, Loader2 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
 
 interface Product {
   id: number;
@@ -41,7 +41,7 @@ export default function ProductsPanel() {
   const loadProducts = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API}/api/crm/products`);
+      const response = await authFetch(`${API}/api/crm/products`);
       if (response.ok) {
         const data = await response.json();
         setProducts(data);
@@ -127,7 +127,7 @@ export default function ProductsPanel() {
     }
 
     try {
-      const response = await fetch(`${API}/api/crm/products/${product.id}`, {
+      const response = await authFetch(`${API}/api/crm/products/${product.id}`, {
         method: "DELETE",
       });
 

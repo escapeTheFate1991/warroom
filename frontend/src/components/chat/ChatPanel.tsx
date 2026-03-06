@@ -34,7 +34,7 @@ interface GatewayRes {
   error?: { code: string; message: string };
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
+import { API as API_URL, authFetch } from "@/lib/api";
 
 /* ── Usage Indicator (replaces connection dot) ─────────── */
 
@@ -60,7 +60,7 @@ function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
   useEffect(() => {
     const fetchUsage = async () => {
       try {
-        const resp = await fetch(`${API_URL}/api/usage`);
+        const resp = await authFetch(`${API_URL}/api/usage`);
         if (resp.ok) setUsage(await resp.json());
       } catch {}
     };
@@ -71,7 +71,7 @@ function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
 
   useEffect(() => {
     if (!expanded) return;
-    fetch(`${API_URL}/api/usage/models`).then(r => r.ok ? r.json() : []).then(setModels).catch(() => {});
+    authFetch(`${API_URL}/api/usage/models`).then(r => r.ok ? r.json() : []).then(setModels).catch(() => {});
   }, [expanded]);
 
   useEffect(() => {
@@ -84,8 +84,8 @@ function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
 
   const switchModel = async (model: string) => {
     try {
-      await fetch(`${API_URL}/api/usage/model`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) });
-      const resp = await fetch(`${API_URL}/api/usage`);
+      await authFetch(`${API_URL}/api/usage/model`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) });
+      const resp = await authFetch(`${API_URL}/api/usage`);
       if (resp.ok) setUsage(await resp.json());
     } catch {}
   };
@@ -309,7 +309,7 @@ export default function ChatPanel() {
   // Fetch token usage
   const fetchTokenUsage = useCallback(async () => {
     try {
-      const resp = await fetch(`${API_URL}/api/chat/session-status`);
+      const resp = await authFetch(`${API_URL}/api/chat/session-status`);
       if (resp.ok) {
         const data = await resp.json();
         setTokenUsage(data);
@@ -713,7 +713,7 @@ export default function ChatPanel() {
     const playTask = async () => {
       if (!conversationActiveRef.current) return;
       try {
-        const resp = await fetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(text.slice(0, 500))}`, {
+        const resp = await authFetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(text.slice(0, 500))}`, {
           method: "POST",
         });
         if (resp.ok && conversationActiveRef.current) {
@@ -817,7 +817,7 @@ export default function ChatPanel() {
     const formData = new FormData();
     formData.append("file", blob, "recording.webm");
     try {
-      const resp = await fetch(`${API_URL}/api/voice/transcribe`, { method: "POST", body: formData });
+      const resp = await authFetch(`${API_URL}/api/voice/transcribe`, { method: "POST", body: formData });
       if (resp.ok) {
         const data = await resp.json();
         if (data.text) {
@@ -887,7 +887,7 @@ export default function ChatPanel() {
             const formData = new FormData();
             formData.append("file", blob, "conversation.webm");
             try {
-              const resp = await fetch(`${API_URL}/api/voice/transcribe`, { method: "POST", body: formData });
+              const resp = await authFetch(`${API_URL}/api/voice/transcribe`, { method: "POST", body: formData });
               if (resp.ok) {
                 const data = await resp.json();
                 if (data.text && data.text.trim().length > 1) {
@@ -975,7 +975,7 @@ export default function ChatPanel() {
 
     setIsPolishing(true);
     try {
-      const resp = await fetch(`${API_URL}/api/chat/polish`, {
+      const resp = await authFetch(`${API_URL}/api/chat/polish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
