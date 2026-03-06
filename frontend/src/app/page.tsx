@@ -8,7 +8,7 @@ import {
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
   CalendarDays, Puzzle, Heart, Inbox, FileSignature, DollarSign,
-  BarChart2, PieChart, TrendingUp,
+  BarChart2, PieChart, TrendingUp, UserPlus,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import ChatPanel from "@/components/chat/ChatPanel";
@@ -41,6 +41,7 @@ import NotificationBell from "@/components/notifications/NotificationBell";
 import InvoicingPanel from "@/components/invoicing/InvoicingPanel";
 import EmailInbox from "@/components/email/EmailInbox";
 import ReportsOverview from "@/components/reports/ReportsOverview";
+import ProspectsPanel from "@/components/prospects/ProspectsPanel";
 
 // Sidebar section structure (inspired by RAWGROWTH War Room)
 const SECTIONS = [
@@ -77,6 +78,7 @@ const SECTIONS = [
     label: "OPERATIONS",
     items: [
       { id: "leadgen", label: "Leads", icon: Search },
+      { id: "prospects", label: "Prospects", icon: UserPlus },
       { id: "crm", label: "CRM", icon: UserSquare, children: [
         { id: "crm-deals", label: "Deals", icon: Briefcase },
         { id: "crm-contacts", label: "Contacts", icon: Users },
@@ -123,7 +125,7 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "activity" | "calendar" | "email" | "social" | "pipeline" | "intelligence"
+  | "dashboard" | "chat" | "agents" | "activity" | "calendar" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
   | "kanban" | "team" | "leadgen"
   | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products" | "crm-submissions"
@@ -316,6 +318,7 @@ function WarRoom() {
         {activeTab === "intelligence" && <CompetitorIntel />}
         {activeTab === "kanban" && <KanbanPanel />}
         {activeTab === "leadgen" && <LeadgenPanel />}
+        {activeTab === "prospects" && <ProspectsPanel />}
         {activeTab === "crm-deals" && <DealsKanban />}
         {activeTab === "crm-contacts" && <ContactsManager />}
         {activeTab === "crm-activities" && <ActivitiesPanel />}

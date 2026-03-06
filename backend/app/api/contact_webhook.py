@@ -34,7 +34,10 @@ CREATE TABLE IF NOT EXISTS public.contact_submissions (
     email           TEXT NOT NULL,
     phone           TEXT,
     message         TEXT NOT NULL,
+    business_name   TEXT,
+    website_url     TEXT,
     source_url      TEXT,
+    lead_source     TEXT DEFAULT 'website_form',
     ip_address      TEXT,
     submitted_at    TIMESTAMP WITH TIME ZONE DEFAULT now(),
     status          VARCHAR(20) DEFAULT 'new',
@@ -44,6 +47,12 @@ CREATE TABLE IF NOT EXISTS public.contact_submissions (
     notes           TEXT
 );
 """
+
+ALTER_SQLS = [
+    "ALTER TABLE public.contact_submissions ADD COLUMN IF NOT EXISTS business_name TEXT",
+    "ALTER TABLE public.contact_submissions ADD COLUMN IF NOT EXISTS website_url TEXT",
+    "ALTER TABLE public.contact_submissions ADD COLUMN IF NOT EXISTS lead_source TEXT DEFAULT 'website_form'",
+]
 
 INDEX_SQLS = [
     "CREATE INDEX IF NOT EXISTS idx_contact_submissions_email ON public.contact_submissions (email)",
@@ -56,6 +65,8 @@ async def init_contact_table():
     try:
         async with _engine.begin() as conn:
             await conn.execute(text(CREATE_TABLE_SQL))
+            for alter_sql in ALTER_SQLS:
+                await conn.execute(text(alter_sql))
             for idx_sql in INDEX_SQLS:
                 await conn.execute(text(idx_sql))
         logger.info("contact_submissions table ready")
@@ -69,6 +80,8 @@ class ContactSubmission(BaseModel):
     email: EmailStr
     phone: Optional[str] = None
     message: str
+    business_name: Optional[str] = None
+    website_url: Optional[str] = None
     source_url: Optional[str] = None
 
     @field_validator("name")
@@ -117,25 +130,32 @@ AUTO_REPLY_FROM = "contact@stuffnthings.io"
 
 def _build_auto_reply_html(name: str) -> str:
     first_name = name.split()[0]
-    return f"""
+    return f"""\
     <div style="font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:32px;color:#333">
-        <h2 style="color:#1a1a2e;margin-bottom:16px">Thanks for reaching out, {first_name}!</h2>
+        <h2 style="color:#1a1a2e;margin-bottom:16px">Hey {first_name}, we got your request!</h2>
         <p style="font-size:15px;line-height:1.6">
-            We received your message and appreciate you taking the time to get in touch.
+            Thanks for reaching out through <a href="https://stuffnthings.io" style="color:#0ea5e9;text-decoration:none">stuffnthings.io</a>.
+            We're glad you're here.
         </p>
         <p style="font-size:15px;line-height:1.6">
-            Our team is reviewing your inquiry and will get back to you within
-            <strong>24 hours</strong>. If your matter is urgent, feel free to reply
-            directly to this email.
+            Our team will review your request within <strong>24 hours</strong>.
+        </p>
+        <p style="font-size:15px;line-height:1.6">
+            You'll receive a call from us shortly to discuss your needs and schedule
+            a time that works for you.
+        </p>
+        <p style="font-size:15px;line-height:1.6">
+            In the meantime, feel free to reply to this email if you have any questions.
         </p>
         <p style="font-size:15px;line-height:1.6;margin-top:24px">
             Talk soon,<br>
-            <strong>The Stuff N Things Team</strong>
+            <strong>&mdash; The Stuff N Things Team</strong>
         </p>
         <hr style="border:none;border-top:1px solid #e0e0e0;margin:32px 0 16px">
-        <p style="font-size:12px;color:#999">
-            This is an automated confirmation. You don't need to reply unless you
-            have additional information to share.
+        <p style="font-size:12px;color:#999;text-align:center">
+            <a href="mailto:contact@stuffnthings.io" style="color:#999;text-decoration:none">contact@stuffnthings.io</a>
+            &nbsp;|&nbsp;
+            <a href="https://stuffnthings.io" style="color:#999;text-decoration:none">stuffnthings.io</a>
         </p>
     </div>
     """
@@ -146,7 +166,9 @@ async def _send_auto_reply(submission_id: int, name: str, email: str):
     try:
         html = _build_auto_reply_html(name)
         # _send_email is sync (uses smtplib) — run in thread to avoid blocking event loop
-        sent = await asyncio.to_thread(_send_email, email, "We got your message — thanks!", html)
+        sent = await asyncio.to_thread(
+            _send_email, email, "We received your request — here's what happens next", html
+        )
 
         async with _session() as db:
             if sent:
@@ -203,9 +225,9 @@ async def submit_contact(body: ContactSubmission, request: Request):
         result = await db.execute(
             text("""
                 INSERT INTO public.contact_submissions
-                    (name, email, phone, message, source_url, ip_address)
+                    (name, email, phone, message, business_name, website_url, source_url, lead_source, ip_address)
                 VALUES
-                    (:name, :email, :phone, :message, :source_url, :ip)
+                    (:name, :email, :phone, :message, :business_name, :website_url, :source_url, :lead_source, :ip)
                 RETURNING id
             """),
             {
@@ -213,7 +235,10 @@ async def submit_contact(body: ContactSubmission, request: Request):
                 "email": body.email.lower().strip(),
                 "phone": body.phone,
                 "message": body.message.strip(),
+                "business_name": body.business_name.strip() if body.business_name else None,
+                "website_url": body.website_url.strip() if body.website_url else None,
                 "source_url": body.source_url,
+                "lead_source": "website_form",
                 "ip": ip,
             },
         )
@@ -254,7 +279,8 @@ async def list_submissions(
         # Fetch page
         rows = await db.execute(
             text(f"""
-                SELECT id, name, email, phone, message, source_url, ip_address,
+                SELECT id, name, email, phone, message, business_name, website_url,
+                       source_url, lead_source, ip_address,
                        submitted_at, status, assigned_to, auto_reply_sent, auto_reply_at, notes
                 FROM public.contact_submissions
                 {where_clause}
@@ -280,7 +306,8 @@ async def get_submission(submission_id: int):
     async with _session() as db:
         result = await db.execute(
             text("""
-                SELECT id, name, email, phone, message, source_url, ip_address,
+                SELECT id, name, email, phone, message, business_name, website_url,
+                       source_url, lead_source, ip_address,
                        submitted_at, status, assigned_to, auto_reply_sent, auto_reply_at, notes
                 FROM public.contact_submissions
                 WHERE id = :id
