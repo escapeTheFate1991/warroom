@@ -138,29 +138,39 @@ async def _get_google_client_config() -> dict:
     }
 
 
-def _load_gmail_tokens() -> Optional[dict]:
-    """Load stored Gmail tokens from disk."""
-    if not GMAIL_TOKEN_FILE.exists():
-        return None
-    try:
-        data = json.loads(GMAIL_TOKEN_FILE.read_text())
-        if data.get("refresh_token"):
+async def _load_gmail_tokens() -> Optional[dict]:
+    """Load stored Gmail tokens from DB (email_accounts.tokens column)."""
+    async with _session() as db:
+        result = await db.execute(
+            text("SELECT tokens FROM public.email_accounts WHERE provider = 'gmail' AND is_active = TRUE LIMIT 1")
+        )
+        row = result.fetchone()
+        if not row or not row[0]:
+            return None
+        data = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        if data.get("refresh_token") or data.get("access_token"):
             return data
-    except Exception as exc:
-        logger.warning("Failed to read Gmail token file: %s", exc)
-    return None
+        return None
 
 
-def _save_gmail_tokens(tokens: dict) -> None:
-    """Persist Gmail tokens to disk."""
-    GMAIL_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    GMAIL_TOKEN_FILE.write_text(json.dumps(tokens, indent=2))
-    logger.info("Gmail tokens saved")
+async def _save_gmail_tokens(tokens: dict) -> None:
+    """Persist Gmail tokens to DB (email_accounts.tokens column)."""
+    async with _session() as db:
+        await db.execute(
+            text("""
+                UPDATE public.email_accounts
+                SET tokens = CAST(:tokens AS jsonb)
+                WHERE provider = 'gmail' AND is_active = TRUE
+            """),
+            {"tokens": json.dumps(tokens)},
+        )
+        await db.commit()
+    logger.info("Gmail tokens saved to DB")
 
 
 async def _get_gmail_access_token() -> str:
     """Get a valid Gmail access token, refreshing if needed."""
-    tokens = _load_gmail_tokens()
+    tokens = await _load_gmail_tokens()
     if not tokens:
         raise HTTPException(status_code=401, detail="Gmail not connected")
 
@@ -192,7 +202,7 @@ async def _get_gmail_access_token() -> str:
                 expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
                 tokens["access_token"] = new_data["access_token"]
                 tokens["expiry"] = expiry.isoformat()
-                _save_gmail_tokens(tokens)
+                await _save_gmail_tokens(tokens)
             else:
                 logger.error("Gmail token refresh failed: %s", resp.text)
                 raise HTTPException(status_code=401, detail="Gmail token refresh failed — reconnect your account.")
@@ -357,7 +367,7 @@ async def gmail_callback(
         logger.warning("Could not fetch user email: %s", exc)
 
     # Save tokens to file
-    _save_gmail_tokens({
+    await _save_gmail_tokens({
         "access_token": access_token,
         "refresh_token": refresh_token,
         "expiry": expiry.isoformat(),
@@ -382,7 +392,12 @@ async def gmail_callback(
                         created_at = now()
                     WHERE id = :id
                 """),
-                {"id": row[0], "tokens": json.dumps({"token_file": str(GMAIL_TOKEN_FILE)})},
+                {"id": row[0], "tokens": json.dumps({
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "expiry": expiry.isoformat(),
+                    "email": email_addr,
+                })},
             )
         else:
             await db.execute(
@@ -393,7 +408,12 @@ async def gmail_callback(
                 {
                     "email": email_addr,
                     "display_name": email_addr,
-                    "tokens": json.dumps({"token_file": str(GMAIL_TOKEN_FILE)}),
+                    "tokens": json.dumps({
+                        "access_token": access_token,
+                        "refresh_token": refresh_token,
+                        "expiry": expiry.isoformat(),
+                        "email": email_addr,
+                    }),
                 },
             )
         await db.commit()
