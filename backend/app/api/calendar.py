@@ -12,7 +12,7 @@ router = APIRouter()
 
 MEMORY_DIR = Path("/openclaw-workspace/memory")
 PERSONAL_EVENTS_FILE = Path("/openclaw-workspace/memory/personal-events.json")
-GOOGLE_TOKEN_FILE = Path("/openclaw-workspace/memory/.google-calendar-tokens.json")
+from app.services.token_store import load_tokens as _load_tokens
 
 # ── Activity Calendar (agent memory files) ──────────────────
 
@@ -61,18 +61,14 @@ async def get_day(day: str):
 @router.get("/calendar/personal/status")
 async def personal_calendar_status():
     """Check if Google Calendar is connected."""
-    if GOOGLE_TOKEN_FILE.exists():
-        try:
-            tokens = json.loads(GOOGLE_TOKEN_FILE.read_text())
-            if tokens.get("refresh_token"):
-                return {
-                    "connected": True,
-                    "provider": "google",
-                    "email": tokens.get("email"),
-                    "message": f"Connected as {tokens.get('email', 'unknown')}",
-                }
-        except Exception:
-            pass
+    tokens = await _load_tokens("google_calendar")
+    if tokens and tokens.get("refresh_token"):
+        return {
+            "connected": True,
+            "provider": "google",
+            "email": tokens.get("email"),
+            "message": f"Connected as {tokens.get('email', 'unknown')}",
+        }
     return {"connected": False, "provider": "google", "message": "Google Calendar not connected."}
 
 
@@ -101,72 +97,67 @@ async def get_personal_calendar(month: Optional[str] = None):
 
     # Merge Google Calendar events when connected
     google_connected = False
-    if GOOGLE_TOKEN_FILE.exists():
+    tokens = await _load_tokens("google_calendar")
+    if tokens and tokens.get("refresh_token"):
+        google_connected = True
         try:
-            tokens = json.loads(GOOGLE_TOKEN_FILE.read_text())
-            if tokens.get("refresh_token"):
-                google_connected = True
-                # Fetch Google events via the google_calendar module
-                try:
-                    from app.api.google_calendar import _get_credentials
-                    from googleapiclient.discovery import build
+            from app.api.google_calendar import _get_credentials
+            from googleapiclient.discovery import build
 
-                    creds = await _get_credentials()
-                    if creds:
-                        service = build("calendar", "v3", credentials=creds)
-                        time_min = datetime(year, mon, 1).isoformat() + "Z"
-                        if mon == 12:
-                            time_max = datetime(year + 1, 1, 1).isoformat() + "Z"
-                        else:
-                            time_max = datetime(year, mon + 1, 1).isoformat() + "Z"
+            creds = await _get_credentials()
+            if creds:
+                service = build("calendar", "v3", credentials=creds)
+                time_min = datetime(year, mon, 1).isoformat() + "Z"
+                if mon == 12:
+                    time_max = datetime(year + 1, 1, 1).isoformat() + "Z"
+                else:
+                    time_max = datetime(year, mon + 1, 1).isoformat() + "Z"
 
-                        results = (
-                            service.events()
-                            .list(
-                                calendarId="primary",
-                                timeMin=time_min,
-                                timeMax=time_max,
-                                maxResults=250,
-                                singleEvents=True,
-                                orderBy="startTime",
-                            )
-                            .execute()
-                        )
+                results = (
+                    service.events()
+                    .list(
+                        calendarId="primary",
+                        timeMin=time_min,
+                        timeMax=time_max,
+                        maxResults=250,
+                        singleEvents=True,
+                        orderBy="startTime",
+                    )
+                    .execute()
+                )
 
-                        for item in results.get("items", []):
-                            start = item.get("start", {})
-                            end = item.get("end", {})
-                            is_all_day = "date" in start and "dateTime" not in start
-                            if is_all_day:
-                                event_date = start["date"]
-                                event_time = None
-                                event_end_time = None
-                            else:
-                                dt_str = start.get("dateTime", "")
-                                event_date = dt_str[:10] if dt_str else ""
-                                event_time = dt_str[11:16] if len(dt_str) > 16 else None
-                                end_str = end.get("dateTime", "")
-                                event_end_time = end_str[11:16] if len(end_str) > 16 else None
+                for item in results.get("items", []):
+                    start = item.get("start", {})
+                    end = item.get("end", {})
+                    is_all_day = "date" in start and "dateTime" not in start
+                    if is_all_day:
+                        event_date = start["date"]
+                        event_time = None
+                        event_end_time = None
+                    else:
+                        dt_str = start.get("dateTime", "")
+                        event_date = dt_str[:10] if dt_str else ""
+                        event_time = dt_str[11:16] if len(dt_str) > 16 else None
+                        end_str = end.get("dateTime", "")
+                        event_end_time = end_str[11:16] if len(end_str) > 16 else None
 
-                            events.append({
-                                "id": f"gcal-{item['id']}",
-                                "title": item.get("summary", "(No title)"),
-                                "date": event_date,
-                                "time": event_time,
-                                "end_time": event_end_time,
-                                "description": item.get("description", ""),
-                                "location": item.get("location", ""),
-                                "type": "event",
-                                "source": "google",
-                                "all_day": is_all_day,
-                                "status": item.get("status", "confirmed"),
-                                "html_link": item.get("htmlLink", ""),
-                                "created_at": item.get("created", ""),
-                            })
-                except Exception as exc:
-                    logger.warning("Failed to fetch Google Calendar events: %s", exc)
-        except Exception:
-            pass
+                    events.append({
+                        "id": f"gcal-{item['id']}",
+                        "title": item.get("summary", "(No title)"),
+                        "date": event_date,
+                        "time": event_time,
+                        "end_time": event_end_time,
+                        "description": item.get("description", ""),
+                        "location": item.get("location", ""),
+                        "type": "event",
+                        "source": "google",
+                        "all_day": is_all_day,
+                        "status": item.get("status", "confirmed"),
+                        "html_link": item.get("htmlLink", ""),
+                        "created_at": item.get("created", ""),
+                    })
+        except Exception as exc:
+            logger.warning("Failed to fetch Google Calendar events: %s", exc)
 
     return {"year": year, "month": mon, "events": events, "google_connected": google_connected}
 
