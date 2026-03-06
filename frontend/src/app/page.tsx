@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   MessageSquare, Zap, Settings, LogOut, Share2, Activity, Film, Eye, Search,
@@ -128,17 +128,24 @@ function WarRoom() {
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => () => { if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current); }, []);
 
-  const openDropdown = (tabId: string) => {
+  const openDropdown = useCallback((tabId: string) => {
     if (leaveTimerRef.current) { clearTimeout(leaveTimerRef.current); leaveTimerRef.current = null; }
+    const el = navItemRefs.current[tabId];
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setDropdownPos({ top: rect.top, left: rect.right });
+    }
     setHoveredTab(tabId);
-  };
+  }, []);
 
-  const scheduleClose = () => {
-    leaveTimerRef.current = setTimeout(() => setHoveredTab(null), 150);
-  };
+  const scheduleClose = useCallback(() => {
+    leaveTimerRef.current = setTimeout(() => { setHoveredTab(null); setDropdownPos(null); }, 150);
+  }, []);
 
   const navigate = (tab: TabId) => {
     setActiveTab(tab);
@@ -179,6 +186,7 @@ function WarRoom() {
 
               return (
                 <div key={item.id} className="relative"
+                  ref={(el) => { navItemRefs.current[item.id] = el; }}
                   onMouseEnter={() => hasChildren && openDropdown(item.id)}
                   onMouseLeave={scheduleClose}>
                   <button
@@ -200,9 +208,10 @@ function WarRoom() {
                     <span className="text-[13px] font-medium">{item.label}</span>
                   </button>
 
-                  {/* Flyout dropdown for items with children */}
-                  {hasChildren && hoveredTab === item.id && (
-                    <div className="absolute left-full top-0 z-50 pl-1"
+                  {/* Flyout dropdown — fixed position to escape nav overflow clipping */}
+                  {hasChildren && hoveredTab === item.id && dropdownPos && (
+                    <div className="fixed pl-1"
+                      style={{ top: dropdownPos.top, left: dropdownPos.left, zIndex: 9999 }}
                       onMouseEnter={() => openDropdown(item.id)}
                       onMouseLeave={scheduleClose}>
                       <div className="bg-warroom-surface border border-warroom-border rounded-xl shadow-2xl shadow-black/40 py-1.5 min-w-[160px]">
@@ -210,7 +219,7 @@ function WarRoom() {
                           const ChildIcon = child.icon;
                           return (
                             <button key={child.id}
-                              onClick={() => { navigate(child.id as TabId); setHoveredTab(null); }}
+                              onClick={() => { navigate(child.id as TabId); setHoveredTab(null); setDropdownPos(null); }}
                               className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-all ${
                                 activeTab === child.id
                                   ? "text-warroom-accent bg-warroom-accent/10"
