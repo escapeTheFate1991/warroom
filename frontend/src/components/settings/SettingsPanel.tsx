@@ -370,7 +370,7 @@ export default function SettingsPanel() {
     setGmailError('');
     cleanupGmailOAuth();
     try {
-      const res = await authFetch(`${API}/api/email/accounts/gmail/connect`);
+      const res = await authFetch(`${API}/api/email/accounts/gmail/connect`, { method: "POST" });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.detail || "Failed to get Gmail auth URL");

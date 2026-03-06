@@ -13,6 +13,7 @@ import {
   Calendar,
   Check,
   Trash2,
+  X,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
@@ -35,7 +36,7 @@ interface Notification {
   title: string;
   message: string;
   read: boolean;
-  created_at: string; // ISO timestamp
+  created_at: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -80,7 +81,6 @@ function relativeTime(iso: string): string {
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   /* ---- Fetch ---------------------------------------------------- */
 
@@ -89,11 +89,10 @@ export default function NotificationBell() {
       const res = await authFetch(`${API}/api/notifications`);
       if (!res.ok) return;
       const data = await res.json();
-      // Backend returns { notifications: [...], total, page, limit }
       const list = Array.isArray(data) ? data : (data.notifications ?? []);
       setNotifications(list);
     } catch {
-      // Silently ignore network errors; will retry on next poll
+      // Silently ignore; will retry on next poll
     }
   }, []);
 
@@ -103,30 +102,15 @@ export default function NotificationBell() {
     return () => clearInterval(id);
   }, [fetchNotifications]);
 
-  /* ---- Click-outside & Escape ------------------------------------ */
+  /* ---- Escape to close ------------------------------------------ */
 
   useEffect(() => {
     if (!open) return;
-
-    function handleClick(e: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    }
-
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-
-    document.addEventListener("mousedown", handleClick);
     document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [open]);
 
   /* ---- Actions -------------------------------------------------- */
@@ -136,23 +120,15 @@ export default function NotificationBell() {
       prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
     );
     try {
-      await authFetch(`${API}/api/notifications/${id}/read`, {
-        method: "PATCH",
-      });
-    } catch {
-      // Optimistic update stays; backend will reconcile on next poll
-    }
+      await authFetch(`${API}/api/notifications/${id}/read`, { method: "PATCH" });
+    } catch { /* optimistic */ }
   };
 
   const markAllRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     try {
-      await authFetch(`${API}/api/notifications/read-all`, {
-        method: "POST",
-      });
-    } catch {
-      // Same optimistic approach
-    }
+      await authFetch(`${API}/api/notifications/read-all`, { method: "POST" });
+    } catch { /* optimistic */ }
   };
 
   const clearAll = async () => {
@@ -160,7 +136,7 @@ export default function NotificationBell() {
     try {
       await authFetch(`${API}/api/notifications`, { method: "DELETE" });
     } catch {
-      fetchNotifications(); // Revert on failure
+      fetchNotifications();
     }
   };
 
@@ -171,33 +147,16 @@ export default function NotificationBell() {
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 
-  // Calculate fixed position for the dropdown (escapes sidebar overflow)
-  const bellRef = useRef<HTMLButtonElement>(null);
-  const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
-
-  const toggleOpen = useCallback(() => {
-    setOpen((prev) => {
-      const next = !prev;
-      if (next && bellRef.current) {
-        const rect = bellRef.current.getBoundingClientRect();
-        setPanelPos({ top: rect.bottom + 8, left: Math.max(8, rect.right - 320) });
-      }
-      return next;
-    });
-  }, []);
-
   /* ---- Render --------------------------------------------------- */
 
   return (
-    <div ref={containerRef} className="relative">
+    <>
       {/* Bell Button */}
       <button
-        ref={bellRef}
-        onClick={toggleOpen}
+        onClick={() => setOpen(true)}
         className="relative p-2 rounded-lg hover:bg-warroom-surface transition-colors text-warroom-muted hover:text-warroom-text"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
-        aria-expanded={open}
-        aria-haspopup="true"
+        aria-haspopup="dialog"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
@@ -207,89 +166,107 @@ export default function NotificationBell() {
         )}
       </button>
 
-      {/* Dropdown Panel — fixed position to escape sidebar overflow */}
-      {open && panelPos && (
+      {/* Modal Overlay */}
+      {open && (
         <div
-          role="menu"
-          aria-label="Notifications panel"
-          className="fixed w-80 bg-warroom-surface border border-warroom-border rounded-lg shadow-2xl overflow-hidden"
-          style={{ top: panelPos.top, left: panelPos.left, zIndex: 9999 }}
+          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
         >
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-warroom-border">
-            <h3 className="text-sm font-semibold text-warroom-text">
-              Notifications
-            </h3>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={markAllRead}
-                className="flex items-center gap-1 text-xs text-warroom-muted hover:text-warroom-text transition-colors"
-                title="Mark all read"
-              >
-                <Check className="w-3.5 h-3.5" />
-                Read All
-              </button>
-              <button
-                onClick={clearAll}
-                className="flex items-center gap-1 text-xs text-warroom-muted hover:text-red-400 transition-colors"
-                title="Clear all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Clear
-              </button>
-            </div>
-          </div>
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
 
-          {/* List */}
-          <div className="max-h-[400px] overflow-y-auto">
-            {sorted.length === 0 ? (
-              /* Empty State */
-              <div className="flex flex-col items-center justify-center py-10 gap-2 text-warroom-muted">
-                <BellOff className="w-8 h-8 opacity-40" />
-                <span className="text-sm">No notifications</span>
+          {/* Modal */}
+          <div
+            role="dialog"
+            aria-label="Notifications"
+            className="relative w-full max-w-md mx-4 bg-warroom-surface border border-warroom-border rounded-xl shadow-2xl overflow-hidden"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-warroom-border">
+              <h2 className="text-base font-semibold text-warroom-text flex items-center gap-2">
+                <Bell className="w-4.5 h-4.5" />
+                Notifications
+                {unreadCount > 0 && (
+                  <span className="text-xs bg-warroom-accent/20 text-warroom-accent px-2 py-0.5 rounded-full">
+                    {unreadCount} new
+                  </span>
+                )}
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={markAllRead}
+                  className="flex items-center gap-1 text-xs text-warroom-muted hover:text-warroom-text transition-colors px-2 py-1 rounded hover:bg-warroom-bg"
+                  title="Mark all read"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  Read All
+                </button>
+                <button
+                  onClick={clearAll}
+                  className="flex items-center gap-1 text-xs text-warroom-muted hover:text-red-400 transition-colors px-2 py-1 rounded hover:bg-warroom-bg"
+                  title="Clear all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear
+                </button>
+                <button
+                  onClick={() => setOpen(false)}
+                  className="p-1 rounded hover:bg-warroom-bg text-warroom-muted hover:text-warroom-text transition-colors ml-1"
+                  aria-label="Close notifications"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-            ) : (
-              sorted.map((n) => {
-                const meta = TYPE_META[n.type] ?? TYPE_META.info;
-                const Icon = meta.icon;
+            </div>
 
-                return (
-                  <button
-                    key={n.id}
-                    onClick={() => markRead(n.id)}
-                    className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-warroom-bg/50 transition-colors border-b border-warroom-border/50 last:border-0 ${
-                      n.read ? "opacity-60" : ""
-                    }`}
-                  >
-                    {/* Type Icon */}
-                    <div className={`mt-0.5 shrink-0 ${meta.color}`}>
-                      <Icon className="w-4 h-4" />
-                    </div>
+            {/* List */}
+            <div className="max-h-[60vh] overflow-y-auto">
+              {sorted.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-14 gap-2 text-warroom-muted">
+                  <BellOff className="w-10 h-10 opacity-30" />
+                  <span className="text-sm">No notifications</span>
+                  <span className="text-xs opacity-60">You&apos;re all caught up</span>
+                </div>
+              ) : (
+                sorted.map((n) => {
+                  const meta = TYPE_META[n.type] ?? TYPE_META.info;
+                  const Icon = meta.icon;
 
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-warroom-text truncate">
-                          {n.title}
-                        </span>
-                        {!n.read && (
-                          <span className="shrink-0 w-2 h-2 rounded-full bg-blue-500" />
-                        )}
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => markRead(n.id)}
+                      className={`w-full flex items-start gap-3 px-5 py-3.5 text-left hover:bg-warroom-bg/50 transition-colors border-b border-warroom-border/30 last:border-0 ${
+                        n.read ? "opacity-50" : ""
+                      }`}
+                    >
+                      <div className={`mt-0.5 shrink-0 ${meta.color}`}>
+                        <Icon className="w-4.5 h-4.5" />
                       </div>
-                      <p className="text-xs text-warroom-muted line-clamp-2 mt-0.5">
-                        {n.message}
-                      </p>
-                      <span className="text-[10px] text-warroom-muted/60 mt-1 block">
-                        {relativeTime(n.created_at)}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })
-            )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-warroom-text truncate">
+                            {n.title}
+                          </span>
+                          {!n.read && (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-blue-500" />
+                          )}
+                        </div>
+                        <p className="text-xs text-warroom-muted line-clamp-2 mt-0.5">
+                          {n.message}
+                        </p>
+                        <span className="text-[10px] text-warroom-muted/60 mt-1 block">
+                          {relativeTime(n.created_at)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
