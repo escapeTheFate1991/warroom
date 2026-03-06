@@ -3,6 +3,8 @@
 Tables: public.contracts, public.contract_templates (auto-created on startup).
 Generates printable HTML contracts with Stuff N Things branding.
 """
+import asyncio
+import json
 import logging
 import uuid
 from datetime import datetime, timezone, date, timedelta
@@ -15,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.services.email import _send_email
+from app.api.contract_templates_data import SEED_TEMPLATES
 
 logger = logging.getLogger(__name__)
 
@@ -67,311 +70,47 @@ INDEX_SQLS = [
     "CREATE INDEX IF NOT EXISTS idx_contracts_client_email ON public.contracts (client_email)",
     "CREATE INDEX IF NOT EXISTS idx_contracts_contract_number ON public.contracts (contract_number)",
     "CREATE INDEX IF NOT EXISTS idx_contract_templates_active ON public.contract_templates (is_active)",
+    "CREATE INDEX IF NOT EXISTS idx_contracts_deal_stage ON public.contracts (deal_stage)",
+    # Unique constraint on template name for ON CONFLICT seeding
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_contract_templates_name ON public.contract_templates (name)",
+]
+
+# Deal pipeline columns — added via ALTER TABLE so existing DBs get them too
+DEAL_PIPELINE_ALTERS = [
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS deal_stage VARCHAR(30) DEFAULT 'draft'",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS google_doc_id TEXT",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS google_doc_url TEXT",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS esign_requested_at TIMESTAMP",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS esign_email_sent_at TIMESTAMP",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS esign_email_read_at TIMESTAMP",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS esign_signed_at TIMESTAMP",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS followup_sent_at TIMESTAMP",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS followup_count INTEGER DEFAULT 0",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS congratulation_sent_at TIMESTAMP",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS deal_notes TEXT",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS deal_history JSONB DEFAULT '[]'",
 ]
 
 VALID_STATUSES = {"draft", "sent", "viewed", "signed", "active", "expired", "cancelled"}
 
-# ── Seed Templates ───────────────────────────────────────────────────
-SEED_TEMPLATES = [
-    {
-        "name": "Foundation",
-        "plan_name": "Foundation",
-        "monthly_price": 299.00,
-        "setup_fee": 999.00,
-        "default_terms": {
-            "term_months": 12,
-            "auto_renew": True,
-            "cancellation_notice_days": 30,
-            "includes": [
-                "Custom website design & build",
-                "Managed hosting",
-                "SSL certificate",
-                "Daily backups",
-                "Monthly maintenance",
-                "Email support",
-            ],
-        },
-        "sections": [
-            {
-                "title": "Scope of Services",
-                "content": (
-                    "Provider shall deliver a professionally designed and developed custom website "
-                    "tailored to Client's brand and business requirements. Services include managed "
-                    "hosting on enterprise-grade infrastructure, SSL certificate provisioning and "
-                    "renewal, automated daily backups with 30-day retention, monthly maintenance "
-                    "including software updates and security patches, and email-based technical support "
-                    "during standard business hours (Mon–Fri, 9 AM – 5 PM EST)."
-                ),
-            },
-            {
-                "title": "Payment Terms",
-                "content": (
-                    "Client agrees to pay a one-time setup fee and recurring monthly service fee as "
-                    "specified in the Plan Details section. Monthly fees are billed on the first of "
-                    "each month and are due within fifteen (15) days of invoice date. Late payments "
-                    "are subject to a 1.5% monthly finance charge. Provider reserves the right to "
-                    "suspend services for accounts more than thirty (30) days past due."
-                ),
-            },
-            {
-                "title": "Term & Renewal",
-                "content": (
-                    "This Agreement shall commence on the Start Date and continue for the initial "
-                    "term specified in the Plan Details. Unless either party provides written notice "
-                    "of non-renewal at least thirty (30) days prior to the end of the current term, "
-                    "this Agreement shall automatically renew for successive periods equal to the "
-                    "initial term at the then-current rates."
-                ),
-            },
-            {
-                "title": "Termination",
-                "content": (
-                    "Either party may terminate this Agreement for cause upon thirty (30) days' "
-                    "written notice if the other party materially breaches any provision and fails "
-                    "to cure such breach within the notice period. Client may terminate for "
-                    "convenience with the required notice period specified in the Plan Details, "
-                    "subject to payment of any outstanding fees through the end of the notice period. "
-                    "Upon termination, Provider shall deliver all Client content and assist with "
-                    "migration for up to fifteen (15) business days."
-                ),
-            },
-            {
-                "title": "Intellectual Property",
-                "content": (
-                    "All custom design work, code, and content created specifically for Client "
-                    "shall become Client's property upon full payment. Provider retains ownership "
-                    "of proprietary tools, frameworks, and pre-existing code used in delivery. "
-                    "Provider grants Client a perpetual, non-exclusive license to any Provider IP "
-                    "incorporated into the deliverables. Client grants Provider permission to "
-                    "display the completed work in Provider's portfolio unless otherwise agreed."
-                ),
-            },
-            {
-                "title": "Limitation of Liability",
-                "content": (
-                    "IN NO EVENT SHALL EITHER PARTY BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, "
-                    "CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING OUT OF OR RELATED TO THIS AGREEMENT. "
-                    "PROVIDER'S TOTAL AGGREGATE LIABILITY SHALL NOT EXCEED THE TOTAL FEES PAID BY "
-                    "CLIENT DURING THE TWELVE (12) MONTHS PRECEDING THE CLAIM. This limitation "
-                    "applies regardless of the theory of liability, whether in contract, tort, or "
-                    "otherwise."
-                ),
-            },
-            {
-                "title": "General Provisions",
-                "content": (
-                    "This Agreement constitutes the entire understanding between the parties and "
-                    "supersedes all prior agreements. Any amendments must be in writing and signed "
-                    "by both parties. This Agreement shall be governed by the laws of the State of "
-                    "New York. If any provision is found unenforceable, the remaining provisions "
-                    "shall continue in full force. Neither party may assign this Agreement without "
-                    "the other party's written consent, except in connection with a merger or "
-                    "acquisition. Notices shall be delivered via email to the addresses specified herein."
-                ),
-            },
-        ],
-    },
-    {
-        "name": "Operational",
-        "plan_name": "Operational",
-        "monthly_price": 599.00,
-        "setup_fee": 1499.00,
-        "default_terms": {
-            "term_months": 12,
-            "auto_renew": True,
-            "cancellation_notice_days": 30,
-            "includes": [
-                "Everything in Foundation plan",
-                "SEO optimization",
-                "Monthly analytics report",
-                "Content updates (up to 4/mo)",
-                "Priority support",
-                "Social media integration",
-            ],
-        },
-        "sections": [
-            {
-                "title": "Scope of Services",
-                "content": (
-                    "Provider shall deliver all services included in the Foundation plan, plus: "
-                    "search engine optimization (SEO) including keyword research, on-page optimization, "
-                    "and technical SEO audits; monthly analytics reports covering traffic, engagement, "
-                    "and conversion metrics; up to four (4) content updates per month including text, "
-                    "image, and minor layout changes; priority technical support with guaranteed "
-                    "4-hour response time during business hours; and social media integration including "
-                    "feed embedding, share buttons, and Open Graph optimization."
-                ),
-            },
-            {
-                "title": "Payment Terms",
-                "content": (
-                    "Client agrees to pay a one-time setup fee and recurring monthly service fee as "
-                    "specified in the Plan Details section. Monthly fees are billed on the first of "
-                    "each month and are due within fifteen (15) days of invoice date. Late payments "
-                    "are subject to a 1.5% monthly finance charge. Provider reserves the right to "
-                    "suspend services for accounts more than thirty (30) days past due."
-                ),
-            },
-            {
-                "title": "Term & Renewal",
-                "content": (
-                    "This Agreement shall commence on the Start Date and continue for the initial "
-                    "term specified in the Plan Details. Unless either party provides written notice "
-                    "of non-renewal at least thirty (30) days prior to the end of the current term, "
-                    "this Agreement shall automatically renew for successive periods equal to the "
-                    "initial term at the then-current rates."
-                ),
-            },
-            {
-                "title": "Termination",
-                "content": (
-                    "Either party may terminate this Agreement for cause upon thirty (30) days' "
-                    "written notice if the other party materially breaches any provision and fails "
-                    "to cure such breach within the notice period. Client may terminate for "
-                    "convenience with the required notice period specified in the Plan Details, "
-                    "subject to payment of any outstanding fees through the end of the notice period. "
-                    "Upon termination, Provider shall deliver all Client content and assist with "
-                    "migration for up to fifteen (15) business days."
-                ),
-            },
-            {
-                "title": "Intellectual Property",
-                "content": (
-                    "All custom design work, code, and content created specifically for Client "
-                    "shall become Client's property upon full payment. Provider retains ownership "
-                    "of proprietary tools, frameworks, and pre-existing code used in delivery. "
-                    "Provider grants Client a perpetual, non-exclusive license to any Provider IP "
-                    "incorporated into the deliverables. Client grants Provider permission to "
-                    "display the completed work in Provider's portfolio unless otherwise agreed."
-                ),
-            },
-            {
-                "title": "Limitation of Liability",
-                "content": (
-                    "IN NO EVENT SHALL EITHER PARTY BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, "
-                    "CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING OUT OF OR RELATED TO THIS AGREEMENT. "
-                    "PROVIDER'S TOTAL AGGREGATE LIABILITY SHALL NOT EXCEED THE TOTAL FEES PAID BY "
-                    "CLIENT DURING THE TWELVE (12) MONTHS PRECEDING THE CLAIM. This limitation "
-                    "applies regardless of the theory of liability, whether in contract, tort, or "
-                    "otherwise."
-                ),
-            },
-            {
-                "title": "General Provisions",
-                "content": (
-                    "This Agreement constitutes the entire understanding between the parties and "
-                    "supersedes all prior agreements. Any amendments must be in writing and signed "
-                    "by both parties. This Agreement shall be governed by the laws of the State of "
-                    "New York. If any provision is found unenforceable, the remaining provisions "
-                    "shall continue in full force. Neither party may assign this Agreement without "
-                    "the other party's written consent, except in connection with a merger or "
-                    "acquisition. Notices shall be delivered via email to the addresses specified herein."
-                ),
-            },
-        ],
-    },
-    {
-        "name": "Growth",
-        "plan_name": "Growth",
-        "monthly_price": 1200.00,
-        "setup_fee": 2499.00,
-        "default_terms": {
-            "term_months": 12,
-            "auto_renew": True,
-            "cancellation_notice_days": 30,
-            "includes": [
-                "Everything in Operational plan",
-                "Advanced SEO strategy",
-                "Blog content creation",
-                "A/B testing",
-                "Conversion optimization",
-                "Dedicated account manager",
-                "Bi-weekly strategy calls",
-            ],
-        },
-        "sections": [
-            {
-                "title": "Scope of Services",
-                "content": (
-                    "Provider shall deliver all services included in the Operational plan, plus: "
-                    "advanced SEO strategy including competitor analysis, link building, and content "
-                    "gap analysis; professional blog content creation including research, writing, "
-                    "and publication of SEO-optimized articles; A/B testing of landing pages, CTAs, "
-                    "and key conversion points; ongoing conversion rate optimization with monthly "
-                    "recommendations; a dedicated account manager as Client's single point of contact; "
-                    "and bi-weekly strategy calls to review performance and align on priorities."
-                ),
-            },
-            {
-                "title": "Payment Terms",
-                "content": (
-                    "Client agrees to pay a one-time setup fee and recurring monthly service fee as "
-                    "specified in the Plan Details section. Monthly fees are billed on the first of "
-                    "each month and are due within fifteen (15) days of invoice date. Late payments "
-                    "are subject to a 1.5% monthly finance charge. Provider reserves the right to "
-                    "suspend services for accounts more than thirty (30) days past due."
-                ),
-            },
-            {
-                "title": "Term & Renewal",
-                "content": (
-                    "This Agreement shall commence on the Start Date and continue for the initial "
-                    "term specified in the Plan Details. Unless either party provides written notice "
-                    "of non-renewal at least thirty (30) days prior to the end of the current term, "
-                    "this Agreement shall automatically renew for successive periods equal to the "
-                    "initial term at the then-current rates."
-                ),
-            },
-            {
-                "title": "Termination",
-                "content": (
-                    "Either party may terminate this Agreement for cause upon thirty (30) days' "
-                    "written notice if the other party materially breaches any provision and fails "
-                    "to cure such breach within the notice period. Client may terminate for "
-                    "convenience with the required notice period specified in the Plan Details, "
-                    "subject to payment of any outstanding fees through the end of the notice period. "
-                    "Upon termination, Provider shall deliver all Client content and assist with "
-                    "migration for up to fifteen (15) business days."
-                ),
-            },
-            {
-                "title": "Intellectual Property",
-                "content": (
-                    "All custom design work, code, and content created specifically for Client "
-                    "shall become Client's property upon full payment. Provider retains ownership "
-                    "of proprietary tools, frameworks, and pre-existing code used in delivery. "
-                    "Provider grants Client a perpetual, non-exclusive license to any Provider IP "
-                    "incorporated into the deliverables. Client grants Provider permission to "
-                    "display the completed work in Provider's portfolio unless otherwise agreed."
-                ),
-            },
-            {
-                "title": "Limitation of Liability",
-                "content": (
-                    "IN NO EVENT SHALL EITHER PARTY BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, "
-                    "CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING OUT OF OR RELATED TO THIS AGREEMENT. "
-                    "PROVIDER'S TOTAL AGGREGATE LIABILITY SHALL NOT EXCEED THE TOTAL FEES PAID BY "
-                    "CLIENT DURING THE TWELVE (12) MONTHS PRECEDING THE CLAIM. This limitation "
-                    "applies regardless of the theory of liability, whether in contract, tort, or "
-                    "otherwise."
-                ),
-            },
-            {
-                "title": "General Provisions",
-                "content": (
-                    "This Agreement constitutes the entire understanding between the parties and "
-                    "supersedes all prior agreements. Any amendments must be in writing and signed "
-                    "by both parties. This Agreement shall be governed by the laws of the State of "
-                    "New York. If any provision is found unenforceable, the remaining provisions "
-                    "shall continue in full force. Neither party may assign this Agreement without "
-                    "the other party's written consent, except in connection with a merger or "
-                    "acquisition. Notices shall be delivered via email to the addresses specified herein."
-                ),
-            },
-        ],
-    },
-]
+VALID_DEAL_STAGES = {
+    "draft", "exported", "sent", "delivered", "read",
+    "signing", "signed", "active", "expired", "cancelled",
+}
 
+# Valid stage transitions — maps current stage to allowed next stages
+STAGE_TRANSITIONS = {
+    "draft":     {"exported", "cancelled"},
+    "exported":  {"sent", "cancelled"},
+    "sent":      {"delivered", "read", "signing", "signed", "cancelled"},
+    "delivered": {"read", "signing", "signed", "cancelled"},
+    "read":      {"signing", "signed", "cancelled"},
+    "signing":   {"signed", "cancelled"},
+    "signed":    {"active"},
+    "active":    {"expired", "cancelled"},
+    "expired":   set(),
+    "cancelled": set(),
+}
 
 # ── Pydantic Models ──────────────────────────────────────────────────
 
@@ -410,37 +149,42 @@ class TemplateCreate(BaseModel):
 # ── Init / Seed ──────────────────────────────────────────────────────
 
 async def init_contracts_tables():
-    """Create tables, indexes, and seed templates if empty."""
+    """Create tables, indexes, deal pipeline columns, and seed templates if empty."""
     async with _session() as db:
         await db.execute(text(CONTRACTS_TABLE_SQL))
         await db.execute(text(TEMPLATES_TABLE_SQL))
+        for alter_sql in DEAL_PIPELINE_ALTERS:
+            await db.execute(text(alter_sql))
         for idx_sql in INDEX_SQLS:
             await db.execute(text(idx_sql))
         await db.commit()
 
-        # Seed templates if none exist
-        result = await db.execute(text("SELECT COUNT(*) FROM public.contract_templates"))
-        count = result.scalar()
-        if count == 0:
-            for tpl in SEED_TEMPLATES:
-                await db.execute(
-                    text("""
-                        INSERT INTO public.contract_templates
-                            (name, plan_name, monthly_price, setup_fee, default_terms, sections)
-                        VALUES (:name, :plan_name, :monthly_price, :setup_fee,
-                                :default_terms::jsonb, :sections::jsonb)
-                    """),
-                    {
-                        "name": tpl["name"],
-                        "plan_name": tpl["plan_name"],
-                        "monthly_price": tpl["monthly_price"],
-                        "setup_fee": tpl["setup_fee"],
-                        "default_terms": _json_dumps(tpl["default_terms"]),
-                        "sections": _json_dumps(tpl["sections"]),
-                    },
-                )
-            await db.commit()
-            logger.info("Seeded %d contract templates", len(SEED_TEMPLATES))
+        # Seed templates — ON CONFLICT (name) DO NOTHING prevents duplicates on restart
+        seeded = 0
+        for tpl in SEED_TEMPLATES:
+            result = await db.execute(
+                text("""
+                    INSERT INTO public.contract_templates
+                        (name, plan_name, monthly_price, setup_fee, default_terms, sections)
+                    VALUES (:name, :plan_name, :monthly_price, :setup_fee,
+                            CAST(:default_terms AS jsonb), CAST(:sections AS jsonb))
+                    ON CONFLICT (name) DO NOTHING
+                    RETURNING id
+                """),
+                {
+                    "name": tpl["name"],
+                    "plan_name": tpl["plan_name"],
+                    "monthly_price": tpl["monthly_price"],
+                    "setup_fee": tpl["setup_fee"],
+                    "default_terms": _json_dumps(tpl["default_terms"]),
+                    "sections": _json_dumps(tpl["sections"]),
+                },
+            )
+            if result.fetchone():
+                seeded += 1
+        await db.commit()
+        if seeded:
+            logger.info("Seeded %d new contract templates (%d total defined)", seeded, len(SEED_TEMPLATES))
 
     logger.info("Contract tables initialized")
 
@@ -453,15 +197,83 @@ def _generate_contract_number() -> str:
 
 
 def _json_dumps(obj) -> str:
-    import json
     return json.dumps(obj)
 
 
 def _parse_json(val):
-    import json
     if isinstance(val, str):
         return json.loads(val)
     return val
+
+
+async def _add_deal_event(db, contract_id: int, stage: str, note: str = ""):
+    """Append an event to deal_history and update deal_stage."""
+    await db.execute(text("""
+        UPDATE public.contracts SET
+            deal_stage = :stage,
+            deal_history = deal_history || CAST(:event AS jsonb),
+            updated_at = now()
+        WHERE id = :id
+    """), {
+        "id": contract_id,
+        "stage": stage,
+        "event": json.dumps({"stage": stage, "timestamp": datetime.now(timezone.utc).isoformat(), "note": note}),
+    })
+
+
+async def _get_business_settings() -> dict:
+    """Load business settings from the DB.
+
+    Queries both ``business_*`` keys and legacy ``company_*`` / ``your_*`` keys,
+    then normalises everything under the ``business_`` prefix so callers can
+    always use ``business_name``, ``business_phone``, etc.
+    """
+    async with _session() as db:
+        result = await db.execute(
+            text(
+                "SELECT key, value FROM public.settings "
+                "WHERE key LIKE 'business_%' OR key LIKE 'company_%' "
+                "OR key IN ('your_phone', 'your_name')"
+            )
+        )
+        raw = {r[0]: r[1] for r in result.fetchall()}
+
+    # Normalise: prefer business_* but fall back to company_* / your_*
+    out: dict[str, str] = {}
+    for biz_key, fallbacks in [
+        ("business_name", ["company_name"]),
+        ("business_website", ["company_website"]),
+        ("business_email", ["company_email"]),
+        ("business_address", ["company_address"]),
+        ("business_phone", ["company_phone", "your_phone"]),
+        ("business_tagline", []),
+    ]:
+        val = raw.get(biz_key, "")
+        if not val:
+            for fb in fallbacks:
+                val = raw.get(fb, "")
+                if val:
+                    break
+        out[biz_key] = val
+
+    # Also pass through any other business_* keys verbatim
+    for k, v in raw.items():
+        if k.startswith("business_") and k not in out:
+            out[k] = v
+
+    return out
+
+
+async def _get_contract_or_404(db, contract_id: int):
+    """Fetch a contract by ID or raise 404."""
+    result = await db.execute(
+        text("SELECT * FROM public.contracts WHERE id = :id"),
+        {"id": contract_id},
+    )
+    row = result.mappings().fetchone()
+    if not row:
+        raise HTTPException(404, "Contract not found")
+    return row
 
 
 # ── Template Endpoints ───────────────────────────────────────────────
@@ -505,7 +317,7 @@ async def create_template(data: TemplateCreate):
                 INSERT INTO public.contract_templates
                     (name, plan_name, monthly_price, setup_fee, default_terms, sections)
                 VALUES (:name, :plan_name, :monthly_price, :setup_fee,
-                        :default_terms::jsonb, :sections::jsonb)
+                        CAST(:default_terms AS jsonb), CAST(:sections AS jsonb))
                 RETURNING id, created_at
             """),
             {
@@ -618,7 +430,7 @@ async def create_contract(data: ContractCreate):
                      status, start_date, end_date)
                 VALUES (:contract_number, :client_name, :client_email, :client_company,
                         :client_address, :template_id, :plan_name, :monthly_price, :setup_fee,
-                        :contract_terms::jsonb, 'draft', :start_date, :end_date)
+                        CAST(:contract_terms AS jsonb), 'draft', :start_date, :end_date)
                 RETURNING id, contract_number, created_at
             """),
             {
@@ -650,34 +462,38 @@ async def create_contract(data: ContractCreate):
 
 @router.get("/contracts/{contract_id}")
 async def get_contract(contract_id: int):
-    """Get full contract details."""
+    """Get full contract details including deal pipeline state."""
     async with _session() as db:
-        result = await db.execute(
-            text("SELECT * FROM public.contracts WHERE id = :id"),
-            {"id": contract_id},
-        )
-        row = result.mappings().fetchone()
-        if not row:
-            raise HTTPException(404, "Contract not found")
+        contract = await _get_contract_or_404(db, contract_id)
 
         return {
-            "id": row["id"],
-            "contract_number": row["contract_number"],
-            "client_name": row["client_name"],
-            "client_email": row["client_email"],
-            "client_company": row["client_company"],
-            "client_address": row["client_address"],
-            "template_id": row["template_id"],
-            "plan_name": row["plan_name"],
-            "monthly_price": float(row["monthly_price"]),
-            "setup_fee": float(row["setup_fee"]),
-            "contract_terms": _parse_json(row["contract_terms"]),
-            "status": row["status"],
-            "signed_at": str(row["signed_at"]) if row["signed_at"] else None,
-            "start_date": str(row["start_date"]) if row["start_date"] else None,
-            "end_date": str(row["end_date"]) if row["end_date"] else None,
-            "created_at": str(row["created_at"]),
-            "updated_at": str(row["updated_at"]),
+            "id": contract["id"],
+            "contract_number": contract["contract_number"],
+            "client_name": contract["client_name"],
+            "client_email": contract["client_email"],
+            "client_company": contract["client_company"],
+            "client_address": contract["client_address"],
+            "template_id": contract["template_id"],
+            "plan_name": contract["plan_name"],
+            "monthly_price": float(contract["monthly_price"]),
+            "setup_fee": float(contract["setup_fee"]),
+            "contract_terms": _parse_json(contract["contract_terms"]),
+            "status": contract["status"],
+            "deal_stage": contract.get("deal_stage", "draft"),
+            "google_doc_id": contract.get("google_doc_id"),
+            "google_doc_url": contract.get("google_doc_url"),
+            "esign_email_sent_at": str(contract["esign_email_sent_at"]) if contract.get("esign_email_sent_at") else None,
+            "esign_signed_at": str(contract["esign_signed_at"]) if contract.get("esign_signed_at") else None,
+            "followup_count": contract.get("followup_count", 0),
+            "followup_sent_at": str(contract["followup_sent_at"]) if contract.get("followup_sent_at") else None,
+            "congratulation_sent_at": str(contract["congratulation_sent_at"]) if contract.get("congratulation_sent_at") else None,
+            "deal_notes": contract.get("deal_notes"),
+            "deal_history": _parse_json(contract.get("deal_history", "[]")),
+            "signed_at": str(contract["signed_at"]) if contract["signed_at"] else None,
+            "start_date": str(contract["start_date"]) if contract["start_date"] else None,
+            "end_date": str(contract["end_date"]) if contract["end_date"] else None,
+            "created_at": str(contract["created_at"]),
+            "updated_at": str(contract["updated_at"]),
         }
 
 
@@ -719,7 +535,7 @@ async def update_contract(contract_id: int, data: ContractUpdate):
                 params[field] = value
 
         if data.contract_terms is not None:
-            updates.append("contract_terms = :contract_terms::jsonb")
+            updates.append("contract_terms = CAST(:contract_terms AS jsonb)")
             params["contract_terms"] = _json_dumps(data.contract_terms)
 
         if not updates:
@@ -767,22 +583,57 @@ async def get_contract_html(contract_id: int):
         auto_renew = terms.get("auto_renew", True)
         cancellation_days = terms.get("cancellation_notice_days", 30)
 
-        # Build includes list HTML
-        includes_html = "".join(f"<li>{item}</li>" for item in includes)
-
-        # Build sections HTML
-        sections_html = ""
-        for i, section in enumerate(sections, start=1):
-            sections_html += f"""
-            <div class="section">
-                <h2>{i}. {section['title']}</h2>
-                <p>{section['content']}</p>
-            </div>
-            """
+        # Load business settings for branding + placeholder replacement
+        try:
+            biz = await _get_business_settings()
+        except Exception:
+            biz = {}
+        business_name = biz.get("business_name", "Stuff N Things")
+        business_tagline = biz.get("business_tagline", "Digital Solutions & Web Services")
+        business_address = biz.get("business_address", "")
 
         start_date_str = str(contract["start_date"]) if contract["start_date"] else "_______________"
         end_date_str = str(contract["end_date"]) if contract["end_date"] else "_______________"
         today_str = date.today().strftime("%B %d, %Y")
+
+        # ── Placeholder replacement map ──────────────────────────
+        _ph = {
+            "{{business_name}}": business_name,
+            "{{business_website}}": biz.get("business_website", ""),
+            "{{business_email}}": biz.get("business_email", ""),
+            "{{business_address}}": business_address,
+            "{{business_phone}}": biz.get("business_phone", ""),
+            "{{client_name}}": contract["client_name"] or "",
+            "{{client_company}}": contract.get("client_company") or "",
+            "{{client_email}}": contract["client_email"] or "",
+            "{{client_address}}": contract.get("client_address") or "",
+            "{{plan_name}}": contract["plan_name"] or "",
+            "{{monthly_price}}": f"${float(contract['monthly_price']):,.2f}",
+            "{{setup_fee}}": f"${float(contract['setup_fee']):,.2f}",
+            "{{start_date}}": start_date_str,
+            "{{end_date}}": end_date_str,
+            "{{term_months}}": str(term_months),
+        }
+
+        def _fill(t: str) -> str:
+            for k, v in _ph.items():
+                t = t.replace(k, v)
+            return t
+
+        # Build includes list HTML
+        includes_html = "".join(f"<li>{item}</li>" for item in includes)
+
+        # Build sections HTML with placeholder replacement
+        sections_html = ""
+        for i, section in enumerate(sections, start=1):
+            s_title = _fill(section['title'])
+            s_content = _fill(section['content'])
+            sections_html += f"""
+            <div class="section">
+                <h2>{i}. {s_title}</h2>
+                <p>{s_content}</p>
+            </div>
+            """
 
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -978,8 +829,8 @@ async def get_contract_html(contract_id: int):
 <body>
     <div class="contract">
         <div class="header">
-            <div class="company-name">Stuff N Things</div>
-            <div class="tagline">Digital Solutions &amp; Web Services</div>
+            <div class="company-name">{business_name}</div>
+            <div class="tagline">{business_tagline}</div>
             <div class="doc-title">Website-as-a-Service Agreement</div>
             <div class="contract-number">Contract #{contract['contract_number']}</div>
         </div>
@@ -991,8 +842,9 @@ async def get_contract_html(contract_id: int):
             <div class="parties-grid">
                 <div class="party">
                     <div class="label">Provider</div>
-                    <div class="name">Stuff N Things LLC</div>
-                    <div class="detail">Digital Solutions &amp; Web Services</div>
+                    <div class="name">{business_name} LLC</div>
+                    <div class="detail">{business_tagline}</div>
+                    {f'<div class="detail">{business_address}</div>' if business_address else ''}
                 </div>
                 <div class="party">
                     <div class="label">Client</div>
@@ -1058,7 +910,7 @@ async def get_contract_html(contract_id: int):
                 <div class="sig-label">Provider</div>
                 <div class="sig-line"></div>
                 <div class="sig-label">Authorized Signature</div>
-                <div class="sig-name">Stuff N Things LLC</div>
+                <div class="sig-name">{business_name} LLC</div>
                 <div class="sig-line" style="width:60%; margin-top:16px;"></div>
                 <div class="sig-label">Date</div>
             </div>
@@ -1074,7 +926,7 @@ async def get_contract_html(contract_id: int):
         </div>
 
         <div class="footer">
-            <p>Stuff N Things LLC — Website-as-a-Service Agreement — {contract['contract_number']}</p>
+            <p>{business_name} LLC — Website-as-a-Service Agreement — {contract['contract_number']}</p>
             <p>This document is confidential and intended solely for the named parties.</p>
         </div>
     </div>
@@ -1315,9 +1167,413 @@ async def export_to_google_doc(contract_id: int):
                 "warning": "Document created but content insertion failed. Add content manually.",
             }
 
+    # Save doc info to contract and update deal stage
+    async with _session() as db:
+        await db.execute(text("""
+            UPDATE public.contracts SET
+                google_doc_id = :doc_id,
+                google_doc_url = :doc_url,
+                updated_at = now()
+            WHERE id = :id
+        """), {"id": contract_id, "doc_id": doc_id, "doc_url": doc_url})
+        await _add_deal_event(db, contract_id, "exported", "Contract exported to Google Docs")
+        await db.commit()
+
     return {
         "doc_id": doc_id,
         "doc_url": doc_url,
         "title": title,
         "message": "Contract exported to Google Docs. Open the doc and use Tools → eSignature to request signatures.",
     }
+
+
+# ── Deal Pipeline Pydantic Models ────────────────────────────────────
+
+class MarkStageRequest(BaseModel):
+    stage: str
+    note: Optional[str] = ""
+
+
+# ── Deal Pipeline Endpoints ──────────────────────────────────────────
+
+@router.post("/contracts/{contract_id}/send-for-signature")
+async def send_for_signature(contract_id: int):
+    """Send the contract to the client for eSignature review via email."""
+    async with _session() as db:
+        contract = await _get_contract_or_404(db, contract_id)
+
+        if not contract.get("google_doc_url"):
+            raise HTTPException(
+                400,
+                "Contract must be exported to Google Docs first. Use the export-google-doc endpoint.",
+            )
+
+        current_stage = contract.get("deal_stage", "draft")
+        if current_stage not in ("exported", "sent"):
+            raise HTTPException(
+                400,
+                f"Cannot send for signature from '{current_stage}' stage. Export the contract first.",
+            )
+
+        # Load business settings for email branding
+        try:
+            biz = await _get_business_settings()
+        except Exception:
+            biz = {}
+        business_name = biz.get("business_name", "Stuff N Things")
+        business_email = biz.get("business_email", "hello@stuffnthings.io")
+        business_phone = biz.get("business_phone", "")
+
+        plan_name = contract["plan_name"]
+        client_name = contract["client_name"]
+        doc_url = contract["google_doc_url"]
+
+        subject = f"Contract Ready for Review - {plan_name} Agreement"
+        html_body = f"""
+        <div style="font-family: 'Segoe UI', system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 32px; color: #1a1a2e;">
+            <div style="text-align: center; border-bottom: 2px solid #1a1a2e; padding-bottom: 20px; margin-bottom: 28px;">
+                <h1 style="font-size: 22px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; margin: 0;">{business_name}</h1>
+            </div>
+
+            <p style="font-size: 15px; margin-bottom: 16px;">Hi {client_name},</p>
+
+            <p style="font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+                Your <strong>{plan_name}</strong> Website-as-a-Service agreement is ready for your review.
+                We've prepared a detailed contract outlining the scope of services, pricing, and terms
+                for your project.
+            </p>
+
+            <p style="font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
+                Please take a moment to review the agreement using the link below. When you're ready,
+                you can sign directly in the document using Google Docs' built-in eSignature feature.
+            </p>
+
+            <div style="text-align: center; margin: 32px 0;">
+                <a href="{doc_url}"
+                   style="background: #1a1a2e; color: #ffffff; padding: 14px 32px; text-decoration: none;
+                          border-radius: 6px; display: inline-block; font-size: 15px; font-weight: 600;
+                          letter-spacing: 0.5px;">
+                    Review &amp; Sign Contract
+                </a>
+            </div>
+
+            <div style="background: #f8f8fa; border-left: 3px solid #1a1a2e; padding: 16px 20px; margin: 24px 0; border-radius: 0 6px 6px 0;">
+                <p style="font-size: 13px; color: #555; margin: 0 0 8px 0; font-weight: 600;">How to sign:</p>
+                <ol style="font-size: 13px; color: #555; margin: 0; padding-left: 18px; line-height: 1.8;">
+                    <li>Click the button above to open the contract in Google Docs</li>
+                    <li>Review all sections of the agreement</li>
+                    <li>Go to <strong>Tools → eSignature</strong> to add your signature</li>
+                    <li>Follow the prompts to complete the signing process</li>
+                </ol>
+            </div>
+
+            <p style="font-size: 14px; line-height: 1.6; color: #555; margin-top: 24px;">
+                If you have any questions or need changes to the agreement, don't hesitate to reach out.
+                We're happy to discuss any details before you sign.
+            </p>
+
+            <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                <p style="font-size: 14px; color: #333; margin: 0;">Best regards,</p>
+                <p style="font-size: 14px; color: #333; font-weight: 600; margin: 4px 0 0 0;">The {business_name} Team</p>
+                <p style="font-size: 13px; color: #888; margin: 4px 0 0 0;">{business_email}{f' | {business_phone}' if business_phone else ''}</p>
+            </div>
+        </div>
+        """
+
+        sent = await asyncio.to_thread(_send_email, contract["client_email"], subject, html_body)
+
+        await db.execute(text("""
+            UPDATE public.contracts SET
+                esign_email_sent_at = now(),
+                updated_at = now()
+            WHERE id = :id
+        """), {"id": contract_id})
+        await _add_deal_event(db, contract_id, "sent", f"Contract sent to {contract['client_email']} for signature")
+        await db.commit()
+
+        return {
+            "id": contract_id,
+            "deal_stage": "sent",
+            "email_sent": sent,
+            "recipient": contract["client_email"],
+        }
+
+
+@router.post("/contracts/{contract_id}/mark-stage")
+async def mark_deal_stage(contract_id: int, data: MarkStageRequest):
+    """Manually update the deal stage (e.g., read, signing, signed)."""
+    if data.stage not in VALID_DEAL_STAGES:
+        raise HTTPException(400, f"Invalid stage. Must be one of: {', '.join(sorted(VALID_DEAL_STAGES))}")
+
+    async with _session() as db:
+        contract = await _get_contract_or_404(db, contract_id)
+        current_stage = contract.get("deal_stage", "draft")
+
+        # Validate transition
+        allowed = STAGE_TRANSITIONS.get(current_stage, set())
+        if data.stage not in allowed:
+            raise HTTPException(
+                400,
+                f"Cannot transition from '{current_stage}' to '{data.stage}'. "
+                f"Allowed transitions: {', '.join(sorted(allowed)) if allowed else 'none'}",
+            )
+
+        extra_updates = ""
+        if data.stage == "signed":
+            extra_updates = ", esign_signed_at = now(), status = 'signed', signed_at = now()"
+        elif data.stage == "read":
+            extra_updates = ", esign_email_read_at = now()"
+
+        await db.execute(text(f"""
+            UPDATE public.contracts SET
+                deal_stage = :stage,
+                updated_at = now()
+                {extra_updates}
+            WHERE id = :id
+        """), {"id": contract_id, "stage": data.stage})
+        await _add_deal_event(db, contract_id, data.stage, data.note or "")
+        await db.commit()
+
+        return {
+            "id": contract_id,
+            "deal_stage": data.stage,
+            "note": data.note,
+            "auto_congratulate": data.stage == "signed",
+        }
+
+
+@router.post("/contracts/{contract_id}/send-followup")
+async def send_followup(contract_id: int):
+    """Send a follow-up reminder email for an unsigned contract."""
+    async with _session() as db:
+        contract = await _get_contract_or_404(db, contract_id)
+
+        current_stage = contract.get("deal_stage", "draft")
+        if current_stage in ("draft", "exported", "signed", "active", "expired", "cancelled"):
+            raise HTTPException(400, f"Cannot send follow-up for contract in '{current_stage}' stage")
+
+        if not contract.get("google_doc_url"):
+            raise HTTPException(400, "No Google Doc URL — export and send the contract first")
+
+        try:
+            biz = await _get_business_settings()
+        except Exception:
+            biz = {}
+        business_name = biz.get("business_name", "Stuff N Things")
+        business_email = biz.get("business_email", "hello@stuffnthings.io")
+        business_phone = biz.get("business_phone", "")
+
+        client_name = contract["client_name"]
+        plan_name = contract["plan_name"]
+        doc_url = contract["google_doc_url"]
+        followup_num = (contract.get("followup_count") or 0) + 1
+
+        subject = "Friendly Reminder: Contract Awaiting Your Signature"
+        html_body = f"""
+        <div style="font-family: 'Segoe UI', system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 32px; color: #1a1a2e;">
+            <div style="text-align: center; border-bottom: 2px solid #1a1a2e; padding-bottom: 20px; margin-bottom: 28px;">
+                <h1 style="font-size: 22px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; margin: 0;">{business_name}</h1>
+            </div>
+
+            <p style="font-size: 15px; margin-bottom: 16px;">Hi {client_name},</p>
+
+            <p style="font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+                Just a friendly reminder — your <strong>{plan_name}</strong> agreement is still
+                awaiting your signature. We want to make sure you have everything you need to
+                move forward.
+            </p>
+
+            <p style="font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
+                If you've had a chance to review the contract and have any questions or need
+                any adjustments, we'd love to hear from you. Otherwise, you can sign at any
+                time using the link below.
+            </p>
+
+            <div style="text-align: center; margin: 32px 0;">
+                <a href="{doc_url}"
+                   style="background: #1a1a2e; color: #ffffff; padding: 14px 32px; text-decoration: none;
+                          border-radius: 6px; display: inline-block; font-size: 15px; font-weight: 600;">
+                    Review &amp; Sign Contract
+                </a>
+            </div>
+
+            <p style="font-size: 14px; line-height: 1.6; color: #555; margin-top: 24px;">
+                We're excited to get started on your project and look forward to working together!
+            </p>
+
+            <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                <p style="font-size: 14px; color: #333; margin: 0;">Warm regards,</p>
+                <p style="font-size: 14px; color: #333; font-weight: 600; margin: 4px 0 0 0;">The {business_name} Team</p>
+                <p style="font-size: 13px; color: #888; margin: 4px 0 0 0;">{business_email}{f' | {business_phone}' if business_phone else ''}</p>
+            </div>
+        </div>
+        """
+
+        sent = await asyncio.to_thread(_send_email, contract["client_email"], subject, html_body)
+
+        await db.execute(text("""
+            UPDATE public.contracts SET
+                followup_sent_at = now(),
+                followup_count = :count,
+                updated_at = now()
+            WHERE id = :id
+        """), {"id": contract_id, "count": followup_num})
+        await _add_deal_event(db, contract_id, current_stage, f"Follow-up #{followup_num} sent")
+        await db.commit()
+
+        return {
+            "id": contract_id,
+            "followup_count": followup_num,
+            "email_sent": sent,
+            "recipient": contract["client_email"],
+        }
+
+
+@router.post("/contracts/{contract_id}/send-congratulation")
+async def send_congratulation(contract_id: int):
+    """Send a welcome/congratulation email after the contract is signed."""
+    async with _session() as db:
+        contract = await _get_contract_or_404(db, contract_id)
+
+        current_stage = contract.get("deal_stage", "draft")
+        if current_stage not in ("signed", "active"):
+            raise HTTPException(400, f"Cannot send congratulation for contract in '{current_stage}' stage. Must be signed first.")
+
+        try:
+            biz = await _get_business_settings()
+        except Exception:
+            biz = {}
+        business_name = biz.get("business_name", "Stuff N Things")
+        business_email = biz.get("business_email", "hello@stuffnthings.io")
+        business_phone = biz.get("business_phone", "")
+        business_address = biz.get("business_address", "")
+
+        client_name = contract["client_name"]
+        plan_name = contract["plan_name"]
+        terms = _parse_json(contract["contract_terms"]) if contract["contract_terms"] else {}
+        includes = terms.get("includes", [])
+
+        includes_html = "".join(
+            f'<li style="padding: 6px 0; font-size: 14px; color: #333;">✓ {item}</li>'
+            for item in includes
+        )
+
+        subject = f"Welcome to {business_name}! Your {plan_name} Agreement is Active"
+        html_body = f"""
+        <div style="font-family: 'Segoe UI', system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 32px; color: #1a1a2e;">
+            <div style="text-align: center; border-bottom: 2px solid #1a1a2e; padding-bottom: 20px; margin-bottom: 28px;">
+                <h1 style="font-size: 22px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; margin: 0;">{business_name}</h1>
+            </div>
+
+            <div style="text-align: center; margin-bottom: 28px;">
+                <span style="font-size: 48px;">🎉</span>
+                <h2 style="font-size: 20px; color: #1a1a2e; margin: 12px 0 0 0;">Welcome Aboard!</h2>
+            </div>
+
+            <p style="font-size: 15px; margin-bottom: 16px;">Hi {client_name},</p>
+
+            <p style="font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+                Thank you for choosing <strong>{business_name}</strong>! Your <strong>{plan_name}</strong>
+                agreement is now active, and we're thrilled to get started on your project.
+            </p>
+
+            <div style="background: #f0faf4; border: 1px solid #d4edda; border-radius: 8px; padding: 20px; margin: 24px 0;">
+                <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #2d6a4f; margin: 0 0 12px 0;">
+                    Your {plan_name} Plan Includes
+                </h3>
+                <ul style="list-style: none; padding: 0; margin: 0;">
+                    {includes_html}
+                </ul>
+            </div>
+
+            <div style="background: #f8f8fa; border-radius: 8px; padding: 20px; margin: 24px 0;">
+                <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #555; margin: 0 0 12px 0;">
+                    What Happens Next
+                </h3>
+                <ol style="font-size: 14px; line-height: 1.8; color: #333; padding-left: 18px; margin: 0;">
+                    <li><strong>Kickoff Call</strong> — We'll reach out within 1-2 business days to schedule your onboarding call</li>
+                    <li><strong>Discovery &amp; Planning</strong> — We'll gather your requirements, brand assets, and content</li>
+                    <li><strong>Design &amp; Development</strong> — Our team builds your site with regular progress updates</li>
+                    <li><strong>Review &amp; Launch</strong> — Final review, revisions, and go-live!</li>
+                </ol>
+            </div>
+
+            <p style="font-size: 14px; line-height: 1.6; color: #555; margin-top: 24px;">
+                If you have any questions in the meantime, don't hesitate to reach out.
+                We're here to make this process smooth and enjoyable.
+            </p>
+
+            <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                <p style="font-size: 14px; color: #333; margin: 0;">Excited to work with you,</p>
+                <p style="font-size: 14px; color: #333; font-weight: 600; margin: 4px 0 0 0;">The {business_name} Team</p>
+                <p style="font-size: 13px; color: #888; margin: 4px 0 0 0;">{business_email}{f' | {business_phone}' if business_phone else ''}</p>
+                {f'<p style="font-size: 13px; color: #888; margin: 2px 0 0 0;">{business_address}</p>' if business_address else ''}
+            </div>
+        </div>
+        """
+
+        sent = await asyncio.to_thread(_send_email, contract["client_email"], subject, html_body)
+
+        await db.execute(text("""
+            UPDATE public.contracts SET
+                congratulation_sent_at = now(),
+                status = 'active',
+                updated_at = now()
+            WHERE id = :id
+        """), {"id": contract_id})
+        await _add_deal_event(db, contract_id, "active", "Welcome email sent, contract now active")
+        await db.commit()
+
+        return {
+            "id": contract_id,
+            "deal_stage": "active",
+            "email_sent": sent,
+            "recipient": contract["client_email"],
+        }
+
+
+@router.get("/contracts/{contract_id}/deal-timeline")
+async def get_deal_timeline(contract_id: int):
+    """Get the full deal history timeline with computed metrics."""
+    async with _session() as db:
+        contract = await _get_contract_or_404(db, contract_id)
+
+        deal_history = _parse_json(contract.get("deal_history", "[]"))
+        now = datetime.now(timezone.utc)
+
+        # Compute metrics
+        esign_sent = contract.get("esign_email_sent_at")
+        followup_sent = contract.get("followup_sent_at")
+        esign_signed = contract.get("esign_signed_at")
+
+        days_since_sent = None
+        if esign_sent:
+            sent_dt = esign_sent if isinstance(esign_sent, datetime) else datetime.fromisoformat(str(esign_sent))
+            if sent_dt.tzinfo is None:
+                sent_dt = sent_dt.replace(tzinfo=timezone.utc)
+            days_since_sent = (now - sent_dt).days
+
+        days_since_last_followup = None
+        if followup_sent:
+            fu_dt = followup_sent if isinstance(followup_sent, datetime) else datetime.fromisoformat(str(followup_sent))
+            if fu_dt.tzinfo is None:
+                fu_dt = fu_dt.replace(tzinfo=timezone.utc)
+            days_since_last_followup = (now - fu_dt).days
+
+        # needs_followup: sent > 24hrs ago AND not signed AND no followup in last 24hrs
+        is_signed = contract.get("deal_stage") in ("signed", "active")
+        sent_over_24h = days_since_sent is not None and days_since_sent >= 1
+        followup_recent = days_since_last_followup is not None and days_since_last_followup < 1
+        needs_followup = sent_over_24h and not is_signed and not followup_recent
+
+        return {
+            "id": contract_id,
+            "deal_stage": contract.get("deal_stage", "draft"),
+            "deal_history": deal_history,
+            "metrics": {
+                "days_since_sent": days_since_sent,
+                "days_since_last_followup": days_since_last_followup,
+                "needs_followup": needs_followup,
+                "total_followups": contract.get("followup_count", 0),
+            },
+        }

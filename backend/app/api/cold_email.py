@@ -330,7 +330,7 @@ async def generate_email(req: GenerateEmailRequest):
                 "INSERT INTO public.cold_email_drafts "
                 "(contact_submission_id, lead_id, recipient_name, recipient_email, "
                 "subject, body, template_id, company_context) "
-                "VALUES (:csid, :lid, :rname, :remail, :subject, :body, :tid, :ctx::jsonb) "
+                "VALUES (:csid, :lid, :rname, :remail, :subject, :body, :tid, CAST(:ctx AS jsonb)) "
                 "RETURNING *"
             ),
             {

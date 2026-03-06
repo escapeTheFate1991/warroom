@@ -161,7 +161,7 @@ async def create_notification(
     result = await db.execute(
         text("""
             INSERT INTO public.notifications (user_id, type, title, message, data, expires_at)
-            VALUES (:user_id, :type, :title, :message, :data::jsonb, :expires_at)
+            VALUES (:user_id, :type, :title, :message, CAST(:data AS jsonb), :expires_at)
             RETURNING id, user_id, type, title, message, data, read, created_at, expires_at
         """),
         {

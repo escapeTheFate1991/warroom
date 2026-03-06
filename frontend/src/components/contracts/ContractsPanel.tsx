@@ -5,7 +5,8 @@ import {
   FileSignature, Plus, Send, Eye, CheckCircle2, Edit, X, Save,
   Loader2, ChevronLeft, ChevronRight, Search, Filter,
   ExternalLink, FileText, DollarSign, Clock, AlertTriangle,
-  ToggleLeft, ToggleRight, ArrowLeft,
+  ToggleLeft, ToggleRight, ArrowLeft, Bell, Mail, BookOpen,
+  PenTool, UserCheck, PartyPopper, MailWarning,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
@@ -13,6 +14,12 @@ import { API, authFetch } from "@/lib/api";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
+type DealStage =
+  | "draft" | "exported" | "sent" | "delivered"
+  | "read" | "signing" | "signed" | "active"
+  | "expired" | "cancelled";
+
+// Keep legacy type for backward compat with existing status field
 type ContractStatus = "draft" | "sent" | "viewed" | "signed" | "active" | "expired" | "cancelled";
 
 interface ContractIncludes {
@@ -26,6 +33,13 @@ interface ContractIncludes {
   analytics: boolean;
   priority_support: boolean;
   dedicated_manager: boolean;
+}
+
+interface DealHistoryEvent {
+  id: number;
+  stage: DealStage;
+  timestamp: string;
+  note?: string;
 }
 
 interface Contract {
@@ -42,6 +56,9 @@ interface Contract {
   auto_renew: boolean;
   cancellation_notice_days: number;
   status: ContractStatus;
+  deal_stage: DealStage;
+  needs_followup: boolean;
+  followup_count: number;
   start_date: string;
   includes: ContractIncludes;
   created_at: string;
@@ -50,6 +67,10 @@ interface Contract {
   signed_at: string | null;
   activated_at: string | null;
   expires_at: string | null;
+  exported_at: string | null;
+  delivered_at: string | null;
+  read_at: string | null;
+  signing_at: string | null;
 }
 
 interface ContractTemplate {
@@ -75,23 +96,35 @@ interface StatsData {
   total_mrr: number;
   pending_signatures: number;
   expiring_30_days: number;
+  awaiting_signature: number;
+  needs_followup: number;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const STATUS_CONFIG: Record<ContractStatus, { label: string; bg: string; text: string }> = {
-  draft:     { label: "Draft",     bg: "bg-gray-500/20",    text: "text-gray-400" },
-  sent:      { label: "Sent",      bg: "bg-blue-500/20",    text: "text-blue-400" },
-  viewed:    { label: "Viewed",    bg: "bg-amber-500/20",   text: "text-amber-400" },
-  signed:    { label: "Signed",    bg: "bg-green-500/20",   text: "text-green-400" },
-  active:    { label: "Active",    bg: "bg-emerald-500/20", text: "text-emerald-400" },
-  expired:   { label: "Expired",   bg: "bg-orange-500/20",  text: "text-orange-400" },
-  cancelled: { label: "Cancelled", bg: "bg-red-500/20",     text: "text-red-400" },
+const DEAL_STAGE_CONFIG: Record<DealStage, { label: string; bg: string; text: string; dot: string }> = {
+  draft:     { label: "Draft",     bg: "bg-gray-500/20",    text: "text-gray-400",    dot: "bg-gray-400" },
+  exported:  { label: "Exported",  bg: "bg-blue-500/20",    text: "text-blue-400",    dot: "bg-blue-400" },
+  sent:      { label: "Sent",      bg: "bg-indigo-500/20",  text: "text-indigo-400",  dot: "bg-indigo-400" },
+  delivered: { label: "Delivered", bg: "bg-purple-500/20",  text: "text-purple-400",  dot: "bg-purple-400" },
+  read:      { label: "Read",      bg: "bg-amber-500/20",   text: "text-amber-400",   dot: "bg-amber-400" },
+  signing:   { label: "Signing",   bg: "bg-orange-500/20",  text: "text-orange-400",  dot: "bg-orange-400" },
+  signed:    { label: "Signed",    bg: "bg-green-500/20",   text: "text-green-400",   dot: "bg-green-400" },
+  active:    { label: "Active",    bg: "bg-emerald-500/20", text: "text-emerald-400", dot: "bg-emerald-400" },
+  expired:   { label: "Expired",   bg: "bg-slate-500/20",   text: "text-slate-400",   dot: "bg-slate-400" },
+  cancelled: { label: "Cancelled", bg: "bg-red-500/20",     text: "text-red-400",     dot: "bg-red-400" },
 };
 
-const ALL_STATUSES: ContractStatus[] = ["draft", "sent", "viewed", "signed", "active", "expired", "cancelled"];
+/** Linear pipeline stages (excludes terminal expired/cancelled) */
+const PIPELINE_STAGES: DealStage[] = [
+  "draft", "exported", "sent", "read", "signing", "signed", "active",
+];
+
+const ALL_DEAL_STAGES: DealStage[] = [
+  "draft", "exported", "sent", "delivered", "read", "signing", "signed", "active", "expired", "cancelled",
+];
 
 const INCLUDES_LABELS: Record<keyof ContractIncludes, string> = {
   hosting: "Hosting",
@@ -125,8 +158,8 @@ const PER_PAGE = 25;
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-function StatusBadge({ status }: { status: ContractStatus }) {
-  const cfg = STATUS_CONFIG[status];
+function DealStageBadge({ stage }: { stage: DealStage }) {
+  const cfg = DEAL_STAGE_CONFIG[stage];
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}>
       {cfg.label}
@@ -143,8 +176,246 @@ function formatDate(dateStr: string | null): string {
   return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatDateTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit",
+  });
+}
+
+/** Get the index of a stage in the pipeline, or -1 if terminal */
+function pipelineIndex(stage: DealStage): number {
+  return PIPELINE_STAGES.indexOf(stage);
+}
+
+/** Get the timestamp for a given pipeline stage from contract data */
+function stageTimestamp(c: Contract, stage: DealStage): string | null {
+  const map: Partial<Record<DealStage, string | null>> = {
+    draft: c.created_at,
+    exported: c.exported_at,
+    sent: c.sent_at,
+    read: c.read_at ?? c.viewed_at,
+    signing: c.signing_at,
+    signed: c.signed_at,
+    active: c.activated_at,
+  };
+  return map[stage] ?? null;
+}
+
 /* ------------------------------------------------------------------ */
-/*  Component                                                          */
+/*  Sub-Components                                                     */
+/* ------------------------------------------------------------------ */
+
+/** Horizontal deal pipeline stepper */
+function DealPipeline({ contract }: { contract: Contract }) {
+  const currentIdx = pipelineIndex(contract.deal_stage);
+  const isTerminal = currentIdx === -1; // expired or cancelled
+
+  return (
+    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+      <h3 className="text-sm font-semibold text-warroom-text mb-4">Deal Pipeline</h3>
+      <div className="flex items-start">
+        {PIPELINE_STAGES.map((stage, i) => {
+          const isCompleted = !isTerminal && i < currentIdx;
+          const isCurrent = !isTerminal && i === currentIdx;
+          const isFuture = isTerminal || i > currentIdx;
+          const ts = stageTimestamp(contract, stage);
+          const cfg = DEAL_STAGE_CONFIG[stage];
+
+          return (
+            <div key={stage} className="flex items-start flex-1">
+              <div className="flex flex-col items-center min-w-0">
+                {/* Circle */}
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
+                    isCompleted
+                      ? "bg-green-500/20 text-green-400 border-green-500"
+                      : isCurrent
+                        ? "bg-warroom-accent/20 text-warroom-accent border-warroom-accent animate-pulse"
+                        : "bg-warroom-bg text-warroom-muted border-warroom-border"
+                  }`}
+                >
+                  {isCompleted ? (
+                    <CheckCircle2 size={16} />
+                  ) : (
+                    <span className={`w-2.5 h-2.5 rounded-full ${isCurrent ? cfg.dot : "bg-warroom-border"}`} />
+                  )}
+                </div>
+                {/* Label */}
+                <p className={`text-xs mt-1.5 text-center ${
+                  isCompleted || isCurrent ? "text-warroom-text font-medium" : "text-warroom-muted"
+                }`}>
+                  {cfg.label}
+                </p>
+                {/* Timestamp */}
+                {(isCompleted || isCurrent) && ts && (
+                  <p className="text-[10px] text-warroom-muted text-center">{formatDate(ts)}</p>
+                )}
+                {isFuture && <p className="text-[10px] text-warroom-muted/40 text-center">—</p>}
+              </div>
+              {/* Connector line */}
+              {i < PIPELINE_STAGES.length - 1 && (
+                <div className={`flex-1 h-0.5 mt-4 mx-1 ${
+                  isCompleted ? "bg-green-500/60" : "bg-warroom-border"
+                }`} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {/* Terminal state banner */}
+      {isTerminal && (
+        <div className={`mt-4 px-3 py-2 rounded-lg text-sm font-medium ${DEAL_STAGE_CONFIG[contract.deal_stage].bg} ${DEAL_STAGE_CONFIG[contract.deal_stage].text}`}>
+          Contract is {DEAL_STAGE_CONFIG[contract.deal_stage].label.toLowerCase()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Deal action buttons based on current stage */
+function DealActions({
+  contract,
+  actionLoading,
+  onAction,
+}: {
+  contract: Contract;
+  actionLoading: string | null;
+  onAction: (action: string, id: number) => void;
+}) {
+  const stage = contract.deal_stage;
+  const id = contract.id;
+
+  const isLoading = (key: string) => actionLoading === `${key}-${id}`;
+
+  const ActionButton = ({
+    actionKey, label, icon: Icon, color, badge,
+  }: {
+    actionKey: string;
+    label: string;
+    icon: React.ComponentType<{ size?: number | string; className?: string }>;
+    color: string;
+    badge?: number;
+  }) => (
+    <button
+      onClick={() => onAction(actionKey, id)}
+      disabled={isLoading(actionKey)}
+      className={`relative flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${color}`}
+    >
+      {isLoading(actionKey) ? <Loader2 size={16} className="animate-spin" /> : <Icon size={16} />}
+      {label}
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-orange-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+
+  const buttons: React.ReactNode[] = [];
+
+  if (stage === "draft") {
+    buttons.push(
+      <ActionButton key="export" actionKey="export-gdoc" label="Export to Google Docs" icon={FileText} color="bg-blue-500/20 text-blue-400 hover:bg-blue-500/30" />
+    );
+  }
+
+  if (stage === "exported") {
+    buttons.push(
+      <ActionButton key="send-sig" actionKey="send-for-signature" label="Send for Signature" icon={PenTool} color="bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30" />
+    );
+  }
+
+  if (stage === "sent") {
+    buttons.push(
+      <ActionButton key="mark-read" actionKey="mark-read" label="Mark as Read" icon={BookOpen} color="bg-amber-500/20 text-amber-400 hover:bg-amber-500/30" />,
+      <ActionButton key="followup" actionKey="send-followup" label="Send Follow-up" icon={MailWarning} color="bg-orange-500/20 text-orange-400 hover:bg-orange-500/30" badge={contract.followup_count} />
+    );
+  }
+
+  if (stage === "read") {
+    buttons.push(
+      <ActionButton key="mark-signing" actionKey="mark-signing" label="Mark as Signing" icon={PenTool} color="bg-orange-500/20 text-orange-400 hover:bg-orange-500/30" />,
+      <ActionButton key="followup" actionKey="send-followup" label="Send Follow-up" icon={MailWarning} color="bg-orange-500/20 text-orange-400 hover:bg-orange-500/30" badge={contract.followup_count} />
+    );
+  }
+
+  if (stage === "signing") {
+    buttons.push(
+      <ActionButton key="mark-signed" actionKey="mark-signed" label="Mark as Signed" icon={CheckCircle2} color="bg-green-500/20 text-green-400 hover:bg-green-500/30" />
+    );
+  }
+
+  if (stage === "signed") {
+    buttons.push(
+      <ActionButton key="welcome" actionKey="send-congratulation" label="Send Welcome Email" icon={PartyPopper} color="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30" />
+    );
+  }
+
+  if (buttons.length === 0) return null;
+
+  return (
+    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+      <h3 className="text-sm font-semibold text-warroom-text mb-3">Deal Actions</h3>
+      <div className="flex flex-wrap gap-3">
+        {buttons}
+      </div>
+    </div>
+  );
+}
+
+/** Vertical timeline of deal history events */
+function DealTimeline({ events }: { events: DealHistoryEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-warroom-text mb-3">Deal Timeline</h3>
+        <p className="text-sm text-warroom-muted">No history events yet.</p>
+      </div>
+    );
+  }
+
+  // Most recent first
+  const sorted = [...events].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+
+  return (
+    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+      <h3 className="text-sm font-semibold text-warroom-text mb-4">Deal Timeline</h3>
+      <div className="relative">
+        {/* Vertical line */}
+        <div className="absolute left-[9px] top-2 bottom-2 w-0.5 bg-warroom-border" />
+        <div className="space-y-4">
+          {sorted.map((event) => {
+            const cfg = DEAL_STAGE_CONFIG[event.stage];
+            return (
+              <div key={event.id} className="relative flex items-start gap-3 pl-0">
+                {/* Dot */}
+                <div className={`relative z-10 w-[18px] h-[18px] rounded-full border-2 border-warroom-surface flex items-center justify-center flex-shrink-0 ${cfg.dot}`}>
+                  <div className="w-2 h-2 rounded-full bg-warroom-surface" />
+                </div>
+                {/* Content */}
+                <div className="min-w-0 flex-1 -mt-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-medium ${cfg.text}`}>{cfg.label}</span>
+                    <span className="text-xs text-warroom-muted">{formatDateTime(event.timestamp)}</span>
+                  </div>
+                  {event.note && (
+                    <p className="text-xs text-warroom-muted mt-0.5">{event.note}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
 
 export default function ContractsPanel() {
@@ -152,13 +423,18 @@ export default function ContractsPanel() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<ContractStatus | "">("");
+  const [statusFilter, setStatusFilter] = useState<DealStage | "">("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [stats, setStats] = useState<StatsData>({ active_count: 0, total_mrr: 0, pending_signatures: 0, expiring_30_days: 0 });
+  const [stats, setStats] = useState<StatsData>({
+    active_count: 0, total_mrr: 0, pending_signatures: 0,
+    expiring_30_days: 0, awaiting_signature: 0, needs_followup: 0,
+  });
 
   // Detail view
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [dealTimeline, setDealTimeline] = useState<DealHistoryEvent[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
 
   // Create / Edit modal
   const [showModal, setShowModal] = useState(false);
@@ -211,16 +487,24 @@ export default function ContractsPanel() {
       if (!res.ok) return;
       const data: ContractsResponse = await res.json();
       const all = data.contracts;
-      const active = all.filter((c) => c.status === "active");
-      const pending = all.filter((c) => c.status === "sent" || c.status === "viewed");
+      const active = all.filter((c) => (c.deal_stage ?? c.status) === "active");
+      const awaitingSig = all.filter((c) => {
+        const s = c.deal_stage ?? c.status;
+        return s === "sent" || s === "delivered" || s === "read";
+      });
+      const followup = all.filter((c) => c.needs_followup);
       const now = Date.now();
       const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-      const expiring = all.filter((c) => c.expires_at && new Date(c.expires_at).getTime() - now < thirtyDays && new Date(c.expires_at).getTime() > now);
+      const expiring = all.filter(
+        (c) => c.expires_at && new Date(c.expires_at).getTime() - now < thirtyDays && new Date(c.expires_at).getTime() > now
+      );
       setStats({
         active_count: active.length,
         total_mrr: active.reduce((sum, c) => sum + c.monthly_price, 0),
-        pending_signatures: pending.length,
+        pending_signatures: awaitingSig.length,
         expiring_30_days: expiring.length,
+        awaiting_signature: awaitingSig.length,
+        needs_followup: followup.length,
       });
     } catch {
       /* silent */
@@ -251,7 +535,86 @@ export default function ContractsPanel() {
     }
   };
 
-  /* ---- Actions ---- */
+  const loadDealTimeline = async (id: number) => {
+    setTimelineLoading(true);
+    try {
+      const res = await authFetch(`${API}/api/contracts/${id}/deal-timeline`);
+      if (res.ok) {
+        const data = await res.json();
+        setDealTimeline(Array.isArray(data) ? data : data.events ?? []);
+      } else {
+        setDealTimeline([]);
+      }
+    } catch {
+      setDealTimeline([]);
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
+  const openDetail = (contract: Contract) => {
+    setSelectedContract(contract);
+    loadContractDetail(contract.id);
+    loadDealTimeline(contract.id);
+  };
+
+  /* ---- Deal Actions ---- */
+
+  const handleDealAction = async (action: string, id: number) => {
+    setActionLoading(`${action}-${id}`);
+    try {
+      let url = "";
+      let method = "POST";
+
+      switch (action) {
+        case "export-gdoc":
+          url = `${API}/api/contracts/${id}/export-google-doc`;
+          break;
+        case "send-for-signature":
+          url = `${API}/api/contracts/${id}/send-for-signature`;
+          break;
+        case "mark-read":
+          url = `${API}/api/contracts/${id}/mark-read`;
+          break;
+        case "send-followup":
+          url = `${API}/api/contracts/${id}/send-followup`;
+          break;
+        case "mark-signing":
+          url = `${API}/api/contracts/${id}/mark-signing`;
+          break;
+        case "mark-signed":
+          url = `${API}/api/contracts/${id}/mark-signed`;
+          break;
+        case "send-congratulation":
+          url = `${API}/api/contracts/${id}/send-congratulation`;
+          break;
+        default:
+          return;
+      }
+
+      const res = await authFetch(url, { method });
+      if (res.ok) {
+        // For export, open the doc URL
+        if (action === "export-gdoc") {
+          const data = await res.json();
+          if (data.doc_url) window.open(data.doc_url, "_blank");
+        }
+        loadContracts();
+        loadStats();
+        loadContractDetail(id);
+        loadDealTimeline(id);
+      } else {
+        const err = await res.json().catch(() => null);
+        console.error(`Action ${action} failed:`, err?.detail || "Unknown error");
+      }
+    } catch (err) {
+      console.error(`Failed to execute ${action}:`, err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  /* ---- Legacy actions (kept for compatibility) ---- */
 
   const handleSend = async (id: number) => {
     setActionLoading(`send-${id}`);
@@ -365,9 +728,14 @@ export default function ContractsPanel() {
 
       const res = await authFetch(url, { method, body: JSON.stringify(body) });
       if (res.ok) {
+        const savedContract: Contract = await res.json();
         setShowModal(false);
         loadContracts();
         loadStats();
+        // Auto-open detail view for new contracts
+        if (!editingContract && savedContract?.id) {
+          openDetail(savedContract);
+        }
       }
     } catch (err) {
       console.error("Failed to save contract:", err);
@@ -384,19 +752,13 @@ export default function ContractsPanel() {
 
   if (selectedContract) {
     const c = selectedContract;
-    const timelineSteps = [
-      { label: "Created", date: c.created_at, done: true },
-      { label: "Sent", date: c.sent_at, done: !!c.sent_at },
-      { label: "Viewed", date: c.viewed_at, done: !!c.viewed_at },
-      { label: "Signed", date: c.signed_at, done: !!c.signed_at },
-      { label: "Active", date: c.activated_at, done: c.status === "active" },
-    ];
+    const stage = c.deal_stage ?? c.status;
 
     return (
       <div className="h-full overflow-y-auto p-6">
         {/* Back button */}
         <button
-          onClick={() => setSelectedContract(null)}
+          onClick={() => { setSelectedContract(null); setDealTimeline([]); }}
           className="flex items-center gap-1.5 text-sm text-warroom-muted hover:text-warroom-text mb-4 transition-colors"
         >
           <ArrowLeft size={16} /> Back to Contracts
@@ -412,58 +774,22 @@ export default function ContractsPanel() {
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="text-xl font-bold text-warroom-text flex items-center gap-2">
-                  {c.contract_number} <StatusBadge status={c.status} />
+                  {c.contract_number} <DealStageBadge stage={stage as DealStage} />
+                  {c.needs_followup && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-500/20 text-orange-400" title="Follow-up needed">
+                      <Bell size={12} /> Follow-up
+                    </span>
+                  )}
                 </h2>
                 <p className="text-warroom-muted mt-1">{c.client_name} — {c.client_company}</p>
               </div>
               <div className="flex items-center gap-2">
-                {(c.status === "draft" || c.status === "viewed") && (
-                  <button
-                    onClick={() => handleSend(c.id)}
-                    disabled={actionLoading === `send-${c.id}`}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 text-sm transition-colors"
-                  >
-                    {actionLoading === `send-${c.id}` ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                    Send to Client
-                  </button>
-                )}
                 <button
                   onClick={() => handleViewHtml(c.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warroom-border/40 text-warroom-text hover:bg-warroom-border/60 text-sm transition-colors"
                 >
                   <ExternalLink size={14} /> View / Print
                 </button>
-                <button
-                  onClick={async () => {
-                    setActionLoading(`gdoc-${c.id}`);
-                    try {
-                      const res = await authFetch(`${API}/api/contracts/${c.id}/export-google-doc`, { method: "POST" });
-                      if (res.ok) {
-                        const data = await res.json();
-                        window.open(data.doc_url, "_blank");
-                      } else {
-                        const err = await res.json().catch(() => null);
-                        alert(err?.detail || "Failed to export");
-                      }
-                    } catch { alert("Export failed"); }
-                    setActionLoading(null);
-                  }}
-                  disabled={actionLoading === `gdoc-${c.id}`}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 text-sm transition-colors"
-                >
-                  {actionLoading === `gdoc-${c.id}` ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-                  Export to Google Docs
-                </button>
-                {(c.status === "sent" || c.status === "viewed") && (
-                  <button
-                    onClick={() => handleMarkSigned(c.id)}
-                    disabled={actionLoading === `sign-${c.id}`}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 text-sm transition-colors"
-                  >
-                    {actionLoading === `sign-${c.id}` ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                    Mark Signed
-                  </button>
-                )}
                 <button
                   onClick={() => openEditModal(c)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warroom-border/40 text-warroom-text hover:bg-warroom-border/60 text-sm transition-colors"
@@ -472,6 +798,16 @@ export default function ContractsPanel() {
                 </button>
               </div>
             </div>
+
+            {/* Deal Pipeline */}
+            <DealPipeline contract={c} />
+
+            {/* Deal Actions */}
+            <DealActions
+              contract={c}
+              actionLoading={actionLoading}
+              onAction={handleDealAction}
+            />
 
             {/* Summary Card */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -522,32 +858,14 @@ export default function ContractsPanel() {
               </div>
             </div>
 
-            {/* Timeline */}
-            <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-warroom-text mb-4">Timeline</h3>
-              <div className="flex items-center gap-0">
-                {timelineSteps.map((step, i) => (
-                  <div key={step.label} className="flex items-center flex-1">
-                    <div className="flex flex-col items-center">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                          step.done
-                            ? "bg-warroom-accent/20 text-warroom-accent border-2 border-warroom-accent"
-                            : "bg-warroom-bg text-warroom-muted border-2 border-warroom-border"
-                        }`}
-                      >
-                        {i + 1}
-                      </div>
-                      <p className={`text-xs mt-1.5 ${step.done ? "text-warroom-text" : "text-warroom-muted"}`}>{step.label}</p>
-                      <p className="text-[10px] text-warroom-muted">{formatDate(step.date)}</p>
-                    </div>
-                    {i < timelineSteps.length - 1 && (
-                      <div className={`flex-1 h-0.5 mx-1 ${step.done ? "bg-warroom-accent/40" : "bg-warroom-border"}`} />
-                    )}
-                  </div>
-                ))}
+            {/* Deal Timeline */}
+            {timelineLoading ? (
+              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5 flex items-center justify-center py-10">
+                <Loader2 size={20} className="animate-spin text-warroom-accent" />
               </div>
-            </div>
+            ) : (
+              <DealTimeline events={dealTimeline} />
+            )}
           </div>
         )}
       </div>
@@ -594,21 +912,21 @@ export default function ContractsPanel() {
           </div>
         </div>
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
-            <Clock size={16} className="text-blue-400" />
+          <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center">
+            <PenTool size={16} className="text-indigo-400" />
           </div>
           <div>
-            <p className="text-xs text-warroom-muted">Pending Signatures</p>
-            <p className="text-sm font-bold text-warroom-text">{stats.pending_signatures}</p>
+            <p className="text-xs text-warroom-muted">Awaiting Signature</p>
+            <p className="text-sm font-bold text-warroom-text">{stats.awaiting_signature}</p>
           </div>
         </div>
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center">
-            <AlertTriangle size={16} className="text-orange-400" />
+            <Bell size={16} className="text-orange-400" />
           </div>
           <div>
-            <p className="text-xs text-warroom-muted">Expiring (30d)</p>
-            <p className="text-sm font-bold text-warroom-text">{stats.expiring_30_days}</p>
+            <p className="text-xs text-warroom-muted">Needs Follow-up</p>
+            <p className="text-sm font-bold text-warroom-text">{stats.needs_followup}</p>
           </div>
         </div>
       </div>
@@ -629,12 +947,12 @@ export default function ContractsPanel() {
           <Filter size={14} className="text-warroom-muted" />
           <select
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value as ContractStatus | ""); setPage(1); }}
+            onChange={(e) => { setStatusFilter(e.target.value as DealStage | ""); setPage(1); }}
             className="bg-warroom-bg border border-warroom-border rounded-lg text-sm text-warroom-text px-2 py-1.5 focus:outline-none focus:border-warroom-accent/50"
           >
-            <option value="">All Statuses</option>
-            {ALL_STATUSES.map((s) => (
-              <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
+            <option value="">All Stages</option>
+            {ALL_DEAL_STAGES.map((s) => (
+              <option key={s} value={s}>{DEAL_STAGE_CONFIG[s].label}</option>
             ))}
           </select>
         </div>
@@ -659,67 +977,80 @@ export default function ContractsPanel() {
                 <th className="text-left py-2.5 px-3 font-medium">Client</th>
                 <th className="text-left py-2.5 px-3 font-medium">Plan</th>
                 <th className="text-right py-2.5 px-3 font-medium">Monthly</th>
-                <th className="text-center py-2.5 px-3 font-medium">Status</th>
+                <th className="text-center py-2.5 px-3 font-medium">Deal Stage</th>
                 <th className="text-left py-2.5 px-3 font-medium">Start Date</th>
                 <th className="text-right py-2.5 px-6 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {contracts.map((c) => (
-                <tr
-                  key={c.id}
-                  onClick={() => { setSelectedContract(c); loadContractDetail(c.id); }}
-                  className="border-b border-warroom-border/50 hover:bg-warroom-border/20 cursor-pointer transition-colors"
-                >
-                  <td className="py-3 px-6 text-sm font-mono text-warroom-accent">{c.contract_number}</td>
-                  <td className="py-3 px-3">
-                    <p className="text-sm text-warroom-text">{c.client_name}</p>
-                    <p className="text-xs text-warroom-muted">{c.client_company}</p>
-                  </td>
-                  <td className="py-3 px-3 text-sm text-warroom-text">{c.plan_name}</td>
-                  <td className="py-3 px-3 text-sm text-warroom-text text-right font-medium">{formatCurrency(c.monthly_price)}</td>
-                  <td className="py-3 px-3 text-center"><StatusBadge status={c.status} /></td>
-                  <td className="py-3 px-3 text-sm text-warroom-muted">{formatDate(c.start_date)}</td>
-                  <td className="py-3 px-6 text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-end gap-1">
-                      {(c.status === "draft" || c.status === "viewed") && (
+              {contracts.map((c) => {
+                const stage = (c.deal_stage ?? c.status) as DealStage;
+                return (
+                  <tr
+                    key={c.id}
+                    onClick={() => openDetail(c)}
+                    className="border-b border-warroom-border/50 hover:bg-warroom-border/20 cursor-pointer transition-colors"
+                  >
+                    <td className="py-3 px-6">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-mono text-warroom-accent">{c.contract_number}</span>
+                        {c.needs_followup && (
+                          <span
+                            className="w-2.5 h-2.5 rounded-full bg-orange-400 flex-shrink-0 animate-pulse"
+                            title="Follow-up needed"
+                          />
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-3">
+                      <p className="text-sm text-warroom-text">{c.client_name}</p>
+                      <p className="text-xs text-warroom-muted">{c.client_company}</p>
+                    </td>
+                    <td className="py-3 px-3 text-sm text-warroom-text">{c.plan_name}</td>
+                    <td className="py-3 px-3 text-sm text-warroom-text text-right font-medium">{formatCurrency(c.monthly_price)}</td>
+                    <td className="py-3 px-3 text-center"><DealStageBadge stage={stage} /></td>
+                    <td className="py-3 px-3 text-sm text-warroom-muted">{formatDate(c.start_date)}</td>
+                    <td className="py-3 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        {(stage === "draft" || stage === "exported") && (
+                          <button
+                            onClick={() => handleSend(c.id)}
+                            disabled={actionLoading === `send-${c.id}`}
+                            className="p-1.5 rounded-md hover:bg-blue-500/20 text-blue-400 transition-colors"
+                            title="Send"
+                          >
+                            {actionLoading === `send-${c.id}` ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                          </button>
+                        )}
                         <button
-                          onClick={() => handleSend(c.id)}
-                          disabled={actionLoading === `send-${c.id}`}
-                          className="p-1.5 rounded-md hover:bg-blue-500/20 text-blue-400 transition-colors"
-                          title="Send"
+                          onClick={() => handleViewHtml(c.id)}
+                          className="p-1.5 rounded-md hover:bg-warroom-border/40 text-warroom-muted hover:text-warroom-text transition-colors"
+                          title="View HTML"
                         >
-                          {actionLoading === `send-${c.id}` ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                          <Eye size={14} />
                         </button>
-                      )}
-                      <button
-                        onClick={() => handleViewHtml(c.id)}
-                        className="p-1.5 rounded-md hover:bg-warroom-border/40 text-warroom-muted hover:text-warroom-text transition-colors"
-                        title="View HTML"
-                      >
-                        <Eye size={14} />
-                      </button>
-                      {(c.status === "sent" || c.status === "viewed") && (
+                        {(stage === "sent" || stage === "read" || stage === "signing") && (
+                          <button
+                            onClick={() => handleMarkSigned(c.id)}
+                            disabled={actionLoading === `sign-${c.id}`}
+                            className="p-1.5 rounded-md hover:bg-green-500/20 text-green-400 transition-colors"
+                            title="Mark Signed"
+                          >
+                            {actionLoading === `sign-${c.id}` ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                          </button>
+                        )}
                         <button
-                          onClick={() => handleMarkSigned(c.id)}
-                          disabled={actionLoading === `sign-${c.id}`}
-                          className="p-1.5 rounded-md hover:bg-green-500/20 text-green-400 transition-colors"
-                          title="Mark Signed"
+                          onClick={() => openEditModal(c)}
+                          className="p-1.5 rounded-md hover:bg-warroom-border/40 text-warroom-muted hover:text-warroom-text transition-colors"
+                          title="Edit"
                         >
-                          {actionLoading === `sign-${c.id}` ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                          <Edit size={14} />
                         </button>
-                      )}
-                      <button
-                        onClick={() => openEditModal(c)}
-                        className="p-1.5 rounded-md hover:bg-warroom-border/40 text-warroom-muted hover:text-warroom-text transition-colors"
-                        title="Edit"
-                      >
-                        <Edit size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

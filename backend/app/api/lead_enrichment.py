@@ -200,8 +200,8 @@ async def _run_enrichment(enrichment_id: int, email: str, contact_submission_id:
                     SET domain = :domain,
                         company_name = :company_name,
                         company_description = :company_description,
-                        social_profiles = :social_profiles::jsonb,
-                        website_info = :website_info::jsonb,
+                        social_profiles = CAST(:social_profiles AS jsonb),
+                        website_info = CAST(:website_info AS jsonb),
                         enriched_at = now(),
                         status = 'enriched'
                     WHERE id = :id

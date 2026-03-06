@@ -161,7 +161,7 @@ async def persist_execution(execution: dict):
                 INSERT INTO public.task_executions
                     (execution_id, status, queue, current_index, results, started_at, completed_at)
                 VALUES
-                    (:eid, :status, :queue::jsonb, :idx, :results::jsonb, :started, :completed)
+                    (:eid, :status, CAST(:queue AS jsonb), :idx, CAST(:results AS jsonb), :started, :completed)
                 ON CONFLICT (execution_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     queue = EXCLUDED.queue,

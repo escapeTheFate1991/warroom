@@ -29,6 +29,11 @@ const CATEGORY_META: Record<string, { label: string; icon: typeof Key; descripti
     icon: MapPin,
     description: "Configure lead search and enrichment behavior",
   },
+  business: {
+    label: "Business Details",
+    icon: Building2,
+    description: "Legal entity info for contracts, invoices, and proposals",
+  },
 };
 
 // Group API keys into logical drawers
@@ -74,6 +79,23 @@ const KEY_LABELS: Record<string, string> = {
   company_name: "Company Name",
   your_name: "Your Name",
   your_phone: "Your Phone",
+  business_legal_name: "Legal Entity Name",
+  business_dba: "DBA / Trade Name",
+  business_address_line1: "Address Line 1",
+  business_address_line2: "Address Line 2",
+  business_city: "City",
+  business_state: "State / Province",
+  business_zip: "ZIP / Postal Code",
+  business_country: "Country",
+  business_phone: "Business Phone",
+  business_email: "Business Email",
+  business_website: "Website URL",
+  business_ein: "EIN / Tax ID",
+  business_entity_type: "Entity Type",
+  business_state_of_formation: "State of Formation",
+  business_logo_url: "Logo URL",
+  business_authorized_signer: "Authorized Signer",
+  business_signer_title: "Signer Title",
   default_search_location: "Default Search Location",
   max_search_results: "Max Search Results",
   auto_enrich: "Auto-Enrich Leads",
@@ -81,6 +103,7 @@ const KEY_LABELS: Record<string, string> = {
 
 const SETTINGS_TABS = [
   { id: "general", label: "General", icon: Building2 },
+  { id: "business", label: "Business Details", icon: Building2 },
   { id: "email", label: "Email & Calendar", icon: Mail },
   { id: "social", label: "Social Media", icon: Share2 },
   { id: "scoring", label: "Lead Scoring", icon: Target },
@@ -737,6 +760,83 @@ export default function SettingsPanel() {
             <AlertCircle size={12} /> {error}
           </div>
         )}
+      </div>
+    );
+  };
+
+  const renderBusinessTab = () => {
+    const sections = [
+      {
+        title: "Company Identity",
+        description: "Legal entity and registration details",
+        fields: [
+          { key: "business_legal_name", label: "Legal Name" },
+          { key: "business_dba", label: "DBA / Trade Name" },
+          { key: "business_entity_type", label: "Entity Type" },
+          { key: "business_state_of_formation", label: "State of Formation" },
+        ],
+      },
+      {
+        title: "Contact Information",
+        description: "Business contact details for contracts and invoices",
+        fields: [
+          { key: "business_email", label: "Business Email" },
+          { key: "business_phone", label: "Business Phone" },
+          { key: "business_website", label: "Website" },
+        ],
+      },
+      {
+        title: "Address",
+        description: "Primary business address",
+        fields: [
+          { key: "business_address_line1", label: "Address Line 1" },
+          { key: "business_address_line2", label: "Address Line 2" },
+          { key: "business_city", label: "City" },
+          { key: "business_state", label: "State / Province" },
+          { key: "business_zip", label: "ZIP / Postal Code" },
+          { key: "business_country", label: "Country" },
+        ],
+      },
+      {
+        title: "Legal & Tax",
+        description: "Tax identification and authorized signers",
+        fields: [
+          { key: "business_ein", label: "EIN / Tax ID" },
+          { key: "business_authorized_signer", label: "Authorized Signer" },
+          { key: "business_signer_title", label: "Signer Title" },
+        ],
+      },
+      {
+        title: "Branding",
+        description: "Logo and visual identity for generated documents",
+        fields: [
+          { key: "business_logo_url", label: "Logo URL" },
+        ],
+      },
+    ];
+
+    return (
+      <div className="space-y-8">
+        {sections.map((section) => (
+          <section key={section.title}>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center">
+                <Building2 size={16} className="text-warroom-accent" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold">{section.title}</h3>
+                <p className="text-xs text-warroom-muted">{section.description}</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {section.fields.map((field) => {
+                const setting = settings.find((s) => s.key === field.key);
+                if (!setting) return null;
+                return renderSettingField(setting);
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     );
   };
@@ -1665,6 +1765,7 @@ export default function SettingsPanel() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl mx-auto">
           {activeTab === "general" && renderGeneralTab()}
+          {activeTab === "business" && renderBusinessTab()}
           {activeTab === "email" && renderEmailTab()}
           {activeTab === "social" && renderSocialTab()}
           {activeTab === "scoring" && renderScoringTab()}
