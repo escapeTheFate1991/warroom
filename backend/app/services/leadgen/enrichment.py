@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.lead import Lead, SearchJob
 from app.services.leadgen.website_crawler import crawl_website
 from app.services.leadgen.lead_scorer import score_lead
+from app.services.leadgen.review_scraper import scrape_yelp_reviews, fetch_google_reviews
+from app.services.leadgen.review_analyzer import analyze_reviews
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,13 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
             lead.youtube_url = existing_lead.youtube_url
             lead.yelp_url = existing_lead.yelp_url
             lead.audit_lite_flags = existing_lead.audit_lite_flags
+            lead.yelp_rating = existing_lead.yelp_rating
+            lead.yelp_reviews_count = existing_lead.yelp_reviews_count
+            lead.review_highlights = existing_lead.review_highlights
+            lead.review_sentiment_score = existing_lead.review_sentiment_score
+            lead.review_pain_points = existing_lead.review_pain_points
+            lead.review_opportunity_flags = existing_lead.review_opportunity_flags
+            lead.reviews_scraped_at = existing_lead.reviews_scraped_at
             lead.website_audit_score = existing_lead.website_audit_score
             lead.website_audit_grade = existing_lead.website_audit_grade
             lead.website_audit_summary = existing_lead.website_audit_summary
@@ -125,6 +134,12 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
         audit_flags.append("Minimal social presence")
     lead.audit_lite_flags = audit_flags
 
+    # --- Review scraping & analysis ---
+    try:
+        await _enrich_reviews(lead)
+    except Exception as exc:
+        logger.warning("Review enrichment failed for lead %d: %s", lead_id, exc)
+
     score, tier = score_lead(lead)
     lead.lead_score = score
     lead.lead_tier = tier
@@ -177,3 +192,42 @@ async def enrich_job(job_id: int, db: AsyncSession) -> None:
     )
     await db.commit()
     logger.info("Enrichment complete for job %d: %d leads", job_id, enriched)
+
+
+async def _enrich_reviews(lead: Lead) -> None:
+    """Scrape Yelp + Google reviews, analyze, and populate review columns."""
+    all_review_texts: list[str] = []
+
+    # Yelp reviews
+    if lead.business_name and lead.city:
+        yelp_result = await scrape_yelp_reviews(
+            lead.business_name,
+            lead.city,
+            lead.state or "",
+        )
+        if yelp_result.yelp_url:
+            lead.yelp_url = lead.yelp_url or yelp_result.yelp_url
+        if yelp_result.yelp_rating:
+            lead.yelp_rating = yelp_result.yelp_rating
+        if yelp_result.yelp_reviews_count:
+            lead.yelp_reviews_count = yelp_result.yelp_reviews_count
+        all_review_texts.extend(r.text for r in yelp_result.reviews if r.text)
+
+    # Google reviews (if we have a place_id)
+    if lead.google_place_id:
+        google_result = await fetch_google_reviews(lead.google_place_id)
+        all_review_texts.extend(r.text for r in google_result.reviews if r.text)
+
+    # Analyze combined reviews
+    if all_review_texts:
+        analysis = analyze_reviews(all_review_texts)
+        lead.review_sentiment_score = analysis.sentiment_score
+        lead.review_pain_points = analysis.pain_points
+        lead.review_opportunity_flags = analysis.opportunity_flags
+        lead.review_highlights = analysis.highlight_quotes
+        lead.reviews_scraped_at = datetime.now()
+        logger.info(
+            "Lead %d: %d reviews analyzed, sentiment=%.2f, flags=%s",
+            lead.id, len(all_review_texts),
+            analysis.sentiment_score, analysis.opportunity_flags,
+        )

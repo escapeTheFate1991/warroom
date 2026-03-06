@@ -67,6 +67,15 @@ class Lead(Base):
     youtube_url = Column(Text)
     yelp_url = Column(Text)
 
+    # Review intelligence
+    yelp_rating = Column(Numeric(2, 1))
+    yelp_reviews_count = Column(Integer, default=0)
+    review_highlights = Column(ARRAY(Text), default=[])  # Top pain-point quotes from reviews
+    review_sentiment_score = Column(Numeric(3, 2))  # -1.0 to 1.0
+    review_pain_points = Column(ARRAY(Text), default=[])  # Extracted pain points
+    review_opportunity_flags = Column(ARRAY(Text), default=[])  # Flags relevant to our services
+    reviews_scraped_at = Column(TIMESTAMP(timezone=True))
+
     # Website audit data
     has_website = Column(Boolean, default=False)
     website_status = Column(Integer)

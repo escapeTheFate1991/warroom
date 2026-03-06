@@ -71,6 +71,36 @@ async def _ensure_source_column(db: AsyncSession):
 
 
 # ---------------------------------------------------------------------------
+# Ensure review intelligence columns exist (idempotent ALTER TABLE)
+# ---------------------------------------------------------------------------
+_REVIEW_COLS_ADDED = False
+
+
+async def _ensure_review_columns(db: AsyncSession):
+    """Add review intelligence columns to leads table if they don't exist."""
+    global _REVIEW_COLS_ADDED
+    if _REVIEW_COLS_ADDED:
+        return
+    try:
+        stmts = [
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS yelp_rating NUMERIC(2,1)",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS yelp_reviews_count INTEGER DEFAULT 0",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS review_highlights TEXT[] DEFAULT '{}'",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS review_sentiment_score NUMERIC(3,2)",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS review_pain_points TEXT[] DEFAULT '{}'",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS review_opportunity_flags TEXT[] DEFAULT '{}'",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS reviews_scraped_at TIMESTAMPTZ",
+        ]
+        for stmt in stmts:
+            await db.execute(text(stmt))
+        await db.commit()
+        _REVIEW_COLS_ADDED = True
+    except Exception:
+        await db.rollback()
+        _REVIEW_COLS_ADDED = True  # Don't retry on every request
+
+
+# ---------------------------------------------------------------------------
 # Background tasks
 # ---------------------------------------------------------------------------
 
@@ -80,6 +110,7 @@ async def _run_search(job_id: int, request: SearchRequest):
         try:
             await _ensure_enrichment_error_column(db)
             await _ensure_source_column(db)
+            await _ensure_review_columns(db)
 
             places = await search_places(request.query, request.location, request.max_results, request.radius_km)
 
@@ -434,6 +465,7 @@ async def create_search(request: SearchRequest, background_tasks: BackgroundTask
     try:
         await _ensure_enrichment_error_column(db)
         await _ensure_source_column(db)
+        await _ensure_review_columns(db)
 
         job = SearchJob(
             query=request.query,
