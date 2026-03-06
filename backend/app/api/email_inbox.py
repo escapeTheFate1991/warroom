@@ -306,8 +306,11 @@ async def gmail_callback(
     """Handle Gmail OAuth callback — exchange code for tokens."""
     if error:
         return HTMLResponse(
-            f"<html><body><script>window.opener?.postMessage({{type:'gmail-error',error:'{error}'}},'*');window.close();</script>"
-            f"<p>Error: {error}. You can close this window.</p></body></html>"
+            f"<html><body><script>"
+            f"if(window.opener){{window.opener.postMessage({{type:'gmail-error',error:'{error}'}},'*');window.close();}}"
+            f"else{{window.location.href='/?error=gmail_' + encodeURIComponent('{error}');}}"
+            f"</script>"
+            f"<p>Error: {error}. Redirecting...</p></body></html>"
         )
 
     cfg = await _get_google_client_config()
@@ -327,7 +330,10 @@ async def gmail_callback(
         if token_resp.status_code != 200:
             logger.error("Gmail token exchange failed: %s", token_resp.text)
             return HTMLResponse(
-                "<html><body><script>window.opener?.postMessage({type:'gmail-error',error:'token_exchange_failed'},'*');window.close();</script>"
+                "<html><body><script>"
+                "if(window.opener){window.opener.postMessage({type:'gmail-error',error:'token_exchange_failed'},'*');window.close();}"
+                "else{window.location.href='/?error=gmail_token_exchange_failed';}"
+                "</script>"
                 "<p>Token exchange failed. You can close this window.</p></body></html>"
             )
         token_data = token_resp.json()
@@ -394,10 +400,14 @@ async def gmail_callback(
 
     return HTMLResponse(
         "<html><body><script>"
-        "window.opener?.postMessage({type:'gmail-connected'},'*');"
-        "window.close();"
+        "if(window.opener){"
+        "  window.opener.postMessage({type:'gmail-connected'},'*');"
+        "  window.close();"
+        "}else{"
+        "  window.location.href='/';"
+        "}"
         "</script>"
-        "<p>✅ Gmail connected! You can close this window.</p>"
+        "<p>✅ Gmail connected! Redirecting...</p>"
         "</body></html>"
     )
 
