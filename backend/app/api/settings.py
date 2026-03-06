@@ -317,15 +317,18 @@ async def init_settings_table(engine):
     async with engine.begin() as conn:
         await conn.run_sync(SettingsBase.metadata.create_all)
 
-    # Seed defaults if table is empty
+    # Seed defaults — upsert so new settings are always added
     from app.db.leadgen_db import leadgen_session
     async with leadgen_session() as db:
-        result = await db.execute(select(Setting))
-        if not result.scalars().first():
-            for s in DEFAULT_SETTINGS:
+        seeded = 0
+        for s in DEFAULT_SETTINGS:
+            existing = await db.execute(select(Setting).where(Setting.key == s["key"]))
+            if not existing.scalar_one_or_none():
                 db.add(Setting(**s))
+                seeded += 1
+        if seeded:
             await db.commit()
-            logger.info("Seeded %d default settings", len(DEFAULT_SETTINGS))
+            logger.info("Seeded %d new default settings", seeded)
 
         # Load API keys from DB into environment so services can use them
         api_key_settings = await db.execute(
