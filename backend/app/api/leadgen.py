@@ -81,7 +81,7 @@ async def _run_search(job_id: int, request: SearchRequest):
             await _ensure_enrichment_error_column(db)
             await _ensure_source_column(db)
 
-            places = await search_places(request.query, request.location, request.max_results)
+            places = await search_places(request.query, request.location, request.max_results, request.radius_km)
 
             inserted = 0
             for place in places:

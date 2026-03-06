@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, MapPin, Globe, Mail, Phone, Loader2, Building2, RefreshCw, Star, Filter, X, AlertTriangle, Clock, Trash2 } from "lucide-react";
 import LeadDrawer, { LeadFull } from "./LeadDrawer";
 import { API, authFetch } from "@/lib/api";
+import { US_STATES, US_CITIES } from "@/data/us-cities";
 
 const PAGE_SIZE = 10;
 
@@ -170,7 +171,9 @@ function FreshnessBadge({ ageDays }: { ageDays: number }) {
 /*  Main Panel                                                         */
 /* ------------------------------------------------------------------ */
 export default function LeadgenPanel() {
-  const [location, setLocation] = useState("");
+  const [selectedState, setSelectedState] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
+  const [radiusMiles, setRadiusMiles] = useState(25);
   const [query, setQuery] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [searching, setSearching] = useState(false);
@@ -413,7 +416,12 @@ export default function LeadgenPanel() {
 
       // Start a new search with same params
       setQuery(job.query);
-      setLocation(job.location);
+      // Try to parse "City, ST" format back into dropdowns
+      const locationParts = (job.location as string).split(", ");
+      if (locationParts.length === 2) {
+        setSelectedState(locationParts[1]);
+        setSelectedCity(locationParts[0]);
+      }
       setSearching(true);
       setSearchStatus(`Refreshing: ${job.query} in ${job.location}...`);
       setErrorMessage(null);
@@ -421,7 +429,12 @@ export default function LeadgenPanel() {
       const searchResp = await authFetch(`${API}/api/leadgen/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: job.query, location: job.location, max_results: 60 }),
+        body: JSON.stringify({
+          query: job.query,
+          location: job.location,
+          max_results: 60,
+          radius_km: Math.round(radiusMiles * 1.60934),
+        }),
       });
 
       if (!searchResp.ok) {
@@ -487,7 +500,8 @@ export default function LeadgenPanel() {
   };
 
   const searchBusinesses = async () => {
-    if (!location.trim() || !query.trim()) return;
+    const location = selectedCity && selectedState ? `${selectedCity}, ${selectedState}` : "";
+    if (!location || !query.trim()) return;
     setSearching(true);
     setSearchStatus(`Searching for ${query} in ${location}...`);
     setErrorMessage(null);
@@ -496,7 +510,12 @@ export default function LeadgenPanel() {
       const resp = await authFetch(`${API}/api/leadgen/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, location, max_results: 60 }),
+        body: JSON.stringify({
+          query,
+          location,
+          max_results: 60,
+          radius_km: Math.round(radiusMiles * 1.60934),
+        }),
       });
 
       if (!resp.ok) {
@@ -538,23 +557,57 @@ export default function LeadgenPanel() {
         )}
 
         {/* Search bar */}
-        <div className="flex gap-3 mb-3">
-          <div className="relative flex-1">
-            <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
-            <input
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && searchBusinesses()}
-              placeholder="Location (e.g. Austin, TX)"
-              className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-10 pr-4 py-2.5 text-sm text-warroom-text placeholder-warroom-muted focus:outline-none focus:border-warroom-accent"
-            />
+        <div className="flex gap-3 mb-2">
+          {/* State dropdown */}
+          <div className="relative w-32 shrink-0">
+            <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" />
+            <select
+              value={selectedState}
+              onChange={(e) => {
+                setSelectedState(e.target.value);
+                setSelectedCity("");
+              }}
+              className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-10 pr-8 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+              style={{ colorScheme: "dark" }}
+            >
+              <option value="" disabled>State...</option>
+              {US_STATES.map((s) => (
+                <option key={s.abbr} value={s.abbr}>{s.name}</option>
+              ))}
+            </select>
+            <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
           </div>
+
+          {/* City dropdown */}
+          <div className="relative flex-1">
+            <select
+              value={selectedCity}
+              onChange={(e) => setSelectedCity(e.target.value)}
+              disabled={!selectedState}
+              className="w-full bg-warroom-surface border border-warroom-border rounded-lg px-4 pr-8 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ colorScheme: "dark" }}
+            >
+              {selectedState ? (
+                <>
+                  <option value="" disabled>Select city...</option>
+                  {(US_CITIES[selectedState] ?? []).map((city) => (
+                    <option key={city} value={city}>{city}</option>
+                  ))}
+                </>
+              ) : (
+                <option value="" disabled>Select state first...</option>
+              )}
+            </select>
+            <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
+          </div>
+
+          {/* Business type dropdown */}
           <div className="relative flex-1">
             <Building2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" />
             <select
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-10 pr-4 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+              className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-10 pr-8 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
               style={{ colorScheme: "dark" }}
             >
               <option value="" disabled>Select business type...</option>
@@ -564,14 +617,33 @@ export default function LeadgenPanel() {
             </select>
             <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
           </div>
+
+          {/* Search button */}
           <button
             onClick={searchBusinesses}
-            disabled={searching || !location.trim() || !query.trim()}
+            disabled={searching || !selectedState || !selectedCity || !query.trim()}
             className="px-6 py-2.5 bg-warroom-accent rounded-lg text-sm font-medium hover:bg-warroom-accent/80 disabled:opacity-50 transition flex items-center gap-2"
           >
             {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
             Search
           </button>
+        </div>
+
+        {/* Radius selector */}
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs text-warroom-muted">Search radius:</span>
+          <select
+            value={radiusMiles}
+            onChange={(e) => setRadiusMiles(Number(e.target.value))}
+            className="bg-warroom-surface border border-warroom-border rounded-lg px-2 py-1 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+            style={{ colorScheme: "dark" }}
+          >
+            <option value={10}>10 mi</option>
+            <option value={25}>25 mi</option>
+            <option value={50}>50 mi</option>
+            <option value={75}>75 mi</option>
+            <option value={100}>100 mi</option>
+          </select>
         </div>
 
         {/* Status + filters bar */}

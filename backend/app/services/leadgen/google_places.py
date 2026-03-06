@@ -176,10 +176,28 @@ def _build_osm_tags(query: str) -> list[tuple[str, str]]:
     return tags
 
 
-async def _search_google_places(query: str, location: str, max_results: int) -> list[PlaceResult]:
-    """Search Google Places API (requires GOOGLE_MAPS_API_KEY)."""
-    api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+async def _get_google_maps_key() -> str:
+    """Get Google Maps API key from settings DB, falling back to env var."""
+    try:
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy import text as sa_text
+        engine = create_async_engine("postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge", pool_size=1)
+        async with engine.begin() as conn:
+            result = await conn.execute(sa_text("SELECT value FROM public.settings WHERE key = 'google_maps_api_key'"))
+            row = result.fetchone()
+            await engine.dispose()
+            if row and row[0]:
+                return row[0]
+    except Exception as exc:
+        logger.warning("Failed to read Google Maps key from DB: %s", exc)
+    return os.getenv("GOOGLE_MAPS_API_KEY", "")
+
+
+async def _search_google_places(query: str, location: str, max_results: int, radius_km: int = 25) -> list[PlaceResult]:
+    """Search Google Places API (requires google_maps_api_key in settings or GOOGLE_MAPS_API_KEY env)."""
+    api_key = await _get_google_maps_key()
     if not api_key:
+        logger.warning("No Google Maps API key found in settings DB or environment")
         return []
 
     search_text = f"{query} in {location}"
@@ -191,6 +209,27 @@ async def _search_google_places(query: str, location: str, max_results: int) -> 
             body: dict = {"textQuery": search_text, "maxResultCount": 20}
             if page_token:
                 body["pageToken"] = page_token
+
+            # Use locationBias to expand search radius beyond exact city
+            # First geocode the location to get lat/lng, then set radius
+            if not page_token and radius_km and radius_km > 0:
+                geo_resp = await client.get(
+                    "https://maps.googleapis.com/maps/api/geocode/json",
+                    params={"address": location, "key": api_key},
+                )
+                if geo_resp.status_code == 200:
+                    geo_data = geo_resp.json()
+                    geo_results = geo_data.get("results", [])
+                    if geo_results:
+                        loc = geo_results[0].get("geometry", {}).get("location", {})
+                        if loc.get("lat") and loc.get("lng"):
+                            body["locationBias"] = {
+                                "circle": {
+                                    "center": {"latitude": loc["lat"], "longitude": loc["lng"]},
+                                    "radius": radius_km * 1000,  # Convert km to meters
+                                }
+                            }
+                            logger.info("Using locationBias: %s with %dkm radius", location, radius_km)
 
             headers = {
                 "Content-Type": "application/json",
@@ -222,10 +261,20 @@ async def _search_google_places(query: str, location: str, max_results: int) -> 
 
 
 async def _search_yelp(query: str, location: str, max_results: int) -> list[PlaceResult]:
-    """Search Yelp Fusion API (requires YELP_API_KEY, free tier: 5000 calls/day)."""
-    api_key = os.getenv("YELP_API_KEY", "")
+    """Search Yelp Fusion API (requires yelp_api_key in settings or YELP_API_KEY env)."""
+    try:
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy import text as sa_text
+        engine = create_async_engine("postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge", pool_size=1)
+        async with engine.begin() as conn:
+            result = await conn.execute(sa_text("SELECT value FROM public.settings WHERE key = 'yelp_api_key'"))
+            row = result.fetchone()
+            await engine.dispose()
+            api_key = (row[0] if row and row[0] else "") or os.getenv("YELP_API_KEY", "")
+    except Exception:
+        api_key = os.getenv("YELP_API_KEY", "")
     if not api_key:
-        logger.info("No YELP_API_KEY set, skipping Yelp source")
+        logger.info("No Yelp API key set, skipping Yelp source")
         return []
 
     results: list[PlaceResult] = []
@@ -474,7 +523,7 @@ def _deduplicate_results(results: list[PlaceResult]) -> list[PlaceResult]:
     return deduped
 
 
-async def search_places(query: str, location: str, max_results: int = 60) -> list[PlaceResult]:
+async def search_places(query: str, location: str, max_results: int = 60, radius_km: int = 25) -> list[PlaceResult]:
     """Search for businesses matching query in location.
 
     Sources tried in order of priority:
@@ -493,7 +542,7 @@ async def search_places(query: str, location: str, max_results: int = 60) -> lis
     google_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
     if google_key:
         sources_tried.append("google_places")
-        google_results = await _search_google_places(query, location, max_results)
+        google_results = await _search_google_places(query, location, max_results, radius_km)
         if google_results:
             sources_used.append(f"google_places({len(google_results)})")
             all_results.extend(google_results)
