@@ -665,6 +665,93 @@ export default function CompetitorIntel() {
                     </div>
                   )}
 
+                  {/* ── Top Videos / Posts ── */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Flame size={16} className="text-orange-400" />
+                      <h4 className="text-sm font-semibold">Top Performing Posts</h4>
+                    </div>
+
+                    {loadingTopVideos ? (
+                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-6">
+                        <Loader2 size={16} className="animate-spin" /> Loading top posts…
+                      </div>
+                    ) : topVideos.length === 0 ? (
+                      <p className="text-xs text-warroom-muted py-4">No top posts data available.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {topVideos.map((vid, idx) => (
+                          <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition">
+                            <p className="text-sm text-warroom-text font-medium line-clamp-2 mb-2">{vid.title || "Untitled"}</p>
+                            {vid.hook && (
+                              <p className="text-xs text-warroom-accent mb-2 line-clamp-1">🪝 {vid.hook}</p>
+                            )}
+                            <div className="flex items-center gap-3 text-xs text-warroom-muted mb-2">
+                              <span className="flex items-center gap-1 text-pink-400"><Heart size={12} /> {formatNum(vid.likes)}</span>
+                              <span className="flex items-center gap-1 text-blue-400"><MessageCircle size={12} /> {formatNum(vid.comments)}</span>
+                              {vid.shares > 0 && (
+                                <span className="flex items-center gap-1 text-purple-400">{formatNum(vid.shares)} shares</span>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-warroom-muted">
+                              <span>Score: <span className="text-warroom-accent font-medium">{vid.engagement_score.toFixed(0)}</span></span>
+                              <div className="flex items-center gap-2">
+                                {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
+                                {vid.post_url && (
+                                  <a href={vid.post_url} target="_blank" rel="noopener noreferrer"
+                                    className="text-warroom-muted hover:text-warroom-accent transition">
+                                    <ExternalLink size={12} />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Hashtag Cloud ── */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Hash size={16} className="text-cyan-400" />
+                      <h4 className="text-sm font-semibold">Hashtag Cloud</h4>
+                    </div>
+
+                    {loadingHashtags ? (
+                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-4">
+                        <Loader2 size={16} className="animate-spin" /> Loading hashtags…
+                      </div>
+                    ) : hashtags.length === 0 ? (
+                      <p className="text-xs text-warroom-muted py-2">No hashtags found in posts.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {hashtags.slice(0, 20).map((ht, idx) => {
+                          const colors = [
+                            "bg-pink-500/15 text-pink-400",
+                            "bg-blue-500/15 text-blue-400",
+                            "bg-cyan-500/15 text-cyan-400",
+                            "bg-purple-500/15 text-purple-400",
+                            "bg-orange-500/15 text-orange-400",
+                            "bg-green-500/15 text-green-400",
+                            "bg-yellow-500/15 text-yellow-400",
+                            "bg-red-500/15 text-red-400",
+                          ];
+                          const color = colors[idx % colors.length];
+                          const maxCount = hashtags[0]?.count || 1;
+                          const scale = 0.7 + 0.6 * (ht.count / maxCount);
+                          return (
+                            <span key={idx}
+                              className={`px-2.5 py-1 rounded-full font-medium ${color}`}
+                              style={{ fontSize: `${scale}rem` }}>
+                              {ht.tag} <span className="opacity-60">({ht.count})</span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Content feed — scrollable post list */}
                   <div>
                     <div className="flex items-center justify-between mb-3">
@@ -746,93 +833,6 @@ export default function CompetitorIntel() {
                     )}
                   </div>
 
-                  {/* ── Top Videos / Posts ── */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Flame size={16} className="text-orange-400" />
-                      <h4 className="text-sm font-semibold">Top Performing Posts</h4>
-                    </div>
-
-                    {loadingTopVideos ? (
-                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-6">
-                        <Loader2 size={16} className="animate-spin" /> Loading top posts…
-                      </div>
-                    ) : topVideos.length === 0 ? (
-                      <p className="text-xs text-warroom-muted py-4">No top posts data available.</p>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {topVideos.map((vid, idx) => (
-                          <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition">
-                            <p className="text-sm text-warroom-text font-medium line-clamp-2 mb-2">{vid.title || "Untitled"}</p>
-                            {vid.hook && (
-                              <p className="text-xs text-warroom-accent mb-2 line-clamp-1">🪝 {vid.hook}</p>
-                            )}
-                            <div className="flex items-center gap-3 text-xs text-warroom-muted mb-2">
-                              <span className="flex items-center gap-1 text-pink-400"><Heart size={12} /> {formatNum(vid.likes)}</span>
-                              <span className="flex items-center gap-1 text-blue-400"><MessageCircle size={12} /> {formatNum(vid.comments)}</span>
-                              {vid.shares > 0 && (
-                                <span className="flex items-center gap-1 text-purple-400">{formatNum(vid.shares)} shares</span>
-                              )}
-                            </div>
-                            <div className="flex items-center justify-between text-[10px] text-warroom-muted">
-                              <span>Score: <span className="text-warroom-accent font-medium">{vid.engagement_score.toFixed(0)}</span></span>
-                              <div className="flex items-center gap-2">
-                                {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
-                                {vid.post_url && (
-                                  <a href={vid.post_url} target="_blank" rel="noopener noreferrer"
-                                    className="text-warroom-muted hover:text-warroom-accent transition">
-                                    <ExternalLink size={12} />
-                                  </a>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ── Hashtag Cloud ── */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Hash size={16} className="text-cyan-400" />
-                      <h4 className="text-sm font-semibold">Hashtag Cloud</h4>
-                    </div>
-
-                    {loadingHashtags ? (
-                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-4">
-                        <Loader2 size={16} className="animate-spin" /> Loading hashtags…
-                      </div>
-                    ) : hashtags.length === 0 ? (
-                      <p className="text-xs text-warroom-muted py-2">No hashtags found in posts.</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {hashtags.slice(0, 20).map((ht, idx) => {
-                          const colors = [
-                            "bg-pink-500/15 text-pink-400",
-                            "bg-blue-500/15 text-blue-400",
-                            "bg-cyan-500/15 text-cyan-400",
-                            "bg-purple-500/15 text-purple-400",
-                            "bg-orange-500/15 text-orange-400",
-                            "bg-green-500/15 text-green-400",
-                            "bg-yellow-500/15 text-yellow-400",
-                            "bg-red-500/15 text-red-400",
-                          ];
-                          const color = colors[idx % colors.length];
-                          // Scale font size based on relative frequency
-                          const maxCount = hashtags[0]?.count || 1;
-                          const scale = 0.7 + 0.6 * (ht.count / maxCount);
-                          return (
-                            <span key={idx}
-                              className={`px-2.5 py-1 rounded-full font-medium ${color}`}
-                              style={{ fontSize: `${scale}rem` }}>
-                              {ht.tag} <span className="opacity-60">({ht.count})</span>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
                 </div>
               ) : (
                 /* GRID VIEW — all competitors */
