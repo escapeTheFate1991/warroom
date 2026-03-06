@@ -179,7 +179,7 @@ export default function KanbanPanel() {
     setSaving(true);
     try {
       const resp = await authFetch(`${API}/api/kanban/tasks/${selectedTask.id}`, {
-        method: "PATCH",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: editTitle.trim(),
@@ -207,7 +207,7 @@ export default function KanbanPanel() {
 
   const updateTaskStatus = async (taskId: number, newStatus: string) => {
     await authFetch(`${API}/api/kanban/tasks/${taskId}`, {
-      method: "PATCH",
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
     });

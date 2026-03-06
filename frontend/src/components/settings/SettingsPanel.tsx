@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X } from "lucide-react";
+import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X, RefreshCw } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
 
@@ -101,6 +101,22 @@ interface EmailSettings {
   from_email: string;
 }
 
+interface EmailAccount {
+  id: number;
+  provider: 'gmail' | 'imap';
+  email: string;
+  status: 'connected' | 'disconnected' | 'error';
+  last_synced?: string;
+}
+
+interface ImapConfig {
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+  ssl: boolean;
+}
+
 interface LeadScoringWeights {
   no_website: number;
   bad_website_score: number;
@@ -177,7 +193,27 @@ export default function SettingsPanel() {
     from_email: ''
   });
   const [testingConnection, setTestingConnection] = useState(false);
-  
+
+  // Email accounts state (for reading emails)
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([]);
+  const [emailProvider, setEmailProvider] = useState<'gmail' | 'imap'>('gmail');
+  const [imapConfig, setImapConfig] = useState<ImapConfig>({
+    host: '',
+    port: '993',
+    username: '',
+    password: '',
+    ssl: true,
+  });
+  const [imapConnecting, setImapConnecting] = useState(false);
+  const [imapStatus, setImapStatus] = useState<{ success?: boolean; message?: string } | null>(null);
+  const [gmailConnecting, setGmailConnecting] = useState(false);
+  const [gmailError, setGmailError] = useState('');
+  const [syncingAccountId, setSyncingAccountId] = useState<number | null>(null);
+
+  // Refs for Gmail OAuth popup polling
+  const gmailPopupCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const gmailMessageHandlerRef = useRef<((event: MessageEvent) => void) | null>(null);
+
   // Social media state
   const [socialConnections, setSocialConnections] = useState<Record<string, boolean>>({
     facebook: false,
@@ -306,6 +342,116 @@ export default function SettingsPanel() {
     }
   };
 
+  const loadEmailAccounts = async () => {
+    try {
+      const res = await authFetch(`${API}/api/email/accounts`);
+      if (res.ok) {
+        const data = await res.json();
+        setEmailAccounts(data);
+      }
+    } catch {
+      console.error("Failed to load email accounts");
+    }
+  };
+
+  const cleanupGmailOAuth = useCallback(() => {
+    if (gmailPopupCheckRef.current) {
+      clearInterval(gmailPopupCheckRef.current);
+      gmailPopupCheckRef.current = null;
+    }
+    if (gmailMessageHandlerRef.current) {
+      window.removeEventListener("message", gmailMessageHandlerRef.current);
+      gmailMessageHandlerRef.current = null;
+    }
+  }, []);
+
+  const connectGmail = async () => {
+    setGmailConnecting(true);
+    setGmailError('');
+    cleanupGmailOAuth();
+    try {
+      const res = await authFetch(`${API}/api/email/accounts/gmail/connect`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || "Failed to get Gmail auth URL");
+      }
+      const { auth_url } = await res.json();
+      const popup = window.open(auth_url, "gmail-auth", "width=500,height=700,left=200,top=100");
+
+      const handler = (event: MessageEvent) => {
+        if (event.data?.type === "gmail-connected") {
+          cleanupGmailOAuth();
+          loadEmailAccounts();
+          setGmailConnecting(false);
+        } else if (event.data?.type === "gmail-error") {
+          cleanupGmailOAuth();
+          setGmailError(event.data.error || "Gmail OAuth failed");
+          setGmailConnecting(false);
+        }
+      };
+      gmailMessageHandlerRef.current = handler;
+      window.addEventListener("message", handler);
+
+      gmailPopupCheckRef.current = setInterval(() => {
+        if (popup?.closed) {
+          cleanupGmailOAuth();
+          loadEmailAccounts();
+          setGmailConnecting(false);
+        }
+      }, 1000);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to connect Gmail";
+      setGmailError(message);
+      setGmailConnecting(false);
+    }
+  };
+
+  const disconnectEmailAccount = async (accountId: number) => {
+    if (!confirm("Disconnect this email account?")) return;
+    try {
+      await authFetch(`${API}/api/email/accounts/${accountId}`, { method: "DELETE" });
+      loadEmailAccounts();
+    } catch {
+      console.error("Failed to disconnect email account");
+    }
+  };
+
+  const syncEmailAccount = async (accountId: number) => {
+    setSyncingAccountId(accountId);
+    try {
+      await authFetch(`${API}/api/email/accounts/${accountId}/sync`, { method: "POST" });
+      loadEmailAccounts();
+    } catch {
+      console.error("Failed to sync email account");
+    } finally {
+      setSyncingAccountId(null);
+    }
+  };
+
+  const connectImap = async () => {
+    setImapConnecting(true);
+    setImapStatus(null);
+    try {
+      const res = await authFetch(`${API}/api/email/accounts/imap/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(imapConfig),
+      });
+      if (res.ok) {
+        setImapStatus({ success: true, message: "Connected successfully!" });
+        loadEmailAccounts();
+        setImapConfig({ host: '', port: '993', username: '', password: '', ssl: true });
+      } else {
+        const err = await res.json().catch(() => null);
+        setImapStatus({ success: false, message: err?.detail || "Connection failed" });
+      }
+    } catch {
+      setImapStatus({ success: false, message: "Network error" });
+    } finally {
+      setImapConnecting(false);
+    }
+  };
+
   const cleanupGoogleOAuth = useCallback(() => {
     if (googlePopupCheckRef.current) {
       clearInterval(googlePopupCheckRef.current);
@@ -378,13 +524,17 @@ export default function SettingsPanel() {
     loadUsers();
     loadWorkflows();
     loadGoogleCalStatus();
+    loadEmailAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSettings]);
 
-  // Cleanup Google OAuth listeners on unmount
+  // Cleanup Google OAuth and Gmail OAuth listeners on unmount
   useEffect(() => {
-    return () => cleanupGoogleOAuth();
-  }, [cleanupGoogleOAuth]);
+    return () => {
+      cleanupGoogleOAuth();
+      cleanupGmailOAuth();
+    };
+  }, [cleanupGoogleOAuth, cleanupGmailOAuth]);
 
   const saveSetting = async (key: string) => {
     const value = editValues[key];
@@ -794,9 +944,12 @@ export default function SettingsPanel() {
   };
 
   const renderEmailTab = () => {
+    const gmailAccount = emailAccounts.find(a => a.provider === 'gmail');
+    const imapAccount = emailAccounts.find(a => a.provider === 'imap');
+
     return (
       <div className="space-y-8">
-        {/* ── Google Calendar ────────────────────────── */}
+        {/* ── 1. Google Calendar (unchanged) ────────────────────────── */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center">
@@ -861,133 +1014,345 @@ export default function SettingsPanel() {
           </div>
         </section>
 
-        {/* ── Email Configuration ─────────────────────── */}
+        {/* ── 2. Email Reading (NEW) ─────────────────────── */}
         <section>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center">
               <Mail size={16} className="text-warroom-accent" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold">Email Configuration</h3>
-              <p className="text-xs text-warroom-muted">SMTP and IMAP settings for email integration</p>
+              <h3 className="text-sm font-semibold">Email Reading</h3>
+              <p className="text-xs text-warroom-muted">Connect your inbox to read and sync emails</p>
+            </div>
+          </div>
+
+          {/* Provider toggle tabs */}
+          <div className="flex gap-1 mb-4 bg-warroom-bg border border-warroom-border rounded-lg p-1">
+            <button
+              onClick={() => setEmailProvider('gmail')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
+                emailProvider === 'gmail'
+                  ? 'bg-warroom-surface text-warroom-text shadow-sm'
+                  : 'text-warroom-muted hover:text-warroom-text'
+              }`}
+            >
+              <Globe size={14} />
+              Gmail
+            </button>
+            <button
+              onClick={() => setEmailProvider('imap')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
+                emailProvider === 'imap'
+                  ? 'bg-warroom-surface text-warroom-text shadow-sm'
+                  : 'text-warroom-muted hover:text-warroom-text'
+              }`}
+            >
+              <Mail size={14} />
+              IMAP
+            </button>
+          </div>
+
+          {/* Gmail sub-section */}
+          {emailProvider === 'gmail' && (
+            <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4">
+              {gmailAccount && gmailAccount.status === 'connected' ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                      <div>
+                        <p className="text-sm font-medium text-warroom-text">Connected</p>
+                        <p className="text-xs text-warroom-muted">{gmailAccount.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => syncEmailAccount(gmailAccount.id)}
+                        disabled={syncingAccountId === gmailAccount.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-warroom-text hover:bg-warroom-bg border border-warroom-border transition"
+                      >
+                        {syncingAccountId === gmailAccount.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={12} />
+                        )}
+                        Sync Now
+                      </button>
+                      <button
+                        onClick={() => disconnectEmailAccount(gmailAccount.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-red-400 hover:bg-red-500/10 border border-red-500/20 transition"
+                      >
+                        <X size={12} />
+                        Disconnect
+                      </button>
+                    </div>
+                  </div>
+                  {gmailAccount.last_synced && (
+                    <p className="text-[11px] text-warroom-muted/60">
+                      Last synced: {new Date(gmailAccount.last_synced).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-gray-500" />
+                    <div>
+                      <p className="text-sm font-medium text-warroom-text">Not connected</p>
+                      <p className="text-xs text-warroom-muted">Connect your Gmail account to read emails via Google API</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={connectGmail}
+                    disabled={gmailConnecting}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm bg-warroom-accent hover:bg-warroom-accent/80 text-white font-medium transition"
+                  >
+                    {gmailConnecting ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
+                    Connect Gmail
+                  </button>
+                </div>
+              )}
+
+              {gmailError && (
+                <div className="flex items-center gap-1.5 mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400">
+                  <AlertCircle size={12} />
+                  <span>{gmailError}</span>
+                  <button onClick={() => setGmailError('')} className="ml-auto hover:text-red-300">✕</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* IMAP sub-section */}
+          {emailProvider === 'imap' && (
+            <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 space-y-4">
+              {imapAccount && imapAccount.status === 'connected' ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                      <div>
+                        <p className="text-sm font-medium text-warroom-text">Connected via IMAP</p>
+                        <p className="text-xs text-warroom-muted">{imapAccount.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => syncEmailAccount(imapAccount.id)}
+                        disabled={syncingAccountId === imapAccount.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-warroom-text hover:bg-warroom-bg border border-warroom-border transition"
+                      >
+                        {syncingAccountId === imapAccount.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={12} />
+                        )}
+                        Sync Now
+                      </button>
+                      <button
+                        onClick={() => disconnectEmailAccount(imapAccount.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-red-400 hover:bg-red-500/10 border border-red-500/20 transition"
+                      >
+                        <X size={12} />
+                        Disconnect
+                      </button>
+                    </div>
+                  </div>
+                  {imapAccount.last_synced && (
+                    <p className="text-[11px] text-warroom-muted/60">
+                      Last synced: {new Date(imapAccount.last_synced).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm text-warroom-text block mb-2">IMAP Host</label>
+                      <input
+                        type="text"
+                        value={imapConfig.host}
+                        onChange={(e) => setImapConfig(prev => ({ ...prev, host: e.target.value }))}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent"
+                        placeholder="imap.gmail.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-warroom-text block mb-2">Port</label>
+                      <input
+                        type="text"
+                        value={imapConfig.port}
+                        onChange={(e) => setImapConfig(prev => ({ ...prev, port: e.target.value }))}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent"
+                        placeholder="993"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-warroom-text block mb-2">Username</label>
+                      <input
+                        type="text"
+                        value={imapConfig.username}
+                        onChange={(e) => setImapConfig(prev => ({ ...prev, username: e.target.value }))}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent"
+                        placeholder="you@example.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-warroom-text block mb-2">Password</label>
+                      <input
+                        type="password"
+                        value={imapConfig.password}
+                        onChange={(e) => setImapConfig(prev => ({ ...prev, password: e.target.value }))}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent"
+                        placeholder="Your app password"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <div
+                        onClick={() => setImapConfig(prev => ({ ...prev, ssl: !prev.ssl }))}
+                        className={`relative w-10 h-5 rounded-full transition cursor-pointer ${
+                          imapConfig.ssl ? 'bg-warroom-accent' : 'bg-warroom-border'
+                        }`}
+                      >
+                        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                          imapConfig.ssl ? 'translate-x-5' : 'translate-x-0.5'
+                        }`} />
+                      </div>
+                      <span className="text-sm text-warroom-text">SSL / TLS</span>
+                    </label>
+
+                    <button
+                      onClick={connectImap}
+                      disabled={imapConnecting || !imapConfig.host || !imapConfig.username || !imapConfig.password}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm bg-warroom-accent hover:bg-warroom-accent/80 text-white font-medium transition disabled:opacity-40"
+                    >
+                      {imapConnecting ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                      Test &amp; Connect
+                    </button>
+                  </div>
+
+                  {imapStatus && (
+                    <div className={`flex items-center gap-1.5 p-2 rounded-lg text-xs ${
+                      imapStatus.success
+                        ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+                        : 'bg-red-500/10 border border-red-500/20 text-red-400'
+                    }`}>
+                      {imapStatus.success ? <Check size={12} /> : <AlertCircle size={12} />}
+                      <span>{imapStatus.message}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ── 3. Email Sending (SMTP) ─────────────────────── */}
+        <section>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center">
+              <Mail size={16} className="text-warroom-accent" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold">Email Sending (SMTP)</h3>
+              <p className="text-xs text-warroom-muted">Configure outbound email delivery</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <h4 className="text-xs font-medium text-warroom-muted uppercase tracking-wider mb-3">SMTP Server</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-warroom-text block mb-2">SMTP Host</label>
+                  <input
+                    type="text"
+                    value={emailSettings.smtp_host}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, smtp_host: e.target.value }))}
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
+                    placeholder="smtp.gmail.com"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-warroom-text block mb-2">SMTP Port</label>
+                  <input
+                    type="text"
+                    value={emailSettings.smtp_port}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, smtp_port: e.target.value }))}
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
+                    placeholder="587"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-warroom-text block mb-2">Username</label>
+                  <input
+                    type="text"
+                    value={emailSettings.smtp_username}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, smtp_username: e.target.value }))}
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
+                    placeholder="your-email@gmail.com"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-warroom-text block mb-2">Password</label>
+                  <input
+                    type="password"
+                    value={emailSettings.smtp_password}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, smtp_password: e.target.value }))}
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
+                    placeholder="Your app password"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-medium text-warroom-muted uppercase tracking-wider mb-3">From Information</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-warroom-text block mb-2">From Name</label>
+                  <input
+                    type="text"
+                    value={emailSettings.from_name}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, from_name: e.target.value }))}
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
+                    placeholder="Your Company"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-warroom-text block mb-2">From Email</label>
+                  <input
+                    type="email"
+                    value={emailSettings.from_email}
+                    onChange={(e) => setEmailSettings(prev => ({ ...prev, from_email: e.target.value }))}
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
+                    placeholder="noreply@yourcompany.com"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={testEmailConnection}
+                disabled={testingConnection}
+                className="flex items-center gap-2 px-4 py-2 bg-warroom-surface hover:bg-warroom-surface/80 border border-warroom-border rounded-lg text-sm font-medium transition"
+              >
+                {testingConnection ? "Testing..." : "Test Connection"}
+              </button>
+              <button
+                onClick={saveEmailSettings}
+                className="flex items-center gap-2 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition"
+              >
+                <Save size={16} />
+                Save Settings
+              </button>
             </div>
           </div>
         </section>
-
-        <div>
-          <h3 className="text-sm font-semibold text-warroom-text mb-4">SMTP Configuration</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm text-warroom-text block mb-2">SMTP Host</label>
-              <input
-                type="text"
-                value={emailSettings.smtp_host}
-                onChange={(e) => setEmailSettings(prev => ({ ...prev, smtp_host: e.target.value }))}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                placeholder="smtp.gmail.com"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-warroom-text block mb-2">SMTP Port</label>
-              <input
-                type="text"
-                value={emailSettings.smtp_port}
-                onChange={(e) => setEmailSettings(prev => ({ ...prev, smtp_port: e.target.value }))}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                placeholder="587"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-warroom-text block mb-2">Username</label>
-              <input
-                type="text"
-                value={emailSettings.smtp_username}
-                onChange={(e) => setEmailSettings(prev => ({ ...prev, smtp_username: e.target.value }))}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                placeholder="your-email@gmail.com"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-warroom-text block mb-2">Password</label>
-              <input
-                type="password"
-                value={emailSettings.smtp_password}
-                onChange={(e) => setEmailSettings(prev => ({ ...prev, smtp_password: e.target.value }))}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                placeholder="Your app password"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-sm font-semibold text-warroom-text mb-4">IMAP Configuration</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm text-warroom-text block mb-2">IMAP Host</label>
-              <input
-                type="text"
-                value={emailSettings.imap_host}
-                onChange={(e) => setEmailSettings(prev => ({ ...prev, imap_host: e.target.value }))}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                placeholder="imap.gmail.com"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-warroom-text block mb-2">IMAP Port</label>
-              <input
-                type="text"
-                value={emailSettings.imap_port}
-                onChange={(e) => setEmailSettings(prev => ({ ...prev, imap_port: e.target.value }))}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                placeholder="993"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-sm font-semibold text-warroom-text mb-4">From Information</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm text-warroom-text block mb-2">From Name</label>
-              <input
-                type="text"
-                value={emailSettings.from_name}
-                onChange={(e) => setEmailSettings(prev => ({ ...prev, from_name: e.target.value }))}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                placeholder="Your Company"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-warroom-text block mb-2">From Email</label>
-              <input
-                type="email"
-                value={emailSettings.from_email}
-                onChange={(e) => setEmailSettings(prev => ({ ...prev, from_email: e.target.value }))}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                placeholder="noreply@yourcompany.com"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-3">
-          <button
-            onClick={testEmailConnection}
-            disabled={testingConnection}
-            className="flex items-center gap-2 px-4 py-2 bg-warroom-surface hover:bg-warroom-surface/80 border border-warroom-border rounded-lg text-sm font-medium transition"
-          >
-            {testingConnection ? "Testing..." : "Test Connection"}
-          </button>
-          <button
-            onClick={saveEmailSettings}
-            className="flex items-center gap-2 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition"
-          >
-            <Save size={16} />
-            Save Settings
-          </button>
-        </div>
       </div>
     );
   };

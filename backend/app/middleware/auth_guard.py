@@ -46,6 +46,7 @@ PUBLIC_PREFIXES = [
     "/api/social/oauth/tiktok/callback",
     "/api/social/oauth/google/callback",
     "/api/calendar/google/callback",
+    "/api/email/accounts/gmail/callback",
 ]
 
 # Regex patterns for dynamic public paths

@@ -171,13 +171,29 @@ export default function NotificationBell() {
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 
+  // Calculate fixed position for the dropdown (escapes sidebar overflow)
+  const bellRef = useRef<HTMLButtonElement>(null);
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
+
+  const toggleOpen = useCallback(() => {
+    setOpen((prev) => {
+      const next = !prev;
+      if (next && bellRef.current) {
+        const rect = bellRef.current.getBoundingClientRect();
+        setPanelPos({ top: rect.bottom + 8, left: Math.max(8, rect.right - 320) });
+      }
+      return next;
+    });
+  }, []);
+
   /* ---- Render --------------------------------------------------- */
 
   return (
     <div ref={containerRef} className="relative">
       {/* Bell Button */}
       <button
-        onClick={() => setOpen((o) => !o)}
+        ref={bellRef}
+        onClick={toggleOpen}
         className="relative p-2 rounded-lg hover:bg-warroom-surface transition-colors text-warroom-muted hover:text-warroom-text"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
         aria-expanded={open}
@@ -191,12 +207,13 @@ export default function NotificationBell() {
         )}
       </button>
 
-      {/* Dropdown Panel */}
-      {open && (
+      {/* Dropdown Panel — fixed position to escape sidebar overflow */}
+      {open && panelPos && (
         <div
           role="menu"
           aria-label="Notifications panel"
-          className="absolute right-0 top-full mt-2 w-80 bg-warroom-surface border border-warroom-border rounded-lg shadow-2xl z-50 overflow-hidden"
+          className="fixed w-80 bg-warroom-surface border border-warroom-border rounded-lg shadow-2xl overflow-hidden"
+          style={{ top: panelPos.top, left: panelPos.left, zIndex: 9999 }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-warroom-border">
