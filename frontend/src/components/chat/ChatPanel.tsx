@@ -97,9 +97,11 @@ function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
   return (
     <div className="relative" ref={ref}>
       <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1.5 hover:bg-warroom-border/30 rounded-full px-1.5 py-0.5 transition" title={`${displayModel} · ${sessionPct}% session`}>
-        <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
+        <span className="text-[10px] text-warroom-muted truncate max-w-[120px]">{displayModel}</span>
+        <span className="text-[10px] text-warroom-muted/60">·</span>
         <span className="text-[10px] text-warroom-muted">{sessionPct}%</span>
-        <ChevronDown size={10} className={`text-warroom-muted transition-transform ${expanded ? "rotate-180" : ""}`} />
+        <ChevronDown size={10} className={`text-warroom-muted flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
       </button>
 
       {expanded && (
