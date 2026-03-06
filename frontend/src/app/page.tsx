@@ -7,7 +7,7 @@ import {
   UserSquare, Briefcase, Users, Calendar, BookOpen, GraduationCap, Package,
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
-  CalendarDays, Puzzle, Heart, Inbox,
+  CalendarDays, Puzzle, Heart, Inbox, FileSignature, DollarSign,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import ChatPanel from "@/components/chat/ChatPanel";
@@ -35,7 +35,10 @@ import ActivityCalendar from "@/components/dashboard/ActivityCalendar";
 import PlatformContent from "@/components/content/PlatformContent";
 import ContentTracker from "@/components/content/ContentTracker";
 import ContactSubmissions from "@/components/crm/ContactSubmissions";
+import ContractsPanel from "@/components/contracts/ContractsPanel";
 import NotificationBell from "@/components/notifications/NotificationBell";
+import InvoicingPanel from "@/components/invoicing/InvoicingPanel";
+import EmailInbox from "@/components/email/EmailInbox";
 
 // Sidebar section structure (inspired by RAWGROWTH War Room)
 const SECTIONS = [
@@ -46,6 +49,7 @@ const SECTIONS = [
       { id: "chat", label: "Chat", icon: MessageSquare },
       { id: "agents", label: "Agents", icon: Bot },
       { id: "calendar", label: "Calendar", icon: CalendarDays },
+      { id: "email", label: "Email", icon: Mail },
       { id: "kanban", label: "Tasks", icon: ClipboardList },
     ],
   },
@@ -81,6 +85,15 @@ const SECTIONS = [
     ],
   },
   {
+    label: "FINANCE",
+    items: [
+      { id: "finance", label: "Finance", icon: DollarSign, children: [
+        { id: "invoices", label: "Invoices", icon: FileText },
+        { id: "contracts", label: "Contracts", icon: FileSignature },
+      ]},
+    ],
+  },
+  {
     label: "TOOLS",
     items: [
       { id: "skills", label: "Skills", icon: Puzzle },
@@ -98,13 +111,14 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "activity" | "calendar" | "social" | "pipeline" | "intelligence"
+  | "dashboard" | "chat" | "agents" | "activity" | "calendar" | "email" | "social" | "pipeline" | "intelligence"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
   | "kanban" | "team" | "leadgen"
   | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products" | "crm-submissions"
   | "library-search" | "library-educate"
   | "marketing-campaigns" | "marketing-templates"
   | "skills" | "soul"
+  | "invoices" | "contracts"
   | "settings";
 
 // Map parent IDs to their children active check
@@ -112,6 +126,7 @@ const PARENT_CHILDREN: Record<string, string[]> = {
   crm: ["crm-deals", "crm-contacts", "crm-activities", "crm-products", "crm-submissions"],
   library: ["library-search", "library-educate"],
   marketing: ["marketing-campaigns", "marketing-templates"],
+  finance: ["invoices", "contracts"],
 };
 
 export default function Page() {
@@ -296,9 +311,12 @@ function WarRoom() {
         {activeTab === "library-educate" && <EducatePanel />}
         {activeTab === "marketing-campaigns" && <CampaignsPanel />}
         {activeTab === "marketing-templates" && <EmailTemplatesPanel />}
+        {activeTab === "email" && <EmailInbox />}
         {activeTab === "calendar" && <ActivityCalendar />}
         {activeTab === "skills" && <SkillsManager />}
         {activeTab === "soul" && <SoulEditor />}
+        {activeTab === "invoices" && <InvoicingPanel />}
+        {activeTab === "contracts" && <ContractsPanel />}
         {activeTab === "settings" && <SettingsPanel />}
       </main>
     </div>
