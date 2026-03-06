@@ -1041,26 +1041,17 @@ async def export_to_google_doc(contract_id: int):
         if not contract:
             raise HTTPException(404, "Contract not found")
 
-    # Load Google OAuth tokens (reuse Calendar tokens since they include Drive scope)
-    # Fall back to Gmail tokens
-    token_file = None
-    for path in ["/tmp/warroom_google_cal_tokens.json", "/tmp/warroom_gmail_tokens.json"]:
-        try:
-            with open(path) as f:
-                tokens = json.load(f)
-                if tokens.get("access_token"):
-                    token_file = tokens
-                    break
-        except (FileNotFoundError, json.JSONDecodeError):
-            continue
+    # Load Google OAuth tokens from centralized token store (DB)
+    from app.services.token_store import load_tokens
+    google_tokens = await load_tokens("google_calendar") or await load_tokens("gmail")
 
-    if not token_file:
+    if not google_tokens or not google_tokens.get("access_token"):
         raise HTTPException(
             503,
             "No Google OAuth tokens found. Connect Google Calendar or Gmail first in Settings → Email & Calendar.",
         )
 
-    access_token = token_file["access_token"]
+    access_token = google_tokens["access_token"]
 
     # Load contract terms
     terms = contract["contract_terms"] if isinstance(contract["contract_terms"], dict) else {}

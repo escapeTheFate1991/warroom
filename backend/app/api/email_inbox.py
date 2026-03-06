@@ -15,7 +15,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+
 from typing import Optional
 
 import httpx
@@ -35,7 +35,8 @@ _session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=Fal
 router = APIRouter()
 
 # ── Gmail OAuth Config ───────────────────────────────────────────────
-GMAIL_TOKEN_FILE = Path("/tmp/warroom_gmail_tokens.json")
+from app.services.token_store import load_tokens as _store_load, save_tokens as _store_save, delete_tokens as _store_delete
+GMAIL_TOKEN_SERVICE = "gmail"
 
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -139,33 +140,13 @@ async def _get_google_client_config() -> dict:
 
 
 async def _load_gmail_tokens() -> Optional[dict]:
-    """Load stored Gmail tokens from DB (email_accounts.tokens column)."""
-    async with _session() as db:
-        result = await db.execute(
-            text("SELECT tokens FROM public.email_accounts WHERE provider = 'gmail' AND is_active = TRUE LIMIT 1")
-        )
-        row = result.fetchone()
-        if not row or not row[0]:
-            return None
-        data = row[0] if isinstance(row[0], dict) else json.loads(row[0])
-        if data.get("refresh_token") or data.get("access_token"):
-            return data
-        return None
+    """Load stored Gmail tokens from centralized token store."""
+    return await _store_load(GMAIL_TOKEN_SERVICE)
 
 
 async def _save_gmail_tokens(tokens: dict) -> None:
-    """Persist Gmail tokens to DB (email_accounts.tokens column)."""
-    async with _session() as db:
-        await db.execute(
-            text("""
-                UPDATE public.email_accounts
-                SET tokens = CAST(:tokens AS jsonb)
-                WHERE provider = 'gmail' AND is_active = TRUE
-            """),
-            {"tokens": json.dumps(tokens)},
-        )
-        await db.commit()
-    logger.info("Gmail tokens saved to DB")
+    """Persist Gmail tokens to centralized token store."""
+    await _store_save(GMAIL_TOKEN_SERVICE, tokens)
 
 
 async def _get_gmail_access_token() -> str:

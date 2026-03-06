@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta
-from pathlib import Path
+
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -13,7 +13,9 @@ from fastapi.responses import HTMLResponse
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-TOKEN_FILE = Path("/openclaw-workspace/memory/.google-calendar-tokens.json")
+from app.services.token_store import load_tokens, save_tokens, delete_tokens
+
+TOKEN_SERVICE = "google_calendar"
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
@@ -56,31 +58,21 @@ async def _get_client_config() -> dict:
     }
 
 
-def _load_tokens() -> Optional[dict]:
-    """Load stored tokens from disk."""
-    if not TOKEN_FILE.exists():
-        return None
-    try:
-        data = json.loads(TOKEN_FILE.read_text())
-        if data.get("refresh_token"):
-            return data
-    except Exception as exc:
-        logger.warning("Failed to read token file: %s", exc)
-    return None
+async def _load_tokens() -> Optional[dict]:
+    """Load stored tokens from DB via centralized token store."""
+    return await load_tokens(TOKEN_SERVICE)
 
 
-def _save_tokens(tokens: dict) -> None:
-    """Persist tokens to disk."""
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_FILE.write_text(json.dumps(tokens, indent=2))
-    logger.info("Google Calendar tokens saved")
+async def _save_tokens(tokens: dict) -> None:
+    """Persist tokens to DB via centralized token store."""
+    await save_tokens(TOKEN_SERVICE, tokens)
 
 
 async def _get_credentials():
     """Build google.oauth2.credentials.Credentials from stored tokens."""
     from google.oauth2.credentials import Credentials
 
-    tokens = _load_tokens()
+    tokens = await _load_tokens()
     if not tokens:
         return None
 
@@ -101,7 +93,7 @@ async def _get_credentials():
         try:
             # creds.refresh uses requests (sync/blocking) — run in thread
             await asyncio.to_thread(creds.refresh, GoogleAuthRequest())
-            _save_tokens(
+            await _save_tokens(
                 {
                     **tokens,
                     "access_token": creds.token,
@@ -202,7 +194,7 @@ async def oauth_callback(code: str = Query(...), error: Optional[str] = Query(No
     except Exception as exc:
         logger.warning("Could not fetch user email: %s", exc)
 
-    _save_tokens(
+    await _save_tokens(
         {
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -225,7 +217,7 @@ async def oauth_callback(code: str = Query(...), error: Optional[str] = Query(No
 @router.get("/calendar/google/status")
 async def google_status():
     """Return Google Calendar connection status."""
-    tokens = _load_tokens()
+    tokens = await _load_tokens()
     if not tokens:
         return {"connected": False, "email": None}
 
@@ -338,8 +330,7 @@ async def disconnect_google():
             logger.warning("Token revocation failed (continuing anyway): %s", exc)
 
     # Remove stored tokens
-    if TOKEN_FILE.exists():
-        TOKEN_FILE.unlink()
-        logger.info("Google Calendar tokens removed")
+    await delete_tokens(TOKEN_SERVICE)
+    logger.info("Google Calendar tokens removed")
 
     return {"ok": True, "message": "Google Calendar disconnected"}
