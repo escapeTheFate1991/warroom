@@ -1,10 +1,9 @@
-"""Google Places API integration for business discovery."""
+"""Business discovery via Google Places, Yelp Fusion, and OpenStreetMap Overpass APIs."""
 
 import httpx
 import logging
-import random
-from dataclasses import dataclass, field
 import os
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +25,69 @@ PLACES_DETAIL_FIELDS = [
     "places.currentOpeningHours",
 ]
 
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+YELP_SEARCH_URL = "https://api.yelp.com/v3/businesses/search"
+
+# Map common search queries to OSM tags
+OSM_TAG_MAP: dict[str, str] = {
+    "plumbers": "craft=plumber",
+    "electricians": "craft=electrician",
+    "hvac contractors": "craft=hvac",
+    "roofers": "craft=roofer",
+    "landscapers": "landuse=grass|shop=garden_centre",
+    "general contractors": "craft=builder",
+    "painters": "craft=painter",
+    "pest control": "shop=pest_control",
+    "cleaning services": "shop=cleaning",
+    "moving companies": "shop=moving_company",
+    "restaurants": "amenity=restaurant",
+    "cafes & coffee shops": "amenity=cafe",
+    "bars & nightclubs": "amenity=bar|amenity=nightclub",
+    "bakeries": "shop=bakery",
+    "food trucks": "amenity=fast_food",
+    "catering services": "amenity=restaurant",
+    "dentists": "amenity=dentist",
+    "chiropractors": "healthcare=alternative",
+    "veterinarians": "amenity=veterinary",
+    "optometrists": "healthcare=optometrist",
+    "medical clinics": "amenity=clinic",
+    "physical therapy": "healthcare=physiotherapist",
+    "mental health counselors": "healthcare=psychotherapist",
+    "pharmacies": "amenity=pharmacy",
+    "law firms": "office=lawyer",
+    "accounting firms": "office=accountant",
+    "insurance agents": "office=insurance",
+    "financial advisors": "office=financial",
+    "real estate agents": "office=estate_agent",
+    "mortgage brokers": "office=financial",
+    "auto repair shops": "shop=car_repair",
+    "auto dealerships": "shop=car",
+    "car wash": "amenity=car_wash",
+    "towing services": "shop=car_repair",
+    "hair salons": "shop=hairdresser",
+    "barber shops": "shop=hairdresser",
+    "nail salons": "shop=beauty",
+    "spas & wellness": "leisure=spa|shop=beauty",
+    "gyms & fitness centers": "leisure=fitness_centre",
+    "yoga studios": "leisure=fitness_centre",
+    "martial arts studios": "leisure=fitness_centre",
+    "daycare centers": "amenity=kindergarten",
+    "tutoring services": "amenity=school",
+    "dog grooming": "shop=pet_grooming",
+    "pet boarding": "amenity=animal_boarding",
+    "photography studios": "craft=photographer",
+    "wedding venues": "amenity=events_venue",
+    "event planners": "amenity=events_venue",
+    "florists": "shop=florist",
+    "printing services": "shop=copyshop",
+    "it services": "office=it",
+    "web design agencies": "office=it",
+    "marketing agencies": "office=advertising_agency",
+    "staffing agencies": "office=employment_agency",
+    "storage facilities": "shop=storage_rental",
+    "hotels & motels": "tourism=hotel|tourism=motel",
+}
+
 
 @dataclass
 class PlaceResult:
@@ -45,6 +107,7 @@ class PlaceResult:
     latitude: float = 0.0
     longitude: float = 0.0
     opening_hours: dict | None = None
+    source: str = ""  # "google_places", "yelp", "openstreetmap"
 
 
 def _parse_address_components(components: list[dict]) -> dict:
@@ -83,69 +146,41 @@ def _parse_place(place: dict) -> PlaceResult:
         latitude=location.get("latitude", 0.0),
         longitude=location.get("longitude", 0.0),
         opening_hours=place.get("currentOpeningHours"),
+        source="google_places",
     )
 
 
-def _generate_mock_businesses(query: str, location: str, max_results: int) -> list[PlaceResult]:
-    """Generate realistic mock businesses when no Google API key is available."""
-    city, state = location, ""
+def _parse_location(location: str) -> tuple[str, str]:
+    """Parse 'City, ST' into (city, state)."""
+    city, state = location.strip(), ""
     if "," in location:
-        city, state = [x.strip() for x in location.split(",", 1)]
-    
-    # Mock business name templates
-    prefixes = ["Elite", "Premier", "Professional", "First Choice", "Quality", "Trusted", "Family", "Quick", "Affordable"]
-    suffixes = ["LLC", "Inc", "& Co", "Services", "Solutions", "Pros", "Express", "Plus"]
-    
-    businesses = []
-    for i in range(min(max_results, random.randint(10, 20))):
-        name = f"{random.choice(prefixes)} {city} {query.title()}"
-        if random.random() < 0.3:  # 30% chance of suffix
-            name += f" {random.choice(suffixes)}"
-        
-        # Mock address
-        street_num = random.randint(100, 9999)
-        street_names = ["Main St", "Oak Ave", "First St", "Broadway", "Market St", "State Hwy", "Commerce Blvd"]
-        address = f"{street_num} {random.choice(street_names)}"
-        zip_code = f"{random.randint(10000, 99999)}"
-        
-        # Mock phone (local area code)
-        phone = f"({random.randint(200, 999)}) {random.randint(200, 999)}-{random.randint(1000, 9999)}"
-        
-        # 60% have websites
-        website = ""
-        if random.random() < 0.6:
-            domain = name.lower().replace(" ", "").replace("&", "and")[:15]
-            website = f"https://www.{domain}.com"
-        
-        businesses.append(PlaceResult(
-            place_id=f"mock_{i}_{hash(name) % 100000}",
-            name=name,
-            address=f"{address}, {city}, {state} {zip_code}",
-            city=city,
-            state=state,
-            zip_code=zip_code,
-            phone=phone,
-            website=website,
-            maps_url=f"https://maps.google.com/?q={name.replace(' ', '+')}",
-            rating=round(random.uniform(3.2, 4.8), 1),
-            review_count=random.randint(5, 150),
-            category=query,
-            types=[query.replace(" ", "_"), "establishment"],
-            latitude=round(random.uniform(30.0, 45.0), 6),
-            longitude=round(random.uniform(-120.0, -70.0), 6),
-        ))
-    
-    return businesses
+        parts = [x.strip() for x in location.split(",", 1)]
+        city = parts[0]
+        state = parts[1] if len(parts) > 1 else ""
+    return city, state
 
 
-async def search_places(query: str, location: str, max_results: int = 60) -> list[PlaceResult]:
-    """Search Google Places API for businesses matching query in location."""
+def _build_osm_tags(query: str) -> list[tuple[str, str]]:
+    """Convert a search query to OSM key=value tag pairs."""
+    query_lower = query.lower().strip()
+    tag_str = OSM_TAG_MAP.get(query_lower, "")
+    if not tag_str:
+        # Fallback: search amenity, shop, office, craft with fuzzy name match
+        return []
+
+    tags = []
+    for part in tag_str.split("|"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            tags.append((k, v))
+    return tags
+
+
+async def _search_google_places(query: str, location: str, max_results: int) -> list[PlaceResult]:
+    """Search Google Places API (requires GOOGLE_MAPS_API_KEY)."""
     api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
-    
-    # Use mock data if no API key
     if not api_key:
-        logger.info("No GOOGLE_MAPS_API_KEY found, generating mock data for '%s in %s'", query, location)
-        return _generate_mock_businesses(query, location, max_results)
+        return []
 
     search_text = f"{query} in {location}"
     results: list[PlaceResult] = []
@@ -163,15 +198,18 @@ async def search_places(query: str, location: str, max_results: int = 60) -> lis
                 "X-Goog-FieldMask": ",".join(PLACES_DETAIL_FIELDS),
             }
 
-            response = await client.post(PLACES_TEXT_SEARCH_URL, json=body, headers=headers)
+            try:
+                response = await client.post(PLACES_TEXT_SEARCH_URL, json=body, headers=headers)
+            except httpx.HTTPError as exc:
+                logger.error("Google Places HTTP error: %s", exc)
+                break
 
             if response.status_code != 200:
-                logger.error("Places API error %d: %s", response.status_code, response.text)
+                logger.error("Google Places API error %d: %s", response.status_code, response.text)
                 break
 
             data = response.json()
             places = data.get("places", [])
-
             for place in places:
                 results.append(_parse_place(place))
 
@@ -179,5 +217,323 @@ async def search_places(query: str, location: str, max_results: int = 60) -> lis
             if not page_token or not places:
                 break
 
-    logger.info("Found %d places for '%s'", len(results), search_text)
+    logger.info("Google Places returned %d results for '%s in %s'", len(results), query, location)
     return results[:max_results]
+
+
+async def _search_yelp(query: str, location: str, max_results: int) -> list[PlaceResult]:
+    """Search Yelp Fusion API (requires YELP_API_KEY, free tier: 5000 calls/day)."""
+    api_key = os.getenv("YELP_API_KEY", "")
+    if not api_key:
+        logger.info("No YELP_API_KEY set, skipping Yelp source")
+        return []
+
+    results: list[PlaceResult] = []
+    limit_per_page = min(max_results, 50)  # Yelp max is 50 per request
+    offset = 0
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        while len(results) < max_results:
+            params = {
+                "term": query,
+                "location": location,
+                "limit": limit_per_page,
+                "offset": offset,
+                "sort_by": "best_match",
+            }
+            headers = {"Authorization": f"Bearer {api_key}"}
+
+            try:
+                response = await client.get(YELP_SEARCH_URL, params=params, headers=headers)
+            except httpx.HTTPError as exc:
+                logger.error("Yelp HTTP error: %s", exc)
+                break
+
+            if response.status_code != 200:
+                logger.error("Yelp API error %d: %s", response.status_code, response.text)
+                break
+
+            data = response.json()
+            businesses = data.get("businesses", [])
+            if not businesses:
+                break
+
+            for biz in businesses:
+                loc = biz.get("location", {})
+                coords = biz.get("coordinates", {})
+                categories = biz.get("categories", [])
+                category_str = categories[0]["title"] if categories else ""
+                type_aliases = [c.get("alias", "") for c in categories]
+
+                results.append(PlaceResult(
+                    place_id=f"yelp_{biz.get('id', '')}",
+                    name=biz.get("name", ""),
+                    address=", ".join(filter(None, [
+                        loc.get("address1", ""),
+                        loc.get("city", ""),
+                        loc.get("state", ""),
+                        loc.get("zip_code", ""),
+                    ])),
+                    city=loc.get("city", ""),
+                    state=loc.get("state", ""),
+                    zip_code=loc.get("zip_code", ""),
+                    phone=biz.get("display_phone", ""),
+                    website="",  # Yelp doesn't return website in search
+                    maps_url=biz.get("url", ""),
+                    rating=biz.get("rating", 0.0),
+                    review_count=biz.get("review_count", 0),
+                    category=category_str,
+                    types=type_aliases,
+                    latitude=coords.get("latitude", 0.0),
+                    longitude=coords.get("longitude", 0.0),
+                    source="yelp",
+                ))
+
+            offset += limit_per_page
+            total = data.get("total", 0)
+            if offset >= total:
+                break
+
+    logger.info("Yelp returned %d results for '%s in %s'", len(results), query, location)
+    return results[:max_results]
+
+
+async def _search_openstreetmap(query: str, location: str, max_results: int) -> list[PlaceResult]:
+    """Search OpenStreetMap Overpass API (completely free, no key needed)."""
+    city, state = _parse_location(location)
+    tags = _build_osm_tags(query)
+
+    if not tags:
+        # Fallback: use Nominatim search for the query + location
+        return await _search_osm_nominatim(query, location, max_results)
+
+    results: list[PlaceResult] = []
+
+    # Build area search — try city first, include state for disambiguation
+    area_name = city
+    area_filter = f'area[name="{area_name}"]'
+    if state:
+        # Use a broader search with state context
+        area_filter = f'area[name="{area_name}"]'
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for tag_key, tag_value in tags:
+            if len(results) >= max_results:
+                break
+
+            overpass_query = f"""
+[out:json][timeout:30];
+{area_filter}->.searchArea;
+(
+  node["{tag_key}"="{tag_value}"]["name"](area.searchArea);
+  way["{tag_key}"="{tag_value}"]["name"](area.searchArea);
+);
+out body center {max_results};
+"""
+            try:
+                response = await client.post(
+                    OVERPASS_URL,
+                    data={"data": overpass_query},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+            except httpx.HTTPError as exc:
+                logger.error("Overpass API HTTP error: %s", exc)
+                continue
+
+            if response.status_code != 200:
+                logger.error("Overpass API error %d: %s", response.status_code, response.text[:200])
+                continue
+
+            data = response.json()
+            elements = data.get("elements", [])
+
+            for elem in elements:
+                if len(results) >= max_results:
+                    break
+
+                tags_data = elem.get("tags", {})
+                name = tags_data.get("name", "")
+                if not name:
+                    continue
+
+                # Get coordinates (node has lat/lon directly, way has center)
+                lat = elem.get("lat", 0.0) or elem.get("center", {}).get("lat", 0.0)
+                lon = elem.get("lon", 0.0) or elem.get("center", {}).get("lon", 0.0)
+
+                # Build address from available tags
+                street = tags_data.get("addr:street", "")
+                housenumber = tags_data.get("addr:housenumber", "")
+                addr_city = tags_data.get("addr:city", city)
+                addr_state = tags_data.get("addr:state", state)
+                addr_zip = tags_data.get("addr:postcode", "")
+                address_parts = []
+                if housenumber and street:
+                    address_parts.append(f"{housenumber} {street}")
+                elif street:
+                    address_parts.append(street)
+                if addr_city:
+                    address_parts.append(addr_city)
+                if addr_state:
+                    address_parts.append(addr_state)
+                if addr_zip:
+                    address_parts.append(addr_zip)
+
+                phone = tags_data.get("phone", "") or tags_data.get("contact:phone", "")
+                website = tags_data.get("website", "") or tags_data.get("contact:website", "")
+                osm_id = elem.get("id", 0)
+                osm_type = elem.get("type", "node")
+
+                results.append(PlaceResult(
+                    place_id=f"osm_{osm_type}_{osm_id}",
+                    name=name,
+                    address=", ".join(address_parts) if address_parts else "",
+                    city=addr_city,
+                    state=addr_state,
+                    zip_code=addr_zip,
+                    phone=phone,
+                    website=website,
+                    maps_url=f"https://www.openstreetmap.org/{osm_type}/{osm_id}",
+                    rating=0.0,
+                    review_count=0,
+                    category=query,
+                    types=[f"{tag_key}:{tag_value}"],
+                    latitude=lat,
+                    longitude=lon,
+                    source="openstreetmap",
+                ))
+
+    logger.info("OpenStreetMap returned %d results for '%s in %s'", len(results), query, location)
+    return results[:max_results]
+
+
+async def _search_osm_nominatim(query: str, location: str, max_results: int) -> list[PlaceResult]:
+    """Fallback: use Nominatim geocoding search for business types not in OSM tag map."""
+    search_text = f"{query} in {location}"
+    city, state = _parse_location(location)
+    results: list[PlaceResult] = []
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            params = {
+                "q": search_text,
+                "format": "json",
+                "limit": min(max_results, 50),  # Nominatim max is 50
+                "addressdetails": 1,
+            }
+            headers = {"User-Agent": "WarRoom-LeadGen/1.0"}
+            response = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params=params,
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            logger.error("Nominatim HTTP error: %s", exc)
+            return []
+
+        if response.status_code != 200:
+            logger.error("Nominatim error %d: %s", response.status_code, response.text[:200])
+            return []
+
+        data = response.json()
+        for item in data:
+            addr = item.get("address", {})
+            name = item.get("display_name", "").split(",")[0]
+
+            results.append(PlaceResult(
+                place_id=f"osm_nominatim_{item.get('osm_id', 0)}",
+                name=name,
+                address=item.get("display_name", ""),
+                city=addr.get("city", "") or addr.get("town", "") or addr.get("village", city),
+                state=addr.get("state", state),
+                zip_code=addr.get("postcode", ""),
+                phone="",
+                website="",
+                maps_url=f"https://www.openstreetmap.org/{item.get('osm_type', 'node')}/{item.get('osm_id', 0)}",
+                rating=0.0,
+                review_count=0,
+                category=query,
+                types=[item.get("type", ""), item.get("class", "")],
+                latitude=float(item.get("lat", 0.0)),
+                longitude=float(item.get("lon", 0.0)),
+                source="openstreetmap",
+            ))
+
+    logger.info("Nominatim returned %d results for '%s'", len(results), search_text)
+    return results[:max_results]
+
+
+def _deduplicate_results(results: list[PlaceResult]) -> list[PlaceResult]:
+    """Remove duplicates across sources by matching name + city (case-insensitive)."""
+    seen: set[str] = set()
+    deduped: list[PlaceResult] = []
+    for place in results:
+        key = f"{place.name.lower().strip()}|{place.city.lower().strip()}"
+        if key not in seen:
+            seen.add(key)
+            deduped.append(place)
+    return deduped
+
+
+async def search_places(query: str, location: str, max_results: int = 60) -> list[PlaceResult]:
+    """Search for businesses matching query in location.
+
+    Sources tried in order of priority:
+    1. Google Places API (if GOOGLE_MAPS_API_KEY is set)
+    2. Yelp Fusion API (if YELP_API_KEY is set, free tier: 5000 calls/day)
+    3. OpenStreetMap Overpass API (always available, no key needed)
+
+    Results are deduplicated across sources. The `source` field on each
+    PlaceResult indicates where it came from.
+    """
+    all_results: list[PlaceResult] = []
+    sources_tried: list[str] = []
+    sources_used: list[str] = []
+
+    # 1. Google Places (primary)
+    google_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+    if google_key:
+        sources_tried.append("google_places")
+        google_results = await _search_google_places(query, location, max_results)
+        if google_results:
+            sources_used.append(f"google_places({len(google_results)})")
+            all_results.extend(google_results)
+    else:
+        logger.info("No GOOGLE_MAPS_API_KEY — skipping Google Places")
+
+    # 2. Yelp Fusion (secondary, fills gaps)
+    remaining = max_results - len(all_results)
+    if remaining > 0:
+        yelp_key = os.getenv("YELP_API_KEY", "")
+        if yelp_key:
+            sources_tried.append("yelp")
+            yelp_results = await _search_yelp(query, location, remaining)
+            if yelp_results:
+                sources_used.append(f"yelp({len(yelp_results)})")
+                all_results.extend(yelp_results)
+
+    # 3. OpenStreetMap Overpass (tertiary, always available)
+    remaining = max_results - len(all_results)
+    if remaining > 0:
+        sources_tried.append("openstreetmap")
+        osm_results = await _search_openstreetmap(query, location, remaining)
+        if osm_results:
+            sources_used.append(f"openstreetmap({len(osm_results)})")
+            all_results.extend(osm_results)
+
+    # Deduplicate across sources
+    deduped = _deduplicate_results(all_results)
+
+    if not deduped:
+        logger.warning(
+            "No results found for '%s in %s' — tried sources: %s",
+            query, location, ", ".join(sources_tried) or "none",
+        )
+    else:
+        logger.info(
+            "search_places('%s', '%s'): %d results from %s (tried: %s)",
+            query, location, len(deduped),
+            ", ".join(sources_used),
+            ", ".join(sources_tried),
+        )
+
+    return deduped[:max_results]

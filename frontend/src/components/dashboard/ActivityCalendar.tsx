@@ -636,7 +636,7 @@ function FullEventEditorModal({
 /* ── Main Component ─────────────────────────────────────── */
 
 export default function ActivityCalendar() {
-  const [tab, setTab] = useState<TabMode>("activities");
+  const [tab, setTab] = useState<TabMode>("personal");
   const [currentDate, setCurrentDate] = useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() + 1 };
@@ -653,6 +653,10 @@ export default function ActivityCalendar() {
   /* Personal state */
   const [personalData, setPersonalData] = useState<PersonalCalendarData | null>(null);
   const [personalLoading, setPersonalLoading] = useState(false);
+
+  /* Google Calendar state */
+  const [googleStatus, setGoogleStatus] = useState<{ connected: boolean; email?: string } | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   /* Personal modals */
   const [quickAddDate, setQuickAddDate] = useState<string | null>(null);
@@ -756,6 +760,64 @@ export default function ActivityCalendar() {
     } catch {}
   };
 
+  /* ── Google Calendar Logic ──────────────────────────── */
+
+  const loadGoogleStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/calendar/google/status`);
+      if (res.ok) setGoogleStatus(await res.json());
+    } catch {
+      setGoogleStatus({ connected: false });
+    }
+  }, []);
+
+  const connectGoogle = async () => {
+    setGoogleLoading(true);
+    try {
+      const res = await fetch(`${API}/api/calendar/google/auth-url`);
+      if (!res.ok) throw new Error("Failed to get auth URL");
+      const { auth_url } = await res.json();
+
+      const popup = window.open(auth_url, "google-calendar-auth", "width=500,height=700,left=200,top=100");
+
+      const handler = (event: MessageEvent) => {
+        if (event.data?.type === "google-calendar-connected") {
+          window.removeEventListener("message", handler);
+          loadGoogleStatus();
+          loadPersonalData();
+          setGoogleLoading(false);
+        } else if (event.data?.type === "google-calendar-error") {
+          window.removeEventListener("message", handler);
+          setGoogleLoading(false);
+        }
+      };
+      window.addEventListener("message", handler);
+
+      // Fallback: if popup closes without message
+      const check = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(check);
+          window.removeEventListener("message", handler);
+          loadGoogleStatus();
+          loadPersonalData();
+          setGoogleLoading(false);
+        }
+      }, 1000);
+    } catch {
+      setGoogleLoading(false);
+    }
+  };
+
+  const disconnectGoogle = async () => {
+    setGoogleLoading(true);
+    try {
+      await fetch(`${API}/api/calendar/google/disconnect`, { method: "POST" });
+      setGoogleStatus({ connected: false });
+      loadPersonalData();
+    } catch {}
+    setGoogleLoading(false);
+  };
+
   const openQuickAdd = (dateStr: string) => {
     setQuickAddDate(dateStr);
   };
@@ -832,6 +894,7 @@ export default function ActivityCalendar() {
 
   useEffect(() => { loadCalendarData(); }, [loadCalendarData]);
   useEffect(() => { if (tab === "personal") loadPersonalData(); }, [tab, loadPersonalData]);
+  useEffect(() => { loadGoogleStatus(); }, [loadGoogleStatus]);
 
   const grid = generateCalendarGrid();
 
@@ -904,13 +967,35 @@ export default function ActivityCalendar() {
           {tab === "activities" && (
             <p className="text-xs text-warroom-muted">Daily memory files and agent activity tracking</p>
           )}
-          {tab === "personal" && !personalData?.google_connected && (
-            <div className="flex items-center gap-2 text-xs text-warroom-muted bg-warroom-bg rounded-lg px-3 py-2">
-              <CalendarDays size={13} className="text-amber-400" />
-              <span>Google Calendar not connected — showing local events only.</span>
-              <button className="text-warroom-accent hover:underline ml-1 flex items-center gap-1">
-                Connect <ExternalLink size={10} />
-              </button>
+          {tab === "personal" && (
+            <div className="flex items-center gap-2 text-xs bg-warroom-bg rounded-lg px-3 py-2">
+              {googleStatus?.connected ? (
+                <>
+                  <span className="text-green-400">✅</span>
+                  <span className="text-warroom-muted">Connected as <span className="text-warroom-text">{googleStatus.email}</span></span>
+                  <button
+                    onClick={disconnectGoogle}
+                    disabled={googleLoading}
+                    className="ml-auto text-red-400 hover:text-red-300 text-xs flex items-center gap-1 transition"
+                  >
+                    {googleLoading ? <Loader2 size={10} className="animate-spin" /> : <X size={10} />}
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <>
+                  <CalendarDays size={13} className="text-amber-400" />
+                  <span className="text-warroom-muted">Google Calendar not connected — showing local events only.</span>
+                  <button
+                    onClick={connectGoogle}
+                    disabled={googleLoading}
+                    className="ml-auto text-warroom-accent hover:underline flex items-center gap-1 transition"
+                  >
+                    {googleLoading ? <Loader2 size={10} className="animate-spin" /> : <Globe size={12} />}
+                    Connect Google Calendar
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -1013,8 +1098,13 @@ export default function ActivityCalendar() {
                                     e.stopPropagation();
                                     setSelectedEvent(ev);
                                   }}
-                                  className={`text-[9px] px-1 rounded truncate text-white cursor-pointer hover:opacity-80 transition ${EVENT_COLORS[ev.type || "default"] || EVENT_COLORS.default}`}
+                                  className={`text-[9px] px-1 rounded truncate text-white cursor-pointer hover:opacity-80 transition flex items-center gap-0.5 ${
+                                    ev.source === "google"
+                                      ? "bg-blue-600"
+                                      : EVENT_COLORS[ev.type || "default"] || EVENT_COLORS.default
+                                  }`}
                                 >
+                                  {ev.source === "google" && <Globe size={7} className="shrink-0" />}
                                   {ev.time ? `${ev.time} ` : ""}{ev.title}
                                 </div>
                               ))}

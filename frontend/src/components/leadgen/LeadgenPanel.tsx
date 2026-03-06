@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, MapPin, Globe, Mail, Phone, Loader2, Building2, RefreshCw, Star, Filter, X } from "lucide-react";
+import { Search, MapPin, Globe, Mail, Phone, Loader2, Building2, RefreshCw, Star, Filter, X, AlertTriangle, Clock, Trash2 } from "lucide-react";
 import LeadDrawer, { LeadFull } from "./LeadDrawer";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
@@ -29,6 +29,34 @@ interface Lead {
   outreach_status: string;
   contacted_by: string | null;
   contacted_at: string | null;
+}
+
+interface SearchJobStatus {
+  job_id: number;
+  status: string;
+  query: string;
+  location: string;
+  total_found: number;
+  total_leads: number;
+  enriched: number;
+  pending: number;
+  failed: number;
+  error_message: string | null;
+  message: string;
+  created_at: string | null;
+  age_days: number;
+}
+
+interface FreshnessEntry {
+  job_id: number;
+  query: string;
+  location: string;
+  status: string;
+  total_found: number;
+  created_at: string | null;
+  age_days: number;
+  age_label: string;
+  is_stale: boolean;
 }
 
 const BUSINESS_CATEGORIES = [
@@ -97,6 +125,50 @@ const TIER_COLORS: Record<string, string> = {
   unscored: "bg-warroom-muted/20 text-warroom-muted",
 };
 
+/* ------------------------------------------------------------------ */
+/*  Error Banner Component                                             */
+/* ------------------------------------------------------------------ */
+function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 mb-4">
+      <AlertTriangle size={16} className="text-red-400 mt-0.5 shrink-0" />
+      <div className="flex-1">
+        <p className="text-sm text-red-400">{message}</p>
+      </div>
+      <button onClick={onDismiss} className="text-red-400/60 hover:text-red-400 transition">
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Freshness Badge                                                    */
+/* ------------------------------------------------------------------ */
+function FreshnessBadge({ ageDays }: { ageDays: number }) {
+  if (ageDays < 0) return null;
+  const isStale = ageDays > 30;
+  const label =
+    ageDays === 0 ? "Today" : ageDays === 1 ? "1 day old" : `${ageDays}d old`;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full ${
+        isStale
+          ? "bg-red-500/15 text-red-400"
+          : ageDays > 14
+          ? "bg-yellow-500/15 text-yellow-400"
+          : "bg-emerald-500/15 text-emerald-400"
+      }`}
+    >
+      <Clock size={8} />
+      {label}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Panel                                                         */
+/* ------------------------------------------------------------------ */
 export default function LeadgenPanel() {
   const [location, setLocation] = useState("");
   const [query, setQuery] = useState("");
@@ -107,6 +179,12 @@ export default function LeadgenPanel() {
   const [filterTier, setFilterTier] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
   const [showAllLeads, setShowAllLeads] = useState(true);
+
+  // Error state
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Freshness data for active job
+  const [activeJobAge, setActiveJobAge] = useState<number | null>(null);
 
   // Drawer state
   const [selectedLead, setSelectedLead] = useState<LeadFull | null>(null);
@@ -123,6 +201,11 @@ export default function LeadgenPanel() {
   // Cache for prefetched pages
   const prefetchCache = useRef<Map<number, Lead[]>>(new Map());
 
+  // Active polling interval ref (for cleanup)
+  const enrichmentPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const dismissError = useCallback(() => setErrorMessage(null), []);
+
   const buildUrl = useCallback((pageOffset: number) => {
     const params = new URLSearchParams({
       sort_by: "lead_score",
@@ -138,14 +221,16 @@ export default function LeadgenPanel() {
 
   // Fetch a page of results
   const fetchPage = useCallback(async (pageOffset: number): Promise<Lead[]> => {
-    // Check cache first
     const cached = prefetchCache.current.get(pageOffset);
     if (cached) {
       prefetchCache.current.delete(pageOffset);
       return cached;
     }
     const resp = await fetch(buildUrl(pageOffset));
-    if (!resp.ok) return [];
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => "Unknown error");
+      throw new Error(`Failed to load leads (${resp.status}): ${detail}`);
+    }
     return resp.json();
   }, [buildUrl]);
 
@@ -158,7 +243,7 @@ export default function LeadgenPanel() {
         const data = await resp.json();
         prefetchCache.current.set(nextOffset, data);
       }
-    } catch { /* silent */ }
+    } catch { /* silent prefetch failure */ }
   }, [buildUrl]);
 
   // Load initial page (reset)
@@ -172,13 +257,15 @@ export default function LeadgenPanel() {
       setLeads(data);
       setHasMore(data.length >= PAGE_SIZE);
       setOffset(PAGE_SIZE);
-      // Prefetch page 2 & 3
       if (data.length >= PAGE_SIZE) {
         prefetchNext(PAGE_SIZE);
         prefetchNext(PAGE_SIZE * 2);
       }
-    } catch {
-      console.error("Failed to load leads");
+      setErrorMessage(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load leads";
+      setErrorMessage(msg);
+      setLeads([]);
     } finally {
       setInitialLoading(false);
     }
@@ -197,14 +284,14 @@ export default function LeadgenPanel() {
         const newOffset = offset + PAGE_SIZE;
         setOffset(newOffset);
         setHasMore(data.length >= PAGE_SIZE);
-        // Prefetch next 2 pages
         if (data.length >= PAGE_SIZE) {
           prefetchNext(newOffset);
           prefetchNext(newOffset + PAGE_SIZE);
         }
       }
-    } catch {
-      console.error("Failed to load more");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load more leads";
+      setErrorMessage(msg);
     } finally {
       setLoadingMore(false);
     }
@@ -213,19 +300,45 @@ export default function LeadgenPanel() {
   // Reload on filter/view changes
   useEffect(() => { loadLeads(); }, [loadLeads]);
 
+  // Cleanup enrichment polling on unmount
+  useEffect(() => {
+    return () => {
+      if (enrichmentPollRef.current) clearInterval(enrichmentPollRef.current);
+    };
+  }, []);
+
+  // Fetch freshness for active job
+  useEffect(() => {
+    if (!activeJobId) {
+      setActiveJobAge(null);
+      return;
+    }
+    (async () => {
+      try {
+        const resp = await fetch(`${API}/api/leadgen/search/${activeJobId}/status`);
+        if (resp.ok) {
+          const data: SearchJobStatus = await resp.json();
+          setActiveJobAge(data.age_days);
+        }
+      } catch { /* silent */ }
+    })();
+  }, [activeJobId]);
+
   // Handle lead row click
   const handleLeadClick = async (lead: Lead) => {
     try {
-      // Fetch full lead data if needed
       const response = await fetch(`${API}/api/leadgen/leads/${lead.id}`);
-      if (response.ok) {
-        const fullLead: LeadFull = await response.json();
-        setSelectedLead(fullLead);
-        setIsDrawerOpen(true);
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        throw new Error(`Failed to load lead details (${response.status}): ${detail}`);
       }
+      const fullLead: LeadFull = await response.json();
+      setSelectedLead(fullLead);
+      setIsDrawerOpen(true);
     } catch (error) {
-      console.error("Failed to fetch lead details:", error);
-      // Fallback: use partial data and expand it
+      const msg = error instanceof Error ? error.message : "Failed to fetch lead details";
+      setErrorMessage(msg);
+      // Fallback: use partial data
       const partialLead: LeadFull = {
         ...lead,
         website_audit_summary: null,
@@ -252,11 +365,10 @@ export default function LeadgenPanel() {
   };
 
   const handleLeadUpdate = (updatedLead: LeadFull) => {
-    // Update the leads list with new data
-    setLeads(prevLeads => 
-      prevLeads.map(lead => 
-        lead.id === updatedLead.id 
-          ? { 
+    setLeads(prevLeads =>
+      prevLeads.map(lead =>
+        lead.id === updatedLead.id
+          ? {
               ...lead,
               outreach_status: updatedLead.outreach_status,
               contacted_by: updatedLead.contacted_by,
@@ -291,71 +403,140 @@ export default function LeadgenPanel() {
     return () => observer.disconnect();
   }, [hasMore, loadingMore, initialLoading, loadMore]);
 
+  // Refresh a specific search job (re-run the same search)
+  const refreshSearchJob = async (jobId: number) => {
+    try {
+      // Get the original search params
+      const resp = await fetch(`${API}/api/leadgen/search/${jobId}`);
+      if (!resp.ok) throw new Error("Failed to fetch search job");
+      const job = await resp.json();
+
+      // Start a new search with same params
+      setQuery(job.query);
+      setLocation(job.location);
+      setSearching(true);
+      setSearchStatus(`Refreshing: ${job.query} in ${job.location}...`);
+      setErrorMessage(null);
+
+      const searchResp = await fetch(`${API}/api/leadgen/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: job.query, location: job.location, max_results: 60 }),
+      });
+
+      if (!searchResp.ok) {
+        const detail = await searchResp.text().catch(() => "");
+        throw new Error(`Refresh failed (${searchResp.status}): ${detail}`);
+      }
+
+      const newJob = await searchResp.json();
+      startSearchPolling(newJob.id, job.query, job.location);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to refresh search";
+      setErrorMessage(msg);
+      setSearching(false);
+      setSearchStatus("");
+    }
+  };
+
+  // Start polling for search job completion
+  const startSearchPolling = (jobId: number, searchQuery: string, searchLocation: string) => {
+    const poll = setInterval(async () => {
+      try {
+        const statusResp = await fetch(`${API}/api/leadgen/search/${jobId}/status`);
+        if (!statusResp.ok) {
+          clearInterval(poll);
+          setSearching(false);
+          setErrorMessage(`Search status check failed (${statusResp.status})`);
+          return;
+        }
+        const status: SearchJobStatus = await statusResp.json();
+        setSearchStatus(status.message);
+
+        if (status.status === "complete") {
+          clearInterval(poll);
+          setSearching(false);
+          setActiveJobId(jobId);
+          setShowAllLeads(false);
+          setActiveJobAge(status.age_days);
+
+          // Enrichment polling
+          if (enrichmentPollRef.current) clearInterval(enrichmentPollRef.current);
+          let enrichPollCount = 0;
+          enrichmentPollRef.current = setInterval(() => {
+            enrichPollCount++;
+            if (enrichPollCount >= 12) {
+              if (enrichmentPollRef.current) clearInterval(enrichmentPollRef.current);
+              enrichmentPollRef.current = null;
+            }
+            loadLeads();
+          }, 10000);
+        } else if (status.status === "failed") {
+          clearInterval(poll);
+          setSearching(false);
+          setErrorMessage(status.error_message || "Search failed — check server logs");
+          setSearchStatus("");
+        }
+      } catch {
+        clearInterval(poll);
+        setSearching(false);
+        setErrorMessage("Lost connection to server during search");
+        setSearchStatus("");
+      }
+    }, 2000);
+  };
+
   const searchBusinesses = async () => {
     if (!location.trim() || !query.trim()) return;
     setSearching(true);
-    setSearchStatus("Starting search...");
+    setSearchStatus(`Searching for ${query} in ${location}...`);
+    setErrorMessage(null);
+
     try {
       const resp = await fetch(`${API}/api/leadgen/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, location, max_results: 60 }),
       });
-      if (!resp.ok) { setSearchStatus("Search failed"); setSearching(false); return; }
-      const job = await resp.json();
-      setSearchStatus(`Searching for ${query} in ${location}...`);
 
-      const poll = setInterval(async () => {
-        try {
-          const statusResp = await fetch(`${API}/api/leadgen/search/${job.id}`);
-          const status = await statusResp.json();
-          if (status.status === "complete") {
-            clearInterval(poll);
-            setSearchStatus(`Found ${status.total_found} businesses in ${location} (enrichment running in background)`);
-            setSearching(false);
-            // Switch to showing only this search's results
-            setActiveJobId(job.id);
-            setShowAllLeads(false);
-            // Set up enrichment polling - refresh results every 10 seconds for 2 minutes
-            let enrichmentPollCount = 0;
-            const maxEnrichmentPolls = 12; // 2 minutes at 10 second intervals
-            const enrichmentPoll = setInterval(() => {
-              enrichmentPollCount++;
-              if (enrichmentPollCount >= maxEnrichmentPolls) {
-                clearInterval(enrichmentPoll);
-                setSearchStatus(`Found ${status.total_found} businesses in ${location}`);
-              } else {
-                loadLeads(); // Refresh to show enrichment progress
-              }
-            }, 10000);
-          } else if (status.status === "failed") {
-            clearInterval(poll);
-            setSearchStatus("Search failed");
-            setSearching(false);
-          } else {
-            setSearchStatus(`Processing... (${status.total_found || 0} found so far)`);
-          }
-        } catch { clearInterval(poll); setSearching(false); }
-      }, 2000);
-    } catch {
-      setSearchStatus("Network error");
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => "");
+        throw new Error(`Search request failed (${resp.status}): ${detail}`);
+      }
+
+      const job = await resp.json();
+      startSearchPolling(job.id, query, location);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Network error — is the server running?";
+      setErrorMessage(msg);
+      setSearchStatus("");
       setSearching(false);
     }
   };
 
-  const totalLabel = showAllLeads ? "All Leads" : `Search Results`;
+  const totalLabel = showAllLeads ? "All Leads" : "Search Results";
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="h-14 border-b border-warroom-border flex items-center px-6 justify-between">
         <h2 className="text-sm font-semibold">Lead Generator</h2>
-        <button onClick={loadLeads} disabled={searching} className="text-warroom-muted hover:text-warroom-text transition">
-          <RefreshCw size={14} className={searching ? "animate-spin" : ""} />
-        </button>
+        <div className="flex items-center gap-3">
+          {activeJobAge !== null && !showAllLeads && (
+            <FreshnessBadge ageDays={activeJobAge} />
+          )}
+          <button onClick={loadLeads} disabled={searching} className="text-warroom-muted hover:text-warroom-text transition">
+            <RefreshCw size={14} className={searching ? "animate-spin" : ""} />
+          </button>
+        </div>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6">
+        {/* Error banner */}
+        {errorMessage && (
+          <ErrorBanner message={errorMessage} onDismiss={dismissError} />
+        )}
+
         {/* Search bar */}
         <div className="flex gap-3 mb-3">
           <div className="relative flex-1">
@@ -402,19 +583,28 @@ export default function LeadgenPanel() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {/* Toggle: search results vs all */}
               {activeJobId && (
-                <button
-                  onClick={() => setShowAllLeads(!showAllLeads)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
-                    showAllLeads
-                      ? "bg-warroom-border/50 text-warroom-muted hover:text-warroom-text"
-                      : "bg-warroom-accent/20 text-warroom-accent"
-                  }`}
-                >
-                  <Filter size={12} />
-                  {showAllLeads ? "Show Search Results" : "Show All Leads"}
-                </button>
+                <>
+                  <button
+                    onClick={() => refreshSearchJob(activeJobId)}
+                    disabled={searching}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 bg-warroom-border/50 text-warroom-muted hover:text-warroom-text disabled:opacity-50"
+                    title="Re-run this search with fresh data"
+                  >
+                    🔄 Refresh
+                  </button>
+                  <button
+                    onClick={() => setShowAllLeads(!showAllLeads)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
+                      showAllLeads
+                        ? "bg-warroom-border/50 text-warroom-muted hover:text-warroom-text"
+                        : "bg-warroom-accent/20 text-warroom-accent"
+                    }`}
+                  >
+                    <Filter size={12} />
+                    {showAllLeads ? "Show Search Results" : "Show All Leads"}
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -422,7 +612,7 @@ export default function LeadgenPanel() {
           {/* Filter row */}
           <div className="flex items-center gap-3">
             <div className="text-xs text-warroom-muted font-medium">Filters:</div>
-            
+
             {/* Contact Status Filter */}
             <select
               value={filterStatus}
@@ -473,14 +663,19 @@ export default function LeadgenPanel() {
               <span className="text-xs text-warroom-muted">
                 {totalLabel} · {leads.length} loaded{hasMore ? "+" : ""}
               </span>
-              {!showAllLeads && activeJobId && (
-                <button
-                  onClick={() => { setShowAllLeads(true); setActiveJobId(null); setSearchStatus(""); }}
-                  className="text-[10px] text-warroom-muted hover:text-warroom-text flex items-center gap-1 transition"
-                >
-                  <X size={10} /> Clear filter
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {activeJobAge !== null && !showAllLeads && (
+                  <FreshnessBadge ageDays={activeJobAge} />
+                )}
+                {!showAllLeads && activeJobId && (
+                  <button
+                    onClick={() => { setShowAllLeads(true); setActiveJobId(null); setSearchStatus(""); setActiveJobAge(null); }}
+                    className="text-[10px] text-warroom-muted hover:text-warroom-text flex items-center gap-1 transition"
+                  >
+                    <X size={10} /> Clear filter
+                  </button>
+                )}
+              </div>
             </div>
             <table className="w-full text-sm">
               <thead>
@@ -493,10 +688,9 @@ export default function LeadgenPanel() {
               </thead>
               <tbody>
                 {leads.map((lead) => {
-                  // Determine border color based on outreach status
                   let borderColorClass = "";
                   let backgroundClass = "";
-                  
+
                   switch (lead.outreach_status) {
                     case "contacted":
                       borderColorClass = "border-l-4 border-blue-500";
@@ -517,8 +711,8 @@ export default function LeadgenPanel() {
                   }
 
                   return (
-                    <tr 
-                      key={lead.id} 
+                    <tr
+                      key={lead.id}
                       className={`border-b border-warroom-border/50 hover:bg-warroom-border/20 cursor-pointer ${borderColorClass} ${backgroundClass}`}
                       onClick={() => handleLeadClick(lead)}
                     >
@@ -533,6 +727,12 @@ export default function LeadgenPanel() {
                           <p className="text-xs text-yellow-400 mb-1">
                             <Loader2 size={10} className="inline animate-spin mr-1" />
                             Enriching...
+                          </p>
+                        )}
+                        {lead.enrichment_status === "failed" && (
+                          <p className="text-xs text-red-400 mb-1">
+                            <AlertTriangle size={10} className="inline mr-1" />
+                            Enrichment failed
                           </p>
                         )}
                         {lead.enrichment_status === "pending" && !lead.has_website && (
@@ -562,7 +762,7 @@ export default function LeadgenPanel() {
                     </td>
                     <td className="px-4 py-3">
                       {lead.website ? (
-                        <a href={lead.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-warroom-accent hover:underline">
+                        <a href={lead.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-warroom-accent hover:underline" onClick={(e) => e.stopPropagation()}>
                           <Globe size={10} /> {(() => { try { return new URL(lead.website).hostname; } catch { return lead.website; } })()}
                         </a>
                       ) : (
@@ -601,10 +801,32 @@ export default function LeadgenPanel() {
           </div>
         )}
 
-        {leads.length === 0 && !searching && !initialLoading && (
+        {/* No results state */}
+        {leads.length === 0 && !searching && !initialLoading && !errorMessage && (
           <div className="flex flex-col items-center justify-center py-20 text-warroom-muted">
             <Search size={48} className="mb-4 opacity-20" />
-            <p className="text-sm">Search for businesses to populate your lead database</p>
+            <p className="text-sm font-medium mb-2">No leads found</p>
+            <p className="text-xs text-warroom-muted/70 max-w-md text-center">
+              {activeJobId && !showAllLeads
+                ? "This search returned no results. Try a different business category or broader location."
+                : "Search for businesses to populate your lead database. Pick a location and business type above."}
+            </p>
+            {activeJobId && !showAllLeads && (
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => { setShowAllLeads(true); setActiveJobId(null); }}
+                  className="px-4 py-2 bg-warroom-border/50 rounded-lg text-xs text-warroom-muted hover:text-warroom-text transition"
+                >
+                  Show All Leads
+                </button>
+                <button
+                  onClick={() => refreshSearchJob(activeJobId)}
+                  className="px-4 py-2 bg-warroom-accent/20 text-warroom-accent rounded-lg text-xs hover:bg-warroom-accent/30 transition"
+                >
+                  🔄 Try Again
+                </button>
+              </div>
+            )}
           </div>
         )}
 
