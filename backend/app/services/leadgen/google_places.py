@@ -26,7 +26,7 @@ PLACES_DETAIL_FIELDS = [
 ]
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-YELP_SEARCH_URL = "https://api.yelp.com/v3/businesses/search"
+# Yelp — scraped from frontend, no API key needed
 
 # Map common search queries to OSM tags
 OSM_TAG_MAP: dict[str, str] = {
@@ -261,89 +261,100 @@ async def _search_google_places(query: str, location: str, max_results: int, rad
 
 
 async def _search_yelp(query: str, location: str, max_results: int) -> list[PlaceResult]:
-    """Search Yelp Fusion API (requires yelp_api_key in settings or YELP_API_KEY env)."""
-    try:
-        from sqlalchemy.ext.asyncio import create_async_engine
-        from sqlalchemy import text as sa_text
-        engine = create_async_engine("postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge", pool_size=1)
-        async with engine.begin() as conn:
-            result = await conn.execute(sa_text("SELECT value FROM public.settings WHERE key = 'yelp_api_key'"))
-            row = result.fetchone()
-            await engine.dispose()
-            api_key = (row[0] if row and row[0] else "") or os.getenv("YELP_API_KEY", "")
-    except Exception:
-        api_key = os.getenv("YELP_API_KEY", "")
-    if not api_key:
-        logger.info("No Yelp API key set, skipping Yelp source")
-        return []
-
+    """Scrape Yelp search results page (no API key needed)."""
+    import re as _re
     results: list[PlaceResult] = []
-    limit_per_page = min(max_results, 50)  # Yelp max is 50 per request
+    city, state = _parse_location(location)
+
+    # Yelp search URL — same as what a browser hits
+    yelp_url = "https://www.yelp.com/search"
     offset = 0
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         while len(results) < max_results:
             params = {
-                "term": query,
-                "location": location,
-                "limit": limit_per_page,
-                "offset": offset,
-                "sort_by": "best_match",
+                "find_desc": query,
+                "find_loc": location,
+                "start": offset,
             }
-            headers = {"Authorization": f"Bearer {api_key}"}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+            }
 
             try:
-                response = await client.get(YELP_SEARCH_URL, params=params, headers=headers)
+                response = await client.get(yelp_url, params=params, headers=headers)
             except httpx.HTTPError as exc:
-                logger.error("Yelp HTTP error: %s", exc)
+                logger.error("Yelp scrape HTTP error: %s", exc)
                 break
 
             if response.status_code != 200:
-                logger.error("Yelp API error %d: %s", response.status_code, response.text)
+                logger.warning("Yelp scrape status %d, stopping", response.status_code)
                 break
 
-            data = response.json()
-            businesses = data.get("businesses", [])
-            if not businesses:
+            html = response.text
+
+            # Yelp embeds business data as JSON in script tags
+            # Look for the search results JSON blob
+            json_matches = _re.findall(r'<!--({.+?})-->', html)
+            if not json_matches:
+                # Try alternate: Yelp sometimes uses __PRELOADED_STATE__ or inline JSON-LD
+                ld_matches = _re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, _re.DOTALL)
+                for ld in ld_matches:
+                    try:
+                        ld_data = __import__("json").loads(ld)
+                        if isinstance(ld_data, list):
+                            for item in ld_data:
+                                if item.get("@type") == "LocalBusiness" and len(results) < max_results:
+                                    addr = item.get("address", {})
+                                    geo = item.get("geo", {})
+                                    agg = item.get("aggregateRating", {})
+                                    results.append(PlaceResult(
+                                        place_id=f"yelp_scrape_{len(results)}",
+                                        name=item.get("name", ""),
+                                        address=f"{addr.get('streetAddress', '')}, {addr.get('addressLocality', '')}, {addr.get('addressRegion', '')} {addr.get('postalCode', '')}".strip(", "),
+                                        city=addr.get("addressLocality", city),
+                                        state=addr.get("addressRegion", state),
+                                        zip_code=addr.get("postalCode", ""),
+                                        phone=item.get("telephone", ""),
+                                        website="",
+                                        maps_url=item.get("url", ""),
+                                        rating=float(agg.get("ratingValue", 0)),
+                                        review_count=int(agg.get("reviewCount", 0)),
+                                        category=query,
+                                        types=[],
+                                        latitude=float(geo.get("latitude", 0)),
+                                        longitude=float(geo.get("longitude", 0)),
+                                        source="yelp",
+                                    ))
+                    except (ValueError, TypeError, KeyError):
+                        continue
+
+            if not results and not json_matches:
+                # Last resort: parse basic info from HTML patterns
+                biz_names = _re.findall(r'class="css-[^"]*"[^>]*>([^<]{2,60})</a>\s*</h3>', html)
+                for name in biz_names[:max_results]:
+                    if name and len(results) < max_results:
+                        results.append(PlaceResult(
+                            place_id=f"yelp_scrape_{len(results)}",
+                            name=name.strip(),
+                            address="",
+                            city=city,
+                            state=state,
+                            category=query,
+                            source="yelp",
+                        ))
+
+            # Yelp shows 10 results per page
+            offset += 10
+            if offset >= max_results or len(results) >= max_results:
                 break
+            # Don't hammer Yelp
+            import asyncio as _aio
+            await _aio.sleep(0.5)
 
-            for biz in businesses:
-                loc = biz.get("location", {})
-                coords = biz.get("coordinates", {})
-                categories = biz.get("categories", [])
-                category_str = categories[0]["title"] if categories else ""
-                type_aliases = [c.get("alias", "") for c in categories]
-
-                results.append(PlaceResult(
-                    place_id=f"yelp_{biz.get('id', '')}",
-                    name=biz.get("name", ""),
-                    address=", ".join(filter(None, [
-                        loc.get("address1", ""),
-                        loc.get("city", ""),
-                        loc.get("state", ""),
-                        loc.get("zip_code", ""),
-                    ])),
-                    city=loc.get("city", ""),
-                    state=loc.get("state", ""),
-                    zip_code=loc.get("zip_code", ""),
-                    phone=biz.get("display_phone", ""),
-                    website="",  # Yelp doesn't return website in search
-                    maps_url=biz.get("url", ""),
-                    rating=biz.get("rating", 0.0),
-                    review_count=biz.get("review_count", 0),
-                    category=category_str,
-                    types=type_aliases,
-                    latitude=coords.get("latitude", 0.0),
-                    longitude=coords.get("longitude", 0.0),
-                    source="yelp",
-                ))
-
-            offset += limit_per_page
-            total = data.get("total", 0)
-            if offset >= total:
-                break
-
-    logger.info("Yelp returned %d results for '%s in %s'", len(results), query, location)
+    logger.info("Yelp scrape returned %d results for '%s in %s'", len(results), query, location)
     return results[:max_results]
 
 
@@ -527,8 +538,8 @@ async def search_places(query: str, location: str, max_results: int = 60, radius
     """Search for businesses matching query in location.
 
     Sources tried in order of priority:
-    1. Google Places API (if GOOGLE_MAPS_API_KEY is set)
-    2. Yelp Fusion API (if YELP_API_KEY is set, free tier: 5000 calls/day)
+    1. Google Places API (if google_maps_api_key in settings DB)
+    2. Yelp (scraped from frontend, no API key needed)
     3. OpenStreetMap Overpass API (always available, no key needed)
 
     Results are deduplicated across sources. The `source` field on each
@@ -549,16 +560,14 @@ async def search_places(query: str, location: str, max_results: int = 60, radius
     else:
         logger.info("No GOOGLE_MAPS_API_KEY — skipping Google Places")
 
-    # 2. Yelp Fusion (secondary, fills gaps)
+    # 2. Yelp scrape (secondary, fills gaps — no API key needed)
     remaining = max_results - len(all_results)
     if remaining > 0:
-        yelp_key = os.getenv("YELP_API_KEY", "")
-        if yelp_key:
-            sources_tried.append("yelp")
-            yelp_results = await _search_yelp(query, location, remaining)
-            if yelp_results:
-                sources_used.append(f"yelp({len(yelp_results)})")
-                all_results.extend(yelp_results)
+        sources_tried.append("yelp")
+        yelp_results = await _search_yelp(query, location, remaining)
+        if yelp_results:
+            sources_used.append(f"yelp({len(yelp_results)})")
+            all_results.extend(yelp_results)
 
     # 3. OpenStreetMap Overpass (tertiary, always available)
     remaining = max_results - len(all_results)
