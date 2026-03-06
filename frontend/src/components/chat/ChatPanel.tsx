@@ -1187,7 +1187,7 @@ export default function ChatPanel() {
 
       {/* Input area */}
       <div className="pb-4 pt-2 px-4">
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           <div
             className={`bg-warroom-surface border rounded-3xl shadow-lg transition-colors ${wsConnected ? "border-warroom-border" : "border-warroom-danger/30"}`}
             onDrop={handleDrop}
