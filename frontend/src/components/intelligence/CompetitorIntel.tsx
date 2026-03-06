@@ -308,6 +308,16 @@ export default function CompetitorIntel() {
   };
 
   // Load data based on active tab
+  // Fetch all counts on mount so tab badges are accurate
+  useEffect(() => {
+    fetchCompetitors();
+    fetchFollowerAnalysis();
+    fetchTopContent();
+    fetchHooks();
+    fetchScripts();
+  }, []);
+
+  // Fetch active tab data on tab change
   useEffect(() => {
     switch (activeTab) {
       case "competitors":
