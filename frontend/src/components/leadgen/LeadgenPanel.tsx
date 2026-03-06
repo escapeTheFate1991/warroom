@@ -226,7 +226,7 @@ export default function LeadgenPanel() {
       prefetchCache.current.delete(pageOffset);
       return cached;
     }
-    const resp = await fetch(buildUrl(pageOffset));
+    const resp = await authFetch(buildUrl(pageOffset));
     if (!resp.ok) {
       const detail = await resp.text().catch(() => "Unknown error");
       throw new Error(`Failed to load leads (${resp.status}): ${detail}`);
@@ -238,7 +238,7 @@ export default function LeadgenPanel() {
   const prefetchNext = useCallback(async (nextOffset: number) => {
     if (prefetchCache.current.has(nextOffset)) return;
     try {
-      const resp = await fetch(buildUrl(nextOffset));
+      const resp = await authFetch(buildUrl(nextOffset));
       if (resp.ok) {
         const data = await resp.json();
         prefetchCache.current.set(nextOffset, data);
