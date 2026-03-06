@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
@@ -161,6 +161,10 @@ export default function SettingsPanel() {
   const [googleCalLoading, setGoogleCalLoading] = useState(false);
   const [googleCalError, setGoogleCalError] = useState("");
 
+  // Refs for cleanup of Google Calendar OAuth popup polling
+  const googlePopupCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const googleMessageHandlerRef = useRef<((event: MessageEvent) => void) | null>(null);
+
   // Email settings state
   const [emailSettings, setEmailSettings] = useState<EmailSettings>({
     smtp_host: '',
@@ -302,9 +306,21 @@ export default function SettingsPanel() {
     }
   };
 
+  const cleanupGoogleOAuth = useCallback(() => {
+    if (googlePopupCheckRef.current) {
+      clearInterval(googlePopupCheckRef.current);
+      googlePopupCheckRef.current = null;
+    }
+    if (googleMessageHandlerRef.current) {
+      window.removeEventListener("message", googleMessageHandlerRef.current);
+      googleMessageHandlerRef.current = null;
+    }
+  }, []);
+
   const connectGoogleCal = async () => {
     setGoogleCalLoading(true);
     setGoogleCalError("");
+    cleanupGoogleOAuth(); // Clear any stale listeners from previous attempts
     try {
       const res = await authFetch(`${API}/api/calendar/google/auth-url`);
       if (!res.ok) {
@@ -316,27 +332,28 @@ export default function SettingsPanel() {
 
       const handler = (event: MessageEvent) => {
         if (event.data?.type === "google-calendar-connected") {
-          window.removeEventListener("message", handler);
+          cleanupGoogleOAuth();
           loadGoogleCalStatus();
           setGoogleCalLoading(false);
         } else if (event.data?.type === "google-calendar-error") {
-          window.removeEventListener("message", handler);
+          cleanupGoogleOAuth();
           setGoogleCalError(event.data.error || "OAuth failed");
           setGoogleCalLoading(false);
         }
       };
+      googleMessageHandlerRef.current = handler;
       window.addEventListener("message", handler);
 
-      const check = setInterval(() => {
+      googlePopupCheckRef.current = setInterval(() => {
         if (popup?.closed) {
-          clearInterval(check);
-          window.removeEventListener("message", handler);
+          cleanupGoogleOAuth();
           loadGoogleCalStatus();
           setGoogleCalLoading(false);
         }
       }, 1000);
-    } catch (e: any) {
-      setGoogleCalError(e.message || "Failed to connect");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Failed to connect";
+      setGoogleCalError(message);
       setGoogleCalLoading(false);
     }
   };
@@ -347,7 +364,9 @@ export default function SettingsPanel() {
     try {
       await authFetch(`${API}/api/calendar/google/disconnect`, { method: "POST" });
       setGoogleCalStatus({ connected: false });
-    } catch {}
+    } catch (err) {
+      console.error("Failed to disconnect Google Calendar:", err);
+    }
     setGoogleCalLoading(false);
   };
 
@@ -359,7 +378,13 @@ export default function SettingsPanel() {
     loadUsers();
     loadWorkflows();
     loadGoogleCalStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSettings]);
+
+  // Cleanup Google OAuth listeners on unmount
+  useEffect(() => {
+    return () => cleanupGoogleOAuth();
+  }, [cleanupGoogleOAuth]);
 
   const saveSetting = async (key: string) => {
     const value = editValues[key];

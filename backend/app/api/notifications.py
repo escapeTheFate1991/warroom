@@ -4,6 +4,7 @@ Table: public.notifications
 SSE: GET /api/notifications/stream (token via query param)
 """
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime
@@ -168,7 +169,7 @@ async def create_notification(
             "type": body.type,
             "title": body.title,
             "message": body.message,
-            "data": __import__("json").dumps(body.data or {}),
+            "data": json.dumps(body.data or {}),
             "expires_at": body.expires_at,
         },
     )
@@ -297,7 +298,6 @@ async def notification_stream(
 
                 if rows:
                     last_id = rows[-1].id
-                    import json
                     for r in rows:
                         n = NotificationOut(
                             id=r.id, user_id=r.user_id, type=r.type, title=r.title,
@@ -308,6 +308,9 @@ async def notification_stream(
                 else:
                     yield {"event": "ping", "data": ""}
 
+            except asyncio.CancelledError:
+                logger.debug("SSE stream cancelled for user %s", user_id)
+                return
             except Exception as e:
                 logger.error("SSE poll error: %s", e)
                 yield {"event": "error", "data": str(e)}

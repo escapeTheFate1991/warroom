@@ -1,4 +1,5 @@
 """Google Calendar OAuth 2.0 integration for War Room personal calendar."""
+import asyncio
 import json
 import logging
 import os
@@ -95,10 +96,11 @@ async def _get_credentials():
 
     # Auto-refresh if expired
     if creds.expired and creds.refresh_token:
-        from google.auth.transport.requests import Request
+        from google.auth.transport.requests import Request as GoogleAuthRequest
 
         try:
-            creds.refresh(Request())
+            # creds.refresh uses requests (sync/blocking) — run in thread
+            await asyncio.to_thread(creds.refresh, GoogleAuthRequest())
             _save_tokens(
                 {
                     **tokens,
@@ -249,7 +251,21 @@ async def get_google_events(month: str = Query(..., description="YYYY-MM")):
     from googleapiclient.discovery import build
 
     try:
-        service = build("calendar", "v3", credentials=creds)
+        # build() and execute() use httplib2 (sync/blocking) — run in thread
+        def _fetch_events():
+            service = build("calendar", "v3", credentials=creds)
+            return (
+                service.events()
+                .list(
+                    calendarId="primary",
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    maxResults=250,
+                    singleEvents=True,
+                    orderBy="startTime",
+                )
+                .execute()
+            )
 
         time_min = datetime(year, mon, 1).isoformat() + "Z"
         if mon == 12:
@@ -257,18 +273,7 @@ async def get_google_events(month: str = Query(..., description="YYYY-MM")):
         else:
             time_max = datetime(year, mon + 1, 1).isoformat() + "Z"
 
-        results = (
-            service.events()
-            .list(
-                calendarId="primary",
-                timeMin=time_min,
-                timeMax=time_max,
-                maxResults=250,
-                singleEvents=True,
-                orderBy="startTime",
-            )
-            .execute()
-        )
+        results = await asyncio.to_thread(_fetch_events)
 
         events = []
         for item in results.get("items", []):
@@ -323,11 +328,12 @@ async def disconnect_google():
         try:
             import httpx
 
-            await httpx.AsyncClient().post(
-                "https://oauth2.googleapis.com/revoke",
-                params={"token": creds.token},
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    "https://oauth2.googleapis.com/revoke",
+                    params={"token": creds.token},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
         except Exception as exc:
             logger.warning("Token revocation failed (continuing anyway): %s", exc)
 

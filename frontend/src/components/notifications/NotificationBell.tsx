@@ -103,9 +103,11 @@ export default function NotificationBell() {
     return () => clearInterval(id);
   }, [fetchNotifications]);
 
-  /* ---- Click-outside -------------------------------------------- */
+  /* ---- Click-outside & Escape ------------------------------------ */
 
   useEffect(() => {
+    if (!open) return;
+
     function handleClick(e: MouseEvent) {
       if (
         containerRef.current &&
@@ -114,8 +116,17 @@ export default function NotificationBell() {
         setOpen(false);
       }
     }
-    if (open) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [open]);
 
   /* ---- Actions -------------------------------------------------- */
@@ -168,7 +179,9 @@ export default function NotificationBell() {
       <button
         onClick={() => setOpen((o) => !o)}
         className="relative p-2 rounded-lg hover:bg-warroom-surface transition-colors text-warroom-muted hover:text-warroom-text"
-        aria-label="Notifications"
+        aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+        aria-expanded={open}
+        aria-haspopup="true"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
@@ -180,7 +193,11 @@ export default function NotificationBell() {
 
       {/* Dropdown Panel */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-warroom-surface border border-warroom-border rounded-lg shadow-2xl z-50 overflow-hidden">
+        <div
+          role="menu"
+          aria-label="Notifications panel"
+          className="absolute right-0 top-full mt-2 w-80 bg-warroom-surface border border-warroom-border rounded-lg shadow-2xl z-50 overflow-hidden"
+        >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-warroom-border">
             <h3 className="text-sm font-semibold text-warroom-text">

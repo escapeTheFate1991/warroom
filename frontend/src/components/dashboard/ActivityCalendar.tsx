@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Calendar, ChevronLeft, ChevronRight, Clock, FileText, Loader2, Eye, X,
-  Plus, Trash2, CalendarDays, Activity, ExternalLink, Pencil, Mail,
+  ChevronLeft, ChevronRight, Clock, FileText, Loader2, Eye, X,
+  Plus, Trash2, CalendarDays, Activity, Pencil,
   MoreHorizontal, MapPin, Users, Bell, Type, CheckSquare, BellRing,
   Repeat, Globe, Briefcase
 } from "lucide-react";
@@ -751,14 +751,18 @@ export default function ActivityCalendar() {
       setFullEditorData(null);
       setSelectedEvent(null);
       loadPersonalData();
-    } catch {}
+    } catch (err) {
+      console.error("Failed to save event:", err);
+    }
   };
 
   const deleteEvent = async (eventId: string) => {
     try {
       await authFetch(`${API}/api/calendar/personal/events/${eventId}`, { method: "DELETE" });
       loadPersonalData();
-    } catch {}
+    } catch (err) {
+      console.error("Failed to delete event:", err);
+    }
   };
 
   /* ── Google Calendar Logic ──────────────────────────── */

@@ -15,15 +15,22 @@ export const API = process.env.NEXT_PUBLIC_API_URL || "";
  */
 export function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = typeof window !== "undefined" ? localStorage.getItem("warroom_token") : null;
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string> || {}),
-  };
+
+  // Normalize headers to a plain object regardless of input type
+  const incoming = options.headers ?? {};
+  const normalized: Record<string, string> =
+    incoming instanceof Headers
+      ? Object.fromEntries(incoming.entries())
+      : Array.isArray(incoming)
+        ? Object.fromEntries(incoming)
+        : { ...(incoming as Record<string, string>) };
+
   if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+    normalized["Authorization"] = `Bearer ${token}`;
   }
   // Only set Content-Type for non-FormData bodies
-  if (options.body && !(options.body instanceof FormData) && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
+  if (options.body && !(options.body instanceof FormData) && !normalized["Content-Type"]) {
+    normalized["Content-Type"] = "application/json";
   }
-  return fetch(url, { ...options, headers });
+  return fetch(url, { ...options, headers: normalized });
 }

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, contact_webhook, notifications
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, contact_webhook, notifications, cold_email, lead_enrichment
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
@@ -29,8 +29,8 @@ async def lifespan(app: FastAPI):
         await settings.init_settings_table(leadgen_engine)
         logger.info("Settings initialized")
         
-        # Initialize notifications table
-        await notifications.init_notifications_table(leadgen_engine)
+        # Initialize notifications table (use its own engine — same DB, but consistent)
+        await notifications.init_notifications_table(notifications.notify_engine)
         logger.info("Notifications table initialized")
         
         # Verify CRM schema exists (don't re-create, just verify)
@@ -40,6 +40,14 @@ async def lifespan(app: FastAPI):
         # Contact submissions table (public schema)
         await contact_webhook.init_contact_table()
         logger.info("Contact submissions table initialized")
+        
+        # Cold email tables (public schema)
+        await cold_email.init_cold_email_tables()
+        logger.info("Cold email tables initialized")
+        
+        # Lead enrichments table (public schema)
+        await lead_enrichment.init_enrichments_table()
+        logger.info("Lead enrichments table initialized")
         
     except Exception as e:
         logger.error("Failed to initialize databases: %s", e)
@@ -89,7 +97,12 @@ app.add_middleware(AuthGuardMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://warroom.stuffnthings.io",
+        "http://localhost:3300",
+        "http://192.168.1.94:3300",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -123,6 +136,8 @@ app.include_router(task_deps.router, prefix="/api", tags=["task-dependencies"])
 app.include_router(task_execution.router, prefix="/api", tags=["task-execution"])
 app.include_router(contact_webhook.router, prefix="/api", tags=["contact-webhook"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
+app.include_router(cold_email.router, prefix="/api", tags=["cold-email"])
+app.include_router(lead_enrichment.router, prefix="/api", tags=["lead-enrichment"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])

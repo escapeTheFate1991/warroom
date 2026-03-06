@@ -3,6 +3,7 @@
 Receives form data, validates, rate-limits, stores in DB, triggers auto-reply.
 Table: public.contact_submissions (auto-created on startup).
 """
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone
@@ -144,7 +145,8 @@ async def _send_auto_reply(submission_id: int, name: str, email: str):
     """Send auto-reply and update the DB record."""
     try:
         html = _build_auto_reply_html(name)
-        sent = _send_email(email, "We got your message — thanks!", html)
+        # _send_email is sync (uses smtplib) — run in thread to avoid blocking event loop
+        sent = await asyncio.to_thread(_send_email, email, "We got your message — thanks!", html)
 
         async with _session() as db:
             if sent:

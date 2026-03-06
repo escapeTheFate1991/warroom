@@ -3,16 +3,15 @@
 import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  MessageSquare, Zap, Settings, LogOut, Share2, Activity, Film, Eye, Search,
+  MessageSquare, Zap, Settings, LogOut, Share2, Film, Search,
   UserSquare, Briefcase, Users, Calendar, BookOpen, GraduationCap, Package,
-  Mail, FileText, LayoutGrid, LayoutDashboard, Instagram, Youtube, BarChart3,
-  ClipboardList, FileBarChart, Telescope, Bot, Facebook, Twitter,
-  CalendarDays, Puzzle, Heart,
+  Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
+  ClipboardList, FileBarChart, Bot, Facebook, Twitter,
+  CalendarDays, Puzzle, Heart, Inbox,
 } from "lucide-react";
-import { AuthProvider, useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/AuthProvider";
 import ChatPanel from "@/components/chat/ChatPanel";
 import KanbanPanel from "@/components/kanban/KanbanPanel";
-import TeamPanel from "@/components/team/TeamPanel";
 import LibraryPanel from "@/components/library/LibraryPanel";
 import EducatePanel from "@/components/library/EducatePanel";
 import LeadgenPanel from "@/components/leadgen/LeadgenPanel";
@@ -35,6 +34,7 @@ import SoulEditor from "@/components/dashboard/SoulEditor";
 import ActivityCalendar from "@/components/dashboard/ActivityCalendar";
 import PlatformContent from "@/components/content/PlatformContent";
 import ContentTracker from "@/components/content/ContentTracker";
+import ContactSubmissions from "@/components/crm/ContactSubmissions";
 import NotificationBell from "@/components/notifications/NotificationBell";
 
 // Sidebar section structure (inspired by RAWGROWTH War Room)
@@ -76,6 +76,7 @@ const SECTIONS = [
         { id: "crm-contacts", label: "Contacts", icon: Users },
         { id: "crm-activities", label: "Activities", icon: Calendar },
         { id: "crm-products", label: "Products", icon: Package },
+        { id: "crm-submissions", label: "Submissions", icon: Inbox },
       ]},
     ],
   },
@@ -100,7 +101,7 @@ type TabId =
   | "dashboard" | "chat" | "agents" | "activity" | "calendar" | "social" | "pipeline" | "intelligence"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
   | "kanban" | "team" | "leadgen"
-  | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products"
+  | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products" | "crm-submissions"
   | "library-search" | "library-educate"
   | "marketing-campaigns" | "marketing-templates"
   | "skills" | "soul"
@@ -108,14 +109,14 @@ type TabId =
 
 // Map parent IDs to their children active check
 const PARENT_CHILDREN: Record<string, string[]> = {
-  crm: ["crm-deals", "crm-contacts", "crm-activities", "crm-products"],
+  crm: ["crm-deals", "crm-contacts", "crm-activities", "crm-products", "crm-submissions"],
   library: ["library-search", "library-educate"],
   marketing: ["marketing-campaigns", "marketing-templates"],
 };
 
 export default function Page() {
   return (
-    <Suspense>
+    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-warroom-bg text-warroom-muted">Loading…</div>}>
       <WarRoom />
     </Suspense>
   );
@@ -290,6 +291,7 @@ function WarRoom() {
         {activeTab === "crm-contacts" && <ContactsManager />}
         {activeTab === "crm-activities" && <ActivitiesPanel />}
         {activeTab === "crm-products" && <ProductsPanel />}
+        {activeTab === "crm-submissions" && <ContactSubmissions />}
         {activeTab === "library-search" && <LibraryPanel />}
         {activeTab === "library-educate" && <EducatePanel />}
         {activeTab === "marketing-campaigns" && <CampaignsPanel />}

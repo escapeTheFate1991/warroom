@@ -35,6 +35,7 @@ services:
       MENTAL_LIBRARY_API_URL: http://10.0.0.1:8100
       LEADGEN_BACKEND_URL: http://10.0.0.1:8200
       BACKEND_URL: https://warroom.stuffnthings.io
+      JWT_SECRET: "cd33654a256f32c697fedce4f8fe6736d358e0e55eb2fbd452cece3f8ced5071"
       FRONTEND_URL: http://localhost:3300
       LEADGEN_DB_URL: postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge
       # SQLite read-only mount from the mental-library skill volume
