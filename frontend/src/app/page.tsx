@@ -261,10 +261,6 @@ function WarRoom() {
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden relative">
-        {/* Usage widget — always visible top-right */}
-        <div className="absolute top-3 right-4 z-40">
-          <UsageWidget />
-        </div>
         {activeTab === "dashboard" && <CommandCenter />}
         {activeTab === "chat" && <ChatPanel />}
         {activeTab === "agents" && <AgentServiceMap />}

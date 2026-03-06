@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  Send, Bot, User, Loader2, Mic, MicOff,
+  Send, Bot, User, Loader2, Mic, MicOff, ChevronDown,
   Plus, Sparkles, X, StopCircle, ArrowDown,
   PanelRightOpen, Copy, Check,
 } from "lucide-react";
@@ -35,6 +35,127 @@ interface GatewayRes {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8300";
+
+/* ── Usage Indicator (replaces connection dot) ─────────── */
+
+interface UsageTier { label: string; percent: number; resetsIn: string; tokens: number; cost: number; }
+interface UsageData {
+  model: string;
+  tiers: UsageTier[];
+  details: { today: { tokens: number; cost: number; sessions: number }; week: { tokens: number; cost: number; sessions: number }; month: { tokens: number; cost: number; sessions: number } };
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+  return n.toString();
+}
+
+function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const fetchUsage = async () => {
+      try {
+        const resp = await fetch(`${API_URL}/api/usage`);
+        if (resp.ok) setUsage(await resp.json());
+      } catch {}
+    };
+    fetchUsage();
+    const interval = setInterval(fetchUsage, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!expanded) return;
+    fetch(`${API_URL}/api/usage/models`).then(r => r.ok ? r.json() : []).then(setModels).catch(() => {});
+  }, [expanded]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setExpanded(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const switchModel = async (model: string) => {
+    try {
+      await fetch(`${API_URL}/api/usage/model`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) });
+      const resp = await fetch(`${API_URL}/api/usage`);
+      if (resp.ok) setUsage(await resp.json());
+    } catch {}
+  };
+
+  const sessionPct = usage?.tiers?.[0]?.percent ?? 0;
+  const dotColor = !wsConnected ? "bg-warroom-danger animate-pulse" : sessionPct > 80 ? "bg-red-500" : sessionPct > 60 ? "bg-amber-500" : "bg-emerald-500";
+  const displayModel = (usage?.model || "unknown").replace("anthropic/", "").replace("google/", "");
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1.5 hover:bg-warroom-border/30 rounded-full px-1.5 py-0.5 transition" title={`${displayModel} · ${sessionPct}% session`}>
+        <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+        <span className="text-[10px] text-warroom-muted">{sessionPct}%</span>
+        <ChevronDown size={10} className={`text-warroom-muted transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </button>
+
+      {expanded && (
+        <div className="absolute bottom-full right-0 mb-2 w-72 bg-warroom-surface border border-warroom-border rounded-lg shadow-xl z-50 p-3 space-y-3">
+          {/* Model */}
+          <div>
+            <label className="text-[9px] text-warroom-muted uppercase tracking-wide font-medium">Model</label>
+            {models.length > 0 ? (
+              <select value={usage?.model ? "anthropic/" + usage.model : ""} onChange={(e) => switchModel(e.target.value)}
+                className="w-full mt-1 bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent">
+                {models.map(m => <option key={m} value={m}>{m.replace("anthropic/", "").replace("google/", "")}</option>)}
+              </select>
+            ) : (
+              <p className="text-xs text-warroom-text mt-0.5">{displayModel}</p>
+            )}
+          </div>
+
+          {/* Progress bars */}
+          {usage?.tiers?.map((tier, i) => {
+            const barColor = tier.percent > 80 ? "bg-red-500" : tier.percent > 60 ? "bg-amber-500" : "bg-emerald-500";
+            return (
+              <div key={i} className="space-y-1">
+                <div className="flex justify-between text-[9px] text-warroom-muted">
+                  <span>{tier.label}</span>
+                  <span>Resets {tier.resetsIn}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-warroom-bg rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${Math.max(1, tier.percent)}%` }} />
+                  </div>
+                  <span className="text-[10px] font-medium text-warroom-text w-8 text-right">{tier.percent}%</span>
+                </div>
+                <div className="flex gap-3 text-[9px] text-warroom-muted">
+                  <span>{formatTokens(tier.tokens)} tokens</span>
+                  <span>${tier.cost.toFixed(2)}</span>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Cost summary */}
+          {usage?.details && (
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-warroom-border">
+              {(["today", "week", "month"] as const).map(period => (
+                <div key={period} className="text-center">
+                  <p className="text-xs font-medium text-warroom-text">${usage.details[period].cost.toFixed(2)}</p>
+                  <p className="text-[9px] text-warroom-muted capitalize">{period}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ── Waveform Icon ─────────────────────────────────────── */
 
@@ -1145,8 +1266,7 @@ export default function ChatPanel() {
                   <WaveformIcon size={18} animated={isConversationMode && hasVoiceActivity} />
                 </button>
                 <div className="w-px h-4 bg-warroom-border mx-1" />
-                <span className={`w-2 h-2 rounded-full ${wsConnected ? "bg-warroom-success" : "bg-warroom-danger animate-pulse"}`} />
-                {!wsConnected && <span className="text-[10px] text-warroom-danger ml-1">disconnected</span>}
+                <UsageIndicator wsConnected={wsConnected} />
               </div>
 
               <div className="flex items-center gap-1.5">
