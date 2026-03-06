@@ -158,7 +158,7 @@ function WarRoom() {
   return (
     <div className="flex h-screen bg-warroom-bg text-warroom-text">
       {/* Sidebar */}
-      <nav className="w-[180px] bg-warroom-surface border-r border-warroom-border flex flex-col py-3 gap-0.5 flex-shrink-0">
+      <nav className="w-[180px] bg-warroom-surface border-r border-warroom-border flex flex-col py-3 gap-0.5 flex-shrink-0 overflow-y-auto scrollbar-thin scrollbar-thumb-warroom-border scrollbar-track-transparent">
         {/* Logo */}
         <div className="mb-4 flex items-center gap-2.5 px-4">
           <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-warroom-accent to-purple-600">
