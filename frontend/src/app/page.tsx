@@ -35,6 +35,7 @@ import SoulEditor from "@/components/dashboard/SoulEditor";
 import ActivityCalendar from "@/components/dashboard/ActivityCalendar";
 import PlatformContent from "@/components/content/PlatformContent";
 import ContentTracker from "@/components/content/ContentTracker";
+import NotificationBell from "@/components/notifications/NotificationBell";
 
 // Sidebar section structure (inspired by RAWGROWTH War Room)
 const SECTIONS = [
@@ -247,7 +248,8 @@ function WarRoom() {
             <div className="w-7 h-7 rounded-full bg-warroom-accent/20 flex items-center justify-center flex-shrink-0">
               <span className="text-[11px] font-bold text-warroom-accent">{user?.name?.[0]?.toUpperCase()}</span>
             </div>
-            <span className="text-xs font-medium text-warroom-text/70 truncate">{user?.name}</span>
+            <span className="text-xs font-medium text-warroom-text/70 truncate flex-1">{user?.name}</span>
+            <NotificationBell />
           </div>
         </div>
 

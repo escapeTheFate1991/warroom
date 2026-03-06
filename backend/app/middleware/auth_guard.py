@@ -30,6 +30,10 @@ PUBLIC_PATHS = {
     # Health check
     "/health",
     "/api/health",
+    # SSE (uses ?token= query param for auth)
+    "/api/notifications/stream",
+    # Contact form webhook (public-facing)
+    "/api/webhooks/contact",
 }
 
 # Prefix matches (OAuth callbacks only — authorize endpoints require auth

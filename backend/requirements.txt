@@ -19,3 +19,4 @@ playwright==1.58.0
 google-auth-oauthlib==1.2.0
 google-api-python-client==2.127.0
 google-auth-httplib2==0.2.0
+sse-starlette==2.1.0
