@@ -239,6 +239,7 @@ async def list_leads(
 ):
     """List leads with filtering and sorting."""
     try:
+        await _ensure_review_columns(db)
         query = select(Lead)
 
         if search_job_id:
