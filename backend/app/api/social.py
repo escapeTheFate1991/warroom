@@ -81,7 +81,7 @@ async def get_social_accounts(db: AsyncSession = Depends(get_crm_db)):
         accounts = result.scalars().all()
         return [SocialAccountResponse.model_validate(account) for account in accounts]
     except Exception as e:
-        logger.error(f"Failed to fetch social accounts: {e}")
+        logger.error("Failed to fetch social accounts: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch social accounts")
 
 
@@ -111,7 +111,7 @@ async def connect_social_account(
         return SocialAccountResponse.model_validate(new_account)
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to create social account: {e}")
+        logger.error("Failed to create social account: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create social account")
 
 
@@ -136,7 +136,7 @@ async def disconnect_social_account(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to delete social account: {e}")
+        logger.error("Failed to delete social account: %s", e)
         raise HTTPException(status_code=500, detail="Failed to disconnect account")
 
 
@@ -199,7 +199,7 @@ async def get_social_analytics(
             accounts_connected=len(accounts)
         )
     except Exception as e:
-        logger.error(f"Failed to fetch social analytics: {e}")
+        logger.error("Failed to fetch social analytics: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch analytics")
 
 
@@ -253,7 +253,7 @@ async def get_platform_analytics(
             for a in analytics
         ]
     except Exception as e:
-        logger.error(f"Failed to fetch platform analytics: {e}")
+        logger.error("Failed to fetch platform analytics: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch platform analytics")
 
 
@@ -314,7 +314,7 @@ async def get_analytics_sparkline(
         
         return sparkline_data
     except Exception as e:
-        logger.error(f"Failed to fetch sparkline data: {e}")
+        logger.error("Failed to fetch sparkline data: %s", e)
         return {}
 
 
@@ -387,7 +387,7 @@ async def get_analytics_trends(db: AsyncSession = Depends(get_crm_db)):
         
         return trends
     except Exception as e:
-        logger.error(f"Failed to fetch trends data: {e}")
+        logger.error("Failed to fetch trends data: %s", e)
         return {
             "followers": "+0.0%",
             "engagement": "+0.0%", 
@@ -417,7 +417,7 @@ async def sync_social_data(db: AsyncSession = Depends(get_crm_db)):
             "synced_accounts": len(accounts)
         }
     except Exception as e:
-        logger.error(f"Failed to sync social data: {e}")
+        logger.error("Failed to sync social data: %s", e)
         raise HTTPException(status_code=500, detail="Failed to sync social data")
 
 

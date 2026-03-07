@@ -216,7 +216,7 @@ def extract_ngrams(text: str, n: int = 2) -> List[str]:
         n_grams = list(ngrams(tokens, n))
         return [' '.join(gram) for gram in n_grams if len(' '.join(gram)) > 5]
     except Exception as e:
-        logger.warning(f"Error extracting n-grams: {e}")
+        logger.warning("Error extracting n-grams: %s", e)
         return []
 
 
@@ -258,7 +258,7 @@ def cluster_topics(topics: List[str], max_clusters: int = 5) -> Dict[str, List[s
         return result
         
     except Exception as e:
-        logger.warning(f"Error clustering topics: {e}")
+        logger.warning("Error clustering topics: %s", e)
         # Fallback: group by first word
         clusters = defaultdict(list)
         for topic in topics:
@@ -279,7 +279,7 @@ async def get_social_account_token(db: AsyncSession, platform: str) -> Optional[
         token_row = result.first()
         return token_row[0] if token_row else None
     except Exception as e:
-        logger.error(f"Failed to get token for {platform}: {e}")
+        logger.error("Failed to get token for %s: %s", platform, e)
         return None
 
 
@@ -325,7 +325,7 @@ async def save_competitor_posts(db: AsyncSession, competitor_id: int, platform: 
         
     except SQLAlchemyError as e:
         await db.rollback()
-        logger.error(f"Failed to save competitor posts: {e}")
+        logger.error("Failed to save competitor posts: %s", e)
         return False
 
 
@@ -355,7 +355,7 @@ async def load_cached_posts(db: AsyncSession, competitor_id: int = None,
         return [dict(row._mapping) for row in result.fetchall()]
         
     except SQLAlchemyError as e:
-        logger.error(f"Failed to load cached posts: {e}")
+        logger.error("Failed to load cached posts: %s", e)
         return []
 
 
@@ -400,7 +400,7 @@ async def fetch_instagram_content(handle: str, access_token: str) -> List[Compet
             return posts
             
     except Exception as e:
-        logger.error(f"Failed to fetch Instagram content for {handle}: {e}")
+        logger.error("Failed to fetch Instagram content for %s: %s", handle, e)
         return []
 
 
@@ -457,7 +457,7 @@ async def fetch_x_content(handle: str, access_token: str) -> List[CompetitorPost
             return posts
             
     except Exception as e:
-        logger.error(f"Failed to fetch X content for {handle}: {e}")
+        logger.error("Failed to fetch X content for %s: %s", handle, e)
         return []
 
 
@@ -547,7 +547,7 @@ async def fetch_youtube_content(handle: str, api_key: str) -> List[CompetitorPos
             return posts
             
     except Exception as e:
-        logger.error(f"Failed to fetch YouTube content for {handle}: {e}")
+        logger.error("Failed to fetch YouTube content for %s: %s", handle, e)
         return []
 
 
@@ -718,7 +718,7 @@ async def get_competitor_content(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to fetch competitor content: {e}")
+        logger.error("Failed to fetch competitor content: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch competitor content")
 
 
@@ -751,7 +751,7 @@ async def get_trending_topics(
         )
         
     except Exception as e:
-        logger.error(f"Failed to analyze trending topics: {e}")
+        logger.error("Failed to analyze trending topics: %s", e)
         raise HTTPException(status_code=500, detail="Failed to analyze trending topics")
 
 
@@ -795,7 +795,7 @@ async def get_top_content(
         )
         
     except Exception as e:
-        logger.error(f"Failed to get top content: {e}")
+        logger.error("Failed to get top content: %s", e)
         raise HTTPException(status_code=500, detail="Failed to get top content")
 
 
@@ -837,7 +837,7 @@ async def get_hooks(
         )
         
     except Exception as e:
-        logger.error(f"Failed to get hooks: {e}")
+        logger.error("Failed to get hooks: %s", e)
         raise HTTPException(status_code=500, detail="Failed to get hooks")
 
 
@@ -891,7 +891,7 @@ async def refresh_competitor_content(
                     errors.append(f"No posts fetched for {handle}")
                     
             except Exception as e:
-                logger.warning(f"Failed to refresh competitor {competitor.handle}: {e}")
+                logger.warning("Failed to refresh competitor %s: %s", competitor.handle, e)
                 errors.append(f"Error refreshing {competitor.handle}: {str(e)}")
         
         return {
@@ -902,7 +902,7 @@ async def refresh_competitor_content(
         }
         
     except Exception as e:
-        logger.error(f"Failed to refresh competitor content: {e}")
+        logger.error("Failed to refresh competitor content: %s", e)
         raise HTTPException(status_code=500, detail="Failed to refresh competitor content")
 
 
@@ -976,7 +976,7 @@ async def generate_content_script(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to generate script: {e}")
+        logger.error("Failed to generate script: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate script")
 
 
@@ -1119,7 +1119,7 @@ async def list_generated_scripts(
         ]
         
     except Exception as e:
-        logger.error(f"Failed to list scripts: {e}")
+        logger.error("Failed to list scripts: %s", e)
         raise HTTPException(status_code=500, detail="Failed to list scripts")
 
 
@@ -1147,7 +1147,7 @@ async def delete_script(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to delete script: {e}")
+        logger.error("Failed to delete script: %s", e)
         raise HTTPException(status_code=500, detail="Failed to delete script")
 
 
@@ -1215,7 +1215,7 @@ async def get_competitor_top_videos(
             for r in rows
         ]
     except Exception as e:
-        logger.error(f"Failed to get top videos for competitor {competitor_id}: {e}")
+        logger.error("Failed to get top videos for competitor %s: %s", competitor_id, e)
         raise HTTPException(status_code=500, detail="Failed to get top videos")
 
 
@@ -1260,7 +1260,7 @@ async def get_follower_analysis(
                 top_indices = scores.argsort()[-8:][::-1]
                 themes = [str(feature_names[i]).title() for i in top_indices]
             except Exception as nlp_err:
-                logger.warning(f"TF-IDF theme extraction failed: {nlp_err}")
+                logger.warning("TF-IDF theme extraction failed: %s", nlp_err)
 
         # Fallback: simple word frequency if TF-IDF failed
         if not themes:
@@ -1315,7 +1315,7 @@ async def get_follower_analysis(
         )
 
     except Exception as e:
-        logger.error(f"Failed to run follower analysis: {e}")
+        logger.error("Failed to run follower analysis: %s", e)
         raise HTTPException(status_code=500, detail="Failed to run follower analysis")
 
 
@@ -1343,5 +1343,5 @@ async def get_competitor_hashtags(
         return [HashtagItem(tag=tag, count=count) for tag, count in counter.most_common(50)]
 
     except Exception as e:
-        logger.error(f"Failed to get hashtags for competitor {competitor_id}: {e}")
+        logger.error("Failed to get hashtags for competitor %s: %s", competitor_id, e)
         raise HTTPException(status_code=500, detail="Failed to get hashtags")

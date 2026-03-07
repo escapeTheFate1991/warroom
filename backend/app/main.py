@@ -93,14 +93,14 @@ async def verify_crm_schema():
             table_count = table_check.fetchone()[0]
             
             if table_count < 10:  # Should have many more than 10 tables
-                logger.warning(f"CRM schema incomplete - only {table_count} tables found")
+                logger.warning("CRM schema incomplete - only %d tables found", table_count)
                 return False
                 
-            logger.info(f"CRM schema verified with {table_count} tables")
+            logger.info("CRM schema verified with %d tables", table_count)
             return True
             
     except Exception as e:
-        logger.error(f"Failed to verify CRM schema: {e}")
+        logger.error("Failed to verify CRM schema: %s", e)
         return False
 
 

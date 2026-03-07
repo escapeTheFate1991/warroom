@@ -90,7 +90,7 @@ async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
             )
             results["followers"] = p.get("followers_count", 0)
         else:
-            logger.warning(f"Instagram profile fetch failed: {profile.status_code} {profile.text[:200]}")
+            logger.warning("Instagram profile fetch failed: %s %s", profile.status_code, profile.text[:200])
             results["status"] = "partial"
 
         # Recent media with engagement
@@ -136,7 +136,7 @@ async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
                         elif name == "profile_views":
                             await _upsert_daily_analytics(db, acc["id"], date.today(), profile_views=val)
         except Exception as e:
-            logger.warning(f"Instagram insights error: {e}")
+            logger.warning("Instagram insights error: %s", e)
 
     return results
 
@@ -154,7 +154,7 @@ async def _sync_youtube(db: AsyncSession, acc: dict) -> dict:
         }, headers=headers)
 
         if ch_resp.status_code != 200:
-            logger.warning(f"YouTube channel fetch failed: {ch_resp.status_code}")
+            logger.warning("YouTube channel fetch failed: %s", ch_resp.status_code)
             results["status"] = "error"
             return results
 
@@ -233,7 +233,7 @@ async def _sync_facebook(db: AsyncSession, acc: dict) -> dict:
         })
 
         if resp.status_code != 200:
-            logger.warning(f"Facebook posts fetch failed: {resp.status_code}")
+            logger.warning("Facebook posts fetch failed: %s", resp.status_code)
             results["status"] = "error"
             return results
 
@@ -312,9 +312,9 @@ async def _sync_x(db: AsyncSession, acc: dict) -> dict:
                         engagement=total_likes + total_retweets + total_replies,
                     )
                 else:
-                    logger.warning(f"X tweets fetch failed: {tweets_resp.status_code} {tweets_resp.text[:200]}")
+                    logger.warning("X tweets fetch failed: %s %s", tweets_resp.status_code, tweets_resp.text[:200])
         else:
-            logger.warning(f"X profile fetch failed: {me_resp.status_code} {me_resp.text[:200]}")
+            logger.warning("X profile fetch failed: %s %s", me_resp.status_code, me_resp.text[:200])
             results["status"] = "error"
 
     return results
@@ -345,7 +345,7 @@ async def sync_all(db: AsyncSession = Depends(get_crm_db)):
                 r = await syncer(db, acc)
                 results.append(r)
             except Exception as e:
-                logger.error(f"Sync failed for {acc['platform']}/@{acc['username']}: {e}")
+                logger.error("Sync failed for %s/@%s: %s", acc['platform'], acc['username'], e)
                 results.append({"platform": acc["platform"], "username": acc["username"], "status": "error", "error": str(e)[:200]})
 
     await db.commit()
@@ -369,7 +369,7 @@ async def sync_platform(platform: str, db: AsyncSession = Depends(get_crm_db)):
             r = await syncer(db, acc)
             results.append(r)
         except Exception as e:
-            logger.error(f"Sync failed for {platform}/@{acc['username']}: {e}")
+            logger.error("Sync failed for %s/@%s: %s", platform, acc['username'], e)
             results.append({"platform": platform, "username": acc["username"], "status": "error", "error": str(e)[:200]})
 
     await db.commit()

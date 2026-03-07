@@ -29,8 +29,8 @@ def generate_code(length: int = 6) -> str:
 def _send_email(to: str, subject: str, html_body: str) -> bool:
     """Send an email via SMTP. Returns True on success."""
     if not SMTP_HOST or not SMTP_USER:
-        logger.warning(f"SMTP not configured — would send to {to}: {subject}")
-        logger.info(f"Email body preview: {html_body[:200]}")
+        logger.warning("SMTP not configured — would send to %s: %s", to, subject)
+        logger.info("Email body preview: %s", html_body[:200])
         return False
 
     try:
@@ -45,10 +45,10 @@ def _send_email(to: str, subject: str, html_body: str) -> bool:
             server.login(SMTP_USER, SMTP_PASS)
             server.sendmail(SMTP_FROM, to, msg.as_string())
 
-        logger.info(f"Email sent to {to}: {subject}")
+        logger.info("Email sent to %s: %s", to, subject)
         return True
     except Exception as e:
-        logger.error(f"Failed to send email to {to}: {e}")
+        logger.error("Failed to send email to %s: %s", to, e)
         return False
 
 

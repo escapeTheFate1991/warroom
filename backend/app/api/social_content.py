@@ -49,7 +49,7 @@ async def instagram_media(limit: int = 25, db: AsyncSession = Depends(get_crm_db
 
         if resp.status_code == 400:
             data = resp.json()
-            logger.error(f"Instagram API error: {data}")
+            logger.error("Instagram API error: %s", data)
             raise HTTPException(400, data.get("error", {}).get("message", "Instagram API error"))
 
         if resp.status_code != 200:
@@ -107,7 +107,7 @@ async def instagram_insights(db: AsyncSession = Depends(get_crm_db)):
         })
 
         if resp.status_code != 200:
-            logger.warning(f"Instagram insights error {resp.status_code}: {resp.text[:200]}")
+            logger.warning("Instagram insights error %s: %s", resp.status_code, resp.text[:200])
             return {"insights": [], "error": "Insights may require a Business or Creator account"}
 
         return {"insights": resp.json().get("data", [])}
@@ -132,7 +132,7 @@ async def youtube_videos(limit: int = 25, db: AsyncSession = Depends(get_crm_db)
         }, headers={"Authorization": f"Bearer {acc['token']}"})
 
         if ch_resp.status_code != 200:
-            logger.error(f"YouTube channels error: {ch_resp.text[:200]}")
+            logger.error("YouTube channels error: %s", ch_resp.text[:200])
             raise HTTPException(502, "Failed to fetch YouTube channel")
 
         channels = ch_resp.json().get("items", [])
@@ -218,7 +218,7 @@ async def facebook_posts(limit: int = 25, db: AsyncSession = Depends(get_crm_db)
         })
 
         if resp.status_code != 200:
-            logger.error(f"Facebook posts error: {resp.text[:200]}")
+            logger.error("Facebook posts error: %s", resp.text[:200])
             return {"posts": [], "error": "Failed to fetch posts"}
 
         posts = resp.json().get("data", [])
@@ -258,7 +258,7 @@ async def x_tweets(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
         }, headers=headers)
 
         if me_resp.status_code != 200:
-            logger.error(f"X /users/me error: {me_resp.text[:200]}")
+            logger.error("X /users/me error: %s", me_resp.text[:200])
             raise HTTPException(502, f"X API returned {me_resp.status_code}")
 
         me = me_resp.json().get("data", {})
@@ -305,7 +305,7 @@ async def x_tweets(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
                         "url": f"https://x.com/{me.get('username', '')}/status/{t['id']}",
                     })
             else:
-                logger.warning(f"X tweets fetch failed: {t_resp.status_code} {t_resp.text[:200]}")
+                logger.warning("X tweets fetch failed: %s %s", t_resp.status_code, t_resp.text[:200])
 
         return {"profile": profile, "tweets": tweets}
 

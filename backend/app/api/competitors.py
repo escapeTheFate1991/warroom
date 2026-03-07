@@ -86,7 +86,7 @@ async def get_social_account_token(db: AsyncSession, platform: str) -> Optional[
         token_row = result.first()
         return token_row[0] if token_row else None
     except Exception as e:
-        logger.error(f"Failed to get token for {platform}: {e}")
+        logger.error("Failed to get token for %s: %s", platform, e)
         return None
 
 
@@ -117,10 +117,10 @@ async def fetch_instagram_data(handle: str, access_token: str) -> SocialPlatform
             )
             
     except httpx.HTTPStatusError as e:
-        logger.error(f"Instagram API error for {handle}: {e.response.status_code} - {e.response.text}")
+        logger.error("Instagram API error for %s: %s - %s", handle, e.response.status_code, e.response.text)
         return SocialPlatformData(success=False, error=f"API error: {e.response.status_code}")
     except Exception as e:
-        logger.error(f"Instagram fetch error for {handle}: {e}")
+        logger.error("Instagram fetch error for %s: %s", handle, e)
         return SocialPlatformData(success=False, error=str(e))
 
 
@@ -151,10 +151,10 @@ async def fetch_x_data(handle: str, access_token: str) -> SocialPlatformData:
             )
             
     except httpx.HTTPStatusError as e:
-        logger.error(f"X API error for {handle}: {e.response.status_code} - {e.response.text}")
+        logger.error("X API error for %s: %s - %s", handle, e.response.status_code, e.response.text)
         return SocialPlatformData(success=False, error=f"API error: {e.response.status_code}")
     except Exception as e:
-        logger.error(f"X fetch error for {handle}: {e}")
+        logger.error("X fetch error for %s: %s", handle, e)
         return SocialPlatformData(success=False, error=str(e))
 
 
@@ -212,10 +212,10 @@ async def fetch_youtube_data(handle: str, api_key: str) -> SocialPlatformData:
             )
             
     except httpx.HTTPStatusError as e:
-        logger.error(f"YouTube API error for {handle}: {e.response.status_code} - {e.response.text}")
+        logger.error("YouTube API error for %s: %s - %s", handle, e.response.status_code, e.response.text)
         return SocialPlatformData(success=False, error=f"API error: {e.response.status_code}")
     except Exception as e:
-        logger.error(f"YouTube fetch error for {handle}: {e}")
+        logger.error("YouTube fetch error for %s: %s", handle, e)
         return SocialPlatformData(success=False, error=str(e))
 
 
@@ -295,7 +295,7 @@ async def create_competitor(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to create competitor: {e}")
+        logger.error("Failed to create competitor: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create competitor")
 
 
@@ -317,7 +317,7 @@ async def list_competitors(
         return [CompetitorResponse.model_validate(comp) for comp in competitors]
         
     except Exception as e:
-        logger.error(f"Failed to fetch competitors: {e}")
+        logger.error("Failed to fetch competitors: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch competitors")
 
 
@@ -341,7 +341,7 @@ async def get_competitor(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to fetch competitor: {e}")
+        logger.error("Failed to fetch competitor: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch competitor")
 
 
@@ -376,7 +376,7 @@ async def update_competitor(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to update competitor: {e}")
+        logger.error("Failed to update competitor: %s", e)
         raise HTTPException(status_code=500, detail="Failed to update competitor")
 
 
@@ -404,7 +404,7 @@ async def delete_competitor(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to delete competitor: {e}")
+        logger.error("Failed to delete competitor: %s", e)
         raise HTTPException(status_code=500, detail="Failed to delete competitor")
 
 
@@ -485,7 +485,7 @@ async def sync_competitors(
         
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to sync competitors: {e}")
+        logger.error("Failed to sync competitors: %s", e)
         raise HTTPException(status_code=500, detail="Failed to sync competitors")
 
 
@@ -537,5 +537,5 @@ async def sync_single_competitor(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to sync competitor: {e}")
+        logger.error("Failed to sync competitor: %s", e)
         raise HTTPException(status_code=500, detail="Failed to sync competitor")
