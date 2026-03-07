@@ -49,6 +49,7 @@ const InvoicingPanel = dynamic(() => import("@/components/invoicing/InvoicingPan
 const EmailInbox = dynamic(() => import("@/components/email/EmailInbox"), { loading: PanelLoader });
 const ReportsOverview = dynamic(() => import("@/components/reports/ReportsOverview"), { loading: PanelLoader });
 const ProspectsPanel = dynamic(() => import("@/components/prospects/ProspectsPanel"), { loading: PanelLoader });
+const UnifiedPipeline = dynamic(() => import("@/components/crm/UnifiedPipeline"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -94,6 +95,7 @@ const SECTIONS = [
   {
     label: "OPERATIONS",
     items: [
+      { id: "pipeline-board", label: "Pipeline Board", icon: ClipboardList },
       { id: "leadgen", label: "Leads", icon: Search },
       { id: "prospects", label: "Prospects", icon: UserPlus },
       { id: "crm", label: "CRM", icon: UserSquare, children: [
@@ -145,6 +147,7 @@ type TabId =
   | "dashboard" | "chat" | "agents" | "calendar" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
   | "kanban" | "leadgen"
+  | "pipeline-board"
   | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products" | "crm-submissions"
   | "library-search" | "library-educate"
   | "marketing-campaigns" | "marketing-templates"
@@ -213,6 +216,7 @@ function WarRoom() {
           {activeTab === "kanban" && <KanbanPanel />}
           {activeTab === "leadgen" && <LeadgenPanel />}
           {activeTab === "prospects" && <ProspectsPanel />}
+          {activeTab === "pipeline-board" && <UnifiedPipeline />}
           {activeTab === "crm-deals" && <DealsKanban />}
           {activeTab === "crm-contacts" && <ContactsManager />}
           {activeTab === "crm-activities" && <ActivitiesPanel />}
