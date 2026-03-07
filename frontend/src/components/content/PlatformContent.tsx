@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Sparkles, Plus, Search, Filter, Instagram, Youtube, Facebook, Twitter,
-  ChevronRight, Clock, Eye, Heart, MessageSquare, Share2,
+  ChevronRight, Clock, Eye, Heart, MessageSquare, Share2, PenTool, Loader2, Copy, X,
 } from "lucide-react";
+import { authFetch, API } from "@/lib/api";
 
 interface ContentCard {
   id: string;
@@ -45,6 +46,39 @@ export default function PlatformContent({ platform }: PlatformContentProps) {
   const [stageFilter, setStageFilter] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [aiLoading, setAiLoading] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<{type: string, content: string} | null>(null);
+
+  const callAI = async (type: "ideas" | "hook") => {
+    setAiLoading(type);
+    try {
+      let endpoint = "";
+      let body = {};
+      let resultType = "";
+
+      if (type === "ideas") {
+        endpoint = `${API}/api/content/ai/ideas`;
+        body = { niche: "content creation", platform, count: 5 };
+        resultType = "Content Ideas";
+      } else {
+        endpoint = `${API}/api/content/ai/script`;
+        body = { topic: "trending hook", platform, style: "entertaining", duration: "15s" };
+        resultType = "Hook Script";
+      }
+
+      const resp = await authFetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      const content = data.ideas || data.script || JSON.stringify(data);
+      setAiResult({ type: resultType, content });
+    } catch {
+      setAiResult({ type: "Error", content: "Failed to generate AI content. Please try again." });
+    } finally {
+      setAiLoading(null);
+    }
+  };
 
   const config = PLATFORM_CONFIG[platform];
   const Icon = config.icon;
@@ -112,8 +146,13 @@ export default function PlatformContent({ platform }: PlatformContentProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warroom-surface border border-warroom-border text-xs hover:border-warroom-accent/30 transition">
-            <Sparkles size={14} className="text-warroom-accent" /> Generate Ideas
+          <button onClick={() => callAI("ideas")} disabled={aiLoading === "ideas"}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warroom-surface border border-warroom-border text-xs hover:border-warroom-accent/30 transition disabled:opacity-50">
+            {aiLoading === "ideas" ? <Loader2 size={14} className="animate-spin text-warroom-accent" /> : <Sparkles size={14} className="text-warroom-accent" />} Suggest Content
+          </button>
+          <button onClick={() => callAI("hook")} disabled={aiLoading === "hook"}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warroom-surface border border-warroom-border text-xs hover:border-warroom-accent/30 transition disabled:opacity-50">
+            {aiLoading === "hook" ? <Loader2 size={14} className="animate-spin text-warroom-accent" /> : <PenTool size={14} className="text-warroom-accent" />} Write Hook
           </button>
           <button onClick={() => setShowAdd(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warroom-accent text-white text-xs font-medium hover:bg-warroom-accent/80 transition">
@@ -222,6 +261,31 @@ export default function PlatformContent({ platform }: PlatformContentProps) {
                 className="px-3 py-1.5 text-xs rounded-lg text-warroom-muted hover:text-warroom-text transition">Cancel</button>
               <button onClick={addCard} disabled={!newTitle.trim()}
                 className="px-4 py-1.5 text-xs rounded-lg bg-warroom-accent text-white font-medium disabled:opacity-30 hover:bg-warroom-accent/80 transition">Add Idea</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Result Modal */}
+      {aiResult && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setAiResult(null)}>
+          <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-lg mx-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Sparkles size={20} className="text-warroom-accent" /> AI: {aiResult.type}
+              </h3>
+              <button onClick={() => setAiResult(null)} className="text-warroom-muted hover:text-warroom-text"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto bg-warroom-bg border border-warroom-border rounded-lg p-4 mb-4">
+              <pre className="text-sm whitespace-pre-wrap text-warroom-text font-sans leading-relaxed">{aiResult.content}</pre>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => { navigator.clipboard.writeText(aiResult.content); }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm hover:bg-warroom-surface transition">
+                <Copy size={14} /> Copy
+              </button>
+              <button onClick={() => setAiResult(null)}
+                className="flex-1 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition">Close</button>
             </div>
           </div>
         </div>

@@ -2,7 +2,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, X, GripVertical, Instagram, Youtube, Clock, User, Lightbulb, PenTool, Film, Scissors, Calendar, CheckCircle2, MoreVertical, Trash2, Edit2 } from "lucide-react";
+import { Plus, X, GripVertical, Instagram, Youtube, Clock, User, Lightbulb, PenTool, Film, Scissors, Calendar, CheckCircle2, MoreVertical, Trash2, Edit2, Sparkles, MessageSquare, Loader2, Copy } from "lucide-react";
+import { authFetch, API } from "@/lib/api";
 import EmptyState from "@/components/ui/EmptyState";
 
 interface ContentCard {
@@ -56,6 +57,44 @@ export default function ContentPipeline() {
   const [newCard, setNewCard] = useState({ title: "", platforms: [] as string[], notes: "", dueDate: "" });
   const [dragCard, setDragCard] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<Stage | null>(null);
+  const [aiLoading, setAiLoading] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<{type: string, content: string} | null>(null);
+
+  const callAI = async (cardId: string, stage: Stage, card: ContentCard) => {
+    setAiLoading(cardId);
+    try {
+      const platform = card.platforms[0] || "instagram";
+      let endpoint = "";
+      let body = {};
+      let resultType = "";
+
+      if (stage === "idea") {
+        endpoint = `${API}/api/content/ai/ideas`;
+        body = { niche: card.title, platform, count: 3 };
+        resultType = "Content Ideas";
+      } else if (stage === "script") {
+        endpoint = `${API}/api/content/ai/script`;
+        body = { topic: card.title, platform };
+        resultType = "Script";
+      } else if (stage === "editing") {
+        endpoint = `${API}/api/content/ai/captions`;
+        body = { topic: card.title, platform };
+        resultType = "Caption";
+      }
+
+      const resp = await authFetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      const content = data.ideas || data.script || data.caption || JSON.stringify(data);
+      setAiResult({ type: resultType, content });
+    } catch (err) {
+      setAiResult({ type: "Error", content: "Failed to generate AI content. Please try again." });
+    } finally {
+      setAiLoading(null);
+    }
+  };
 
   useEffect(() => { setCards(loadCards()); }, []);
   useEffect(() => { if (cards.length > 0 || localStorage.getItem(LS_KEY)) saveCards(cards); }, [cards]);
@@ -180,6 +219,18 @@ export default function ContentPipeline() {
                             className="opacity-0 group-hover:opacity-100 text-warroom-muted hover:text-red-400 transition p-0.5" title="Delete">
                             <Trash2 size={14} />
                           </button>
+                          {/* AI button based on stage */}
+                          {(stage.id === "idea" || stage.id === "script" || stage.id === "editing") && (
+                            <button onClick={() => callAI(card.id, stage.id, card)}
+                              disabled={aiLoading === card.id}
+                              className="opacity-0 group-hover:opacity-100 text-warroom-muted hover:text-warroom-accent transition p-0.5"
+                              title={stage.id === "idea" ? "Generate Ideas" : stage.id === "script" ? "Write Script" : "Generate Caption"}>
+                              {aiLoading === card.id ? <Loader2 size={14} className="animate-spin" /> :
+                                stage.id === "idea" ? <Sparkles size={14} /> :
+                                stage.id === "script" ? <PenTool size={14} /> :
+                                <MessageSquare size={14} />}
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -281,6 +332,31 @@ export default function ContentPipeline() {
               <button onClick={() => setShowAddForm(false)} className="flex-1 px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm hover:bg-warroom-surface transition">Cancel</button>
               <button onClick={addCard} disabled={!newCard.title.trim()}
                 className="flex-1 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40 rounded-lg text-sm font-medium transition">Add to Pipeline</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Result Modal */}
+      {aiResult && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setAiResult(null)}>
+          <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-lg mx-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Sparkles size={20} className="text-warroom-accent" /> AI: {aiResult.type}
+              </h3>
+              <button onClick={() => setAiResult(null)} className="text-warroom-muted hover:text-warroom-text"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto bg-warroom-bg border border-warroom-border rounded-lg p-4 mb-4">
+              <pre className="text-sm whitespace-pre-wrap text-warroom-text font-sans leading-relaxed">{aiResult.content}</pre>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => { navigator.clipboard.writeText(aiResult.content); }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm hover:bg-warroom-surface transition">
+                <Copy size={14} /> Copy
+              </button>
+              <button onClick={() => setAiResult(null)}
+                className="flex-1 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition">Close</button>
             </div>
           </div>
         </div>
