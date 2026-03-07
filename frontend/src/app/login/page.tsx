@@ -36,7 +36,7 @@ export default function LoginPage() {
             <Zap size={28} className="text-white" />
           </div>
           <h1 className="text-3xl font-bold text-gray-200">WAR ROOM</h1>
-          <p className="text-gray-400 mt-2">Mission Control — yieldlabs</p>
+          <p className="text-gray-400 mt-2">Mission Control</p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-gray-900 border border-[#30363d] rounded-xl p-8 space-y-6">

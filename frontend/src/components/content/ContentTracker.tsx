@@ -48,10 +48,10 @@ interface TrackedAccount {
 
 // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
 const MOCK_ACCOUNTS: TrackedAccount[] = [
-  { id: "ig_1", platform: "instagram", username: "yieldlabs", follower_count: 12400, post_count: 234, status: "connected" },
-  { id: "yt_1", platform: "youtube", username: "YieldLabs", follower_count: 8900, post_count: 87, status: "connected" },
-  { id: "fb_1", platform: "facebook", username: "YieldLabs", follower_count: 3200, post_count: 156, status: "connected" },
-  { id: "x_1", platform: "x", username: "yieldlabs", follower_count: 5600, post_count: 412, status: "connected" },
+  { id: "ig_1", platform: "instagram", username: "my_brand", follower_count: 12400, post_count: 234, status: "connected" },
+  { id: "yt_1", platform: "youtube", username: "MyBrand", follower_count: 8900, post_count: 87, status: "connected" },
+  { id: "fb_1", platform: "facebook", username: "MyBrand", follower_count: 3200, post_count: 156, status: "connected" },
+  { id: "x_1", platform: "x", username: "my_brand", follower_count: 5600, post_count: 412, status: "connected" },
 ];
 
 // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT

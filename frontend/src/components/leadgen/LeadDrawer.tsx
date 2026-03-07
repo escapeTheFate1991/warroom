@@ -342,7 +342,7 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
     }
   };
 
-  const companyName = settings.company_name || "yieldlabs";
+  const companyName = settings.company_name || "My Company";
   const userName = settings.your_name || contactForm.contacted_by || "";
   const contactName = lead.contact_owner_name || lead.contact_who_answered || "";
 
