@@ -273,6 +273,13 @@ async def fetch_google_reviews(place_id: str) -> GoogleReviewResult:
             logger.debug(result.error)
             return result
 
+        # Check daily rate limit before calling Google API
+        from app.services.leadgen.google_places import _check_places_rate_limit, _increment_places_count
+        if not _check_places_rate_limit():
+            result.error = "Google Places daily limit reached"
+            logger.warning(result.error)
+            return result
+
         url = "https://maps.googleapis.com/maps/api/place/details/json"
         params = {
             "place_id": place_id,
@@ -280,6 +287,7 @@ async def fetch_google_reviews(place_id: str) -> GoogleReviewResult:
             "key": api_key,
         }
 
+        _increment_places_count()
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(url, params=params)
 

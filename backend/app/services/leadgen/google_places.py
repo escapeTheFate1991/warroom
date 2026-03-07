@@ -1,11 +1,39 @@
-"""Business discovery via Google Places, Yelp Fusion, and OpenStreetMap Overpass APIs."""
+"""Business discovery via Google Places, Yelp, and OpenStreetMap Overpass APIs."""
 
 import httpx
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import date
 
 logger = logging.getLogger(__name__)
+
+# ── Google Places daily rate limiter (free tier: 30 requests/day) ────
+DAILY_PLACES_LIMIT = 30
+_places_call_count = 0
+_places_call_date: str = ""
+
+
+def _check_places_rate_limit() -> bool:
+    """Returns True if we can make another Google Places call today."""
+    global _places_call_count, _places_call_date
+    today = date.today().isoformat()
+    if _places_call_date != today:
+        _places_call_date = today
+        _places_call_count = 0
+    return _places_call_count < DAILY_PLACES_LIMIT
+
+
+def _increment_places_count():
+    """Track a Google Places API call."""
+    global _places_call_count, _places_call_date
+    today = date.today().isoformat()
+    if _places_call_date != today:
+        _places_call_date = today
+        _places_call_count = 0
+    _places_call_count += 1
+    logger.info("Google Places API calls today: %d/%d", _places_call_count, DAILY_PLACES_LIMIT)
+
 
 PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 PLACES_DETAIL_FIELDS = [
@@ -195,6 +223,10 @@ async def _get_google_maps_key() -> str:
 
 async def _search_google_places(query: str, location: str, max_results: int, radius_km: int = 25) -> list[PlaceResult]:
     """Search Google Places API (requires google_maps_api_key in settings or GOOGLE_MAPS_API_KEY env)."""
+    if not _check_places_rate_limit():
+        logger.warning("Google Places daily limit reached (%d/%d) — skipping", _places_call_count, DAILY_PLACES_LIMIT)
+        return []
+
     api_key = await _get_google_maps_key()
     if not api_key:
         logger.warning("No Google Maps API key found in settings DB or environment")
@@ -213,6 +245,7 @@ async def _search_google_places(query: str, location: str, max_results: int, rad
             # Use locationBias to expand search radius beyond exact city
             # First geocode the location to get lat/lng, then set radius
             if not page_token and radius_km and radius_km > 0:
+                _increment_places_count()  # Geocode counts against quota
                 geo_resp = await client.get(
                     "https://maps.googleapis.com/maps/api/geocode/json",
                     params={"address": location, "key": api_key},
@@ -237,7 +270,12 @@ async def _search_google_places(query: str, location: str, max_results: int, rad
                 "X-Goog-FieldMask": ",".join(PLACES_DETAIL_FIELDS),
             }
 
+            if not _check_places_rate_limit():
+                logger.warning("Google Places daily limit hit mid-search, stopping pagination")
+                break
+
             try:
+                _increment_places_count()
                 response = await client.post(PLACES_TEXT_SEARCH_URL, json=body, headers=headers)
             except httpx.HTTPError as exc:
                 logger.error("Google Places HTTP error: %s", exc)
