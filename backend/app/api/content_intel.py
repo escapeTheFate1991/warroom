@@ -19,6 +19,11 @@ from app.db.crm_db import get_crm_db
 from app.models.crm.competitor import Competitor
 from app.models.crm.content_script import ContentScript
 from app.models.crm.social import SocialAccount
+from app.api.scraper import (
+    sync_instagram_competitor,
+    sync_instagram_competitor_batch,
+    calculate_competitor_engagement_score,
+)
 
 # Import NLP libraries for better text processing
 try:
@@ -47,6 +52,17 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_competitor_sync_locks: Dict[int, asyncio.Lock] = {}
+
+
+def _get_competitor_sync_lock(competitor_id: int) -> asyncio.Lock:
+    """Return the in-process lock used to dedupe competitor sync requests."""
+    lock = _competitor_sync_locks.get(competitor_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _competitor_sync_locks[competitor_id] = lock
+    return lock
 
 
 # Enhanced Pydantic models
@@ -329,17 +345,21 @@ async def save_competitor_posts(db: AsyncSession, competitor_id: int, platform: 
         return False
 
 
-async def load_cached_posts(db: AsyncSession, competitor_id: int = None, 
-                           platform: str = None, days: int = 30) -> List[Dict]:
+async def load_cached_posts(db: AsyncSession, competitor_id: int = None,
+                           platform: str = None, days: Optional[int] = 30) -> List[Dict]:
     """Load cached competitor posts from database."""
     try:
         query = """
             SELECT cp.*, c.handle 
             FROM crm.competitor_posts cp
             JOIN crm.competitors c ON cp.competitor_id = c.id
-            WHERE cp.posted_at >= :cutoff_date
+            WHERE 1 = 1
         """
-        params = {"cutoff_date": datetime.now() - timedelta(days=days)}
+        params: Dict[str, Any] = {}
+
+        if days is not None:
+            query += " AND cp.posted_at >= :cutoff_date"
+            params["cutoff_date"] = datetime.now() - timedelta(days=days)
         
         if competitor_id:
             query += " AND cp.competitor_id = :competitor_id"
@@ -349,7 +369,11 @@ async def load_cached_posts(db: AsyncSession, competitor_id: int = None,
             query += " AND cp.platform = :platform"
             params["platform"] = platform
             
-        query += " ORDER BY cp.engagement_score DESC"
+        query += (
+            " ORDER BY (COALESCE(cp.likes, 0) + COALESCE(cp.comments, 0) + "
+            "CASE WHEN lower(cp.platform) = 'instagram' THEN 0 ELSE COALESCE(cp.shares, 0) END) DESC, "
+            "cp.posted_at DESC"
+        )
         
         result = await db.execute(text(query), params)
         return [dict(row._mapping) for row in result.fetchall()]
@@ -357,6 +381,94 @@ async def load_cached_posts(db: AsyncSession, competitor_id: int = None,
     except SQLAlchemyError as e:
         logger.error("Failed to load cached posts: %s", e)
         return []
+
+
+def _cached_rows_to_posts(cached_posts: List[Dict[str, Any]]) -> List[CompetitorPost]:
+    """Convert cached post rows into API response models."""
+    posts: List[CompetitorPost] = []
+
+    for cached_post in cached_posts:
+        posts.append(CompetitorPost(
+            text=cached_post.get("post_text", ""),
+            likes=cached_post.get("likes", 0),
+            comments=cached_post.get("comments", 0),
+            shares=cached_post.get("shares", 0),
+            timestamp=cached_post.get("posted_at", datetime.now()),
+            url=cached_post.get("post_url", ""),
+            engagement_score=calculate_competitor_engagement_score(
+                cached_post.get("likes", 0),
+                cached_post.get("comments", 0),
+                cached_post.get("shares", 0),
+                platform=cached_post.get("platform"),
+            ),
+            hook=cached_post.get("hook", ""),
+        ))
+
+    return posts
+
+
+def _scraped_profile_to_posts(profile: Any) -> List[CompetitorPost]:
+    """Convert a scraped Instagram profile payload into competitor posts."""
+    posts: List[CompetitorPost] = []
+
+    for post in profile.posts:
+        posts.append(CompetitorPost(
+            text=post.caption,
+            likes=post.likes,
+            comments=post.comments,
+            shares=post.views,
+            timestamp=post.posted_at or datetime.now(),
+            url=post.post_url,
+            engagement_score=calculate_competitor_engagement_score(
+                post.likes,
+                post.comments,
+                post.views,
+                platform="instagram",
+            ),
+            hook=post.hook or extract_hook_from_text(post.caption),
+        ))
+
+    return posts
+
+
+async def _get_competitor_or_404(db: AsyncSession, competitor_id: int) -> Competitor:
+    """Load a competitor or raise a 404."""
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
+    competitor = result.scalar_one_or_none()
+
+    if not competitor:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+
+    return competitor
+
+
+async def _ensure_competitor_cached_posts(
+    db: AsyncSession,
+    competitor: Competitor,
+    days: Optional[int] = None,
+) -> Tuple[List[Dict[str, Any]], Optional[Any]]:
+    """Ensure Instagram competitors have cached posts for drill-down reads."""
+    platform = competitor.platform.lower()
+    cached_posts = await load_cached_posts(db, competitor.id, platform, days=days)
+    if cached_posts or platform != "instagram":
+        return cached_posts, None
+
+    lock = _get_competitor_sync_lock(competitor.id)
+    async with lock:
+        cached_posts = await load_cached_posts(db, competitor.id, platform, days=days)
+        if cached_posts:
+            return cached_posts, None
+
+        sync_result = await sync_instagram_competitor(db, competitor)
+        if not sync_result["success"]:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Instagram scrape failed: {sync_result['error']}",
+            )
+
+        await db.commit()
+        cached_posts = await load_cached_posts(db, competitor.id, platform, days=days)
+        return cached_posts, sync_result["profile"]
 
 
 # Social media fetching functions (keep existing implementations but enhance error handling)
@@ -648,60 +760,36 @@ async def get_competitor_content(
 ):
     """Fetch recent posts from a tracked competitor using the appropriate social API."""
     try:
-        # Get competitor info
-        result = await db.execute(
-            select(Competitor).where(Competitor.id == competitor_id)
-        )
-        competitor = result.scalar_one_or_none()
-        
-        if not competitor:
-            raise HTTPException(status_code=404, detail="Competitor not found")
+        competitor = await _get_competitor_or_404(db, competitor_id)
         
         posts = []
         platform = competitor.platform.lower()
         handle = competitor.handle
         
-        # First try to load from cache
-        cached_posts = await load_cached_posts(db, competitor_id, platform)
-        
-        if cached_posts:
-            # Convert cached posts to CompetitorPost objects
-            for cached_post in cached_posts:
-                posts.append(CompetitorPost(
-                    text=cached_post.get('post_text', ''),
-                    likes=cached_post.get('likes', 0),
-                    comments=cached_post.get('comments', 0),
-                    shares=cached_post.get('shares', 0),
-                    timestamp=cached_post.get('posted_at', datetime.now()),
-                    url=cached_post.get('post_url', ''),
-                    engagement_score=cached_post.get('engagement_score', 0),
-                    hook=cached_post.get('hook', '')
-                ))
-        else:
-            # Fetch fresh content from APIs
-            if platform == "instagram":
-                token = await get_social_account_token(db, "instagram")
-                if not token:
-                    raise HTTPException(status_code=422, detail="Instagram account not connected")
-                posts = await fetch_instagram_content(handle, token)
-            
-            elif platform == "x":
-                token = await get_social_account_token(db, "x")
-                if not token:
-                    raise HTTPException(status_code=422, detail="X account not connected")
-                posts = await fetch_x_content(handle, token)
-            
-            elif platform == "youtube":
-                # For YouTube, we'd need API key configuration
-                # For now, return mock data or implement with available API key
-                raise HTTPException(status_code=422, detail="YouTube content fetching not configured")
-            
-            else:
-                raise HTTPException(status_code=422, detail=f"Content fetching not supported for {platform}")
-            
-            # Cache the posts if we fetched fresh data
+        if platform == "instagram":
+            cached_posts, synced_profile = await _ensure_competitor_cached_posts(
+                db,
+                competitor,
+                days=30,
+            )
+            if cached_posts:
+                posts = _cached_rows_to_posts(cached_posts)
+            elif synced_profile is not None:
+                posts = _scraped_profile_to_posts(synced_profile)
+
+        elif platform == "x":
+            token = await get_social_account_token(db, "x")
+            if not token:
+                raise HTTPException(status_code=422, detail="X account not connected")
+            posts = await fetch_x_content(handle, token)
             if posts:
                 await save_competitor_posts(db, competitor_id, platform, posts)
+
+        elif platform == "youtube":
+            raise HTTPException(status_code=422, detail="YouTube content fetching not configured")
+
+        else:
+            raise HTTPException(status_code=422, detail=f"Content fetching not supported for {platform}")
         
         # Calculate average engagement
         avg_engagement = sum(p.engagement_score for p in posts) / len(posts) if posts else 0
@@ -862,18 +950,31 @@ async def refresh_competitor_content(
         
         refreshed = 0
         errors = []
+
+        instagram_competitors = [
+            competitor
+            for competitor in competitors
+            if competitor.platform.lower() == "instagram"
+        ]
+
+        if instagram_competitors:
+            batch_result = await sync_instagram_competitor_batch(db, instagram_competitors)
+            refreshed += batch_result.success
+
+            for profile in batch_result.profiles:
+                if profile.error:
+                    errors.append(f"Error refreshing {profile.handle}: {profile.error}")
         
         for competitor in competitors:
             try:
                 platform_name = competitor.platform.lower()
                 handle = competitor.handle
+
+                if platform_name == "instagram":
+                    continue
                 
                 posts = []
-                if platform_name == "instagram":
-                    token = await get_social_account_token(db, "instagram")
-                    if token:
-                        posts = await fetch_instagram_content(handle, token)
-                elif platform_name == "x":
+                if platform_name == "x":
                     token = await get_social_account_token(db, "x")
                     if token:
                         posts = await fetch_x_content(handle, token)
@@ -893,6 +994,8 @@ async def refresh_competitor_content(
             except Exception as e:
                 logger.warning("Failed to refresh competitor %s: %s", competitor.handle, e)
                 errors.append(f"Error refreshing {competitor.handle}: {str(e)}")
+
+        await db.commit()
         
         return {
             "message": f"Refreshed content for {refreshed} competitors",
@@ -1188,32 +1291,33 @@ async def get_competitor_top_videos(
 ):
     """Return the top-performing posts for a competitor, ordered by engagement_score."""
     try:
-        result = await db.execute(
-            text("""
-                SELECT post_url, post_text, likes, comments, shares,
-                       engagement_score, posted_at, hook
-                FROM crm.competitor_posts
-                WHERE competitor_id = :cid
-                ORDER BY engagement_score DESC
-                LIMIT :lim
-            """),
-            {"cid": competitor_id, "lim": limit},
+        competitor = await _get_competitor_or_404(db, competitor_id)
+        cached_posts, _ = await _ensure_competitor_cached_posts(
+            db,
+            competitor,
+            days=None,
         )
-        rows = result.fetchall()
 
         return [
             TopVideoItem(
-                post_url=r.post_url,
-                title=(r.post_text or "")[:100],
-                likes=r.likes or 0,
-                comments=r.comments or 0,
-                shares=r.shares or 0,
-                engagement_score=r.engagement_score or 0,
-                posted_at=r.posted_at,
-                hook=r.hook,
+                post_url=post.get("post_url", ""),
+                title=(post.get("post_text") or "")[:100],
+                likes=post.get("likes", 0) or 0,
+                comments=post.get("comments", 0) or 0,
+                shares=post.get("shares", 0) or 0,
+                engagement_score=calculate_competitor_engagement_score(
+                    post.get("likes", 0),
+                    post.get("comments", 0),
+                    post.get("shares", 0),
+                    platform=post.get("platform"),
+                ),
+                posted_at=post.get("posted_at"),
+                hook=post.get("hook"),
             )
-            for r in rows
+            for post in cached_posts[:limit]
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to get top videos for competitor %s: %s", competitor_id, e)
         raise HTTPException(status_code=500, detail="Failed to get top videos")
@@ -1326,22 +1430,22 @@ async def get_competitor_hashtags(
 ):
     """Extract hashtags from all post_text for a competitor, sorted by frequency."""
     try:
-        result = await db.execute(
-            text("""
-                SELECT post_text FROM crm.competitor_posts
-                WHERE competitor_id = :cid AND post_text IS NOT NULL
-            """),
-            {"cid": competitor_id},
+        competitor = await _get_competitor_or_404(db, competitor_id)
+        cached_posts, _ = await _ensure_competitor_cached_posts(
+            db,
+            competitor,
+            days=None,
         )
-        rows = result.fetchall()
 
         counter: Counter = Counter()
-        for r in rows:
-            for tag in re.findall(r"#\w+", r.post_text or ""):
+        for post in cached_posts:
+            for tag in re.findall(r"#\w+", post.get("post_text") or ""):
                 counter[tag.lower()] += 1
 
         return [HashtagItem(tag=tag, count=count) for tag, count in counter.most_common(50)]
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to get hashtags for competitor %s: %s", competitor_id, e)
         raise HTTPException(status_code=500, detail="Failed to get hashtags")

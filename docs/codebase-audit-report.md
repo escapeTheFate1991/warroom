@@ -559,9 +559,9 @@ Added a proper `<ComingSoon>` component with an icon, feature description, and c
 
 ---
 
-## 🔵 Broken/Orphaned Features (Documented)
+## 🔵 Broken/Orphaned Features
 
-These are issues that were identified but require larger architectural changes to fully resolve.
+These are issues that were identified during the audit. Some were fixed immediately; others were documented because they require larger architectural changes to fully resolve.
 
 ---
 
@@ -605,6 +605,46 @@ Fixed to use the string literal `"tiktok"` since this code is inside the TikTok-
 
 ---
 
+### 28. Competitor Refresh Was Wired to the Wrong Internal Route
+
+**What was wrong:**
+The `Refresh All` button in the Competitor Intelligence panel was wired to `/api/competitors/sync` as though it were the master refresh path for competitor data. That assumption was wrong.
+
+In this codebase, the real competitor refresh behavior is scrape-driven and routed through the internal endpoints that already back the feature:
+
+- `POST /api/scraper/instagram/sync`
+- `POST /api/content-intel/competitors/refresh?platform=x`
+
+The stale `/api/competitors/sync` route belonged to an older token/API-style path and did not reflect how this panel actually gathers data. That is why the UI could show a message like `Stats synced: 0 succeeded, 19 failed` even though the feature the user cared about was a web scrape flow, not a token refresh flow.
+
+There was a second bug layered on top: the Instagram scrape was long-running and serial, but it was being sent through the normal frontend proxy request path. That made the browser-facing request vulnerable to resets/timeouts before the scrape completed.
+
+**Why it's a problem:**
+This is a classic integration mistake: the frontend button was connected to an endpoint that *sounded* plausible instead of the endpoint that actually powered the feature.
+
+That matters for three reasons:
+
+- The UI reports the wrong success/failure state because it is observing the wrong backend function
+- Developers waste time debugging the wrong layer (tokens, auth, config) when the real problem is routing
+- Long-running work like scraping should not block behind a synchronous proxy-bound browser request if the app already supports a better execution model
+
+For a junior developer, the key lesson here is simple: **endpoint names are not architecture.** A route named `/sync` might still be the wrong route if it does not trigger the code path that your screen actually depends on.
+
+**What we changed:**
+- Removed the stale `/api/competitors/sync` call from the `Refresh All` button
+- Rewired the button to the internal routes that actually back the Competitor Intelligence feature
+- Added background mode to `POST /api/scraper/instagram/sync` so long-running Instagram scrapes no longer die behind the frontend proxy
+- Added overlap protection so a second click reports that the scrape is already running instead of launching duplicate work
+- Added `accepted`/`message` response fields and a `sync_running` status flag so the UI can report what is actually happening
+- Rebuilt the frontend container and verified the stale `Stats synced:` message was no longer present in the served bundle
+
+**The lesson:**
+**Follow the real data path, not your first guess.** When a button is supposed to "trigger the backend," your job is not to find a route that sounds right. Your job is to trace the actual feature contract from UI event → frontend fetch call → backend route → service function → stored data.
+
+Also: **separate routing from execution strategy.** Using a secure internal `/api/...` path is correct, but that alone does not make the feature work. The route still has to call the right backend code, and long-running scrape jobs often need background execution instead of a blocking request/response cycle.
+
+---
+
 ## Summary Table
 
 | Category | Found | Fixed | Deferred |
@@ -612,8 +652,8 @@ Fixed to use the string literal `"tiktok"` since this code is inside the TikTok-
 | Security | 10 | 10 | 0 |
 | Code Hygiene | 9 | 9 | 0 |
 | UI/UX | 6 | 6 | 0 |
-| Broken Features | 2 | 1 | 1 |
-| **Total** | **27** | **26** | **1** |
+| Broken Features | 3 | 2 | 1 |
+| **Total** | **28** | **27** | **1** |
 
 ---
 
@@ -660,7 +700,7 @@ The audit above fixed foundational issues. The next phase tackled the user exper
 
 ---
 
-### 28. Theme System with CSS Variables
+### 29. Theme System with CSS Variables
 
 **What we built:**
 A dark/light mode toggle powered by CSS custom properties (variables) in `globals.css`, with a React context provider and `useTheme` hook.
@@ -686,7 +726,7 @@ CSS variables are the most scalable approach to theming. Unlike JavaScript-drive
 
 ---
 
-### 29. Collapsible Sidebar & Persistent Top Bar
+### 30. Collapsible Sidebar & Persistent Top Bar
 
 **What we built:**
 A sidebar that collapses from 180px to 56px (icon-only mode) with grouped navigation sections, plus a persistent top bar with context-aware search that scopes to the active panel.
@@ -701,7 +741,7 @@ Context-aware search is a subtle but powerful pattern: when you're in the CRM se
 
 ---
 
-### 30. Gated Stage Progression in Sales Pipeline
+### 31. Gated Stage Progression in Sales Pipeline
 
 **What we built:**
 A 7-stage Kanban pipeline where each stage requires specific data entry before a deal can advance. Moving a deal from "Initial Contact" to "Qualified" requires the SDR to document pain points, timeline, and budget. A `StageGateModal` enforces these requirements.
@@ -716,7 +756,7 @@ The backend validates gates too (`PUT /api/crm/deals/{id}/advance` checks requir
 
 ---
 
-### 31. Deal Detail Drawer Pattern
+### 32. Deal Detail Drawer Pattern
 
 **What we built:**
 Clicking a pipeline card opens a slide-out drawer (480px, right side) showing the full deal profile — contact info, stage timeline, activity history, and quick actions. Uses `Escape` key and backdrop click to close.
@@ -731,7 +771,7 @@ The Escape key and backdrop click closers are accessibility essentials — not o
 
 ---
 
-### 32. Lead-to-Deal Conversion Flow
+### 33. Lead-to-Deal Conversion Flow
 
 **What we built:**
 A "Start Pipeline" action on lead rows and the lead detail drawer that calls `POST /api/crm/deals/convert-from-lead` to auto-create a deal with lead data pre-filled in stage 1.
@@ -746,7 +786,7 @@ The backend endpoint handles the complexity: it creates the deal, links the orga
 
 ---
 
-### 33. Week-over-Week Engagement Trends
+### 34. Week-over-Week Engagement Trends
 
 **What we built:**
 Content Tracker now fetches from `/api/social/analytics/trends` and displays week-over-week changes for followers, engagement, reach, and posts — with percentage changes, up/down arrows, and color coding (green = growth, red = decline).
@@ -759,7 +799,7 @@ Raw numbers ("12,500 followers") are less useful than trends ("followers up 2.5%
 
 ---
 
-### 34. Standardized Empty & Loading States
+### 35. Standardized Empty & Loading States
 
 **What we built:**
 Every panel now follows the same pattern: show `<LoadingState>` for up to 10 seconds, then either display data or show `<EmptyState>` with a contextual message and guidance. No more infinite spinners.
@@ -782,7 +822,7 @@ Shared components (`<LoadingState>`, `<EmptyState>`, `<ErrorState>`) enforce con
 
 ---
 
-### 35. Unified Kanban Visual System
+### 36. Unified Kanban Visual System
 
 **What we built:**
 Restyled the Tasks Kanban to match the Sales Pipeline's visual language — colored column borders, consistent card styling, priority-based left borders. Added inline title editing and a quick-action menu (⋯) to pipeline deal cards.
@@ -805,8 +845,8 @@ The double-click-to-edit pattern is a power user feature that doesn't interfere 
 | Code Hygiene | 9 | 9 | 0 |
 | UI/UX (Audit) | 6 | 6 | 0 |
 | UX Redesign | 8 | 8 | 0 |
-| Broken Features | 2 | 1 | 1 |
-| **Total** | **35** | **34** | **1** |
+| Broken Features | 3 | 2 | 1 |
+| **Total** | **36** | **35** | **1** |
 
 ---
 
@@ -827,6 +867,9 @@ A consistent "good enough" design across all features beats a beautifully design
 ### 13. Business rules need both frontend and backend validation
 The frontend provides user guidance ("Fill in these required fields"). The backend provides security ("I won't save this without the required fields"). Never rely on frontend-only validation — it can always be bypassed.
 
+### 14. Route names are not contracts
+If a feature breaks, don't assume the endpoint with the most obvious name is the right one. Trace the real flow from the button the user clicked to the code that actually writes the data. A stale compatibility route can return a perfectly valid HTTP response and still be the wrong integration point.
+
 ---
 
-*Report updated to include UX Redesign work from Phases 2 and 3. All 34 fixes have been implemented, verified, and committed.*
+*Report updated to include UX Redesign work from Phases 2 and 3 plus the Competitor Intelligence refresh routing correction. All 35 fixes have been implemented, verified, and committed.*

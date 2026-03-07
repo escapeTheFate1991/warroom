@@ -72,6 +72,22 @@ class PersonResponse(BaseSchema):
     created_at: datetime
     updated_at: datetime
 
+
+class ContactPersonResponse(PersonResponse):
+    organization_name: Optional[str] = None
+
+
+class CRMContactResponse(BaseSchema):
+    id: int
+    name: str
+    email: str = ""
+    phone: Optional[str] = None
+    company: Optional[str] = None
+    source: str = "crm"
+    assigned_to: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
 class PersonCreate(BaseModel):
     name: str
     emails: List[Dict[str, str]] = []

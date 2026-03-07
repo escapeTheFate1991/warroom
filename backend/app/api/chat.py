@@ -4,7 +4,7 @@ Implements the OpenClaw Gateway WS protocol v3 with device identity auth
 for full operator scopes (chat.send, chat.history, chat.abort).
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 import websockets
 import asyncio
 import json
@@ -26,6 +26,7 @@ if not logger.handlers:
 router = APIRouter()
 
 OPENCLAW_WS = os.getenv("OPENCLAW_WS_URL", "ws://10.0.0.1:18789")
+OPENCLAW_API = os.getenv("OPENCLAW_API_URL", "http://10.0.0.1:18789")
 OPENCLAW_TOKEN = os.getenv("OPENCLAW_AUTH_TOKEN", "")
 OPENCLAW_PASSWORD = os.getenv("OPENCLAW_AUTH_PASSWORD", "")
 DEFAULT_SESSION_KEY = os.getenv("OPENCLAW_SESSION_KEY", "warroom")
@@ -340,15 +341,15 @@ async def list_sessions():
 
 @router.post("/polish")
 async def polish_prompt(body: dict):
-    """Use OpenAI to clean up and organize a raw text prompt."""
+    """Use OpenClaw to clean up and organize a raw text prompt."""
     import httpx
 
     text = body.get("text", "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
 
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key:
+    auth_token = os.getenv("OPENCLAW_AUTH_TOKEN", OPENCLAW_TOKEN)
+    if not auth_token:
         return {"polished": text}
 
     system_prompt = (
@@ -361,25 +362,29 @@ async def polish_prompt(body: dict):
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                f"{os.getenv('OPENCLAW_API_URL', OPENCLAW_API)}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {auth_token}"},
                 json={
-                    "model": "gpt-4o-mini",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": text},
                     ],
+                    "stream": False,
                     "temperature": 0.3,
                     "max_tokens": 1000,
                 },
             )
             if resp.status_code == 200:
                 data = resp.json()
-                polished = data["choices"][0]["message"]["content"].strip()
-                return {"polished": polished}
+                choices = data.get("choices", [])
+                if choices:
+                    polished = choices[0].get("message", {}).get("content", "").strip()
+                    if polished:
+                        return {"polished": polished}
+                logger.warning("OpenClaw polish response missing choices")
             else:
-                logger.warning("OpenAI polish failed: %s", resp.status_code)
-    except Exception as e:
-        logger.warning("Polish failed: %s", e)
+                logger.warning("OpenClaw polish failed: %s", resp.status_code)
+    except Exception as exc:
+        logger.warning("Polish failed: %s", exc)
 
     return {"polished": text}

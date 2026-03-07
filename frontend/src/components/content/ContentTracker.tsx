@@ -60,32 +60,42 @@ interface TrackedContent {
 }
 
 interface TrendsData {
-  followers: string;
-  engagement: string;
-  impressions: string;
+  followers: string | number | null;
+  engagement: string | number | null;
+  impressions: string | number | null;
 }
 
-function parseTrendValue(val: string): number {
-  return parseFloat(val.replace("%", "").replace("+", ""));
+function getStoredPipelineCards(): any[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem("warroom_content_pipeline") || "[]";
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseTrendValue(val: string | number | null | undefined): number {
+  if (typeof val === "number") return Number.isFinite(val) ? val : 0;
+  if (typeof val !== "string") return 0;
+  const parsed = parseFloat(val.replace("%", "").replace("+", ""));
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function getPipelineStats() {
-  if (typeof window === "undefined") return { total: 0, ideas: 0, inProduction: 0, posted: 0 };
-  try {
-    const cards = JSON.parse(localStorage.getItem("warroom_content_pipeline") || "[]");
-    return {
-      total: cards.length,
-      ideas: cards.filter((c: any) => c.stage === "idea").length,
-      inProduction: cards.filter((c: any) => ["script", "filming", "editing"].includes(c.stage)).length,
-      posted: cards.filter((c: any) => c.stage === "posted").length,
-    };
-  } catch { return { total: 0, ideas: 0, inProduction: 0, posted: 0 }; }
+  const cards = getStoredPipelineCards();
+  return {
+    total: cards.length,
+    ideas: cards.filter((c: any) => c.stage === "idea").length,
+    inProduction: cards.filter((c: any) => ["script", "filming", "editing"].includes(c.stage)).length,
+    posted: cards.filter((c: any) => c.stage === "posted").length,
+  };
 }
 
 function loadContentFromLocalStorage(): TrackedContent[] {
-  if (typeof window === "undefined") return [];
   try {
-    const cards = JSON.parse(localStorage.getItem("warroom_content_pipeline") || "[]");
+    const cards = getStoredPipelineCards();
     return cards
       .filter((c: any) => c.stage === "posted")
       .map((c: any) => ({
@@ -203,12 +213,13 @@ export default function ContentTracker() {
                 const numVal = parseTrendValue(tc.value);
                 const isPositive = numVal >= 0;
                 const ArrowIcon = isPositive ? TrendingUp : TrendingDown;
+                const displayValue = tc.value ?? "0%";
                 return (
                   <div key={i} className="bg-warroom-bg border border-warroom-border rounded-xl p-4">
                     <p className="text-xs text-warroom-muted mb-1">{tc.label}</p>
                     <div className="flex items-center gap-2">
                       <span className={`text-lg font-bold ${isPositive ? "text-green-400" : "text-red-400"}`}>
-                        {tc.value}
+                        {String(displayValue)}
                       </span>
                       <ArrowIcon size={16} className={isPositive ? "text-green-400" : "text-red-400"} />
                     </div>

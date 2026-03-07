@@ -1,4 +1,4 @@
-"""Content AI — OpenAI-powered content generation endpoints.
+"""Content AI — OpenClaw-powered content generation endpoints.
 
 Provides idea generation, script writing, and caption creation
 for social media content pipelines.
@@ -13,6 +13,7 @@ import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+OPENCLAW_API = os.getenv("OPENCLAW_API_URL", "http://10.0.0.1:18789")
 
 
 class IdeaRequest(BaseModel):
@@ -36,34 +37,36 @@ class CaptionRequest(BaseModel):
     include_cta: bool = True
 
 
-async def call_openai(system_prompt: str, user_prompt: str) -> str:
-    """Call OpenAI chat completions API following the same pattern as chat.py."""
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="OpenAI API key not configured")
+async def call_openclaw(system_prompt: str, user_prompt: str) -> str:
+    """Call the OpenClaw chat completions API."""
+    auth_token = os.getenv("OPENCLAW_AUTH_TOKEN", "")
+    if not auth_token:
+        raise HTTPException(status_code=503, detail="OpenClaw auth token not configured")
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
+            f"{os.getenv('OPENCLAW_API_URL', OPENCLAW_API)}/v1/chat/completions",
+            headers={"Authorization": f"Bearer {auth_token}"},
             json={
-                "model": "gpt-4o-mini",
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                "stream": False,
                 "temperature": 0.8,
             },
         )
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"]
-        logger.error("OpenAI API error: %s %s", resp.status_code, resp.text[:200])
-        raise HTTPException(
-            status_code=502, detail=f"OpenAI error: {resp.status_code}"
-        )
+        if resp.status_code != 200:
+            logger.error("OpenClaw API error %s: %s", resp.status_code, resp.text[:200])
+            raise HTTPException(status_code=502, detail="AI service unavailable")
+
+        data = resp.json()
+        choices = data.get("choices", [])
+        if choices:
+            return choices[0].get("message", {}).get("content", "")
+
+        logger.error("OpenClaw response missing choices payload")
+        raise HTTPException(status_code=502, detail="AI service unavailable")
 
 
 @router.post("/ai/ideas")
@@ -75,7 +78,7 @@ async def generate_ideas(req: IdeaRequest):
         f"For each idea, provide: 1) Title/hook, 2) Brief description, 3) Why it would perform well. "
         f"Format as JSON array with keys: title, description, reasoning."
     )
-    result = await call_openai(system, user)
+    result = await call_openclaw(system, user)
     return {"ideas": result, "platform": req.platform}
 
 
@@ -91,7 +94,7 @@ async def generate_script(req: ScriptRequest):
         f"Include: Hook (first 3 seconds), body, call-to-action. "
         f"Format with clear sections."
     )
-    result = await call_openai(system, user)
+    result = await call_openclaw(system, user)
     return {"script": result, "platform": req.platform, "topic": req.topic}
 
 
@@ -111,6 +114,6 @@ async def generate_captions(req: CaptionRequest):
         f"Write a caption for {req.platform} about: {req.topic}\n\n"
         f"{'. '.join(extras)}."
     )
-    result = await call_openai(system, user)
+    result = await call_openclaw(system, user)
     return {"caption": result, "platform": req.platform}
 

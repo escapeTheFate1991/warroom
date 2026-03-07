@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import {
   MessageSquare, Share2, Film, Search,
   UserSquare, Users, Calendar, BookOpen, GraduationCap, Package,
-  Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
+  Mail, FileText, LayoutDashboard, Instagram, Youtube,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
   CalendarDays, Puzzle, Heart, Inbox, FileSignature, DollarSign,
   BarChart2, PieChart, TrendingUp, UserPlus,
@@ -41,7 +41,6 @@ const SkillsManager = dynamic(() => import("@/components/dashboard/SkillsManager
 const SoulEditor = dynamic(() => import("@/components/dashboard/SoulEditor"), { loading: PanelLoader });
 const ActivityCalendar = dynamic(() => import("@/components/dashboard/ActivityCalendar"), { loading: PanelLoader });
 const PlatformContent = dynamic(() => import("@/components/content/PlatformContent"), { loading: PanelLoader });
-const ContentTracker = dynamic(() => import("@/components/content/ContentTracker"), { loading: PanelLoader });
 const ContactSubmissions = dynamic(() => import("@/components/crm/ContactSubmissions"), { loading: PanelLoader });
 const ContractsPanel = dynamic(() => import("@/components/contracts/ContractsPanel"), { loading: PanelLoader });
 const InvoicingPanel = dynamic(() => import("@/components/invoicing/InvoicingPanel"), { loading: PanelLoader });
@@ -76,7 +75,6 @@ const SECTIONS = [
   {
     label: "SOCIALS",
     items: [
-      { id: "content-tracker", label: "Tracker", icon: BarChart3 },
       { id: "social", label: "Analytics", icon: Share2 },
       { id: "intelligence", label: "Competitor Intel", icon: FileBarChart },
     ],
@@ -138,7 +136,7 @@ const SECTIONS = [
 
 type TabId =
   | "dashboard" | "chat" | "agents" | "calendar" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
-  | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
+  | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
   | "kanban" | "leadgen"
   | "pipeline-board"
   | "crm-contacts" | "crm-activities" | "crm-products" | "crm-submissions"
@@ -148,6 +146,12 @@ type TabId =
   | "invoices" | "contracts"
   | "reports-overview" | "reports-revenue" | "reports-sales"
   | "settings";
+
+function normalizeTab(tab: string | null): TabId {
+  if (!tab) return "dashboard";
+  if (tab === "content-tracker") return "social";
+  return tab as TabId;
+}
 
 // Map parent IDs to their children active check
 const PARENT_CHILDREN: Record<string, string[]> = {
@@ -170,18 +174,27 @@ function WarRoom() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = (searchParams.get("tab") as TabId) || "dashboard";
+  const initialTab = normalizeTab(searchParams.get("tab"));
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
 
   const handleTabChange = useCallback((tab: string) => {
-    setActiveTab(tab as TabId);
-    router.push(`/?tab=${tab}`, { scroll: false });
+    const nextTab = normalizeTab(tab);
+    setActiveTab(nextTab);
+    router.push(`/?tab=${nextTab}`, { scroll: false });
   }, [router]);
 
   useEffect(() => {
-    const tab = searchParams.get("tab") as TabId;
-    if (tab && tab !== activeTab) setActiveTab(tab);
-  }, [searchParams]);
+    const rawTab = searchParams.get("tab");
+    const nextTab = normalizeTab(rawTab);
+
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+
+    if (rawTab === "content-tracker") {
+      router.replace("/?tab=social", { scroll: false });
+    }
+  }, [activeTab, router, searchParams]);
 
   const isChildActive = useCallback((parentId: string) => {
     const children = PARENT_CHILDREN[parentId];
@@ -204,7 +217,6 @@ function WarRoom() {
           {activeTab === "content-facebook" && <PlatformContent platform="facebook" />}
           {activeTab === "content-x" && <PlatformContent platform="x" />}
           {activeTab === "pipeline" && <ContentPipeline />}
-          {activeTab === "content-tracker" && <ContentTracker />}
           {activeTab === "intelligence" && <CompetitorIntel />}
           {activeTab === "kanban" && <KanbanPanel />}
           {activeTab === "leadgen" && <LeadgenPanel />}

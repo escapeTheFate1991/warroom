@@ -1,10 +1,10 @@
 """CRM Contacts API endpoints."""
 
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, delete, or_
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,12 +13,21 @@ from app.models.crm.contact import Person, Organization
 from app.models.crm.deal import Deal
 from app.models.crm.audit import AuditLog
 from .schemas import (
-    PersonResponse, PersonCreate, PersonUpdate, PersonSearchRequest,
-    OrganizationResponse, OrganizationCreate, OrganizationUpdate
+    CRMContactResponse, ContactPersonResponse, OrganizationCreate,
+    OrganizationResponse, OrganizationUpdate, PersonCreate,
+    PersonResponse, PersonSearchRequest, PersonUpdate,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+PERSON_SEARCH_SQL = {
+    "name": "p.name ILIKE :search_like",
+    "email": "COALESCE(CAST(p.emails AS TEXT), '') ILIKE :search_like",
+    "phone": "COALESCE(CAST(p.contact_numbers AS TEXT), '') ILIKE :search_like",
+    "job_title": "COALESCE(p.job_title, '') ILIKE :search_like",
+    "organization": "COALESCE(o.name, '') ILIKE :search_like",
+}
 
 
 async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: str, 
@@ -35,6 +44,129 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
     db.add(audit_log)
 
 
+def _search_like(query: Optional[str]) -> Optional[str]:
+    if query is None:
+        return None
+    cleaned = query.strip()
+    if not cleaned:
+        return None
+    return f"%{cleaned}%"
+
+
+def _normalize_contact_items(items: Any) -> List[Dict[str, str]]:
+    if not isinstance(items, list):
+        return []
+
+    normalized: List[Dict[str, str]] = []
+    for item in items:
+        if isinstance(item, dict):
+            value = item.get("value") or item.get("email") or item.get("address") or item.get("name")
+            if value:
+                normalized.append(
+                    {
+                        "value": str(value),
+                        "label": str(item.get("label") or item.get("type") or "primary"),
+                    }
+                )
+        elif isinstance(item, str) and item:
+            normalized.append({"value": item, "label": "primary"})
+
+    return normalized
+
+
+def _first_contact_value(items: Any) -> Optional[str]:
+    normalized = _normalize_contact_items(items)
+    if not normalized:
+        return None
+    return normalized[0]["value"]
+
+
+def _serialize_person_row(row: Any) -> Dict[str, Any]:
+    emails = _normalize_contact_items(row["emails"])
+    contact_numbers = _normalize_contact_items(row["contact_numbers"])
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "emails": emails,
+        "contact_numbers": contact_numbers or None,
+        "job_title": row["job_title"],
+        "organization_id": row["organization_id"],
+        "organization_name": row["organization_name"],
+        "user_id": row["user_id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _serialize_crm_contact(row: Any) -> Dict[str, Any]:
+    assigned_to = row["assigned_to"] or row["assigned_email"]
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "email": _first_contact_value(row["emails"]) or "",
+        "phone": _first_contact_value(row["contact_numbers"]),
+        "company": row["organization_name"],
+        "source": "crm",
+        "assigned_to": assigned_to,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+async def _query_person_rows(
+    db: AsyncSession,
+    *,
+    organization_id: Optional[int] = None,
+    person_id: Optional[int] = None,
+    search: Optional[str] = None,
+    search_fields: Optional[List[str]] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    selected_fields = search_fields or list(PERSON_SEARCH_SQL.keys())
+    search_conditions = [PERSON_SEARCH_SQL[field] for field in selected_fields if field in PERSON_SEARCH_SQL]
+    search_clause = " OR ".join(search_conditions) if search_conditions else "FALSE"
+
+    query = text(
+        f"""
+        SELECT
+            p.id,
+            p.name,
+            COALESCE(p.emails, '[]'::jsonb) AS emails,
+            COALESCE(p.contact_numbers, '[]'::jsonb) AS contact_numbers,
+            p.job_title,
+            p.organization_id,
+            o.name AS organization_name,
+            p.user_id,
+            u.name AS assigned_to,
+            u.email AS assigned_email,
+            p.created_at,
+            p.updated_at
+        FROM crm.persons p
+        LEFT JOIN crm.organizations o ON o.id = p.organization_id
+        LEFT JOIN crm.users u ON u.id = p.user_id
+        WHERE (:organization_id IS NULL OR p.organization_id = :organization_id)
+          AND (:person_id IS NULL OR p.id = :person_id)
+          AND (:search_like IS NULL OR ({search_clause}))
+        ORDER BY p.name
+        OFFSET :offset
+        LIMIT :limit
+        """
+    )
+
+    result = await db.execute(
+        query,
+        {
+            "organization_id": organization_id,
+            "person_id": person_id,
+            "search_like": _search_like(search),
+            "offset": offset,
+            "limit": limit,
+        },
+    )
+    return result.mappings().all()
+
+
 # ===== Persons CRUD =====
 
 @router.get("/persons", response_model=List[PersonResponse])
@@ -46,38 +178,24 @@ async def list_persons(
     db: AsyncSession = Depends(get_crm_db),
 ):
     """List persons with filtering."""
-    query = select(Person).options(selectinload(Person.organization))
-    
-    if organization_id:
-        query = query.where(Person.organization_id == organization_id)
-    if search:
-        query = query.where(
-            or_(
-                Person.name.ilike(f"%{search}%"),
-                Person.job_title.ilike(f"%{search}%")
-            )
-        )
-    
-    query = query.order_by(Person.name).offset(offset).limit(limit)
-    
-    result = await db.execute(query)
-    return result.scalars().all()
+    rows = await _query_person_rows(
+        db,
+        organization_id=organization_id,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    return [_serialize_person_row(row) for row in rows]
 
 
 @router.get("/persons/{person_id}", response_model=PersonResponse)
 async def get_person(person_id: int, db: AsyncSession = Depends(get_crm_db)):
     """Get single person by ID."""
-    result = await db.execute(
-        select(Person)
-        .options(selectinload(Person.organization))
-        .where(Person.id == person_id)
-    )
-    person = result.scalar_one_or_none()
-    
-    if not person:
+    rows = await _query_person_rows(db, person_id=person_id, limit=1)
+    if not rows:
         raise HTTPException(status_code=404, detail="Person not found")
-    
-    return person
+
+    return _serialize_person_row(rows[0])
 
 
 @router.post("/persons", response_model=PersonResponse)
@@ -165,25 +283,59 @@ async def get_person_deals(person_id: int, db: AsyncSession = Depends(get_crm_db
 @router.post("/persons/search", response_model=List[PersonResponse])
 async def search_persons(search_request: PersonSearchRequest, db: AsyncSession = Depends(get_crm_db)):
     """Search persons by name/email/phone."""
-    conditions = []
-    
-    if "name" in search_request.search_fields:
-        conditions.append(Person.name.ilike(f"%{search_request.query}%"))
-    
-    if "email" in search_request.search_fields:
-        # Search in JSON emails array
-        conditions.append(Person.emails.op('::text')(f'%{search_request.query}%'))
-    
-    if "phone" in search_request.search_fields:
-        # Search in JSON contact_numbers array
-        conditions.append(Person.contact_numbers.op('::text')(f'%{search_request.query}%'))
-    
-    if not conditions:
+    search_fields = search_request.search_fields or ["name", "email", "phone"]
+    if not search_fields:
         return []
-    
-    query = select(Person).where(or_(*conditions)).limit(50)
-    result = await db.execute(query)
-    return result.scalars().all()
+
+    rows = await _query_person_rows(
+        db,
+        search=search_request.query,
+        search_fields=search_fields,
+        limit=50,
+    )
+    return [_serialize_person_row(row) for row in rows]
+
+
+@router.get("/contacts", response_model=List[CRMContactResponse])
+async def list_contacts(
+    search: Optional[str] = None,
+    limit: int = Query(default=50, le=500),
+    offset: int = 0,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """List flattened CRM contacts for the contacts manager."""
+    rows = await _query_person_rows(db, search=search, limit=limit, offset=offset)
+    return [_serialize_crm_contact(row) for row in rows]
+
+
+@router.get("/contacts/persons", response_model=List[ContactPersonResponse])
+async def list_contact_persons(
+    organization_id: Optional[int] = None,
+    search: Optional[str] = None,
+    limit: int = Query(default=50, le=500),
+    offset: int = 0,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Compatibility wrapper for person lookup under /contacts."""
+    rows = await _query_person_rows(
+        db,
+        organization_id=organization_id,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+    return [_serialize_person_row(row) for row in rows]
+
+
+@router.get("/contacts/persons/search", response_model=List[ContactPersonResponse])
+async def search_contact_persons(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=50, le=500),
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Compatibility GET search endpoint for person lookups."""
+    rows = await _query_person_rows(db, search=q, limit=limit)
+    return [_serialize_person_row(row) for row in rows]
 
 
 # ===== Organizations CRUD =====
@@ -205,6 +357,27 @@ async def list_organizations(
     
     result = await db.execute(query)
     return result.scalars().all()
+
+
+@router.get("/contacts/organizations", response_model=List[OrganizationResponse])
+async def list_contact_organizations(
+    search: Optional[str] = None,
+    limit: int = Query(default=50, le=500),
+    offset: int = 0,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Compatibility wrapper for organization lookup under /contacts."""
+    return await list_organizations(search=search, limit=limit, offset=offset, db=db)
+
+
+@router.get("/contacts/organizations/search", response_model=List[OrganizationResponse])
+async def search_contact_organizations(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(default=50, le=500),
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Compatibility GET search endpoint for organization lookups."""
+    return await list_organizations(search=q, limit=limit, offset=0, db=db)
 
 
 @router.get("/organizations/{org_id}", response_model=OrganizationResponse)
@@ -290,7 +463,5 @@ async def delete_organization(org_id: int, user_id: Optional[int] = None,
 @router.get("/organizations/{org_id}/persons", response_model=List[PersonResponse])
 async def get_organization_persons(org_id: int, db: AsyncSession = Depends(get_crm_db)):
     """Get persons in an organization."""
-    result = await db.execute(
-        select(Person).where(Person.organization_id == org_id).order_by(Person.name)
-    )
-    return result.scalars().all()
+    rows = await _query_person_rows(db, organization_id=org_id, limit=500)
+    return [_serialize_person_row(row) for row in rows]

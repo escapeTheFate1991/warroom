@@ -91,6 +91,10 @@ interface HashtagItem {
   count: number;
 }
 
+interface ScrapeStatusResponse {
+  sync_running: boolean;
+}
+
 const PLATFORM_COLORS: Record<string, string> = {
   instagram: "bg-pink-500/20 text-pink-400",
   tiktok: "bg-cyan-500/20 text-cyan-400",
@@ -135,7 +139,7 @@ export default function CompetitorIntel() {
   
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [refreshing, setRefreshing] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
   
   const [newComp, setNewComp] = useState({ handle: "", platform: "instagram" });
@@ -147,6 +151,7 @@ export default function CompetitorIntel() {
   });
   
   const [error, setError] = useState<string>("");
+  const [notice, setNotice] = useState<string>("");
 
   // New state for upgraded Reports features
   const [followerAnalysis, setFollowerAnalysis] = useState<FollowerAnalysis | null>(null);
@@ -157,19 +162,27 @@ export default function CompetitorIntel() {
   const [loadingHashtags, setLoadingHashtags] = useState(false);
 
   // Fetch competitors
-  const fetchCompetitors = async () => {
+  const fetchCompetitors = async (): Promise<Competitor[]> => {
     try {
       setLoading(true);
       setError("");
       const response = await authFetch(`${API}/api/competitors`);
       if (response.ok) {
         const data = await response.json();
-        setCompetitors(data);
+        const nextCompetitors = Array.isArray(data) ? data : [];
+        setCompetitors(nextCompetitors);
+        setFocusedCompetitor((prev) => {
+          if (!prev) return prev;
+          return nextCompetitors.find((competitor) => competitor.id === prev.id) || null;
+        });
+        return nextCompetitors;
       } else {
         setError("Failed to fetch competitors");
+        return [];
       }
     } catch (error) {
       setError("Error connecting to API");
+      return [];
     } finally {
       setLoading(false);
     }
@@ -307,6 +320,50 @@ export default function CompetitorIntel() {
     }
   };
 
+  const refreshFocusedCompetitorDetail = async (competitorId: number) => {
+    await Promise.all([
+      fetchCompetitorPosts(competitorId),
+      fetchTopVideos(competitorId),
+      fetchHashtags(competitorId),
+    ]);
+  };
+
+  const refreshIntelligenceViews = async () => {
+    const nextCompetitors = await fetchCompetitors();
+    await Promise.all([
+      fetchFollowerAnalysis(),
+      fetchTopContent(),
+      fetchHooks(),
+      focusedCompetitor ? refreshFocusedCompetitorDetail(focusedCompetitor.id) : Promise.resolve(),
+    ]);
+    return nextCompetitors;
+  };
+
+  const waitForInstagramSyncCompletion = async () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+
+      try {
+        const response = await authFetch(`${API}/api/scraper/status`);
+        if (!response.ok) {
+          break;
+        }
+
+        const status: ScrapeStatusResponse = await response.json();
+        if (!status.sync_running) {
+          await refreshIntelligenceViews();
+          setNotice("Instagram scrape finished. Competitor intelligence updated.");
+          return true;
+        }
+      } catch (error) {
+        console.warn("Failed to poll Instagram scrape status", error);
+        break;
+      }
+    }
+
+    return false;
+  };
+
   // Load data based on active tab
   // Fetch all counts on mount so tab badges are accurate
   useEffect(() => {
@@ -335,6 +392,16 @@ export default function CompetitorIntel() {
         break;
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!notice) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setNotice("");
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
 
   // Add competitor
   const addCompetitor = async () => {
@@ -398,29 +465,89 @@ export default function CompetitorIntel() {
     }
   };
 
-  // Refresh all competitors via our own scraper (Playwright, no third-party services)
+  const getResponseMessage = async (response: Response): Promise<string> => {
+    const payload = await response.json().catch(() => ({}));
+    return payload.detail || payload.message || response.statusText;
+  };
+
+  // Refresh all tracked competitors across the routes that actually back this UI
   const refreshAllCompetitors = async () => {
     try {
-      setLoading(true);
+      setRefreshing(true);
       setError("");
-      // Use our scraper sync endpoint — scrapes all IG competitors via headless browser
-      const response = await authFetch(`${API}/api/scraper/instagram/sync`, {
-        method: "POST",
-      });
+      setNotice("");
 
-      if (response.ok) {
-        const result = await response.json();
-        const msg = `Scraped ${result.success}/${result.total} competitors, ${result.posts_saved} posts cached`;
-        console.log(msg);
-        fetchCompetitors(); // Refresh UI with new data
+      const messages: string[] = [];
+      let refreshedAnySource = false;
+      let waitForInstagramCompletion = false;
+
+      const hasInstagramCompetitors = competitors.some(
+        (competitor) => competitor.auto_sync_enabled && competitor.platform.toLowerCase() === "instagram"
+      );
+
+      if (hasInstagramCompetitors) {
+        const instagramResponse = await authFetch(`${API}/api/scraper/instagram/sync?background=1`, {
+          method: "POST",
+        });
+
+        if (instagramResponse.ok) {
+          const result = await instagramResponse.json();
+          if (result.accepted) {
+            messages.push(
+              result.message || `Instagram scrape started in the background for ${result.total} competitors`
+            );
+            waitForInstagramCompletion = true;
+          } else {
+            messages.push(
+              `Instagram scraped: ${result.success}/${result.total} competitors, ${result.posts_saved} posts cached`
+            );
+          }
+          refreshedAnySource = true;
+        } else {
+          messages.push(`Instagram scrape failed: ${await getResponseMessage(instagramResponse)}`);
+        }
+      }
+
+      const hasXCompetitors = competitors.some(
+        (competitor) => competitor.auto_sync_enabled && competitor.platform.toLowerCase() === "x"
+      );
+
+      if (hasXCompetitors) {
+        const xContentRefreshResponse = await authFetch(
+          `${API}/api/content-intel/competitors/refresh?platform=x`,
+          { method: "POST" }
+        );
+
+        if (xContentRefreshResponse.ok) {
+          const result = await xContentRefreshResponse.json();
+          messages.push(
+            `X content refreshed: ${result.refreshed_competitors || 0}/${result.total_competitors || 0}`
+          );
+          refreshedAnySource = true;
+        } else {
+          messages.push(`X content refresh failed: ${await getResponseMessage(xContentRefreshResponse)}`);
+        }
+      }
+
+      if (!refreshedAnySource) {
+        setError(messages.join(" • ") || "No supported competitor refresh sources are available");
+        return;
+      }
+
+      setNotice(messages.join(" • "));
+
+      if (waitForInstagramCompletion) {
+        const syncCompleted = await waitForInstagramSyncCompletion();
+        if (!syncCompleted) {
+          await refreshIntelligenceViews();
+        }
       } else {
-        const errData = await response.json().catch(() => ({}));
-        setError(`Scraper sync failed: ${errData.detail || response.statusText}`);
+        await refreshIntelligenceViews();
       }
     } catch (error) {
-      setError(`Error running scraper: ${error}`);
+      setError(`Error refreshing competitors: ${error}`);
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -548,7 +675,13 @@ export default function CompetitorIntel() {
         </div>
       </div>
 
-      {/* Error message */}
+      {/* Status messages */}
+      {notice && (
+        <div className="mx-6 mt-3 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm rounded-lg">
+          {notice}
+        </div>
+      )}
+
       {error && (
         <div className="mx-6 mt-3 px-3 py-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg">
           {error}
@@ -850,9 +983,9 @@ export default function CompetitorIntel() {
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-warroom-muted">Click a competitor to see their top content.</p>
                     <div className="flex gap-2">
-                      <button onClick={refreshAllCompetitors} disabled={loading}
+                      <button onClick={refreshAllCompetitors} disabled={loading || refreshing}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-surface rounded-lg text-xs font-medium transition disabled:opacity-50">
-                        <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh All
+                        <RefreshCw size={14} className={loading || refreshing ? "animate-spin" : ""} /> Refresh All
                       </button>
                       <button onClick={() => setShowAddCompetitor(true)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition">

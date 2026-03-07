@@ -57,7 +57,7 @@ const API_KEY_GROUPS: Record<string, { label: string; keys: string[] }> = {
   },
   ai: {
     label: "AI & Search",
-    keys: ["openai_api_key", "serp_api_key"],
+    keys: ["openclaw_auth_token", "serp_api_key"],
   },
 };
 
@@ -66,7 +66,7 @@ const KEY_LABELS: Record<string, string> = {
   google_oauth_client_id: "OAuth Client ID (YouTube + Calendar)",
   google_oauth_client_secret: "OAuth Client Secret (YouTube + Calendar)",
   serp_api_key: "SerpAPI Key",
-  openai_api_key: "OpenAI API Key",
+  openclaw_auth_token: "OpenClaw Auth Token",
   meta_app_id: "App ID",
   meta_app_secret: "App Secret",
   instagram_app_id: "Instagram App ID",
