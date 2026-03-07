@@ -32,6 +32,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     const initAuth = async () => {
+      // TEMP: Auth bypass for UI preview - REMOVE BEFORE COMMIT
+      const DEV_BYPASS_AUTH = true;
+      if (DEV_BYPASS_AUTH) {
+        setUser({
+          id: 0,
+          name: "Dev User",
+          email: "dev@localhost",
+          email_verified: true,
+          is_superadmin: true,
+          org: { id: 1, name: "Dev Org", slug: "dev-org" },
+          role: { id: 1, name: "Admin", permissions: ["*"] },
+        });
+        setLoading(false);
+        return;
+      }
+      // END TEMP bypass
+
       // Check if we're authenticated
       if (!isAuthenticated()) {
         setLoading(false);
