@@ -9,6 +9,7 @@ import { API, authFetch } from "@/lib/api";
 import LoadingState from "@/components/ui/LoadingState";
 import EmptyState from "@/components/ui/EmptyState";
 import StageGateModal from "./StageGateModal";
+import DealDetailDrawer from "./DealDetailDrawer";
 import { Pipeline, PipelineStage, Deal } from "./types";
 
 // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
@@ -83,6 +84,9 @@ export default function UnifiedPipeline() {
   const [demoteConfirm, setDemoteConfirm] = useState<{
     deal: Deal; toStage: PipelineStage;
   } | null>(null);
+
+  // Deal detail drawer
+  const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
 
   // Toast
   const [toast, setToast] = useState<string | null>(null);
@@ -304,6 +308,7 @@ export default function UnifiedPipeline() {
                 <div className="flex-1 p-2 overflow-y-auto space-y-2">
                   {stageDeals.map((deal) => (
                     <div key={deal.id} draggable onDragStart={(e) => handleDragStart(e, deal)}
+                      onClick={() => setSelectedDeal(deal)}
                       className={`bg-warroom-bg border border-warroom-border rounded-lg p-3 cursor-grab hover:bg-warroom-border/20 transition-colors ${deal.is_rotten ? "border-l-4 border-l-red-500" : ""}`}>
                       <div className="flex items-start justify-between mb-1.5">
                         <h4 className="font-medium text-xs text-warroom-text line-clamp-2">{deal.title}</h4>
@@ -348,6 +353,19 @@ export default function UnifiedPipeline() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Deal Detail Drawer */}
+      {selectedDeal && (
+        <DealDetailDrawer
+          deal={selectedDeal}
+          stages={stages}
+          onClose={() => setSelectedDeal(null)}
+          onAdvance={(deal, fromStage, toStage) => {
+            setSelectedDeal(null);
+            setGateModal({ deal, fromStage, toStage });
+          }}
+        />
       )}
 
       {/* Toast */}
