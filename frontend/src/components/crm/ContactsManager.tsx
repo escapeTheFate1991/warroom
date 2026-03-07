@@ -35,6 +35,25 @@ interface CRMContact {
   updated_at: string;
 }
 
+// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+const MOCK_CRM_CONTACTS: CRMContact[] = [
+  { id: 1, name: "John Smith", email: "john@acmecorp.com", phone: "(512) 555-0142", company: "Acme Corp", source: "leadgen", assigned_to: "Edwin", created_at: "2026-02-20T10:00:00Z", updated_at: "2026-03-01T14:30:00Z" },
+  { id: 2, name: "Sarah Chen", email: "sarah@techstart.io", phone: "(415) 555-0198", company: "TechStart Inc", source: "referral", assigned_to: "Edwin", created_at: "2026-02-15T09:00:00Z", updated_at: "2026-03-03T11:00:00Z" },
+  { id: 3, name: "Mike Johnson", email: "mike@blueskymedia.com", phone: "(512) 555-0234", company: "BlueSky Media", source: "website", assigned_to: null, created_at: "2026-01-10T08:00:00Z", updated_at: "2026-02-28T16:00:00Z" },
+  { id: 4, name: "Lisa Park", email: "lisa@greenleaf.org", phone: "(512) 555-0311", company: "GreenLeaf Organics", source: "leadgen", assigned_to: "Edwin", created_at: "2026-02-01T12:00:00Z", updated_at: "2026-03-05T10:00:00Z" },
+  { id: 5, name: "David Wilson", email: "david@novafinancial.com", phone: "(212) 555-0455", company: "Nova Financial", source: "cold_call", assigned_to: "Edwin", created_at: "2026-01-15T14:00:00Z", updated_at: "2026-03-02T09:00:00Z" },
+  { id: 6, name: "Emma Davis", email: "emma@meridiangroup.com", phone: null, company: "Meridian Group", source: "referral", assigned_to: null, created_at: "2026-01-05T11:00:00Z", updated_at: "2026-03-04T15:00:00Z" },
+];
+
+// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+const MOCK_CONTACT_HISTORY: Contact[] = [
+  { id: 1, business_name: "Joe's Plumbing & Heating", contacted_by: "Edwin", contacted_at: "2026-03-05T10:30:00Z", contact_outcome: "follow_up", contact_notes: "Interested in website redesign, scheduling follow-up call next week", city: "Austin", state: "TX", phone: "(512) 555-0142", website: "https://joesplumbing.com", lead_score: 85, lead_tier: "hot" },
+  { id: 2, business_name: "Bright Spark Electric", contacted_by: "Edwin", contacted_at: "2026-03-04T14:00:00Z", contact_outcome: "won", contact_notes: "Signed contract for website + SEO package", city: "Austin", state: "TX", phone: "(512) 555-0198", website: "https://brightspark.com", lead_score: 72, lead_tier: "warm" },
+  { id: 3, business_name: "Cool Breeze HVAC", contacted_by: "Edwin", contacted_at: "2026-03-03T09:15:00Z", contact_outcome: "no_answer", contact_notes: "Left voicemail, will try again Thursday", city: "Round Rock", state: "TX", phone: "(512) 555-0234", website: null, lead_score: 91, lead_tier: "hot" },
+  { id: 4, business_name: "Green Thumb Landscaping", contacted_by: "Edwin", contacted_at: "2026-03-02T16:00:00Z", contact_outcome: "callback", contact_notes: "Owner busy, asked to call back Friday afternoon", city: "Austin", state: "TX", phone: "(512) 555-0311", website: "https://greenthumbatx.com", lead_score: 88, lead_tier: "hot" },
+  { id: 5, business_name: "Sunrise Dental Care", contacted_by: "Edwin", contacted_at: "2026-03-01T11:00:00Z", contact_outcome: "lost", contact_notes: "Already has a web agency, not interested", city: "Cedar Park", state: "TX", phone: "(512) 555-0455", website: "https://sunrisedental.com", lead_score: 45, lead_tier: "cold" },
+];
+
 const OUTCOME_COLORS: Record<string, string> = {
   won: "bg-green-500/20 text-green-400",
   lost: "bg-red-500/20 text-red-400",
@@ -61,7 +80,9 @@ export default function ContactsManager() {
         setCrmContacts(data);
       }
     } catch (error) {
+      // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
       console.error("Failed to load CRM contacts:", error);
+      setCrmContacts(MOCK_CRM_CONTACTS);
     }
   };
 
@@ -77,7 +98,9 @@ export default function ContactsManager() {
         setContactHistory(data);
       }
     } catch (error) {
+      // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
       console.error("Failed to load contact history:", error);
+      setContactHistory(MOCK_CONTACT_HISTORY);
     }
   };
 

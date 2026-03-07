@@ -46,6 +46,27 @@ interface TrackedAccount {
   status: string;
 }
 
+// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+const MOCK_ACCOUNTS: TrackedAccount[] = [
+  { id: "ig_1", platform: "instagram", username: "yieldlabs", follower_count: 12400, post_count: 234, status: "connected" },
+  { id: "yt_1", platform: "youtube", username: "YieldLabs", follower_count: 8900, post_count: 87, status: "connected" },
+  { id: "fb_1", platform: "facebook", username: "YieldLabs", follower_count: 3200, post_count: 156, status: "connected" },
+  { id: "x_1", platform: "x", username: "yieldlabs", follower_count: 5600, post_count: 412, status: "connected" },
+];
+
+// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+const MOCK_SUMMARY: ContentSummary = {
+  total_accounts: 4,
+  total_followers: 30100,
+  total_posts: 889,
+  platforms: [
+    { platform: "instagram", accounts: 1, followers: 12400, posts: 234 },
+    { platform: "youtube", accounts: 1, followers: 8900, posts: 87 },
+    { platform: "facebook", accounts: 1, followers: 3200, posts: 156 },
+    { platform: "x", accounts: 1, followers: 5600, posts: 412 },
+  ],
+};
+
 export default function ContentTracker() {
   const [summary, setSummary] = useState<ContentSummary | null>(null);
   const [accounts, setAccounts] = useState<TrackedAccount[]>([]);
@@ -69,7 +90,10 @@ export default function ContentTracker() {
         setAccounts(data.items || []);
       }
     } catch (err) {
-      setError("Failed to load content data");
+      // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+      console.error("Failed to load content data:", err);
+      setSummary(MOCK_SUMMARY);
+      setAccounts(MOCK_ACCOUNTS);
     } finally {
       setLoading(false);
     }
