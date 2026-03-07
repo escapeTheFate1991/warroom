@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X, RefreshCw } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import { useThemeContext } from "@/components/ui/ThemeProvider";
 
 
 interface Setting {
@@ -184,6 +185,7 @@ interface Workflow {
 }
 
 export default function SettingsPanel() {
+  const { theme, toggleTheme } = useThemeContext();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [settings, setSettings] = useState<Setting[]>([]);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
@@ -856,6 +858,26 @@ export default function SettingsPanel() {
 
     return (
       <div className="space-y-8">
+        {/* Appearance toggle */}
+        <div className="flex items-center justify-between p-4 bg-warroom-bg rounded-xl border border-warroom-border">
+          <div>
+            <h4 className="text-sm font-semibold">Appearance</h4>
+            <p className="text-xs text-warroom-muted mt-1">Toggle between dark and light mode</p>
+          </div>
+          <button
+            onClick={toggleTheme}
+            className="relative w-14 h-7 rounded-full transition-colors duration-200"
+            style={{ backgroundColor: theme === "dark" ? "#1e1e2e" : "#6366f1" }}
+          >
+            <div
+              className="absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform duration-200 flex items-center justify-center text-xs"
+              style={{ transform: theme === "dark" ? "translateX(2px)" : "translateX(30px)" }}
+            >
+              {theme === "dark" ? "🌙" : "☀️"}
+            </div>
+          </button>
+        </div>
+
         {/* General & Leadgen — render flat like before */}
         {["general", "leadgen"].map((catKey) => {
           const meta = CATEGORY_META[catKey];
