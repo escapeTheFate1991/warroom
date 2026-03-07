@@ -268,6 +268,12 @@ export default function CommandCenter() {
 
   useEffect(() => { fetchData(); fetchMetrics(); fetchCRMData(); }, [fetchData, fetchMetrics, fetchCRMData]);
   useEffect(() => { setPipelineStats(getPipelineStats()); }, []);
+
+  // Loading timeout: prevent infinite spinner — show zero-value KPIs after 10s
+  useEffect(() => {
+    const timeout = setTimeout(() => setLoading(false), 10000);
+    return () => clearTimeout(timeout);
+  }, []);
   useEffect(() => {
     const t = setInterval(() => setCurrentTime(new Date()), 60000);
     const metricsInterval = setInterval(fetchMetrics, 300000);

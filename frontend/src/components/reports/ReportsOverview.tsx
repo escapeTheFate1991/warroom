@@ -8,6 +8,7 @@ import {
   Loader2, ArrowUpRight, ArrowDownRight, Minus,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import EmptyState from "@/components/ui/EmptyState";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 
@@ -245,6 +246,12 @@ export default function ReportsOverview() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  // Loading timeout: prevent infinite skeleton loading
+  useEffect(() => {
+    const timeout = setTimeout(() => setLoading(false), 10000);
+    return () => clearTimeout(timeout);
+  }, []);
+
   /* ── Render ──────────────────────────────────────────────────────── */
 
   return (
@@ -264,6 +271,16 @@ export default function ReportsOverview() {
           </button>
         )}
       </div>
+
+      {/* Empty state when no data loaded at all */}
+      {!loading && Object.keys(metrics).length === 0 && recentDeals.length === 0 && recentSubmissions.length === 0 && upcomingInvoices.length === 0 && (
+        <EmptyState
+          icon={<BarChart3 size={32} />}
+          title="No Reports"
+          description="Report data will appear here once you have deals and activities in the system."
+          action={{ label: "Refresh", onClick: fetchData }}
+        />
+      )}
 
       {/* Metric Tiles — 2 rows of 4 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
