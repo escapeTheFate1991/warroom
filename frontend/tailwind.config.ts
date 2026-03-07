@@ -6,16 +6,25 @@ export default {
     extend: {
       colors: {
         warroom: {
-          bg: "#0a0a0f",
-          surface: "#12121a",
-          border: "#1e1e2e",
-          accent: "#6366f1",
-          text: "#e2e8f0",
-          muted: "#64748b",
-          success: "#22c55e",
-          danger: "#ef4444",
-          warning: "#f59e0b",
+          bg: "var(--warroom-bg)",
+          surface: "var(--warroom-surface)",
+          border: "var(--warroom-border)",
+          accent: "var(--warroom-accent)",
+          text: "var(--warroom-text)",
+          muted: "var(--warroom-muted)",
+          success: "var(--warroom-success)",
+          danger: "var(--warroom-danger)",
+          warning: "var(--warroom-warning)",
         },
+      },
+      keyframes: {
+        "slide-in-right": {
+          "0%": { transform: "translateX(100%)" },
+          "100%": { transform: "translateX(0)" },
+        },
+      },
+      animation: {
+        "slide-in-right": "slide-in-right 0.2s ease-out",
       },
     },
   },

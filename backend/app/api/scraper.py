@@ -198,7 +198,7 @@ async def _save_posts_to_cache(
             )
             saved += 1
         except Exception as e:
-            logger.warning(f"Failed to save post {post.shortcode}: {e}")
+            logger.warning("Failed to save post %s: %s", post.shortcode, e)
     
     return saved
 

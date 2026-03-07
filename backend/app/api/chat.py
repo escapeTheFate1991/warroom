@@ -102,7 +102,7 @@ async def connect_to_gateway(origin: str = "http://10.0.0.11:8300"):
     raw = await asyncio.wait_for(ws.recv(), timeout=10)
     challenge = json.loads(raw)
     nonce = challenge.get("payload", {}).get("nonce", "")
-    logger.info(f"Got challenge, nonce={nonce[:16]}...")
+    logger.info("Got challenge, nonce=%s...", nonce[:16])
 
     # Build connect params with device identity
     auth = {}
@@ -141,7 +141,7 @@ async def connect_to_gateway(origin: str = "http://10.0.0.11:8300"):
         raise ConnectionError(f"Gateway connect failed: {err}")
 
     granted = resp.get("payload", {}).get("scopes", [])
-    logger.info(f"Connected to gateway, scopes={granted}")
+    logger.info("Connected to gateway, scopes=%s", granted)
     return ws
 
 
@@ -184,7 +184,7 @@ async def chat_ws(ws: WebSocket):
                         data = json.loads(raw_str)
                         msg_type = data.get("type", "")
                         method = data.get("method", "")
-                        logger.info(f"GW-RAW: type={msg_type} event={data.get('event','')} method={method} keys={list(data.keys())[:6]}")
+                        logger.info("GW-RAW: type=%s event=%s method=%s keys=%s", msg_type, data.get('event', ''), method, list(data.keys())[:6])
                         # Filter: only forward events for the active session
                         # Gateway returns full key (e.g. "agent:main:warroom") while we send short key ("warroom")
                         if msg_type == "event":
@@ -195,7 +195,7 @@ async def chat_ws(ws: WebSocket):
 
                         await ws.send_text(json.dumps(data))
                 except websockets.exceptions.ConnectionClosed as e:
-                    logger.warning(f"Gateway WS closed: code={e.code} reason={e.reason}")
+                    logger.warning("Gateway WS closed: code=%s reason=%s", e.code, e.reason)
                     if shutdown.is_set():
                         break
                     # Auto-reconnect
@@ -210,13 +210,13 @@ async def chat_ws(ws: WebSocket):
                             await openclaw.send(make_req("chat.history", {"sessionKey": session_key, "limit": 50}))
                             break
                         except Exception as re_err:
-                            logger.warning(f"Reconnect attempt {attempt+1} failed: {re_err}")
+                            logger.warning("Reconnect attempt %d failed: %s", attempt + 1, re_err)
                     else:
                         await ws.send_text(json.dumps({"type": "error", "message": "Gateway reconnect failed after 5 attempts"}))
                         shutdown.set()
                         break
                 except Exception as e:
-                    logger.error(f"Gateway forward error: {e}")
+                    logger.error("Gateway forward error: %s", e)
                     if shutdown.is_set():
                         break
 
@@ -233,7 +233,7 @@ async def chat_ws(ws: WebSocket):
                         images = data.get("images", [])
                         if not message and not images:
                             continue
-                        logger.info(f"Client→GW: chat.send ({len(message)} chars, {len(images)} images)")
+                        logger.info("Client→GW: chat.send (%d chars, %d images)", len(message), len(images))
                         send_params = {
                             "sessionKey": session_key,
                             "message": message,
@@ -278,13 +278,13 @@ async def chat_ws(ws: WebSocket):
                 logger.info("Client disconnected")
                 shutdown.set()
             except Exception as e:
-                logger.error(f"Client forward error: {e}")
+                logger.error("Client forward error: %s", e)
                 shutdown.set()
 
         await asyncio.gather(forward_from_gateway(), forward_from_client())
 
     except Exception as e:
-        logger.error(f"Chat WS error: {e}")
+        logger.error("Chat WS error: %s", e)
         try:
             await ws.send_text(json.dumps({"type": "error", "message": f"OpenClaw connection failed: {str(e)}"}))
         except Exception:
@@ -321,7 +321,7 @@ async def session_status():
             "percentage": round((total / context_window * 100), 1) if context_window else 0,
         }
     except Exception as e:
-        logger.warning(f"Failed to read session status: {e}")
+        logger.warning("Failed to read session status: %s", e)
         return {"totalTokens": 0, "contextWindow": 200000, "compactionCount": 0, "percentage": 0}
 
 
@@ -378,8 +378,8 @@ async def polish_prompt(body: dict):
                 polished = data["choices"][0]["message"]["content"].strip()
                 return {"polished": polished}
             else:
-                logger.warning(f"OpenAI polish failed: {resp.status_code}")
+                logger.warning("OpenAI polish failed: %s", resp.status_code)
     except Exception as e:
-        logger.warning(f"Polish failed: {e}")
+        logger.warning("Polish failed: %s", e)
 
     return {"polished": text}

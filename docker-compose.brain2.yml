@@ -1,3 +1,4 @@
+# DEPRECATED: Brain 2 migration config — see docker-compose.yml
 services:
   warroom-backend:
     build: ./backend

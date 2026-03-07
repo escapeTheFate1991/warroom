@@ -267,7 +267,7 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
                 user = data.get("data", {}).get("user")
                 if user:
                     captured_data["user"] = user
-                    logger.info(f"Captured web_profile_info for @{handle}")
+                    logger.info("Captured web_profile_info for @%s", handle)
 
             # Capture graphql user responses
             elif "/graphql" in url or "graphql/query" in url:
@@ -279,7 +279,7 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
                 if user and isinstance(user, dict):
                     if "edge_followed_by" in user or "follower_count" in user or "edge_owner_to_timeline_media" in user:
                         captured_data["user"] = user
-                        logger.info(f"Captured GraphQL user data for @{handle}")
+                        logger.info("Captured GraphQL user data for @%s", handle)
                     # Also capture timeline media separately
                     edges = user.get("edges", [])
                     if edges and any("node" in e for e in edges):
@@ -291,7 +291,7 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
                 user = data.get("user")
                 if user:
                     captured_data["user_v1"] = user
-                    logger.info(f"Captured v1 user info for @{handle}")
+                    logger.info("Captured v1 user info for @%s", handle)
 
             # Capture v1 feed
             elif "/api/v1/feed/user/" in url:
@@ -299,7 +299,7 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
                 items = data.get("items", [])
                 if items:
                     captured_data.setdefault("feed_items", []).extend(items)
-                    logger.info(f"Captured {len(items)} feed items for @{handle}")
+                    logger.info("Captured %d feed items for @%s", len(items), handle)
 
         except Exception:
             # Not JSON or other error — ignore
@@ -332,7 +332,7 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
 
             # Navigate to profile
             url = f"https://www.instagram.com/{handle}/"
-            logger.info(f"Navigating to {url}")
+            logger.info("Navigating to %s", url)
 
             resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
@@ -365,7 +365,7 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
 
     except Exception as e:
         profile.error = f"Browser error: {str(e)}"
-        logger.error(f"Playwright error for @{handle}: {e}")
+        logger.error("Playwright error for @%s: %s", handle, e)
         return profile
 
     # Parse captured data into profile
@@ -438,7 +438,7 @@ async def _extract_from_dom(page, handle: str) -> Optional[Dict]:
         return data if data and (data.get("followers_text") or data.get("post_urls")) else None
         
     except Exception as e:
-        logger.debug(f"DOM extraction failed: {e}")
+        logger.debug("DOM extraction failed: %s", e)
         return None
 
 
@@ -520,12 +520,12 @@ async def scrape_multiple(
     """Scrape multiple profiles with random delays between requests."""
     results = []
     for i, handle in enumerate(handles):
-        logger.info(f"Scraping @{handle} ({i + 1}/{len(handles)})")
+        logger.info("Scraping @%s (%d/%d)", handle, i + 1, len(handles))
         profile = await scrape_profile(handle)
         results.append(profile)
 
         if profile.error:
-            logger.warning(f"@{handle}: {profile.error}")
+            logger.warning("@%s: %s", handle, profile.error)
         else:
             logger.info(
                 f"@{handle}: {profile.followers} followers, "
@@ -534,7 +534,7 @@ async def scrape_multiple(
 
         if i < len(handles) - 1:
             delay = random.uniform(*delay_range)
-            logger.debug(f"Waiting {delay:.1f}s before next request...")
+            logger.debug("Waiting %.1fs before next request...", delay)
             await asyncio.sleep(delay)
 
     return results

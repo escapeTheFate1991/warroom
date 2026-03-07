@@ -1,14 +1,15 @@
 """Database configuration for CRM module."""
-import os
 import logging
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import event, text
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Reuse knowledge DB connection (same as leadgen_db.py pattern)
-CRM_DB_URL = os.getenv("CRM_DB_URL", "postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge")
+CRM_DB_URL = settings.CRM_DB_URL
 
 crm_engine = create_async_engine(CRM_DB_URL, echo=False, pool_size=5, max_overflow=10)
 crm_session = async_sessionmaker(crm_engine, class_=AsyncSession, expire_on_commit=False)
@@ -47,5 +48,5 @@ async def init_crm_schema():
         return True
         
     except Exception as e:
-        logger.error(f"Failed to initialize CRM schema: {e}")
+        logger.error("Failed to initialize CRM schema: %s", e)
         return False

@@ -86,7 +86,7 @@ async def get_usage():
                     except:
                         continue
     except Exception as e:
-        logger.warning(f"Error reading sessions: {e}")
+        logger.warning("Error reading sessions: %s", e)
 
     SESSION_LIMIT = 45_000_000
     WEEKLY_LIMIT = 180_000_000

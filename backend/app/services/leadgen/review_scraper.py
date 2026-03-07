@@ -10,6 +10,12 @@ from typing import Optional
 
 import httpx
 
+from app.services.leadgen.google_places import (
+    _check_places_rate_limit,
+    _get_google_maps_key,
+    _increment_places_count,
+)
+
 logger = logging.getLogger(__name__)
 
 BROWSER_HEADERS = {
@@ -265,8 +271,6 @@ async def fetch_google_reviews(place_id: str) -> GoogleReviewResult:
     result = GoogleReviewResult()
 
     try:
-        from app.services.leadgen.google_places import _get_google_maps_key
-
         api_key = await _get_google_maps_key()
         if not api_key:
             result.error = "No Google Maps API key available"
@@ -274,7 +278,6 @@ async def fetch_google_reviews(place_id: str) -> GoogleReviewResult:
             return result
 
         # Check daily rate limit before calling Google API
-        from app.services.leadgen.google_places import _check_places_rate_limit, _increment_places_count
         if not _check_places_rate_limit():
             result.error = "Google Places daily limit reached"
             logger.warning(result.error)

@@ -5,8 +5,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects
-from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai
+from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
 from app.models.lead import Base
@@ -29,8 +29,8 @@ async def lifespan(app: FastAPI):
         await settings.init_settings_table(leadgen_engine)
         logger.info("Settings initialized")
         
-        # Initialize notifications table (use its own engine — same DB, but consistent)
-        await notifications.init_notifications_table(notifications.notify_engine)
+        # Initialize notifications table (shared leadgen engine — same DB)
+        await notifications.init_notifications_table(leadgen_engine)
         logger.info("Notifications table initialized")
         
         # Verify CRM schema exists (don't re-create, just verify)
@@ -93,14 +93,14 @@ async def verify_crm_schema():
             table_count = table_check.fetchone()[0]
             
             if table_count < 10:  # Should have many more than 10 tables
-                logger.warning(f"CRM schema incomplete - only {table_count} tables found")
+                logger.warning("CRM schema incomplete - only %d tables found", table_count)
                 return False
                 
-            logger.info(f"CRM schema verified with {table_count} tables")
+            logger.info("CRM schema verified with %d tables", table_count)
             return True
             
     except Exception as e:
-        logger.error(f"Failed to verify CRM schema: {e}")
+        logger.error("Failed to verify CRM schema: %s", e)
         return False
 
 
@@ -158,6 +158,8 @@ app.include_router(email_inbox.router, prefix="/api", tags=["email-inbox"])
 app.include_router(invoicing.router, prefix="/api", tags=["invoicing"])
 app.include_router(contracts.router, prefix="/api", tags=["contracts"])
 app.include_router(prospects.router, prefix="/api", tags=["prospects"])
+app.include_router(content_tracker.router, prefix="/api", tags=["content-tracker"])
+app.include_router(content_ai.router, prefix="/api/content", tags=["content-ai"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])
@@ -171,3 +173,4 @@ app.include_router(attributes.router, prefix="/api/crm", tags=["crm-attributes"]
 app.include_router(acl.router, prefix="/api/crm", tags=["crm-acl"])
 app.include_router(data.router, prefix="/api/crm", tags=["crm-data"])
 app.include_router(audit.router, prefix="/api/crm", tags=["crm-audit"])
+app.include_router(pipeline_board.router, prefix="/api/crm", tags=["crm-pipeline-board"])

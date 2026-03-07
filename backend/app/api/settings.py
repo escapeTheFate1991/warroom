@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.leadgen_db import get_leadgen_db
 from app.models.settings import Setting, SettingsBase
+from app.api.auth import get_current_user, require_superadmin
+from app.models.crm.user import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -358,9 +360,10 @@ def _mask_value(value: str) -> str:
 @router.get("")
 async def list_settings(
     category: Optional[str] = None,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_leadgen_db),
 ):
-    """List all settings, optionally filtered by category."""
+    """List all settings, optionally filtered by category. Secret values masked for non-superadmin."""
     query = select(Setting)
     if category:
         query = query.where(Setting.category == category)
@@ -369,10 +372,13 @@ async def list_settings(
     result = await db.execute(query)
     settings = result.scalars().all()
 
+    # Superadmins see raw secret values; others see masked
+    is_superadmin = getattr(user, "is_superadmin", False)
+
     return [
         SettingResponse(
             key=s.key,
-            value=_mask_value(s.value) if s.is_secret else s.value,
+            value=s.value if (not s.is_secret or is_superadmin) else _mask_value(s.value),
             category=s.category,
             description=s.description,
             is_secret=bool(s.is_secret),
@@ -382,16 +388,22 @@ async def list_settings(
 
 
 @router.get("/{key}")
-async def get_setting(key: str, db: AsyncSession = Depends(get_leadgen_db)):
-    """Get a single setting by key."""
+async def get_setting(
+    key: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Get a single setting by key. Secret values masked for non-superadmin."""
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalars().first()
     if not setting:
         raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
 
+    is_superadmin = getattr(user, "is_superadmin", False)
+
     return SettingResponse(
         key=setting.key,
-        value=_mask_value(setting.value) if setting.is_secret else setting.value,
+        value=setting.value if (not setting.is_secret or is_superadmin) else _mask_value(setting.value),
         category=setting.category,
         description=setting.description,
         is_secret=bool(setting.is_secret),
@@ -402,6 +414,7 @@ async def get_setting(key: str, db: AsyncSession = Depends(get_leadgen_db)):
 async def update_setting(
     key: str,
     body: SettingUpdate,
+    user: User = Depends(require_superadmin()),
     db: AsyncSession = Depends(get_leadgen_db),
 ):
     """Update a setting value."""
@@ -436,6 +449,7 @@ async def update_setting(
 @router.post("")
 async def create_setting(
     body: SettingCreate,
+    user: User = Depends(require_superadmin()),
     db: AsyncSession = Depends(get_leadgen_db),
 ):
     """Create a new setting."""
@@ -465,7 +479,7 @@ async def create_setting(
 
 
 @router.delete("/{key}")
-async def delete_setting(key: str, db: AsyncSession = Depends(get_leadgen_db)):
+async def delete_setting(key: str, user: User = Depends(require_superadmin()), db: AsyncSession = Depends(get_leadgen_db)):
     """Delete a setting."""
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalars().first()

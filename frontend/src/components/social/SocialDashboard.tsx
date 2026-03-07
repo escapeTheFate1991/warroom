@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { Share2, Instagram, Facebook, Youtube, Twitter, Plus, X, ExternalLink, TrendingUp, TrendingDown, Users, Eye, BarChart3, Zap, ChevronDown, ChevronUp, Radio, Loader2 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 
 
 interface SocialAccount {
@@ -191,10 +193,16 @@ export default function SocialDashboard() {
   const getSparklineData = (platform: string) => sparklineData[platform] || Array(7).fill(0);
 
   if (loading) {
+    return <LoadingState message="Loading social accounts..." />;
+  }
+
+  if (accounts.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center text-warroom-muted">
-        <Share2 size={24} className="animate-spin mr-3" /> Loading social dashboard...
-      </div>
+      <EmptyState
+        icon={<Share2 className="w-10 h-10" />}
+        title="No social accounts connected"
+        description="Connect your Instagram, Facebook, or YouTube to see analytics and manage your social presence."
+      />
     );
   }
 

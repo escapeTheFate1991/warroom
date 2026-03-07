@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, MapPin, Globe, Mail, Phone, Loader2, Building2, RefreshCw, Star, Filter, X, AlertTriangle, Clock, Trash2 } from "lucide-react";
+import { Search, MapPin, Globe, Mail, Phone, Loader2, Building2, RefreshCw, Star, Filter, X, AlertTriangle, Clock, Trash2, Rocket } from "lucide-react";
 import LeadDrawer, { LeadFull } from "./LeadDrawer";
 import { API, authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 import { US_STATES, US_CITIES } from "@/data/us-cities";
 
 const PAGE_SIZE = 10;
@@ -199,6 +201,46 @@ export default function LeadgenPanel() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Toast state for pipeline actions
+  const [pipelineToast, setPipelineToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (pipelineToast) {
+      const t = setTimeout(() => setPipelineToast(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [pipelineToast]);
+
+  const startPipeline = async (lead: Lead, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    try {
+      const res = await authFetch(`${API}/api/crm/deals/convert-from-lead`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadgen_lead_id: lead.id,
+          title: lead.business_name,
+          business_name: lead.business_name,
+          business_category: lead.business_category,
+          phone: lead.phone,
+          website: lead.website,
+          emails: lead.emails,
+          address: lead.address,
+          city: lead.city,
+          state: lead.state,
+        }),
+      });
+      if (res.ok) {
+        setPipelineToast({ type: "success", message: `✓ Deal created — ${lead.business_name} added to Lead Discovery` });
+      } else {
+        setPipelineToast({ type: "error", message: "Failed to create deal" });
+      }
+    } catch {
+      setPipelineToast({ type: "error", message: "Failed to create deal" });
+    }
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Cache for prefetched pages
@@ -267,8 +309,8 @@ export default function LeadgenPanel() {
       setErrorMessage(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load leads";
+      console.error("Failed to load leads:", msg);
       setErrorMessage(msg);
-      setLeads([]);
     } finally {
       setInitialLoading(false);
     }
@@ -785,7 +827,7 @@ export default function LeadgenPanel() {
                   return (
                     <tr
                       key={lead.id}
-                      className={`border-b border-warroom-border/50 hover:bg-warroom-border/20 cursor-pointer ${borderColorClass} ${backgroundClass}`}
+                      className={`group border-b border-warroom-border/50 hover:bg-warroom-border/20 cursor-pointer ${borderColorClass} ${backgroundClass}`}
                       onClick={() => handleLeadClick(lead)}
                     >
                       <td className="px-4 py-3">
@@ -842,11 +884,20 @@ export default function LeadgenPanel() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1">
-                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full w-fit ${TIER_COLORS[lead.lead_tier] || TIER_COLORS.unscored}`}>
-                          {lead.lead_tier}
-                        </span>
-                        <span className="text-xs text-warroom-muted">{lead.lead_score}/100</span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex flex-col gap-1">
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full w-fit ${TIER_COLORS[lead.lead_tier] || TIER_COLORS.unscored}`}>
+                            {lead.lead_tier}
+                          </span>
+                          <span className="text-xs text-warroom-muted">{lead.lead_score}/100</span>
+                        </div>
+                        <button
+                          onClick={(e) => startPipeline(lead, e)}
+                          title="Start Pipeline"
+                          className="p-1.5 rounded-md text-warroom-muted hover:text-warroom-accent hover:bg-warroom-accent/10 transition opacity-0 group-hover:opacity-100"
+                        >
+                          <Rocket size={14} />
+                        </button>
                       </div>
                     </td>
                     </tr>
@@ -875,38 +926,24 @@ export default function LeadgenPanel() {
 
         {/* No results state */}
         {leads.length === 0 && !searching && !initialLoading && !errorMessage && (
-          <div className="flex flex-col items-center justify-center py-20 text-warroom-muted">
-            <Search size={48} className="mb-4 opacity-20" />
-            <p className="text-sm font-medium mb-2">No leads found</p>
-            <p className="text-xs text-warroom-muted/70 max-w-md text-center">
-              {activeJobId && !showAllLeads
+          <EmptyState
+            icon={<Search size={40} />}
+            title="No leads found"
+            description={
+              activeJobId && !showAllLeads
                 ? "This search returned no results. Try a different business category or broader location."
-                : "Search for businesses to populate your lead database. Pick a location and business type above."}
-            </p>
-            {activeJobId && !showAllLeads && (
-              <div className="flex gap-2 mt-4">
-                <button
-                  onClick={() => { setShowAllLeads(true); setActiveJobId(null); }}
-                  className="px-4 py-2 bg-warroom-border/50 rounded-lg text-xs text-warroom-muted hover:text-warroom-text transition"
-                >
-                  Show All Leads
-                </button>
-                <button
-                  onClick={() => refreshSearchJob(activeJobId)}
-                  className="px-4 py-2 bg-warroom-accent/20 text-warroom-accent rounded-lg text-xs hover:bg-warroom-accent/30 transition"
-                >
-                  🔄 Try Again
-                </button>
-              </div>
-            )}
-          </div>
+                : "Search for businesses to start building your pipeline."
+            }
+            action={
+              activeJobId && !showAllLeads
+                ? { label: "Show All Leads", onClick: () => { setShowAllLeads(true); setActiveJobId(null); } }
+                : undefined
+            }
+          />
         )}
 
         {initialLoading && (
-          <div className="flex items-center justify-center py-20 text-warroom-muted">
-            <Loader2 size={24} className="animate-spin mr-3" />
-            <span className="text-sm">Loading leads...</span>
-          </div>
+          <LoadingState message="Loading leads..." />
         )}
       </div>
 
@@ -917,6 +954,20 @@ export default function LeadgenPanel() {
         onClose={closeDrawer}
         onUpdate={handleLeadUpdate}
       />
+
+      {/* Pipeline Toast */}
+      {pipelineToast && (
+        <div className={`fixed bottom-6 right-6 z-[60] px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2 animate-in slide-in-from-bottom-2 ${
+          pipelineToast.type === "success"
+            ? "bg-green-600/90 text-white"
+            : "bg-red-600/90 text-white"
+        }`}>
+          {pipelineToast.message}
+          <button onClick={() => setPipelineToast(null)} className="ml-2 opacity-70 hover:opacity-100">
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

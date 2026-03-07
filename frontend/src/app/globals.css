@@ -2,15 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Dark theme (default) */
+  --warroom-bg: #0a0a0f;
+  --warroom-surface: #12121a;
+  --warroom-border: #1e1e2e;
+  --warroom-accent: #6366f1;
+  --warroom-text: #e2e8f0;
+  --warroom-muted: #64748b;
+  --warroom-success: #22c55e;
+  --warroom-danger: #ef4444;
+  --warroom-warning: #f59e0b;
+}
+
+[data-theme="light"] {
+  --warroom-bg: #f8fafc;
+  --warroom-surface: #ffffff;
+  --warroom-border: #e2e8f0;
+  --warroom-accent: #6366f1;
+  --warroom-text: #0f172a;
+  --warroom-muted: #64748b;
+  --warroom-success: #22c55e;
+  --warroom-danger: #ef4444;
+  --warroom-warning: #f59e0b;
+}
+
 body {
-  background: #0a0a0f;
-  color: #e2e8f0;
+  background: var(--warroom-bg);
+  color: var(--warroom-text);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 ::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #12121a; }
-::-webkit-scrollbar-thumb { background: #2e2e3e; border-radius: 3px; }
+::-webkit-scrollbar-track { background: var(--warroom-surface); }
+::-webkit-scrollbar-thumb { background: var(--warroom-border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #3e3e4e; }
 
-.chat-input:focus { outline: none; box-shadow: 0 0 0 2px #6366f1; }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+.chat-input:focus { outline: none; box-shadow: 0 0 0 2px var(--warroom-accent); }

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Package, Plus, Edit, Trash2, X, Save, Loader2 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import EmptyState from "@/components/ui/EmptyState";
 
 
 interface Product {
@@ -55,6 +56,12 @@ export default function ProductsPanel() {
 
   useEffect(() => {
     loadProducts();
+  }, []);
+
+  // Loading timeout: prevent infinite spinner
+  useEffect(() => {
+    const timeout = setTimeout(() => setLoading(false), 10000);
+    return () => clearTimeout(timeout);
   }, []);
 
   const handleAddProduct = () => {
@@ -247,11 +254,12 @@ export default function ProductsPanel() {
 
         {/* Empty State */}
         {!loading && products.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-warroom-muted">
-            <Package size={48} className="mb-4 opacity-20" />
-            <p className="text-sm">No products found</p>
-            <p className="text-xs mt-1">Add your first product or service</p>
-          </div>
+          <EmptyState
+            icon={<Package size={32} />}
+            title="No Products"
+            description="No products have been added yet. Add products to attach them to deals."
+            action={{ label: "Add Product", onClick: handleAddProduct }}
+          />
         )}
       </div>
 

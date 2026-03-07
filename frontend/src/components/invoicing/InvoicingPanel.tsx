@@ -7,6 +7,8 @@ import {
   DollarSign, AlertTriangle, Clock,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 
@@ -405,14 +407,14 @@ export default function InvoicingPanel() {
 
         {/* Table */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 size={24} className="animate-spin text-warroom-muted" />
-          </div>
+          <LoadingState message="Loading invoices..." />
         ) : invoices.length === 0 ? (
-          <div className="text-center py-20 text-warroom-muted">
-            <FileText size={40} className="mx-auto mb-3 opacity-40" />
-            <p>No invoices found.</p>
-          </div>
+          <EmptyState
+            icon={<FileText size={40} />}
+            title="No invoices yet"
+            description="Create your first invoice to start billing clients."
+            action={{ label: "New Invoice", onClick: openCreateForm }}
+          />
         ) : (
           <>
             <div className="bg-warroom-surface border border-warroom-border rounded-xl overflow-hidden">

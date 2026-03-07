@@ -20,6 +20,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import EmptyState from "@/components/ui/EmptyState";
 
 
 interface Activity {
@@ -110,6 +111,12 @@ export default function ActivitiesPanel() {
     loadActivities();
     loadTypes();
   }, [loadActivities, loadTypes]);
+
+  // Loading timeout: prevent infinite spinner
+  useEffect(() => {
+    const timeout = setTimeout(() => setLoading(false), 10000);
+    return () => clearTimeout(timeout);
+  }, []);
 
   function resetForm() {
     setFormTitle("");
@@ -347,12 +354,17 @@ export default function ActivitiesPanel() {
             <div className="animate-spin rounded-full h-6 w-6 border-2 border-warroom-accent border-t-transparent" />
           </div>
         ) : activities.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-warroom-muted">
-            <Calendar size={32} className="mb-2 opacity-20" />
-            <p className="text-xs">
-              {viewMode === "overdue" ? "No overdue activities" : viewMode === "upcoming" ? "No upcoming activities" : "No activities yet"}
-            </p>
-          </div>
+          <EmptyState
+            icon={<Calendar size={32} />}
+            title="No Activities"
+            description={
+              viewMode === "overdue"
+                ? "No overdue activities found."
+                : viewMode === "upcoming"
+                ? "No upcoming activities scheduled."
+                : "No activities have been recorded yet. Activities will appear here as you interact with deals and contacts."
+            }
+          />
         ) : (
           <div className="divide-y divide-warroom-border">
             {activities.map((activity) => {

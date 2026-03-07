@@ -6,6 +6,8 @@ import DealDrawer from "./DealDrawer";
 import DealForm from "./DealForm";
 import { Pipeline, PipelineStage, Deal, DealFull } from "./types";
 import { API, authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 
 
 const STAGE_COLORS: Record<number, string> = {
@@ -57,6 +59,8 @@ export default function DealsKanban() {
         if (defaultPipeline) {
           setSelectedPipeline(defaultPipeline);
         }
+      } else {
+        console.error("Failed to load pipelines:", response.status);
       }
     } catch (error) {
       console.error("Failed to load pipelines:", error);
@@ -73,19 +77,23 @@ export default function DealsKanban() {
       if (stagesResponse.ok) {
         const stagesData = await stagesResponse.json();
         setStages(stagesData);
-        
+
         // Load deals for this pipeline
         const dealsResponse = await authFetch(`${API}/api/crm/deals?pipeline_id=${selectedPipeline.id}`);
         if (dealsResponse.ok) {
           const dealsData = await dealsResponse.json();
-          
+
           // Group deals by stage
           const grouped: Record<number, Deal[]> = {};
           stagesData.forEach((stage: PipelineStage) => {
             grouped[stage.id] = dealsData.filter((deal: Deal) => deal.stage_id === stage.id);
           });
           setDealsByStage(grouped);
+        } else {
+          console.error("Failed to load deals:", dealsResponse.status);
         }
+      } else {
+        console.error("Failed to load stages:", stagesResponse.status);
       }
     } catch (error) {
       console.error("Failed to load stages and deals:", error);
@@ -245,10 +253,17 @@ export default function DealsKanban() {
   };
 
   if (loading) {
+    return <LoadingState message="Loading deals..." />;
+  }
+
+  if (stages.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <RefreshCw size={24} className="animate-spin text-warroom-muted" />
-      </div>
+      <EmptyState
+        icon={<Briefcase className="w-10 h-10" />}
+        title="No deals yet"
+        description="Create your first deal to start tracking your sales pipeline."
+        action={{ label: "New Deal", onClick: handleNewDeal }}
+      />
     );
   }
 

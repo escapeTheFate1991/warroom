@@ -4,7 +4,6 @@ Enforces JWT auth on ALL /api/* routes except explicitly whitelisted paths.
 This prevents any endpoint from accidentally being publicly accessible.
 """
 import logging
-import os
 import re
 
 import jwt
@@ -12,9 +11,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
-JWT_SECRET = os.getenv("JWT_SECRET", "warroom-jwt-secret-2026")
+JWT_SECRET = settings.JWT_SECRET
 ALGORITHM = "HS256"
 
 # ── Public paths (no auth required) ──────────────────────────────────

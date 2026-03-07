@@ -207,13 +207,11 @@ def _build_osm_tags(query: str) -> list[tuple[str, str]]:
 async def _get_google_maps_key() -> str:
     """Get Google Maps API key from settings DB, falling back to env var."""
     try:
-        from sqlalchemy.ext.asyncio import create_async_engine
         from sqlalchemy import text as sa_text
-        engine = create_async_engine("postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge", pool_size=1)
-        async with engine.begin() as conn:
+        from app.db.leadgen_db import leadgen_engine
+        async with leadgen_engine.begin() as conn:
             result = await conn.execute(sa_text("SELECT value FROM public.settings WHERE key = 'google_maps_api_key'"))
             row = result.fetchone()
-            await engine.dispose()
             if row and row[0]:
                 return row[0]
     except Exception as exc:

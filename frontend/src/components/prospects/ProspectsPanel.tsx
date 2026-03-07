@@ -8,6 +8,8 @@ import {
   AlertTriangle, TrendingUp, FileText, Eye, Save, X,
 } from "lucide-react";
 import { authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -236,15 +238,13 @@ export default function ProspectsPanel() {
       {/* Card Grid */}
       <div className="flex-1 overflow-y-auto px-6 pb-6">
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 size={24} className="animate-spin text-warroom-accent" />
-          </div>
+          <LoadingState message="Loading prospects..." />
         ) : prospects.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-warroom-muted">
-            <UserPlus size={40} className="mb-3 opacity-40" />
-            <p className="text-lg font-medium">No prospects found</p>
-            <p className="text-sm mt-1">Discover leads or wait for contact form submissions</p>
-          </div>
+          <EmptyState
+            icon={<UserPlus size={40} />}
+            title="No prospects found"
+            description="Discover leads or wait for contact form submissions to see prospects here."
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {prospects.map((p) => (
