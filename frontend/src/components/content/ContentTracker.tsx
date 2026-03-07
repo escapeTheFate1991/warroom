@@ -1,24 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
-  BarChart3, Eye, Heart, MessageSquare, Share2, ExternalLink,
-  TrendingUp, Film, CheckCircle2, Lightbulb,
+  BarChart3, Share2, Instagram, Youtube, Facebook, Twitter,
+  RefreshCw,
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 
-interface TrackedContent {
-  id: string;
-  title: string;
-  platform: string;
-  stage: string;
-  views?: number;
-  likes?: number;
-  comments?: number;
-  engagement?: number;
-  thumbnail?: string;
-  postedAt?: string;
-  url?: string;
-}
+// Platform config
+const PLATFORM_CONFIG: Record<string, { name: string; icon?: any; color: string }> = {
+  instagram: { name: "Instagram", icon: Instagram, color: "#E4405F" },
+  youtube: { name: "YouTube", icon: Youtube, color: "#FF0000" },
+  facebook: { name: "Facebook", icon: Facebook, color: "#1877F2" },
+  x: { name: "X", icon: Twitter, color: "#000000" },
+  tiktok: { name: "TikTok", color: "#00F2EA" },
+  threads: { name: "Threads", color: "#888888" },
+};
 
 function formatNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -26,50 +25,69 @@ function formatNum(n: number): string {
   return n.toLocaleString();
 }
 
+interface ContentSummary {
+  total_accounts: number;
+  total_followers: number;
+  total_posts: number;
+  platforms: Array<{
+    platform: string;
+    accounts: number;
+    followers: number;
+    posts: number;
+  }>;
+}
+
+interface TrackedAccount {
+  id: string;
+  platform: string;
+  username: string;
+  follower_count: number;
+  post_count: number;
+  status: string;
+}
+
 export default function ContentTracker() {
-  const [allContent, setAllContent] = useState<TrackedContent[]>([]);
+  const [summary, setSummary] = useState<ContentSummary | null>(null);
+  const [accounts, setAccounts] = useState<TrackedAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Aggregate from all platform pipelines
-    const platforms = ["instagram", "youtube"];
-    const all: TrackedContent[] = [];
-    
-    for (const p of platforms) {
-      try {
-        const stored = localStorage.getItem(`warroom_content_${p}`);
-        if (stored) {
-          const cards = JSON.parse(stored);
-          all.push(...cards.map((c: any) => ({ ...c, platform: p })));
-        }
-      } catch {}
-    }
-
-    // Also check the shared pipeline
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const shared = localStorage.getItem("warroom_content_pipeline");
-      if (shared) {
-        const cards = JSON.parse(shared);
-        all.push(...cards);
-      }
-    } catch {}
+      const [summaryRes, accountsRes] = await Promise.all([
+        authFetch(`${API}/api/content/tracker/summary`),
+        authFetch(`${API}/api/content/tracker`),
+      ]);
 
-    setAllContent(all);
+      if (summaryRes.ok) {
+        setSummary(await summaryRes.json());
+      }
+      if (accountsRes.ok) {
+        const data = await accountsRes.json();
+        setAccounts(data.items || []);
+      }
+    } catch (err) {
+      setError("Failed to load content data");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const posted = allContent.filter(c => c.stage === "posted");
-  const inProduction = allContent.filter(c => ["scripted", "filming", "editing", "scheduled"].includes(c.stage));
-  const ideas = allContent.filter(c => c.stage === "idea");
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Top performing (sort by views, fake data for now if none)
-  const topPerforming = posted.length > 0 ? posted : [
-    { id: "1", title: "My client went from $2K to $18K/month...", platform: "instagram", stage: "posted", views: 7200, likes: 340, comments: 28 },
-    { id: "2", title: "The Content System I Used to...", platform: "instagram", stage: "posted", views: 5100, likes: 220, comments: 15 },
-    { id: "3", title: "Bro this is a SCAM 😂", platform: "youtube", stage: "posted", views: 4800, likes: 190, comments: 42 },
-    { id: "4", title: "I shut down my $80K/yr agency...", platform: "youtube", stage: "posted", views: 3200, likes: 150, comments: 12 },
-    { id: "5", title: "The exact offer I changed...", platform: "instagram", stage: "posted", views: 2800, likes: 130, comments: 9 },
-  ] as TrackedContent[];
+  if (loading) return <LoadingState message="Loading content tracker..." />;
 
-  const maxViews = Math.max(...topPerforming.map(c => c.views || 0), 1);
+  if (!summary || accounts.length === 0) {
+    return (
+      <EmptyState
+        icon={<Share2 size={48} />}
+        title="No Connected Accounts"
+        description="Connect your social media accounts to track content performance across platforms."
+      />
+    );
+  }
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -77,109 +95,54 @@ export default function ContentTracker() {
       <div className="h-14 border-b border-warroom-border flex items-center px-6 gap-3 flex-shrink-0">
         <BarChart3 size={18} className="text-warroom-accent" />
         <h2 className="text-lg font-bold">Content Tracker</h2>
+        <button onClick={fetchData} className="ml-auto p-2 rounded-lg hover:bg-warroom-surface transition-colors">
+          <RefreshCw size={16} className="text-warroom-muted" />
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Stats Row */}
-        <div className="grid grid-cols-4 gap-4">
-          {[
-            { label: "TOTAL PIECES", value: allContent.length, color: "text-warroom-accent" },
-            { label: "PUBLISHED", value: posted.length, color: "text-green-400" },
-            { label: "IN PRODUCTION", value: inProduction.length, color: "text-purple-400" },
-            { label: "IDEAS", value: ideas.length, color: "text-orange-400" },
-          ].map((s, i) => (
-            <div key={i} className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-              <p className="text-[10px] text-warroom-muted tracking-wider mt-1">{s.label}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Top Performing Content — Bar Chart */}
-        <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
-          <h3 className="text-xs text-warroom-muted font-bold tracking-widest mb-4">TOP PERFORMING CONTENT</h3>
-          <div className="flex items-end gap-3 h-[200px]">
-            {topPerforming.slice(0, 6).map((content, i) => {
-              const height = ((content.views || 0) / maxViews) * 100;
-              return (
-                <div key={content.id} className="flex-1 flex flex-col items-center justify-end h-full group">
-                  <p className="text-[10px] text-warroom-muted mb-1 opacity-0 group-hover:opacity-100 transition">
-                    {formatNum(content.views || 0)} views
-                  </p>
-                  <div
-                    className="w-full rounded-t-lg bg-warroom-accent hover:bg-warroom-accent/80 transition cursor-pointer relative"
-                    style={{ height: `${Math.max(height, 5)}%` }}
-                    title={content.title}
-                  />
-                  <p className="text-[9px] text-warroom-muted mt-2 text-center line-clamp-2 h-8">
-                    {content.title.slice(0, 30)}...
-                  </p>
-                </div>
-              );
-            })}
+      <div className="flex-1 overflow-auto p-6 space-y-6">
+        {/* Summary KPI cards */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+            <p className="text-xs text-warroom-muted mb-1">Connected Platforms</p>
+            <p className="text-2xl font-bold">{summary.total_accounts}</p>
+          </div>
+          <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+            <p className="text-xs text-warroom-muted mb-1">Total Followers</p>
+            <p className="text-2xl font-bold">{formatNum(summary.total_followers)}</p>
+          </div>
+          <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+            <p className="text-xs text-warroom-muted mb-1">Total Posts</p>
+            <p className="text-2xl font-bold">{formatNum(summary.total_posts)}</p>
           </div>
         </div>
 
-        {/* Metrics Summary */}
-        <div className="grid grid-cols-4 gap-4">
-          {[
-            { label: "VIDEOS", value: posted.length || topPerforming.length, icon: Film, color: "text-blue-400" },
-            { label: "TOTAL VIEWS", value: topPerforming.reduce((s, c) => s + (c.views || 0), 0), icon: Eye, color: "text-purple-400" },
-            { label: "AVG VIEWS", value: Math.round(topPerforming.reduce((s, c) => s + (c.views || 0), 0) / (topPerforming.length || 1)), icon: TrendingUp, color: "text-green-400" },
-            { label: "TOTAL LIKES", value: topPerforming.reduce((s, c) => s + (c.likes || 0), 0), icon: Heart, color: "text-red-400" },
-          ].map((s, i) => (
-            <div key={i} className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
-              <p className={`text-2xl font-bold ${s.color}`}>{formatNum(s.value)}</p>
-              <p className="text-[10px] text-warroom-muted tracking-wider mt-1">{s.label}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Published Videos List */}
-        <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
-          <h3 className="text-xs text-warroom-muted font-bold tracking-widest mb-4">
-            PUBLISHED VIDEOS ({topPerforming.length})
-          </h3>
-          <div className="space-y-3">
-            {topPerforming.map(content => (
-              <div key={content.id}
-                className="flex items-center gap-4 py-3 border-b border-warroom-border/50 last:border-0 hover:bg-warroom-bg/30 transition px-2 rounded-lg">
-                {/* Thumbnail placeholder */}
-                <div className="w-24 h-14 rounded-lg bg-warroom-bg border border-warroom-border flex items-center justify-center flex-shrink-0">
-                  <Film size={16} className="text-warroom-muted/30" />
-                </div>
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{content.title}</p>
-                  <div className="flex items-center gap-4 mt-1">
-                    <span className="flex items-center gap-1 text-[11px] text-warroom-muted">
-                      <Eye size={11} /> {formatNum(content.views || 0)} views
-                    </span>
-                    <span className="flex items-center gap-1 text-[11px] text-warroom-muted">
-                      <Heart size={11} /> {formatNum(content.likes || 0)} likes
-                    </span>
-                    <span className="flex items-center gap-1 text-[11px] text-warroom-muted">
-                      <MessageSquare size={11} /> {content.comments || 0} comments
-                    </span>
-                    <span className="text-[11px] text-warroom-muted">
-                      {content.engagement ? `${content.engagement.toFixed(1)}% engagement` : "0.0% engagement"}
-                    </span>
+        {/* Platform breakdown */}
+        <div className="bg-warroom-surface border border-warroom-border rounded-xl p-6">
+          <h3 className="text-base font-bold mb-4">Platform Performance</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            {accounts.map(acc => {
+              const config = PLATFORM_CONFIG[acc.platform];
+              const Icon = config?.icon;
+              return (
+                <div key={acc.id} className="bg-warroom-bg border border-warroom-border rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: config?.color || "#666" }} />
+                    {Icon && <Icon size={16} />}
+                    <span className="text-sm font-semibold capitalize">{acc.platform}</span>
+                  </div>
+                  {acc.username && <p className="text-xs text-warroom-muted mb-2">@{acc.username}</p>}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-warroom-muted">Followers</span>
+                    <span className="font-medium">{formatNum(acc.follower_count)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mt-1">
+                    <span className="text-warroom-muted">Posts</span>
+                    <span className="font-medium">{formatNum(acc.post_count)}</span>
                   </div>
                 </div>
-                {/* Actions */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-warroom-accent/10 text-warroom-accent capitalize">
-                    {content.platform}
-                  </span>
-                  {content.url && (
-                    <a href={content.url} target="_blank" rel="noopener noreferrer"
-                      className="text-warroom-accent text-xs flex items-center gap-1 hover:underline">
-                      View <ExternalLink size={10} />
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
