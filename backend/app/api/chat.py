@@ -186,6 +186,19 @@ async def chat_ws(ws: WebSocket):
                         msg_type = data.get("type", "")
                         method = data.get("method", "")
                         logger.info("GW-RAW: type=%s event=%s method=%s keys=%s", msg_type, data.get('event', ''), method, list(data.keys())[:6])
+
+                        # Detect rate limit in response errors and forward as typed alert
+                        if msg_type == "res" and not data.get("ok"):
+                            err = data.get("error", {})
+                            err_code = err.get("code", "")
+                            err_msg = err.get("message", "")
+                            if "rate" in err_code.lower() or "429" in err_msg or "rate limit" in err_msg.lower():
+                                await ws.send_text(json.dumps({
+                                    "type": "error",
+                                    "code": "rate_limited",
+                                    "message": err_msg or "API rate limit reached. Please wait before retrying.",
+                                }))
+
                         # Filter: only forward events for the active session
                         # Gateway returns full key (e.g. "agent:main:warroom") while we send short key ("warroom")
                         if msg_type == "event":
@@ -193,6 +206,22 @@ async def chat_ws(ws: WebSocket):
                             event_session = payload.get("sessionKey", "") or payload.get("session", "")
                             if event_session and session_key not in event_session:
                                 continue
+
+                            # Detect rate limit in chat events
+                            chat_state = payload.get("state", "")
+                            if chat_state == "error":
+                                err_text = ""
+                                msg = payload.get("message", "")
+                                if isinstance(msg, str):
+                                    err_text = msg
+                                elif isinstance(msg, dict):
+                                    err_text = msg.get("content", "") or msg.get("text", "")
+                                if "rate limit" in err_text.lower() or "429" in err_text:
+                                    await ws.send_text(json.dumps({
+                                        "type": "error",
+                                        "code": "rate_limited",
+                                        "message": err_text or "API rate limit reached.",
+                                    }))
 
                         await ws.send_text(json.dumps(data))
                 except websockets.exceptions.ConnectionClosed as e:

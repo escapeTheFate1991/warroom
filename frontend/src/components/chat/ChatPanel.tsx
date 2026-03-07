@@ -254,8 +254,54 @@ function UrlBox({ url }: { url: string }) {
 }
 
 export default function ChatPanel() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
+  const [messages, setMessagesRaw] = useState<Message[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = sessionStorage.getItem("warroom-chat-messages");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          return parsed.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }));
+        }
+      } catch {}
+    }
+    return [];
+  });
+  const setMessages = useCallback((val: Message[] | ((prev: Message[]) => Message[])) => {
+    setMessagesRaw(prev => {
+      const next = typeof val === "function" ? val(prev) : val;
+      if (typeof window !== "undefined") {
+        try {
+          // Keep last 100 messages in cache to avoid storage limits
+          const toCache = next.slice(-100).map(m => ({
+            ...m,
+            timestamp: m.timestamp.toISOString(),
+            images: undefined, // Don't cache base64 images
+          }));
+          sessionStorage.setItem("warroom-chat-messages", JSON.stringify(toCache));
+        } catch {}
+      }
+      return next;
+    });
+  }, []);
+  const [input, setInputRaw] = useState(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("warroom-chat-input") || "";
+    }
+    return "";
+  });
+  const setInput = useCallback((val: string | ((prev: string) => string)) => {
+    setInputRaw(prev => {
+      const next = typeof val === "function" ? val(prev) : val;
+      if (typeof window !== "undefined") {
+        if (next) {
+          sessionStorage.setItem("warroom-chat-input", next);
+        } else {
+          sessionStorage.removeItem("warroom-chat-input");
+        }
+      }
+      return next;
+    });
+  }, []);
   const [pendingImages, setPendingImages] = useState<ImageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -268,8 +314,20 @@ export default function ChatPanel() {
   const [hasVoiceActivity, setHasVoiceActivity] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
 
+  // Generation state — single source of truth for stop/send button
+  const isGeneratingRef = useRef(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const updateGenerating = useCallback((val: boolean) => {
+    isGeneratingRef.current = val;
+    setIsGenerating(val);
+  }, []);
+
   // Magic prompt states
   const [isPolishing, setIsPolishing] = useState(false);
+
+  // Alert banners
+  const [rateLimitAlert, setRateLimitAlert] = useState<string | null>(null);
+  const [compactionAlert, setCompactionAlert] = useState(false);
 
   // Token usage
   const [tokenUsage, setTokenUsage] = useState<{ totalTokens: number; contextWindow: number; percentage: number; compactionCount: number } | null>(null);
@@ -318,6 +376,9 @@ export default function ChatPanel() {
           lastCompactionRef.current = data.compactionCount;
         } else if (data.compactionCount > lastCompactionRef.current) {
           lastCompactionRef.current = data.compactionCount;
+          // Show persistent banner
+          setCompactionAlert(true);
+          setTimeout(() => setCompactionAlert(false), 30000);
           setMessages(prev => [...prev, {
             id: crypto.randomUUID(),
             role: "system",
@@ -492,7 +553,20 @@ export default function ChatPanel() {
 
         if (data.type === "connected") { setWsConnected(true); return; }
         if (data.type === "status" || data.type === "pong") return;
-        if (data.type === "error") { setWsConnected(false); return; }
+        if (data.type === "error") {
+          const errMsg = data.message || data.error?.message || "";
+          const errCode = data.code || data.error?.code || "";
+          // Detect rate limit errors
+          if (errCode === "rate_limited" || errMsg.toLowerCase().includes("rate limit") || errMsg.includes("429") || errMsg.toLowerCase().includes("too many")) {
+            setRateLimitAlert(errMsg || "Rate limit reached. Please wait before sending another message.");
+            setTimeout(() => setRateLimitAlert(null), 15000);
+            updateGenerating(false);
+            // Don't mark WS as disconnected for rate limits — connection is fine
+            return;
+          }
+          setWsConnected(false);
+          return;
+        }
         if (data.type === "session_changed") {
           setMessages([]);
           setStreamText(null);
@@ -513,13 +587,23 @@ export default function ChatPanel() {
               }));
             setMessages(history);
           }
-          if (res.ok && res.payload?.runId) setIsLoading(true);
+          if (res.ok && res.payload?.runId) {
+            setIsLoading(true);
+            updateGenerating(true);
+          }
           if (!res.ok) {
             setIsLoading(false);
+            updateGenerating(false);
+            const errMsg = res.error?.message || "request failed";
+            // Detect rate limit in error responses
+            if (res.error?.code === "rate_limited" || errMsg.toLowerCase().includes("rate limit") || errMsg.includes("429")) {
+              setRateLimitAlert(errMsg);
+              setTimeout(() => setRateLimitAlert(null), 15000);
+            }
             setMessages(prev => [...prev, {
               id: crypto.randomUUID(),
               role: "system",
-              content: `Error: ${res.error?.message || "request failed"}`,
+              content: `Error: ${errMsg}`,
               timestamp: new Date(),
             }]);
           }
@@ -538,6 +622,7 @@ export default function ChatPanel() {
               setStreamText(text);
               streamTextRef.current = text;
               setIsLoading(false);
+              // Keep isGenerating true during streaming
             }
           } else if (state === "final") {
             const text = extractText(message);
@@ -552,6 +637,7 @@ export default function ChatPanel() {
             setStreamText(null);
             streamTextRef.current = null;
             setIsLoading(false);
+            updateGenerating(false);
 
             // If in conversation mode, speak the response
             if (text && conversationActiveRef.current) {
@@ -570,6 +656,18 @@ export default function ChatPanel() {
             setStreamText(null);
             streamTextRef.current = null;
             setIsLoading(false);
+            updateGenerating(false);
+          } else if (state === "error") {
+            // Catch rate limit and other errors from the stream
+            const errText = extractText(message) || p.error || "";
+            if (errText.toLowerCase().includes("rate limit") || errText.includes("429")) {
+              setRateLimitAlert(errText || "API rate limit reached. Please wait.");
+              setTimeout(() => setRateLimitAlert(null), 15000);
+            }
+            setStreamText(null);
+            streamTextRef.current = null;
+            setIsLoading(false);
+            updateGenerating(false);
           }
           return;
         }
@@ -655,6 +753,7 @@ export default function ChatPanel() {
     if (!overrideText) setInput("");
     setPendingImages([]);
     setIsLoading(true);
+    updateGenerating(true);
 
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -673,6 +772,7 @@ export default function ChatPanel() {
     setIsLoading(false);
     setStreamText(null);
     streamTextRef.current = null;
+    updateGenerating(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1000,6 +1100,32 @@ export default function ChatPanel() {
   return (
     <div className="flex h-full">
     <div className={`flex flex-col ${showArtifacts ? "w-1/2" : "w-full"} transition-all duration-300 h-full`}>
+      {/* Alert Banners */}
+      {rateLimitAlert && (
+        <div className="mx-4 mt-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-center gap-3 animate-in slide-in-from-top">
+          <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-red-400">API Rate Limit</p>
+            <p className="text-xs text-red-400/70 truncate">{rateLimitAlert}</p>
+          </div>
+          <button onClick={() => setRateLimitAlert(null)} className="text-red-400/50 hover:text-red-400 transition flex-shrink-0">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {compactionAlert && (
+        <div className="mx-4 mt-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-center gap-3 animate-in slide-in-from-top">
+          <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-amber-400">Context Compressed</p>
+            <p className="text-xs text-amber-400/70">Older messages were summarized to free up space. Recent context is preserved.</p>
+          </div>
+          <button onClick={() => setCompactionAlert(false)} className="text-amber-400/50 hover:text-amber-400 transition flex-shrink-0">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Messages area */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
@@ -1272,8 +1398,8 @@ export default function ChatPanel() {
               </div>
 
               <div className="flex items-center gap-1.5">
-                {(isLoading || streamText) ? (
-                  <button onClick={abortResponse} className="p-2 rounded-full bg-warroom-danger/20 text-warroom-danger hover:bg-warroom-danger/30 transition">
+                {isGenerating ? (
+                  <button onClick={abortResponse} className="p-2 rounded-full bg-warroom-danger/20 text-warroom-danger hover:bg-warroom-danger/30 transition" title="Stop generating">
                     <StopCircle size={18} />
                   </button>
                 ) : (
@@ -1281,6 +1407,7 @@ export default function ChatPanel() {
                     onClick={() => sendMessage()}
                     disabled={!input.trim() || !wsConnected}
                     className="p-2 rounded-full bg-warroom-accent text-white hover:bg-warroom-accent/80 disabled:opacity-20 disabled:hover:bg-warroom-accent transition"
+                    title="Send message"
                   >
                     <Send size={18} />
                   </button>
