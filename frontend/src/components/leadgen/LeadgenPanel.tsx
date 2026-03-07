@@ -121,16 +121,6 @@ const BUSINESS_CATEGORIES = [
   "Hotels & Motels",
 ];
 
-// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
-const MOCK_LEADS: Lead[] = [
-  { id: 1, business_name: "Joe's Plumbing & Heating", address: "123 Main St", city: "Austin", state: "TX", phone: "(512) 555-0142", website: "https://joesplumbing.com", google_rating: 4.7, google_reviews_count: 89, business_category: "Plumbers", emails: ["joe@joesplumbing.com"], has_website: true, website_audit_score: 62, website_audit_grade: "C", lead_score: 85, lead_tier: "hot", enrichment_status: "complete", search_job_id: 1, outreach_status: "none", contacted_by: null, contacted_at: null },
-  { id: 2, business_name: "Bright Spark Electric", address: "456 Oak Ave", city: "Austin", state: "TX", phone: "(512) 555-0198", website: "https://brightspark.com", google_rating: 4.2, google_reviews_count: 45, business_category: "Electricians", emails: ["info@brightspark.com"], has_website: true, website_audit_score: 48, website_audit_grade: "D", lead_score: 72, lead_tier: "warm", enrichment_status: "complete", search_job_id: 1, outreach_status: "contacted", contacted_by: "Edwin", contacted_at: "2026-03-05T10:30:00Z" },
-  { id: 3, business_name: "Cool Breeze HVAC", address: "789 Elm Blvd", city: "Round Rock", state: "TX", phone: "(512) 555-0234", website: null, google_rating: 3.9, google_reviews_count: 23, business_category: "HVAC Contractors", emails: [], has_website: false, website_audit_score: null, website_audit_grade: null, lead_score: 91, lead_tier: "hot", enrichment_status: "complete", search_job_id: 1, outreach_status: "none", contacted_by: null, contacted_at: null },
-  { id: 4, business_name: "Green Thumb Landscaping", address: "321 Cedar Ln", city: "Austin", state: "TX", phone: "(512) 555-0311", website: "https://greenthumbatx.com", google_rating: 4.8, google_reviews_count: 134, business_category: "Landscapers", emails: ["hello@greenthumbatx.com"], has_website: true, website_audit_score: 35, website_audit_grade: "F", lead_score: 88, lead_tier: "hot", enrichment_status: "complete", search_job_id: 1, outreach_status: "in_progress", contacted_by: "Edwin", contacted_at: "2026-03-04T14:00:00Z" },
-  { id: 5, business_name: "Sunrise Dental Care", address: "555 Pecan St", city: "Cedar Park", state: "TX", phone: "(512) 555-0455", website: "https://sunrisedental.com", google_rating: 4.5, google_reviews_count: 210, business_category: "Dentists", emails: ["front@sunrisedental.com"], has_website: true, website_audit_score: 78, website_audit_grade: "B", lead_score: 45, lead_tier: "cold", enrichment_status: "complete", search_job_id: 1, outreach_status: "none", contacted_by: null, contacted_at: null },
-  { id: 6, business_name: "Paws & Claws Grooming", address: "888 Birch Dr", city: "Austin", state: "TX", phone: "(512) 555-0567", website: "https://pawsandclawsatx.com", google_rating: 4.9, google_reviews_count: 67, business_category: "Dog Grooming", emails: ["book@pawsandclawsatx.com"], has_website: true, website_audit_score: 41, website_audit_grade: "D", lead_score: 79, lead_tier: "warm", enrichment_status: "complete", search_job_id: 1, outreach_status: "none", contacted_by: null, contacted_at: null },
-];
-
 const TIER_COLORS: Record<string, string> = {
   hot: "bg-red-500/20 text-red-400",
   warm: "bg-orange-500/20 text-orange-400",
@@ -318,11 +308,9 @@ export default function LeadgenPanel() {
       }
       setErrorMessage(null);
     } catch (err) {
-      // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
       const msg = err instanceof Error ? err.message : "Failed to load leads";
-      console.error("Failed to load leads, using mock data:", msg);
-      setLeads(MOCK_LEADS);
-      setHasMore(false);
+      console.error("Failed to load leads:", msg);
+      setErrorMessage(msg);
     } finally {
       setInitialLoading(false);
     }

@@ -13,32 +13,6 @@ import StageGateModal from "./StageGateModal";
 import DealDetailDrawer from "./DealDetailDrawer";
 import { Pipeline, PipelineStage, Deal } from "./types";
 
-// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
-const MOCK_PIPELINES: Pipeline[] = [{ id: 1, name: "Sales Pipeline", is_default: true, rotten_days: 30 }];
-
-// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
-const MOCK_STAGES: PipelineStage[] = [
-  { id: 1, code: "discovery", name: "Lead Discovery", probability: 10, sort_order: 0, pipeline_id: 1 },
-  { id: 2, code: "contact", name: "Initial Contact", probability: 20, sort_order: 1, pipeline_id: 1 },
-  { id: 3, code: "qualified", name: "Qualified", probability: 40, sort_order: 2, pipeline_id: 1 },
-  { id: 4, code: "meeting", name: "Meeting / Demo", probability: 60, sort_order: 3, pipeline_id: 1 },
-  { id: 5, code: "proposal", name: "Proposal Sent", probability: 80, sort_order: 4, pipeline_id: 1 },
-  { id: 6, code: "negotiation", name: "Negotiation", probability: 90, sort_order: 5, pipeline_id: 1 },
-  { id: 7, code: "closed", name: "Closed Won", probability: 100, sort_order: 6, pipeline_id: 1 },
-];
-
-// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
-const MOCK_DEALS: Deal[] = [
-  { id: 1, title: "Acme Corp Website Redesign", description: null, deal_value: 15000, status: null, expected_close_date: "2026-04-15", person_name: "John Smith", organization_name: "Acme Corp", stage_id: 1, pipeline_id: 1, created_at: "2026-02-20", updated_at: "2026-03-01", days_in_stage: 14, is_rotten: false },
-  { id: 2, title: "TechStart SaaS Integration", description: null, deal_value: 8500, status: null, expected_close_date: "2026-03-30", person_name: "Sarah Chen", organization_name: "TechStart Inc", stage_id: 2, pipeline_id: 1, created_at: "2026-02-15", updated_at: "2026-03-03", days_in_stage: 7, is_rotten: false },
-  { id: 3, title: "BlueSky Marketing Retainer", description: null, deal_value: 4500, status: null, expected_close_date: "2026-03-20", person_name: "Mike Johnson", organization_name: "BlueSky Media", stage_id: 3, pipeline_id: 1, created_at: "2026-01-10", updated_at: "2026-02-28", days_in_stage: 21, is_rotten: false },
-  { id: 4, title: "GreenLeaf E-commerce Build", description: null, deal_value: 22000, status: null, expected_close_date: "2026-05-01", person_name: "Lisa Park", organization_name: "GreenLeaf Organics", stage_id: 3, pipeline_id: 1, created_at: "2026-02-01", updated_at: "2026-03-05", days_in_stage: 5, is_rotten: false },
-  { id: 5, title: "Nova Finance Dashboard", description: null, deal_value: 35000, status: null, expected_close_date: "2026-04-10", person_name: "David Wilson", organization_name: "Nova Financial", stage_id: 4, pipeline_id: 1, created_at: "2026-01-15", updated_at: "2026-03-02", days_in_stage: 10, is_rotten: false },
-  { id: 6, title: "Meridian Brand Strategy", description: null, deal_value: 12000, status: null, expected_close_date: "2026-03-25", person_name: "Emma Davis", organization_name: "Meridian Group", stage_id: 5, pipeline_id: 1, created_at: "2026-01-05", updated_at: "2026-03-04", days_in_stage: 3, is_rotten: false },
-  { id: 7, title: "Apex Consulting Portal", description: null, deal_value: 18500, status: null, expected_close_date: "2026-03-15", person_name: "Tom Brown", organization_name: "Apex Consulting", stage_id: 6, pipeline_id: 1, created_at: "2025-12-20", updated_at: "2026-03-06", days_in_stage: 15, is_rotten: true },
-  { id: 8, title: "Stellar App Redesign", description: null, deal_value: 9800, status: null, expected_close_date: "2026-04-20", person_name: "Amy Taylor", organization_name: "Stellar Apps", stage_id: 1, pipeline_id: 1, created_at: "2026-03-01", updated_at: "2026-03-06", days_in_stage: 5, is_rotten: false },
-];
-
 const STAGE_COLORS: Record<number, string> = {
   0: "bg-gray-500/20 text-gray-400 border-gray-500/30",
   10: "bg-gray-500/20 text-gray-400 border-gray-500/30",
@@ -119,16 +93,10 @@ export default function UnifiedPipeline() {
         const def = data.find((p: Pipeline) => p.is_default) || data[0];
         if (def) setSelectedPipeline(def);
       } else {
-        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
         console.error("Failed to load pipelines:", res.status);
-        setPipelines(MOCK_PIPELINES);
-        setSelectedPipeline(MOCK_PIPELINES[0]);
       }
     } catch (e) {
-      // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
       console.error("Failed to load pipelines:", e);
-      setPipelines(MOCK_PIPELINES);
-      setSelectedPipeline(MOCK_PIPELINES[0]);
     }
   };
 
@@ -148,20 +116,10 @@ export default function UnifiedPipeline() {
         stagesData.forEach((s) => { grouped[s.id] = dealsData.filter((d) => d.stage_id === s.id); });
         setDealsByStage(grouped);
       } else {
-        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
         console.error("Failed to load stages/deals:", stagesRes.status, dealsRes.status);
-        setStages(MOCK_STAGES);
-        const grouped: Record<number, Deal[]> = {};
-        MOCK_STAGES.forEach((s) => { grouped[s.id] = MOCK_DEALS.filter((d) => d.stage_id === s.id); });
-        setDealsByStage(grouped);
       }
     } catch (e) {
-      // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
       console.error(e);
-      setStages(MOCK_STAGES);
-      const grouped: Record<number, Deal[]> = {};
-      MOCK_STAGES.forEach((s) => { grouped[s.id] = MOCK_DEALS.filter((d) => d.stage_id === s.id); });
-      setDealsByStage(grouped);
     } finally { setLoading(false); }
   };
 

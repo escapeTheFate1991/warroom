@@ -10,29 +10,6 @@ import LoadingState from "@/components/ui/LoadingState";
 import EmptyState from "@/components/ui/EmptyState";
 
 
-// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
-const MOCK_DK_PIPELINES: Pipeline[] = [{ id: 1, name: "Sales Pipeline", is_default: true, rotten_days: 30 }];
-
-// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
-const MOCK_DK_STAGES: PipelineStage[] = [
-  { id: 1, code: "discovery", name: "Lead Discovery", probability: 10, sort_order: 0, pipeline_id: 1 },
-  { id: 2, code: "contact", name: "Initial Contact", probability: 20, sort_order: 1, pipeline_id: 1 },
-  { id: 3, code: "qualified", name: "Qualified", probability: 40, sort_order: 2, pipeline_id: 1 },
-  { id: 4, code: "meeting", name: "Meeting / Demo", probability: 60, sort_order: 3, pipeline_id: 1 },
-  { id: 5, code: "proposal", name: "Proposal Sent", probability: 80, sort_order: 4, pipeline_id: 1 },
-  { id: 6, code: "closed", name: "Closed Won", probability: 100, sort_order: 5, pipeline_id: 1 },
-];
-
-// TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
-const MOCK_DK_DEALS: Deal[] = [
-  { id: 1, title: "Acme Corp Website Redesign", description: null, deal_value: 15000, status: null, expected_close_date: "2026-04-15", person_name: "John Smith", organization_name: "Acme Corp", stage_id: 1, pipeline_id: 1, created_at: "2026-02-20", updated_at: "2026-03-01", days_in_stage: 14, is_rotten: false },
-  { id: 2, title: "TechStart SaaS Integration", description: null, deal_value: 8500, status: null, expected_close_date: "2026-03-30", person_name: "Sarah Chen", organization_name: "TechStart Inc", stage_id: 2, pipeline_id: 1, created_at: "2026-02-15", updated_at: "2026-03-03", days_in_stage: 7, is_rotten: false },
-  { id: 3, title: "BlueSky Marketing Retainer", description: null, deal_value: 4500, status: null, expected_close_date: "2026-03-20", person_name: "Mike Johnson", organization_name: "BlueSky Media", stage_id: 3, pipeline_id: 1, created_at: "2026-01-10", updated_at: "2026-02-28", days_in_stage: 21, is_rotten: false },
-  { id: 4, title: "Nova Finance Dashboard", description: null, deal_value: 35000, status: null, expected_close_date: "2026-04-10", person_name: "David Wilson", organization_name: "Nova Financial", stage_id: 4, pipeline_id: 1, created_at: "2026-01-15", updated_at: "2026-03-02", days_in_stage: 10, is_rotten: false },
-  { id: 5, title: "Meridian Brand Strategy", description: null, deal_value: 12000, status: null, expected_close_date: "2026-03-25", person_name: "Emma Davis", organization_name: "Meridian Group", stage_id: 5, pipeline_id: 1, created_at: "2026-01-05", updated_at: "2026-03-04", days_in_stage: 3, is_rotten: false },
-  { id: 6, title: "Apex Consulting Portal", description: null, deal_value: 18500, status: null, expected_close_date: "2026-03-15", person_name: "Tom Brown", organization_name: "Apex Consulting", stage_id: 5, pipeline_id: 1, created_at: "2025-12-20", updated_at: "2026-03-06", days_in_stage: 15, is_rotten: true },
-];
-
 const STAGE_COLORS: Record<number, string> = {
   0: "bg-gray-500/20 text-gray-400 border-gray-500/30", // 0% probability (lost)
   10: "bg-gray-500/20 text-gray-400 border-gray-500/30", // new
@@ -83,16 +60,10 @@ export default function DealsKanban() {
           setSelectedPipeline(defaultPipeline);
         }
       } else {
-        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
         console.error("Failed to load pipelines:", response.status);
-        setPipelines(MOCK_DK_PIPELINES);
-        setSelectedPipeline(MOCK_DK_PIPELINES[0]);
       }
     } catch (error) {
-      // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
       console.error("Failed to load pipelines:", error);
-      setPipelines(MOCK_DK_PIPELINES);
-      setSelectedPipeline(MOCK_DK_PIPELINES[0]);
     }
   };
 
@@ -119,34 +90,13 @@ export default function DealsKanban() {
           });
           setDealsByStage(grouped);
         } else {
-          // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
           console.error("Failed to load deals:", dealsResponse.status);
-          setStages(MOCK_DK_STAGES);
-          const grouped: Record<number, Deal[]> = {};
-          MOCK_DK_STAGES.forEach((stage) => {
-            grouped[stage.id] = MOCK_DK_DEALS.filter((deal) => deal.stage_id === stage.id);
-          });
-          setDealsByStage(grouped);
         }
       } else {
-        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
         console.error("Failed to load stages:", stagesResponse.status);
-        setStages(MOCK_DK_STAGES);
-        const grouped: Record<number, Deal[]> = {};
-        MOCK_DK_STAGES.forEach((stage) => {
-          grouped[stage.id] = MOCK_DK_DEALS.filter((deal) => deal.stage_id === stage.id);
-        });
-        setDealsByStage(grouped);
       }
     } catch (error) {
-      // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
       console.error("Failed to load stages and deals:", error);
-      setStages(MOCK_DK_STAGES);
-      const grouped: Record<number, Deal[]> = {};
-      MOCK_DK_STAGES.forEach((stage) => {
-        grouped[stage.id] = MOCK_DK_DEALS.filter((deal) => deal.stage_id === stage.id);
-      });
-      setDealsByStage(grouped);
     } finally {
       setLoading(false);
     }

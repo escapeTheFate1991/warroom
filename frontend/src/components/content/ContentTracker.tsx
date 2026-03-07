@@ -65,41 +65,6 @@ interface TrendsData {
   impressions: string;
 }
 
-// Mock data for UI preview / API fallback
-const MOCK_ACCOUNTS: TrackedAccount[] = [
-  { id: "ig_1", platform: "instagram", username: "my_brand", follower_count: 12400, post_count: 234, status: "connected" },
-  { id: "yt_1", platform: "youtube", username: "MyBrand", follower_count: 8900, post_count: 87, status: "connected" },
-  { id: "fb_1", platform: "facebook", username: "MyBrand", follower_count: 3200, post_count: 156, status: "connected" },
-  { id: "x_1", platform: "x", username: "my_brand", follower_count: 5600, post_count: 412, status: "connected" },
-];
-
-const MOCK_SUMMARY: ContentSummary = {
-  total_accounts: 4,
-  total_followers: 30100,
-  total_posts: 889,
-  platforms: [
-    { platform: "instagram", accounts: 1, followers: 12400, posts: 234 },
-    { platform: "youtube", accounts: 1, followers: 8900, posts: 87 },
-    { platform: "facebook", accounts: 1, followers: 3200, posts: 156 },
-    { platform: "x", accounts: 1, followers: 5600, posts: 412 },
-  ],
-};
-
-const MOCK_TRENDS: TrendsData = {
-  followers: "+2.5%",
-  engagement: "-1.2%",
-  impressions: "+5.0%",
-};
-
-const MOCK_TOP_CONTENT: TrackedContent[] = [
-  { id: "tc1", title: "Product Launch Reel", platforms: ["instagram"], stage: "posted", views: 45200, likes: 3200, comments: 187, engagement: 7.5 },
-  { id: "tc2", title: "Behind the Scenes", platforms: ["youtube"], stage: "posted", views: 32100, likes: 2100, comments: 342, engagement: 7.6 },
-  { id: "tc3", title: "Tutorial Series Ep.1", platforms: ["youtube"], stage: "posted", views: 28700, likes: 1800, comments: 256, engagement: 7.2 },
-  { id: "tc4", title: "Brand Story Thread", platforms: ["x"], stage: "posted", views: 19500, likes: 890, comments: 124, engagement: 5.2 },
-  { id: "tc5", title: "Customer Spotlight", platforms: ["instagram"], stage: "posted", views: 15300, likes: 1200, comments: 89, engagement: 8.4 },
-  { id: "tc6", title: "Tips & Tricks Carousel", platforms: ["facebook"], stage: "posted", views: 12800, likes: 670, comments: 45, engagement: 5.6 },
-];
-
 function parseTrendValue(val: string): number {
   return parseFloat(val.replace("%", "").replace("+", ""));
 }
@@ -154,26 +119,22 @@ export default function ContentTracker() {
       ]);
 
       if (summaryRes?.ok) setSummary(await summaryRes.json());
-      else setSummary(MOCK_SUMMARY);
 
       if (accountsRes?.ok) {
         const data = await accountsRes.json();
         setAccounts(data.items || []);
-      } else setAccounts(MOCK_ACCOUNTS);
+      }
 
       if (trendsRes?.ok) setTrends(await trendsRes.json());
-      else setTrends(MOCK_TRENDS);
-    } catch {
-      setSummary(MOCK_SUMMARY);
-      setAccounts(MOCK_ACCOUNTS);
-      setTrends(MOCK_TRENDS);
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoading(false);
     }
 
     // Load content from localStorage
     const lsContent = loadContentFromLocalStorage();
-    setAllContent(lsContent.length > 0 ? lsContent : MOCK_TOP_CONTENT);
+    setAllContent(lsContent);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
