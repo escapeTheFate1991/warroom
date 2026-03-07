@@ -34,6 +34,7 @@ const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboar
 const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
 const EmailTemplatesPanel = dynamic(() => import("@/components/marketing/EmailTemplatesPanel"), { loading: PanelLoader });
 const AgentServiceMap = dynamic(() => import("@/components/agents/AgentServiceMap"), { loading: PanelLoader });
+const AgentManager = dynamic(() => import("@/components/agents/AgentManager"), { loading: PanelLoader });
 const ContentPipeline = dynamic(() => import("@/components/content/ContentPipeline"), { loading: PanelLoader });
 const CompetitorIntel = dynamic(() => import("@/components/intelligence/CompetitorIntel"), { loading: PanelLoader });
 const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter"), { loading: PanelLoader });
@@ -209,7 +210,15 @@ function WarRoom() {
         <main className="flex-1 overflow-hidden relative">
           {activeTab === "dashboard" && <CommandCenter />}
           {activeTab === "chat" && <ChatPanel />}
-          {activeTab === "agents" && <AgentServiceMap />}
+          {activeTab === "agents" && (
+            <div className="h-full overflow-y-auto p-6 space-y-8">
+              <AgentManager />
+              <div className="border-t border-warroom-border pt-6">
+                <h3 className="text-sm font-semibold text-warroom-muted mb-4 px-1">Live Activity</h3>
+                <AgentServiceMap />
+              </div>
+            </div>
+          )}
 
           {activeTab === "social" && <SocialDashboard />}
           {activeTab === "content-instagram" && <PlatformContent platform="instagram" />}
