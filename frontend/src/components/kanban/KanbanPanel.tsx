@@ -31,10 +31,10 @@ interface TaskDeps {
 }
 
 const COLUMNS = [
-  { id: "backlog", label: "Backlog", icon: Archive, color: "text-warroom-muted" },
-  { id: "todo", label: "To Do", icon: Circle, color: "text-warroom-warning" },
-  { id: "in-progress", label: "In Progress", icon: Clock, color: "text-warroom-accent" },
-  { id: "done", label: "Done", icon: CheckCircle2, color: "text-warroom-success" },
+  { id: "backlog", label: "Backlog", icon: Archive, color: "text-warroom-muted", borderColor: "border-t-gray-500" },
+  { id: "todo", label: "To Do", icon: Circle, color: "text-warroom-warning", borderColor: "border-t-yellow-500" },
+  { id: "in-progress", label: "In Progress", icon: Clock, color: "text-warroom-accent", borderColor: "border-t-blue-500" },
+  { id: "done", label: "Done", icon: CheckCircle2, color: "text-warroom-success", borderColor: "border-t-green-500" },
 ];
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -42,6 +42,13 @@ const PRIORITY_COLORS: Record<string, string> = {
   high: "bg-orange-500/20 text-orange-400",
   medium: "bg-yellow-500/20 text-yellow-400",
   low: "bg-blue-500/20 text-blue-400",
+};
+
+const PRIORITY_BORDER_COLORS: Record<string, string> = {
+  critical: "border-l-red-500",
+  high: "border-l-orange-500",
+  medium: "border-l-yellow-500",
+  low: "border-l-blue-500",
 };
 
 const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"];
@@ -350,18 +357,22 @@ export default function KanbanPanel() {
             return (
               <div
                 key={col.id}
-                className="w-72 flex flex-col"
+                className={`w-72 flex flex-col bg-warroom-bg/30 border border-warroom-border rounded-lg border-t-2 ${col.borderColor} min-h-[200px]`}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleDrop(col.id)}
               >
-                <div className="flex items-center gap-2 mb-3 px-1">
-                  <Icon size={16} className={col.color} />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-warroom-muted">
-                    {col.label}
-                  </span>
-                  <span className="text-xs text-warroom-muted/50 ml-auto">{columnTasks.length}</span>
+                <div className="p-3 border-b border-warroom-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon size={14} className={col.color} />
+                      <span className="text-sm font-bold text-warroom-text">
+                        {col.label}
+                      </span>
+                    </div>
+                    <span className="text-xs bg-warroom-bg px-2 py-0.5 rounded-full text-warroom-muted">{columnTasks.length}</span>
+                  </div>
                 </div>
-                <div className="flex-1 space-y-2 overflow-y-auto">
+                <div className="flex-1 space-y-2 overflow-y-auto p-2">
                   {columnTasks.map((task) => {
                     const unmet = hasUnmetDeps(task.id);
                     const ready = allDepsMet(task.id);
@@ -372,7 +383,7 @@ export default function KanbanPanel() {
                         onDragStart={() => setDraggedTask(task.id)}
                         onMouseDown={(e) => handleMouseDown(e, task)}
                         onMouseUp={(e) => handleMouseUp(e, task)}
-                        className="bg-warroom-surface border border-warroom-border rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-warroom-accent/30 transition group"
+                        className={`bg-warroom-surface border border-warroom-border rounded-xl p-4 cursor-grab active:cursor-grabbing hover:border-warroom-accent/40 hover:shadow-lg hover:shadow-black/10 transition-all group border-l-2 ${PRIORITY_BORDER_COLORS[task.priority] || "border-l-transparent"}`}
                       >
                         <div className="flex items-start gap-2">
                           <GripVertical size={14} className="text-warroom-muted/30 mt-0.5 opacity-0 group-hover:opacity-100 transition" />
@@ -388,7 +399,7 @@ export default function KanbanPanel() {
                                   <CheckCheck size={12} className="text-green-400" />
                                 </span>
                               )}
-                              <p className="text-sm font-medium truncate">{task.title}</p>
+                              <p className="text-sm font-semibold truncate">{task.title}</p>
                             </div>
                             {task.description && (
                               <p className="text-xs text-warroom-muted mt-1 line-clamp-2">{task.description}</p>

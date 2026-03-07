@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Briefcase, DollarSign, Calendar, User, AlertTriangle, Clock,
   ChevronRight, GripVertical, X, Loader2, ArrowRight, RefreshCw, Building2,
+  MoreHorizontal, Eye, Trash2,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import LoadingState from "@/components/ui/LoadingState";
@@ -88,11 +89,26 @@ export default function UnifiedPipeline() {
   // Deal detail drawer
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
 
+  // Inline editing state
+  const [editingDealId, setEditingDealId] = useState<number | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+
+  // Quick menu state
+  const [quickMenuDealId, setQuickMenuDealId] = useState<number | null>(null);
+
   // Toast
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => { loadPipelines(); }, []);
   useEffect(() => { if (selectedPipeline) loadStagesAndDeals(); }, [selectedPipeline]);
+
+  // Close quick menu on click outside
+  useEffect(() => {
+    if (!quickMenuDealId) return;
+    const handler = () => setQuickMenuDealId(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [quickMenuDealId]);
 
   const loadPipelines = async () => {
     try {
@@ -152,6 +168,38 @@ export default function UnifiedPipeline() {
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
   const findStage = (stageId: number) => stages.find((s) => s.id === stageId);
+
+  // Inline title editing
+  const startEditingTitle = (deal: Deal) => {
+    setEditingDealId(deal.id);
+    setEditingTitle(deal.title);
+    setQuickMenuDealId(null);
+  };
+
+  const saveEditingTitle = async () => {
+    if (!editingDealId || !editingTitle.trim()) { setEditingDealId(null); return; }
+    try {
+      await authFetch(`${API}/api/crm/deals/${editingDealId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: editingTitle.trim() }),
+      });
+      await loadStagesAndDeals();
+    } catch { console.error("Failed to update deal title"); }
+    setEditingDealId(null);
+  };
+
+  const cancelEditingTitle = () => { setEditingDealId(null); setEditingTitle(""); };
+
+  // Delete deal
+  const deleteDeal = async (dealId: number) => {
+    if (!window.confirm("Are you sure you want to delete this deal?")) return;
+    try {
+      await authFetch(`${API}/api/crm/deals/${dealId}`, { method: "DELETE" });
+      setQuickMenuDealId(null);
+      await loadStagesAndDeals();
+    } catch { console.error("Failed to delete deal"); }
+  };
 
   // Drag handlers
   const handleDragStart = (e: React.DragEvent, deal: Deal) => {
@@ -308,11 +356,45 @@ export default function UnifiedPipeline() {
                 <div className="flex-1 p-2 overflow-y-auto space-y-2">
                   {stageDeals.map((deal) => (
                     <div key={deal.id} draggable onDragStart={(e) => handleDragStart(e, deal)}
-                      onClick={() => setSelectedDeal(deal)}
-                      className={`bg-warroom-bg border border-warroom-border rounded-lg p-3 cursor-grab hover:bg-warroom-border/20 transition-colors ${deal.is_rotten ? "border-l-4 border-l-red-500" : ""}`}>
+                      onClick={() => { if (editingDealId !== deal.id) setSelectedDeal(deal); }}
+                      className={`bg-warroom-bg border border-warroom-border rounded-lg p-3 cursor-grab hover:bg-warroom-border/20 transition-colors group relative ${deal.is_rotten ? "border-l-4 border-l-red-500" : ""}`}>
+                      {/* Quick menu button */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setQuickMenuDealId(quickMenuDealId === deal.id ? null : deal.id); }}
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-warroom-muted hover:text-warroom-text transition p-0.5 rounded hover:bg-warroom-border/50"
+                      >
+                        <MoreHorizontal size={14} />
+                      </button>
+                      {/* Quick menu dropdown */}
+                      {quickMenuDealId === deal.id && (
+                        <div className="absolute top-8 right-2 z-20 bg-warroom-surface border border-warroom-border rounded-lg shadow-xl py-1 min-w-[140px]"
+                          onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => { setQuickMenuDealId(null); setSelectedDeal(deal); }}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-warroom-text hover:bg-warroom-border/30 transition">
+                            <Eye size={12} /> View Details
+                          </button>
+                          <button onClick={() => deleteDeal(deal.id)}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 transition">
+                            <Trash2 size={12} /> Delete
+                          </button>
+                        </div>
+                      )}
                       <div className="flex items-start justify-between mb-1.5">
-                        <h4 className="font-medium text-xs text-warroom-text line-clamp-2">{deal.title}</h4>
-                        {deal.deal_value != null && <span className="text-[10px] font-medium text-green-400 ml-1 flex-shrink-0">{fmt(deal.deal_value)}</span>}
+                        {editingDealId === deal.id ? (
+                          <input
+                            value={editingTitle}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") saveEditingTitle(); if (e.key === "Escape") cancelEditingTitle(); }}
+                            onBlur={saveEditingTitle}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-medium text-xs text-warroom-text bg-warroom-bg border border-warroom-accent rounded px-1 py-0.5 w-full outline-none"
+                            autoFocus
+                          />
+                        ) : (
+                          <h4 className="font-medium text-xs text-warroom-text line-clamp-2 cursor-text"
+                            onDoubleClick={(e) => { e.stopPropagation(); startEditingTitle(deal); }}>{deal.title}</h4>
+                        )}
+                        {deal.deal_value != null && editingDealId !== deal.id && <span className="text-[10px] font-medium text-green-400 ml-1 flex-shrink-0">{fmt(deal.deal_value)}</span>}
                       </div>
                       {(deal.person_name || deal.organization_name) && (
                         <div className="flex items-center gap-2 text-[10px] text-warroom-muted mb-1.5">
