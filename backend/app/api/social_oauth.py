@@ -700,7 +700,7 @@ async def tiktok_callback(code: str, state: str = "", db: AsyncSession = Depends
 
         if token_resp.status_code != 200:
             logger.error("TikTok token exchange failed: %s", token_resp.text)
-            return _oauth_complete_page(False, requested_platform, "Token exchange failed")
+            return _oauth_complete_page(False, "tiktok", "Token exchange failed")
 
         token_data = token_resp.json()
         access_token = token_data.get("access_token")

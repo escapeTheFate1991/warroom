@@ -48,5 +48,5 @@ async def init_crm_schema():
         return True
         
     except Exception as e:
-        logger.error(f"Failed to initialize CRM schema: {e}")
+        logger.error("Failed to initialize CRM schema: %s", e)
         return False
