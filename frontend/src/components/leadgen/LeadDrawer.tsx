@@ -21,7 +21,8 @@ import {
   Copy,
   Save,
   Loader2,
-  UserPlus
+  UserPlus,
+  Rocket
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
@@ -270,6 +271,50 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
     }
   }, [lead]);
 
+  const [pipelineToast, setPipelineToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [startingPipeline, setStartingPipeline] = useState(false);
+
+  useEffect(() => {
+    if (pipelineToast) {
+      const t = setTimeout(() => setPipelineToast(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [pipelineToast]);
+
+  const startPipeline = async () => {
+    if (!lead) return;
+    setStartingPipeline(true);
+    try {
+      const res = await authFetch(`${API}/api/crm/deals/convert-from-lead`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadgen_lead_id: lead.id,
+          title: lead.business_name,
+          business_name: lead.business_name,
+          business_category: lead.business_category,
+          phone: lead.phone,
+          website: lead.website,
+          emails: lead.emails,
+          address: lead.address,
+          city: lead.city,
+          state: lead.state,
+        }),
+      });
+      if (res.ok) {
+        setPipelineToast({ type: "success", message: `✓ Deal created — ${lead.business_name} added to Lead Discovery` });
+        const updatedLead = { ...lead, outreach_status: "in_progress" };
+        onUpdate?.(updatedLead);
+      } else {
+        setPipelineToast({ type: "error", message: "Failed to create deal" });
+      }
+    } catch {
+      setPipelineToast({ type: "error", message: "Failed to create deal" });
+    } finally {
+      setStartingPipeline(false);
+    }
+  };
+
   if (!isOpen || !lead) return null;
 
   const handleContactSubmit = async () => {
@@ -418,12 +463,22 @@ ${lead.phone || ""}`;
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={onClose}
-                    className="text-warroom-muted hover:text-warroom-text transition p-2"
-                  >
-                    <X size={20} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={startPipeline}
+                      disabled={startingPipeline}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition"
+                    >
+                      {startingPipeline ? <Loader2 size={14} className="animate-spin" /> : <Rocket size={14} />}
+                      Start Pipeline
+                    </button>
+                    <button
+                      onClick={onClose}
+                      className="text-warroom-muted hover:text-warroom-text transition p-2"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Contact Info */}
@@ -856,6 +911,20 @@ ${lead.phone || ""}`;
           </div>
         </div>
       </div>
+
+      {/* Pipeline Toast */}
+      {pipelineToast && (
+        <div className={`fixed bottom-6 right-6 z-[70] px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2 ${
+          pipelineToast.type === "success"
+            ? "bg-green-600/90 text-white"
+            : "bg-red-600/90 text-white"
+        }`}>
+          {pipelineToast.message}
+          <button onClick={() => setPipelineToast(null)} className="ml-2 opacity-70 hover:opacity-100">
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
