@@ -78,6 +78,10 @@ export default function ContactsManager() {
       if (response.ok) {
         const data = await response.json();
         setCrmContacts(data);
+      } else {
+        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+        console.error("Failed to load CRM contacts:", response.status);
+        setCrmContacts(MOCK_CRM_CONTACTS);
       }
     } catch (error) {
       // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
@@ -96,6 +100,10 @@ export default function ContactsManager() {
       if (response.ok) {
         const data = await response.json();
         setContactHistory(data);
+      } else {
+        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+        console.error("Failed to load contact history:", response.status);
+        setContactHistory(MOCK_CONTACT_HISTORY);
       }
     } catch (error) {
       // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT

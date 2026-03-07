@@ -89,6 +89,12 @@ export default function ContentTracker() {
         const data = await accountsRes.json();
         setAccounts(data.items || []);
       }
+      if (!summaryRes.ok || !accountsRes.ok) {
+        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+        console.error("Failed to load content data:", summaryRes.status, accountsRes.status);
+        if (!summaryRes.ok) setSummary(MOCK_SUMMARY);
+        if (!accountsRes.ok) setAccounts(MOCK_ACCOUNTS);
+      }
     } catch (err) {
       // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
       console.error("Failed to load content data:", err);

@@ -82,6 +82,11 @@ export default function DealsKanban() {
         if (defaultPipeline) {
           setSelectedPipeline(defaultPipeline);
         }
+      } else {
+        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+        console.error("Failed to load pipelines:", response.status);
+        setPipelines(MOCK_DK_PIPELINES);
+        setSelectedPipeline(MOCK_DK_PIPELINES[0]);
       }
     } catch (error) {
       // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
@@ -101,19 +106,37 @@ export default function DealsKanban() {
       if (stagesResponse.ok) {
         const stagesData = await stagesResponse.json();
         setStages(stagesData);
-        
+
         // Load deals for this pipeline
         const dealsResponse = await authFetch(`${API}/api/crm/deals?pipeline_id=${selectedPipeline.id}`);
         if (dealsResponse.ok) {
           const dealsData = await dealsResponse.json();
-          
+
           // Group deals by stage
           const grouped: Record<number, Deal[]> = {};
           stagesData.forEach((stage: PipelineStage) => {
             grouped[stage.id] = dealsData.filter((deal: Deal) => deal.stage_id === stage.id);
           });
           setDealsByStage(grouped);
+        } else {
+          // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+          console.error("Failed to load deals:", dealsResponse.status);
+          setStages(MOCK_DK_STAGES);
+          const grouped: Record<number, Deal[]> = {};
+          MOCK_DK_STAGES.forEach((stage) => {
+            grouped[stage.id] = MOCK_DK_DEALS.filter((deal) => deal.stage_id === stage.id);
+          });
+          setDealsByStage(grouped);
         }
+      } else {
+        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+        console.error("Failed to load stages:", stagesResponse.status);
+        setStages(MOCK_DK_STAGES);
+        const grouped: Record<number, Deal[]> = {};
+        MOCK_DK_STAGES.forEach((stage) => {
+          grouped[stage.id] = MOCK_DK_DEALS.filter((deal) => deal.stage_id === stage.id);
+        });
+        setDealsByStage(grouped);
       }
     } catch (error) {
       // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT

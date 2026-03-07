@@ -92,6 +92,11 @@ export default function UnifiedPipeline() {
         setPipelines(data);
         const def = data.find((p: Pipeline) => p.is_default) || data[0];
         if (def) setSelectedPipeline(def);
+      } else {
+        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+        console.error("Failed to load pipelines:", res.status);
+        setPipelines(MOCK_PIPELINES);
+        setSelectedPipeline(MOCK_PIPELINES[0]);
       }
     } catch (e) {
       // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
@@ -115,6 +120,13 @@ export default function UnifiedPipeline() {
         setStages(stagesData);
         const grouped: Record<number, Deal[]> = {};
         stagesData.forEach((s) => { grouped[s.id] = dealsData.filter((d) => d.stage_id === s.id); });
+        setDealsByStage(grouped);
+      } else {
+        // TEMP: Mock data for UI preview - REMOVE BEFORE COMMIT
+        console.error("Failed to load stages/deals:", stagesRes.status, dealsRes.status);
+        setStages(MOCK_STAGES);
+        const grouped: Record<number, Deal[]> = {};
+        MOCK_STAGES.forEach((s) => { grouped[s.id] = MOCK_DEALS.filter((d) => d.stage_id === s.id); });
         setDealsByStage(grouped);
       }
     } catch (e) {
