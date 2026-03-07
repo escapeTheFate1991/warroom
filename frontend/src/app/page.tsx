@@ -4,8 +4,8 @@ import { useState, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
-  MessageSquare, Share2, Film, Search,
-  UserSquare, Briefcase, Users, Calendar, BookOpen, GraduationCap, Package,
+  Briefcase, MessageSquare, Share2, Film, Search,
+  UserSquare, Users, Calendar, BookOpen, GraduationCap, Package,
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
   CalendarDays, Puzzle, Heart, Inbox, FileSignature, DollarSign,
@@ -29,7 +29,6 @@ const LeadgenPanel = dynamic(() => import("@/components/leadgen/LeadgenPanel"), 
 const SettingsPanel = dynamic(() => import("@/components/settings/SettingsPanel"), { loading: PanelLoader });
 const ContactsManager = dynamic(() => import("@/components/crm/ContactsManager"), { loading: PanelLoader });
 const ActivitiesPanel = dynamic(() => import("@/components/crm/ActivitiesPanel"), { loading: PanelLoader });
-const DealsKanban = dynamic(() => import("@/components/crm/DealsKanban"), { loading: PanelLoader });
 const ProductsPanel = dynamic(() => import("@/components/crm/ProductsPanel"), { loading: PanelLoader });
 const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboard"), { loading: PanelLoader });
 const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
@@ -95,9 +94,6 @@ const SECTIONS = [
   {
     label: "OPERATIONS",
     items: [
-      { id: "pipeline-board", label: "Pipeline Board", icon: ClipboardList },
-      { id: "leadgen", label: "Leads", icon: Search },
-      { id: "prospects", label: "Prospects", icon: UserPlus },
       { id: "crm", label: "CRM", icon: UserSquare, children: [
         { id: "crm-deals", label: "Deals", icon: Briefcase },
         { id: "crm-contacts", label: "Contacts", icon: Users },
@@ -105,6 +101,9 @@ const SECTIONS = [
         { id: "crm-products", label: "Products", icon: Package },
         { id: "crm-submissions", label: "Submissions", icon: Inbox },
       ]},
+      { id: "pipeline-board", label: "Sales Pipeline", icon: ClipboardList },
+      { id: "leadgen", label: "Leads", icon: Search },
+      { id: "prospects", label: "Prospects", icon: UserPlus },
     ],
   },
   {
@@ -114,11 +113,6 @@ const SECTIONS = [
         { id: "invoices", label: "Invoices", icon: FileText },
         { id: "contracts", label: "Contracts", icon: FileSignature },
       ]},
-    ],
-  },
-  {
-    label: "REPORTS",
-    items: [
       { id: "reports", label: "Reports", icon: BarChart2, children: [
         { id: "reports-overview", label: "Overview", icon: PieChart },
         { id: "reports-revenue", label: "Revenue", icon: DollarSign },
@@ -148,7 +142,7 @@ type TabId =
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
   | "kanban" | "leadgen"
   | "pipeline-board"
-  | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products" | "crm-submissions"
+  | "crm-contacts" | "crm-activities" | "crm-products" | "crm-submissions"
   | "library-search" | "library-educate"
   | "marketing-campaigns" | "marketing-templates"
   | "skills" | "soul"
@@ -158,10 +152,10 @@ type TabId =
 
 // Map parent IDs to their children active check
 const PARENT_CHILDREN: Record<string, string[]> = {
-  crm: ["crm-deals", "crm-contacts", "crm-activities", "crm-products", "crm-submissions"],
+  crm: ["crm-contacts", "crm-activities", "crm-products", "crm-submissions"],
   library: ["library-search", "library-educate"],
   marketing: ["marketing-campaigns", "marketing-templates"],
-  finance: ["invoices", "contracts"],
+  finance: ["invoices", "contracts", "reports-overview", "reports-revenue", "reports-sales"],
   reports: ["reports-overview", "reports-revenue", "reports-sales"],
 };
 
@@ -217,7 +211,6 @@ function WarRoom() {
           {activeTab === "leadgen" && <LeadgenPanel />}
           {activeTab === "prospects" && <ProspectsPanel />}
           {activeTab === "pipeline-board" && <UnifiedPipeline />}
-          {activeTab === "crm-deals" && <DealsKanban />}
           {activeTab === "crm-contacts" && <ContactsManager />}
           {activeTab === "crm-activities" && <ActivitiesPanel />}
           {activeTab === "crm-products" && <ProductsPanel />}
