@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
-  Briefcase, MessageSquare, Share2, Film, Search,
+  MessageSquare, Share2, Film, Search,
   UserSquare, Users, Calendar, BookOpen, GraduationCap, Package,
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
@@ -95,7 +95,6 @@ const SECTIONS = [
     label: "OPERATIONS",
     items: [
       { id: "crm", label: "CRM", icon: UserSquare, children: [
-        { id: "crm-deals", label: "Deals", icon: Briefcase },
         { id: "crm-contacts", label: "Contacts", icon: Users },
         { id: "crm-activities", label: "Activities", icon: Calendar },
         { id: "crm-products", label: "Products", icon: Package },
