@@ -7,7 +7,7 @@ services:
         # inline them into the JS bundle at build time.
         # Backend runs on Brain 1 (this workstation)
         NEXT_PUBLIC_API_URL: ""
-        NEXT_PUBLIC_WS_URL: ws://192.168.1.94:18789
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
     ports:
       - "3300:3000"
     restart: unless-stopped
@@ -18,28 +18,28 @@ services:
       - "8300:8300"
     environment:
       # --- Brain 2 (10.0.0.11) — app backends (permanent) ---
-      KANBAN_API_URL: http://10.0.0.11:18794
-      TEAM_DASHBOARD_URL: http://10.0.0.11:18795
-      QDRANT_URL: http://10.0.0.11:6333
-      FASTEMBED_URL: http://10.0.0.11:11435
-      POSTGRES_URL: postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge
+      KANBAN_API_URL: ${KANBAN_API_URL}
+      TEAM_DASHBOARD_URL: ${TEAM_DASHBOARD_URL}
+      QDRANT_URL: ${QDRANT_URL}
+      FASTEMBED_URL: ${FASTEMBED_URL}
+      POSTGRES_URL: ${POSTGRES_URL}
       # --- Brain 1 (10.0.0.1) — services awaiting migration to Brain 2 ---
-      OPENCLAW_WS_URL: ws://10.0.0.1:18789
-      OPENCLAW_API_URL: http://10.0.0.1:18789
-      OPENCLAW_AUTH_TOKEN: b96cf43250e241b291396802db4b445a
-      OPENCLAW_DEVICE_ID: 6a5b1d6d97282742cbb3be43be4a4090268f6184b881dc99ef090359f3862b8b
-      OPENCLAW_DEVICE_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQGlyXAmMYp1xh9m0O7rT0dQLCz7ks5b5YrgAi1Rjgt0=\n-----END PUBLIC KEY-----"
-      OPENCLAW_DEVICE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINFuG46daTmDYtDpfkAfcClJhDDhNW9R+rad4t/NGPz1\n-----END PRIVATE KEY-----"
-      WHISPER_HOST: "10.0.0.1"
-      WHISPER_PORT: "18796"
-      MENTAL_LIBRARY_API_URL: http://10.0.0.1:8100
-      LEADGEN_BACKEND_URL: http://10.0.0.1:8200
-      BACKEND_URL: https://warroom.stuffnthings.io
-      JWT_SECRET: "cd33654a256f32c697fedce4f8fe6736d358e0e55eb2fbd452cece3f8ced5071"
-      FRONTEND_URL: http://localhost:3300
-      LEADGEN_DB_URL: postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge
+      OPENCLAW_WS_URL: ${OPENCLAW_WS_URL}
+      OPENCLAW_API_URL: ${OPENCLAW_API_URL}
+      OPENCLAW_AUTH_TOKEN: ${OPENCLAW_AUTH_TOKEN}
+      OPENCLAW_DEVICE_ID: ${OPENCLAW_DEVICE_ID}
+      OPENCLAW_DEVICE_PUBLIC_KEY: ${OPENCLAW_DEVICE_PUBLIC_KEY}
+      OPENCLAW_DEVICE_PRIVATE_KEY: ${OPENCLAW_DEVICE_PRIVATE_KEY}
+      WHISPER_HOST: ${WHISPER_HOST}
+      WHISPER_PORT: ${WHISPER_PORT}
+      MENTAL_LIBRARY_API_URL: ${MENTAL_LIBRARY_API_URL}
+      LEADGEN_BACKEND_URL: ${LEADGEN_BACKEND_URL}
+      BACKEND_URL: ${BACKEND_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL}
+      LEADGEN_DB_URL: ${LEADGEN_DB_URL}
       # SQLite read-only mount from the mental-library skill volume
-      MENTAL_LIBRARY_DB: /data/mental-library/mental_library.db
+      MENTAL_LIBRARY_DB: ${MENTAL_LIBRARY_DB:-/data/mental-library/mental_library.db}
     restart: unless-stopped
     network_mode: host
     volumes:

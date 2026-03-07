@@ -6,7 +6,6 @@ SSE: GET /api/notifications/stream (token via query param)
 import asyncio
 import json
 import logging
-import os
 from datetime import datetime
 from typing import Optional
 
@@ -14,31 +13,29 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
+
+from app.config import settings
+from app.db.leadgen_db import leadgen_engine, leadgen_session
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ── Database ─────────────────────────────────────────────────────────
-NOTIFY_DB_URL = os.getenv(
-    "NOTIFY_DB_URL",
-    "postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge",
-)
-
-notify_engine = create_async_engine(NOTIFY_DB_URL, echo=False, pool_size=5, max_overflow=10)
-notify_session = async_sessionmaker(notify_engine, class_=AsyncSession, expire_on_commit=False)
+# ── Database — uses shared leadgen engine (same knowledge DB, public schema)
+notify_engine = leadgen_engine
+notify_session = leadgen_session
 
 VALID_TYPES = {"alert", "info", "success", "warning", "task", "lead", "calendar"}
 
-JWT_SECRET = os.getenv("JWT_SECRET", "warroom-jwt-secret-2026")
+JWT_SECRET = settings.JWT_SECRET
 JWT_ALGORITHM = "HS256"
 
 
 async def get_notify_db():
     """DB dependency — public schema."""
-    async with notify_session() as session:
+    async with leadgen_session() as session:
         yield session
 
 

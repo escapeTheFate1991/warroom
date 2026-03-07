@@ -29,8 +29,8 @@ async def lifespan(app: FastAPI):
         await settings.init_settings_table(leadgen_engine)
         logger.info("Settings initialized")
         
-        # Initialize notifications table (use its own engine — same DB, but consistent)
-        await notifications.init_notifications_table(notifications.notify_engine)
+        # Initialize notifications table (shared leadgen engine — same DB)
+        await notifications.init_notifications_table(leadgen_engine)
         logger.info("Notifications table initialized")
         
         # Verify CRM schema exists (don't re-create, just verify)

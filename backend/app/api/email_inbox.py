@@ -23,14 +23,14 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.db.leadgen_db import leadgen_engine, leadgen_session
 
 logger = logging.getLogger(__name__)
 
-# ── DB Setup (public schema, knowledge DB) ───────────────────────────
-DB_URL = "postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge"
-_engine = create_async_engine(DB_URL, echo=False, pool_size=5, max_overflow=10)
-_session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+# ── DB Setup — uses shared leadgen engine (same knowledge DB, public schema)
+_engine = leadgen_engine
+_session = leadgen_session
 
 router = APIRouter()
 

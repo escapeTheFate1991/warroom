@@ -14,16 +14,16 @@ from typing import Optional, List, Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
+from app.db.leadgen_db import leadgen_engine, leadgen_session
 from app.services.notify import send_notification
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ── DB Setup ─────────────────────────────────────────────────
-DB_URL = "postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge"
-_engine = create_async_engine(DB_URL, echo=False, pool_size=3, max_overflow=5)
-_session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+# ── DB Setup — uses shared leadgen engine (same knowledge DB, public schema)
+_engine = leadgen_engine
+_session = leadgen_session
 
 
 # ── Table DDL ────────────────────────────────────────────────

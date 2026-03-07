@@ -15,14 +15,14 @@ import logging
 from typing import Optional
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+from app.db.leadgen_db import leadgen_engine, leadgen_session
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "postgresql+asyncpg://friday:friday-brain2-2026@10.0.0.11:5433/knowledge"
-
-_engine = create_async_engine(DATABASE_URL, pool_size=3, max_overflow=2)
-_session = async_sessionmaker(_engine, expire_on_commit=False)
+# Uses shared leadgen engine (same knowledge DB, public schema)
+_engine = leadgen_engine
+_session = leadgen_session
 
 _TABLE_CREATED = False
 
