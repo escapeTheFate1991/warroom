@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.services.email import _send_email
+from app.services.notify import send_notification
 
 logger = logging.getLogger(__name__)
 
@@ -493,7 +494,17 @@ async def mark_invoice_paid(invoice_id: int):
         await sess.commit()
     if not row:
         return JSONResponse(status_code=404, content={"error": "Invoice not found"})
-    return {"message": f"Invoice {row._mapping['invoice_number']} marked as paid"}
+
+    inv = row._mapping
+    # Notification: invoice paid
+    await send_notification(
+        type="success",
+        title="Invoice Paid",
+        message=f"{inv['invoice_number']} marked as paid",
+        data={"invoice_id": invoice_id, "link": "/invoices"},
+    )
+
+    return {"message": f"Invoice {inv['invoice_number']} marked as paid"}
 
 
 @router.get("/invoices/{invoice_id}/pdf")

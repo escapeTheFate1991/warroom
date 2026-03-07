@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from app.services.notify import send_notification
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -298,6 +299,22 @@ async def update_prospect_stage(prospect_id: str, body: ProspectStageUpdate):
             DO UPDATE SET stage = :stage, updated_at = now()
         """), {"source": source, "source_id": source_id, "stage": body.stage})
         await db.commit()
+
+    # Notification: prospect stage change
+    if body.stage == "won":
+        await send_notification(
+            type="success",
+            title="🎉 Deal Won!",
+            message=f"Prospect {prospect_id} — closed!",
+            data={"prospect_id": prospect_id, "link": "/prospects"},
+        )
+    else:
+        await send_notification(
+            type="info",
+            title="Prospect Stage Updated",
+            message=f"{prospect_id} moved to {body.stage}",
+            data={"prospect_id": prospect_id, "link": "/prospects"},
+        )
 
     return {"ok": True, "prospect_id": prospect_id, "stage": body.stage}
 

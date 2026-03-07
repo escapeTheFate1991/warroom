@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
   BellOff,
@@ -30,11 +31,17 @@ type NotificationType =
   | "lead"
   | "calendar";
 
+interface NotificationData {
+  link?: string;
+  [key: string]: unknown;
+}
+
 interface Notification {
   id: string;
   type: NotificationType;
   title: string;
   message: string;
+  data?: NotificationData;
   read: boolean;
   created_at: string;
 }
@@ -47,15 +54,15 @@ const POLL_INTERVAL_MS = 30_000;
 
 const TYPE_META: Record<
   NotificationType,
-  { icon: typeof Bell; color: string }
+  { icon: typeof Bell; color: string; emoji: string }
 > = {
-  alert:    { icon: AlertCircle,   color: "text-red-500" },
-  warning:  { icon: AlertTriangle, color: "text-amber-500" },
-  success:  { icon: CheckCircle2,  color: "text-green-500" },
-  info:     { icon: Info,          color: "text-blue-500" },
-  task:     { icon: ListTodo,      color: "text-purple-500" },
-  lead:     { icon: UserPlus,      color: "text-cyan-500" },
-  calendar: { icon: Calendar,      color: "text-orange-500" },
+  alert:    { icon: AlertCircle,   color: "text-red-500",    emoji: "🔥" },
+  warning:  { icon: AlertTriangle, color: "text-amber-500",  emoji: "⚠️" },
+  success:  { icon: CheckCircle2,  color: "text-green-500",  emoji: "✅" },
+  info:     { icon: Info,          color: "text-blue-500",    emoji: "🔔" },
+  task:     { icon: ListTodo,      color: "text-purple-500",  emoji: "📋" },
+  lead:     { icon: UserPlus,      color: "text-cyan-500",   emoji: "👤" },
+  calendar: { icon: Calendar,      color: "text-orange-500", emoji: "📅" },
 };
 
 /* ------------------------------------------------------------------ */
@@ -74,6 +81,14 @@ function relativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
+/** Extract tab id from a notification link like "/prospects" → "prospects" */
+function linkToTab(link: string): string | null {
+  if (!link) return null;
+  // Strip leading slash
+  const tab = link.replace(/^\//, "");
+  return tab || null;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -81,6 +96,7 @@ function relativeTime(iso: string): string {
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
+  const router = useRouter();
 
   /* ---- Fetch ---------------------------------------------------- */
 
@@ -122,6 +138,21 @@ export default function NotificationBell() {
     try {
       await authFetch(`${API}/api/notifications/${id}/read`, { method: "PATCH" });
     } catch { /* optimistic */ }
+  };
+
+  const handleNotificationClick = async (n: Notification) => {
+    // Mark as read
+    await markRead(n.id);
+
+    // Navigate to linked tab if available
+    const link = n.data?.link;
+    if (link) {
+      const tab = linkToTab(link);
+      if (tab) {
+        setOpen(false);
+        router.push(`/?tab=${tab}`);
+      }
+    }
   };
 
   const markAllRead = async () => {
@@ -231,14 +262,15 @@ export default function NotificationBell() {
                 sorted.map((n) => {
                   const meta = TYPE_META[n.type] ?? TYPE_META.info;
                   const Icon = meta.icon;
+                  const hasLink = !!n.data?.link;
 
                   return (
                     <button
                       key={n.id}
-                      onClick={() => markRead(n.id)}
-                      className={`w-full flex items-start gap-3 px-5 py-3.5 text-left hover:bg-warroom-bg/50 transition-colors border-b border-warroom-border/30 last:border-0 ${
-                        n.read ? "opacity-50" : ""
-                      }`}
+                      onClick={() => handleNotificationClick(n)}
+                      className={`w-full flex items-start gap-3 px-5 py-3.5 text-left transition-colors border-b border-warroom-border/30 last:border-0 ${
+                        hasLink ? "cursor-pointer hover:bg-warroom-accent/5" : "hover:bg-warroom-bg/50"
+                      } ${n.read ? "opacity-50" : ""}`}
                     >
                       <div className={`mt-0.5 shrink-0 ${meta.color}`}>
                         <Icon className="w-4.5 h-4.5" />
@@ -255,9 +287,16 @@ export default function NotificationBell() {
                         <p className="text-xs text-warroom-muted line-clamp-2 mt-0.5">
                           {n.message}
                         </p>
-                        <span className="text-[10px] text-warroom-muted/60 mt-1 block">
-                          {relativeTime(n.created_at)}
-                        </span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] text-warroom-muted/60">
+                            {relativeTime(n.created_at)}
+                          </span>
+                          {hasLink && (
+                            <span className="text-[10px] text-warroom-accent/60">
+                              → View
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </button>
                   );

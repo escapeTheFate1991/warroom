@@ -36,6 +36,7 @@ router = APIRouter()
 
 # ── Gmail OAuth Config ───────────────────────────────────────────────
 from app.services.token_store import load_tokens as _store_load, save_tokens as _store_save, delete_tokens as _store_delete
+from app.services.notify import send_notification
 GMAIL_TOKEN_SERVICE = "gmail"
 
 GMAIL_SCOPES = [
@@ -546,6 +547,15 @@ async def sync_account(account_id: int):
             {"id": account_id},
         )
         await db.commit()
+
+    # Notification: new emails synced
+    if count > 0:
+        await send_notification(
+            type="info",
+            title="New Emails",
+            message=f"{count} new emails synced",
+            data={"link": "/email"},
+        )
 
     return {"ok": True, "synced": count, "account_id": account_id}
 

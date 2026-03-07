@@ -12,6 +12,7 @@ from app.services.leadgen.website_crawler import crawl_website
 from app.services.leadgen.lead_scorer import score_lead
 from app.services.leadgen.review_scraper import scrape_yelp_reviews, fetch_google_reviews
 from app.services.leadgen.review_analyzer import analyze_reviews
+from app.services.notify import send_notification
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,15 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
     lead.website_audit_date = datetime.now()  # Track when we performed enrichment
 
     await db.commit()
+
+    # Notification: hot lead found (score >= 60)
+    if score >= 60:
+        await send_notification(
+            type="alert",
+            title="🔥 Hot Lead Found",
+            message=f"{lead.business_name} — Score {score}, {tier}",
+            data={"lead_id": lead.id, "score": score, "link": "/leadgen"},
+        )
 
 
 async def enrich_job(job_id: int, db: AsyncSession) -> None:

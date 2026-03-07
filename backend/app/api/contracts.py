@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 
 from app.services.email import _send_email
 from app.api.contract_templates_data import SEED_TEMPLATES
+from app.services.notify import send_notification
 
 logger = logging.getLogger(__name__)
 
@@ -1324,6 +1325,16 @@ async def mark_deal_stage(contract_id: int, data: MarkStageRequest):
         """), {"id": contract_id, "stage": data.stage})
         await _add_deal_event(db, contract_id, data.stage, data.note or "")
         await db.commit()
+
+        # Notification: contract stage change
+        client_name = contract.get("client_name", "Unknown")
+        notif_type = "success" if data.stage in ("signed", "active") else "info"
+        await send_notification(
+            type=notif_type,
+            title=f"Contract: {client_name} → {data.stage}",
+            message=data.note or f"Contract stage updated to {data.stage}",
+            data={"contract_id": contract_id, "link": "/contracts"},
+        )
 
         return {
             "id": contract_id,

@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.services.email import _send_email
+from app.services.notify import send_notification
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +249,14 @@ async def submit_contact(body: ContactSubmission, request: Request):
 
     # Fire auto-reply (best-effort, don't block response)
     await _send_auto_reply(submission_id, body.name.strip(), body.email.lower().strip())
+
+    # Notification: new contact form submission
+    await send_notification(
+        type="lead",
+        title="New Contact Form Submission",
+        message=f"{body.name.strip()} from {body.business_name.strip() if body.business_name else 'unknown'} — {body.email}",
+        data={"submission_id": submission_id, "link": "/prospects"},
+    )
 
     return {"id": submission_id, "message": "Submission received. We'll be in touch!"}
 

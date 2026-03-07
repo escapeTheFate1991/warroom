@@ -21,6 +21,7 @@ from app.api.leadgen_schemas import (
     LeadResponse, LeadUpdate, StatsResponse, SearchRequest,
     SearchJobResponse, WebsiteAuditResult, ContactLogRequest
 )
+from app.services.notify import send_notification
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -166,6 +167,14 @@ async def _run_search(job_id: int, request: SearchRequest):
             logger.info(
                 "Search complete for job %d (%d found, %d new), starting enrichment",
                 job_id, len(places), inserted,
+            )
+
+            # Notification: search complete
+            await send_notification(
+                type="lead",
+                title="Lead Search Complete",
+                message=f"{len(places)} businesses found for '{request.query}' in {request.location}",
+                data={"job_id": job_id, "link": "/leadgen"},
             )
 
             # Run enrichment inline
