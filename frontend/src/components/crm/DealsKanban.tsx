@@ -6,6 +6,8 @@ import DealDrawer from "./DealDrawer";
 import DealForm from "./DealForm";
 import { Pipeline, PipelineStage, Deal, DealFull } from "./types";
 import { API, authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 
 
 const STAGE_COLORS: Record<number, string> = {
@@ -245,10 +247,17 @@ export default function DealsKanban() {
   };
 
   if (loading) {
+    return <LoadingState message="Loading deals..." />;
+  }
+
+  if (stages.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <RefreshCw size={24} className="animate-spin text-warroom-muted" />
-      </div>
+      <EmptyState
+        icon={<Briefcase className="w-10 h-10" />}
+        title="No deals yet"
+        description="Create your first deal to start tracking your sales pipeline."
+        action={{ label: "New Deal", onClick: handleNewDeal }}
+      />
     );
   }
 

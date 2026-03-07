@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, MapPin, Globe, Mail, Phone, Loader2, Building2, RefreshCw, Star, Filter, X, AlertTriangle, Clock, Trash2 } from "lucide-react";
 import LeadDrawer, { LeadFull } from "./LeadDrawer";
 import { API, authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 import { US_STATES, US_CITIES } from "@/data/us-cities";
 
 const PAGE_SIZE = 10;
@@ -875,38 +877,24 @@ export default function LeadgenPanel() {
 
         {/* No results state */}
         {leads.length === 0 && !searching && !initialLoading && !errorMessage && (
-          <div className="flex flex-col items-center justify-center py-20 text-warroom-muted">
-            <Search size={48} className="mb-4 opacity-20" />
-            <p className="text-sm font-medium mb-2">No leads found</p>
-            <p className="text-xs text-warroom-muted/70 max-w-md text-center">
-              {activeJobId && !showAllLeads
+          <EmptyState
+            icon={<Search size={40} />}
+            title="No leads found"
+            description={
+              activeJobId && !showAllLeads
                 ? "This search returned no results. Try a different business category or broader location."
-                : "Search for businesses to populate your lead database. Pick a location and business type above."}
-            </p>
-            {activeJobId && !showAllLeads && (
-              <div className="flex gap-2 mt-4">
-                <button
-                  onClick={() => { setShowAllLeads(true); setActiveJobId(null); }}
-                  className="px-4 py-2 bg-warroom-border/50 rounded-lg text-xs text-warroom-muted hover:text-warroom-text transition"
-                >
-                  Show All Leads
-                </button>
-                <button
-                  onClick={() => refreshSearchJob(activeJobId)}
-                  className="px-4 py-2 bg-warroom-accent/20 text-warroom-accent rounded-lg text-xs hover:bg-warroom-accent/30 transition"
-                >
-                  🔄 Try Again
-                </button>
-              </div>
-            )}
-          </div>
+                : "Search for businesses to start building your pipeline."
+            }
+            action={
+              activeJobId && !showAllLeads
+                ? { label: "Show All Leads", onClick: () => { setShowAllLeads(true); setActiveJobId(null); } }
+                : undefined
+            }
+          />
         )}
 
         {initialLoading && (
-          <div className="flex items-center justify-center py-20 text-warroom-muted">
-            <Loader2 size={24} className="animate-spin mr-3" />
-            <span className="text-sm">Loading leads...</span>
-          </div>
+          <LoadingState message="Loading leads..." />
         )}
       </div>
 

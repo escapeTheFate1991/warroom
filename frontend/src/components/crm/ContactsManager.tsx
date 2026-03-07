@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { Users, Phone, Search, Filter, X, Loader2, UserPlus, Mail } from "lucide-react";
 import LeadDrawer, { LeadFull } from "../leadgen/LeadDrawer";
 import { API, authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 
 
 interface Contact {
@@ -213,11 +215,11 @@ export default function ContactsManager() {
             )}
 
             {!loading && crmContacts.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-20 text-warroom-muted">
-                <Users size={48} className="mb-4 opacity-20" />
-                <p className="text-sm">No CRM contacts yet</p>
-                <p className="text-xs mt-1">Add contacts to start tracking relationships</p>
-              </div>
+              <EmptyState
+                icon={<Users size={40} />}
+                title="No contacts yet"
+                description="Add contacts manually or import them from your lead generation pipeline."
+              />
             )}
           </div>
         )}
@@ -360,28 +362,23 @@ export default function ContactsManager() {
 
             {/* Empty State */}
             {!loading && contactHistory.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-20 text-warroom-muted">
-                <Phone size={48} className="mb-4 opacity-20" />
-                <p className="text-sm">No contacted businesses found</p>
-                {(outcomeFilter || contactedByFilter) && (
-                  <button
-                    onClick={clearFilters}
-                    className="mt-2 text-xs text-warroom-accent hover:underline"
-                  >
-                    Clear filters to see all contacts
-                  </button>
-                )}
-              </div>
+              <EmptyState
+                icon={<Phone size={40} />}
+                title="No contacted businesses found"
+                description="Contact history will appear here once you reach out to leads."
+                action={
+                  (outcomeFilter || contactedByFilter)
+                    ? { label: "Clear Filters", onClick: clearFilters }
+                    : undefined
+                }
+              />
             )}
           </div>
         )}
 
         {/* Loading State */}
         {loading && (
-          <div className="flex items-center justify-center py-20 text-warroom-muted">
-            <Loader2 size={24} className="animate-spin mr-3" />
-            <span className="text-sm">Loading contacts...</span>
-          </div>
+          <LoadingState message="Loading contacts..." />
         )}
       </div>
 

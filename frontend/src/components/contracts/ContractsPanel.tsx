@@ -9,6 +9,8 @@ import {
   PenTool, UserCheck, PartyPopper, MailWarning,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import LoadingState from "@/components/ui/LoadingState";
+import EmptyState from "@/components/ui/EmptyState";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -961,14 +963,14 @@ export default function ContractsPanel() {
       {/* Table */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 size={24} className="animate-spin text-warroom-accent" />
-          </div>
+          <LoadingState message="Loading contracts..." />
         ) : contracts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-warroom-muted">
-            <FileText size={40} className="mb-3 opacity-40" />
-            <p className="text-sm">No contracts found</p>
-          </div>
+          <EmptyState
+            icon={<FileText size={40} />}
+            title="No contracts yet"
+            description="Create your first contract to start managing client agreements."
+            action={{ label: "New Contract", onClick: openCreateModal }}
+          />
         ) : (
           <table className="w-full">
             <thead className="sticky top-0 bg-warroom-surface/90 backdrop-blur-sm">
