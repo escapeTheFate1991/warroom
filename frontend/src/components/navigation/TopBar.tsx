@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Search, Sun, Moon, User, LogOut, ChevronDown } from "lucide-react";
 import NotificationBell from "@/components/notifications/NotificationBell";
+import { useThemeContext } from "@/components/ui/ThemeProvider";
 
 const SEARCH_SCOPES: Record<string, { label: string; placeholder: string }> = {
   dashboard: { label: "Everything", placeholder: "Search metrics, deals, contacts..." },
@@ -33,18 +34,7 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch }: TopB
   const menuRef = useRef<HTMLDivElement>(null);
   const scope = SEARCH_SCOPES[activeTab] || DEFAULT_SCOPE;
 
-  const [theme, setTheme] = useState("dark");
-  useEffect(() => {
-    const current = document.documentElement.getAttribute("data-theme") || "dark";
-    setTheme(current);
-  }, []);
-
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem("warroom_theme", next);
-  };
+  const { theme, toggleTheme } = useThemeContext();
 
   // Close user menu on outside click
   useEffect(() => {
