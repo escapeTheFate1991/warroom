@@ -36,7 +36,6 @@ const EmailTemplatesPanel = dynamic(() => import("@/components/marketing/EmailTe
 const AgentServiceMap = dynamic(() => import("@/components/agents/AgentServiceMap"), { loading: PanelLoader });
 const ContentPipeline = dynamic(() => import("@/components/content/ContentPipeline"), { loading: PanelLoader });
 const CompetitorIntel = dynamic(() => import("@/components/intelligence/CompetitorIntel"), { loading: PanelLoader });
-const ActivityFeed = dynamic(() => import("@/components/agents/ActivityFeed"), { loading: PanelLoader });
 const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter"), { loading: PanelLoader });
 const SkillsManager = dynamic(() => import("@/components/dashboard/SkillsManager"), { loading: PanelLoader });
 const SoulEditor = dynamic(() => import("@/components/dashboard/SoulEditor"), { loading: PanelLoader });
