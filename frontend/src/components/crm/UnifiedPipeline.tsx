@@ -57,12 +57,18 @@ const COLUMN_BORDER: Record<number, string> = {
   100: "border-t-green-500",
 };
 
+type QuarterFilter = "all" | "Q1" | "Q2" | "Q3" | "Q4" | "custom";
+
 export default function UnifiedPipeline() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipeline, setSelectedPipeline] = useState<Pipeline | null>(null);
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [dealsByStage, setDealsByStage] = useState<Record<number, Deal[]>>({});
   const [loading, setLoading] = useState(true);
+
+  // Quarter filter state
+  const [quarterFilter, setQuarterFilter] = useState<QuarterFilter>("all");
+  const [customDateRange, setCustomDateRange] = useState<{ start: string; end: string }>({ start: "", end: "" });
 
   // Drag state
   const [draggedDeal, setDraggedDeal] = useState<Deal | null>(null);
@@ -206,6 +212,25 @@ export default function UnifiedPipeline() {
     setDemoteConfirm(null);
   };
 
+  // Quarter filter logic
+  const currentYear = new Date().getFullYear();
+  const QUARTER_RANGES: Record<string, [string, string]> = {
+    Q1: [`${currentYear}-01-01`, `${currentYear}-03-31`],
+    Q2: [`${currentYear}-04-01`, `${currentYear}-06-30`],
+    Q3: [`${currentYear}-07-01`, `${currentYear}-09-30`],
+    Q4: [`${currentYear}-10-01`, `${currentYear}-12-31`],
+  };
+
+  const filterDealsByQuarter = (deals: Deal[]) => {
+    if (quarterFilter === "all") return deals;
+    if (quarterFilter === "custom") {
+      if (!customDateRange.start || !customDateRange.end) return deals;
+      return deals.filter(d => d.expected_close_date && d.expected_close_date >= customDateRange.start && d.expected_close_date <= customDateRange.end);
+    }
+    const [start, end] = QUARTER_RANGES[quarterFilter];
+    return deals.filter(d => d.expected_close_date && d.expected_close_date >= start && d.expected_close_date <= end);
+  };
+
   const fmt = (n: number | null) => {
     if (!n) return "$0";
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
@@ -217,7 +242,7 @@ export default function UnifiedPipeline() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="h-14 border-b border-warroom-border flex items-center px-6 justify-between">
+      <div className="border-b border-warroom-border flex items-center px-6 py-2 justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
           <h2 className="text-sm font-semibold flex items-center gap-2"><Briefcase size={16} /> Pipeline Board</h2>
           <select value={selectedPipeline?.id || ""} onChange={(e) => { const p = pipelines.find((pp) => pp.id === parseInt(e.target.value)); setSelectedPipeline(p || null); }}
@@ -225,14 +250,35 @@ export default function UnifiedPipeline() {
             {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
-        <button onClick={loadStagesAndDeals} className="text-warroom-muted hover:text-warroom-text transition p-2" title="Refresh"><RefreshCw size={14} /></button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            {(["all", "Q1", "Q2", "Q3", "Q4", "custom"] as QuarterFilter[]).map((q) => (
+              <button key={q} onClick={() => setQuarterFilter(q)}
+                className={`px-2.5 py-1 text-xs rounded-full border transition ${quarterFilter === q ? "bg-warroom-accent text-white border-warroom-accent" : "bg-warroom-surface border-warroom-border text-warroom-muted hover:text-warroom-text"}`}>
+                {q === "all" ? "All" : q === "custom" ? (
+                  <span className="flex items-center gap-1"><Calendar size={10} />Custom</span>
+                ) : `${q} ${currentYear}`}
+              </button>
+            ))}
+          </div>
+          {quarterFilter === "custom" && (
+            <div className="flex items-center gap-1.5">
+              <input type="date" value={customDateRange.start} onChange={(e) => setCustomDateRange(prev => ({ ...prev, start: e.target.value }))}
+                className="bg-warroom-surface border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" style={{ colorScheme: "dark" }} />
+              <span className="text-xs text-warroom-muted">to</span>
+              <input type="date" value={customDateRange.end} onChange={(e) => setCustomDateRange(prev => ({ ...prev, end: e.target.value }))}
+                className="bg-warroom-surface border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" style={{ colorScheme: "dark" }} />
+            </div>
+          )}
+          <button onClick={loadStagesAndDeals} className="text-warroom-muted hover:text-warroom-text transition p-2" title="Refresh"><RefreshCw size={14} /></button>
+        </div>
       </div>
 
       {/* Kanban Board */}
       <div className="flex-1 p-4 overflow-x-auto">
         <div className="flex gap-4 h-full min-w-fit">
           {stages.map((stage) => {
-            const stageDeals = dealsByStage[stage.id] || [];
+            const stageDeals = filterDealsByQuarter(dealsByStage[stage.id] || []);
             const stageValue = stageDeals.reduce((s, d) => s + (d.deal_value || 0), 0);
             const color = STAGE_COLORS[stage.probability] || STAGE_COLORS[0];
             const borderColor = COLUMN_BORDER[stage.probability] || "border-t-gray-500";
