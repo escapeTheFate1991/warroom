@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import ArtifactPanel, { Artifact } from "./ArtifactPanel";
+import PromptImproverModal from "./PromptImproverModal";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -328,6 +329,15 @@ export default function ChatPanel() {
   // Alert banners
   const [rateLimitAlert, setRateLimitAlert] = useState<string | null>(null);
   const [compactionAlert, setCompactionAlert] = useState(false);
+
+  // Prompt improver
+  const [improverState, setImproverState] = useState<{
+    show: boolean;
+    originalPrompt: string;
+    questions: string[];
+    contextSummary?: string;
+    isImproving: boolean;
+  }>({ show: false, originalPrompt: "", questions: [], isImproving: false });
 
   // Token usage
   const [tokenUsage, setTokenUsage] = useState<{ totalTokens: number; contextWindow: number; percentage: number; compactionCount: number } | null>(null);
@@ -1067,8 +1077,95 @@ export default function ChatPanel() {
     audioContextRef.current = null;
   };
 
-  /* ── Magic Prompt Polish ────────────────────────────── */
+  /* ── Prompt Improver (evaluate → clarify → improve) ── */
 
+  const evaluatePrompt = async () => {
+    const text = input.trim();
+    if (!text || isPolishing) return;
+
+    setIsPolishing(true);
+    try {
+      // Build recent context for grounding
+      const recentContext = messages
+        .filter(m => m.role !== "system")
+        .slice(-6)
+        .map(m => `${m.role}: ${m.content.slice(0, 150)}`);
+
+      const resp = await authFetch(`${API_URL}/api/chat/evaluate-prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, context: recentContext }),
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.clear) {
+          // Prompt is clear — send directly
+          sendMessage();
+        } else if (data.questions && data.questions.length > 0) {
+          // Prompt is vague — show clarifying questions
+          setImproverState({
+            show: true,
+            originalPrompt: text,
+            questions: data.questions,
+            contextSummary: data.context_summary,
+            isImproving: false,
+          });
+        } else {
+          // Fallback — send as-is
+          sendMessage();
+        }
+      } else {
+        // API error — fall back to sending as-is
+        sendMessage();
+      }
+    } catch (err) {
+      console.error("Prompt evaluation failed:", err);
+      sendMessage();
+    } finally {
+      setIsPolishing(false);
+    }
+  };
+
+  const handleImproverSubmit = async (answers: string[]) => {
+    setImproverState(prev => ({ ...prev, isImproving: true }));
+    try {
+      const resp = await authFetch(`${API_URL}/api/chat/improve-prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          original: improverState.originalPrompt,
+          questions: improverState.questions,
+          answers,
+        }),
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.improved) {
+          setInput(data.improved);
+          setImproverState({ show: false, originalPrompt: "", questions: [], isImproving: false });
+          // Auto-send the improved prompt
+          setTimeout(() => sendMessage(data.improved), 100);
+        }
+      }
+    } catch (err) {
+      console.error("Prompt improvement failed:", err);
+    } finally {
+      setImproverState(prev => ({ ...prev, isImproving: false }));
+    }
+  };
+
+  const handleImproverSkip = () => {
+    setImproverState({ show: false, originalPrompt: "", questions: [], isImproving: false });
+    sendMessage();
+  };
+
+  const handleImproverCancel = () => {
+    setImproverState({ show: false, originalPrompt: "", questions: [], isImproving: false });
+  };
+
+  // Legacy polish (simple cleanup, no questions)
   const polishPrompt = async () => {
     const text = input.trim();
     if (!text || isPolishing) return;
@@ -1370,10 +1467,11 @@ export default function ChatPanel() {
                   <Plus size={18} />
                 </button>
                 <button
-                  onClick={polishPrompt}
+                  onClick={evaluatePrompt}
+                  onDoubleClick={(e) => { e.stopPropagation(); polishPrompt(); }}
                   disabled={!input.trim() || isPolishing}
                   className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isPolishing ? "text-warroom-accent animate-spin" : "text-warroom-muted hover:text-warroom-text"} disabled:opacity-30`}
-                  title="Polish prompt with AI"
+                  title="Evaluate & improve prompt (double-click to just polish)"
                 >
                   <Sparkles size={18} />
                 </button>
@@ -1453,6 +1551,19 @@ export default function ChatPanel() {
           onRemove={removeArtifact}
         />
       </div>
+    )}
+
+    {/* Prompt Improver Modal */}
+    {improverState.show && (
+      <PromptImproverModal
+        originalPrompt={improverState.originalPrompt}
+        questions={improverState.questions}
+        contextSummary={improverState.contextSummary}
+        onSubmit={handleImproverSubmit}
+        onSkip={handleImproverSkip}
+        onCancel={handleImproverCancel}
+        isImproving={improverState.isImproving}
+      />
     )}
     </div>
   );
