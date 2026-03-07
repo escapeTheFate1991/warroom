@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   DollarSign, TrendingUp, TrendingDown, Clock, Mail, Users,
   FileSignature, AlertTriangle, Briefcase, Inbox, CalendarDays,
-  Loader2, ArrowUpRight, ArrowDownRight, Minus,
+  Loader2, ArrowUpRight, ArrowDownRight, Minus, BarChart3,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import EmptyState from "@/components/ui/EmptyState";
