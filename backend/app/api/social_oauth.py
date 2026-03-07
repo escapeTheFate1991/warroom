@@ -2,6 +2,8 @@
 import logging
 import os
 import secrets
+import time
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import urlencode, quote
@@ -22,6 +24,9 @@ router = APIRouter()
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3300")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8300")
 
+# TTL for PKCE verifiers and state nonces (10 minutes)
+_OAUTH_TTL_SECONDS = 600
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def _oauth_complete_page(success: bool, platform: str, error: str = "") -> HTMLResponse:
@@ -37,7 +42,7 @@ def _oauth_complete_page(success: bool, platform: str, error: str = "") -> HTMLR
 </div>
 <script>
   if (window.opener) {{
-    window.opener.postMessage({{ type: "oauth_complete", status: "{status}", platform: "{platform}", error: "{error}" }}, "*");
+    window.opener.postMessage({{ type: "oauth_complete", status: "{status}", platform: "{platform}", error: "{error}" }}, "{FRONTEND_URL}");
   }}
   setTimeout(() => window.close(), 1500);
 </script>
@@ -61,6 +66,7 @@ async def _upsert_social_account(
     follower_count: int = 0, following_count: int = 0, post_count: int = 0,
     token_expires_at: Optional[datetime] = None,
     extra_data: dict = None,
+    user_id: int = 1,  # TODO: pass real user_id from auth context when OAuth callbacks support auth
 ):
     """Create or update a social account."""
     result = await db.execute(
@@ -82,7 +88,7 @@ async def _upsert_social_account(
         account.last_synced = datetime.now()
     else:
         account = SocialAccount(
-            user_id=1,  # TODO: get from auth context
+            user_id=user_id,
             platform=platform,
             username=username,
             access_token=access_token,
@@ -172,6 +178,7 @@ async def meta_authorize(
     # Encode requested platform in state so callback knows what to save
     nonce = secrets.token_urlsafe(24)
     state = f"{platform}:{nonce}"
+    _nonce_store(state)
 
     if platform == "instagram":
         # Instagram API with Instagram Login — goes to instagram.com, not facebook.com
@@ -213,6 +220,9 @@ async def meta_authorize(
 @router.get("/oauth/meta/callback")
 async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
     """Handle Meta OAuth callback. Respects requested platform from state."""
+    if not state or not _nonce_validate(state):
+        return _oauth_complete_page(False, "meta", "Invalid or expired OAuth state")
+
     client_id = await _get_setting(db, "meta_app_id")
     client_secret = await _get_setting(db, "meta_app_secret")
 
@@ -236,7 +246,7 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
         })
 
         if token_resp.status_code != 200:
-            logger.error(f"Meta token exchange failed: {token_resp.text}")
+            logger.error("Meta token exchange failed: %s", token_resp.text)
             return _oauth_complete_page(False, requested_platform, "Token exchange failed")
 
         token_data = token_resp.json()
@@ -282,9 +292,9 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
             })
             pages_data = accounts_resp.json()
             pages = pages_data.get("data", [])
-            logger.info(f"Pages API returned {len(pages)} pages: {[p.get('name') for p in pages]}")
+            logger.info("Pages API returned %d pages: %s", len(pages), [p.get('name') for p in pages])
             if not pages:
-                logger.warning(f"No pages found. Full response: {pages_data}")
+                logger.warning("No pages found. Full response: %s", pages_data)
             ig_found = False
 
             for page in pages:
@@ -297,7 +307,7 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
                     }
                 )
                 ig_result = ig_resp.json()
-                logger.info(f"Page '{page.get('name')}' IG lookup: {ig_result}")
+                logger.info("Page '%s' IG lookup: %s", page.get('name'), ig_result)
                 ig_data = ig_result.get("instagram_business_account")
                 if ig_data:
                     await _upsert_social_account(
@@ -329,6 +339,9 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
 @router.get("/oauth/instagram/callback")
 async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
     """Handle Instagram OAuth callback (direct Instagram login, no Facebook Page needed)."""
+    if not state or not _nonce_validate(state):
+        return _oauth_complete_page(False, "instagram", "Invalid or expired OAuth state")
+
     client_id = await _get_setting(db, "instagram_app_id") or await _get_setting(db, "meta_app_id")
     client_secret = await _get_setting(db, "instagram_app_secret") or await _get_setting(db, "meta_app_secret")
 
@@ -348,7 +361,7 @@ async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depe
         })
 
         if token_resp.status_code != 200:
-            logger.error(f"Instagram token exchange failed: {token_resp.text}")
+            logger.error("Instagram token exchange failed: %s", token_resp.text)
             return _oauth_complete_page(False, "instagram", "Token exchange failed")
 
         token_data = token_resp.json()
@@ -366,7 +379,7 @@ async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depe
             ll_data = ll_resp.json()
             access_token = ll_data["access_token"]
         else:
-            logger.warning(f"Instagram long-lived token exchange failed: {ll_resp.text}")
+            logger.warning("Instagram long-lived token exchange failed: %s", ll_resp.text)
             access_token = short_token
 
         # Get user profile
@@ -376,11 +389,11 @@ async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depe
         })
 
         if me_resp.status_code != 200:
-            logger.error(f"Instagram profile fetch failed: {me_resp.text}")
+            logger.error("Instagram profile fetch failed: %s", me_resp.text)
             return _oauth_complete_page(False, "instagram", "Failed to fetch profile")
 
         me_data = me_resp.json()
-        logger.info(f"Instagram profile: {me_data}")
+        logger.info("Instagram profile: %s", me_data)
 
         await _upsert_social_account(
             db, "instagram",
@@ -403,6 +416,9 @@ async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depe
 @router.get("/oauth/threads/callback")
 async def threads_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
     """Handle Threads OAuth callback (separate from Meta/Facebook)."""
+    if not state or not _nonce_validate(state):
+        return _oauth_complete_page(False, "threads", "Invalid or expired OAuth state")
+
     client_id = await _get_setting(db, "threads_client_id") or await _get_setting(db, "meta_app_id")
     client_secret = await _get_setting(db, "threads_client_secret") or await _get_setting(db, "meta_app_secret")
 
@@ -422,7 +438,7 @@ async def threads_callback(code: str, state: str = "", db: AsyncSession = Depend
         })
 
         if token_resp.status_code != 200:
-            logger.error(f"Threads token exchange failed: {token_resp.text}")
+            logger.error("Threads token exchange failed: %s", token_resp.text)
             return _oauth_complete_page(False, "threads", "Threads token exchange failed")
 
         token_data = token_resp.json()
@@ -456,7 +472,7 @@ async def threads_callback(code: str, state: str = "", db: AsyncSession = Depend
                 profile_url=f"https://threads.net/@{me_data.get('username', '')}",
             )
         else:
-            logger.error(f"Threads profile fetch failed: {me_resp.text}")
+            logger.error("Threads profile fetch failed: %s", me_resp.text)
             return _oauth_complete_page(False, "threads", "Failed to fetch Threads profile")
 
     return _oauth_complete_page(True, "threads")
@@ -472,8 +488,53 @@ X_API_URL = "https://api.x.com/2"
 
 X_SCOPES = ["tweet.read", "users.read", "offline.access"]
 
-# Store PKCE verifiers temporarily (in production, use Redis)
-_pkce_store: dict = {}
+# Store PKCE verifiers and state nonces with TTL (in production, use Redis)
+_pkce_store: dict[str, tuple[str, float]] = {}  # key -> (verifier, timestamp)
+_state_nonces: dict[str, float] = {}  # nonce -> timestamp
+_store_lock = threading.Lock()
+
+
+def _store_put(key: str, value: str):
+    """Store a PKCE verifier with timestamp."""
+    with _store_lock:
+        now = time.monotonic()
+        # Cleanup expired entries
+        expired = [k for k, (_, ts) in _pkce_store.items() if now - ts > _OAUTH_TTL_SECONDS]
+        for k in expired:
+            del _pkce_store[k]
+        expired_nonces = [k for k, ts in _state_nonces.items() if now - ts > _OAUTH_TTL_SECONDS]
+        for k in expired_nonces:
+            del _state_nonces[k]
+        _pkce_store[key] = (value, now)
+
+
+def _store_pop(key: str) -> Optional[str]:
+    """Pop a PKCE verifier, returning None if expired or missing."""
+    with _store_lock:
+        entry = _pkce_store.pop(key, None)
+        if entry is None:
+            return None
+        value, ts = entry
+        if time.monotonic() - ts > _OAUTH_TTL_SECONDS:
+            return None
+        return value
+
+
+def _nonce_store(nonce: str):
+    """Store a state nonce with timestamp."""
+    with _store_lock:
+        _state_nonces[nonce] = time.monotonic()
+
+
+def _nonce_validate(nonce: str) -> bool:
+    """Validate and consume a state nonce. Returns False if expired/missing."""
+    with _store_lock:
+        ts = _state_nonces.pop(nonce, None)
+        if ts is None:
+            return False
+        if time.monotonic() - ts > _OAUTH_TTL_SECONDS:
+            return False
+        return True
 
 
 @router.get("/oauth/x/authorize")
@@ -492,7 +553,8 @@ async def x_authorize(db: AsyncSession = Depends(get_crm_db)):
     ).rstrip(b"=").decode()
 
     state = secrets.token_urlsafe(32)
-    _pkce_store[state] = code_verifier
+    _store_put(state, code_verifier)
+    _nonce_store(state)
 
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/x/callback"
 
@@ -511,17 +573,20 @@ async def x_authorize(db: AsyncSession = Depends(get_crm_db)):
 @router.get("/oauth/x/callback")
 async def x_callback(code: str = "", state: str = "", error: str = "", error_description: str = "", db: AsyncSession = Depends(get_crm_db)):
     if error:
-        logger.error(f"X OAuth error: {error} — {error_description}")
+        logger.error("X OAuth error: %s — %s", error, error_description)
         return _oauth_complete_page(False, "x", f"{error}: {error_description}")
     """Handle X OAuth callback."""
+    if not _nonce_validate(state):
+        return _oauth_complete_page(False, "x", "Invalid or expired OAuth state")
+
     client_id = await _get_setting(db, "x_client_id")
     client_secret = await _get_setting(db, "x_client_secret")
-    code_verifier = _pkce_store.pop(state, None)
+    code_verifier = _store_pop(state)
 
     if not client_id or not client_secret:
         raise HTTPException(400, "X credentials not configured")
     if not code_verifier:
-        raise HTTPException(400, "Invalid OAuth state")
+        return _oauth_complete_page(False, "x", "Invalid or expired OAuth state")
 
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/x/callback"
 
@@ -535,7 +600,7 @@ async def x_callback(code: str = "", state: str = "", error: str = "", error_des
         }, auth=(client_id, client_secret))
 
         if token_resp.status_code != 200:
-            logger.error(f"X token exchange failed: {token_resp.text}")
+            logger.error("X token exchange failed: %s", token_resp.text)
             return _oauth_complete_page(False, "x", f"Token exchange failed: {token_resp.text[:200]}")
 
         token_data = token_resp.json()
@@ -593,7 +658,8 @@ async def tiktok_authorize(db: AsyncSession = Depends(get_crm_db)):
         hashlib.sha256(code_verifier.encode()).digest()
     ).rstrip(b"=").decode()
 
-    _pkce_store[f"tiktok_{state}"] = code_verifier
+    _store_put(f"tiktok_{state}", code_verifier)
+    _nonce_store(f"tiktok_{state}")
 
     params = {
         "client_key": client_key,
@@ -610,9 +676,12 @@ async def tiktok_authorize(db: AsyncSession = Depends(get_crm_db)):
 @router.get("/oauth/tiktok/callback")
 async def tiktok_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
     """Handle TikTok OAuth callback."""
+    if not _nonce_validate(f"tiktok_{state}"):
+        return _oauth_complete_page(False, "tiktok", "Invalid or expired OAuth state")
+
     client_key = await _get_setting(db, "tiktok_client_key")
     client_secret = await _get_setting(db, "tiktok_client_secret")
-    code_verifier = _pkce_store.pop(f"tiktok_{state}", None)
+    code_verifier = _store_pop(f"tiktok_{state}")
 
     if not client_key or not client_secret:
         raise HTTPException(400, "TikTok credentials not configured")
@@ -630,7 +699,7 @@ async def tiktok_callback(code: str, state: str = "", db: AsyncSession = Depends
         })
 
         if token_resp.status_code != 200:
-            logger.error(f"TikTok token exchange failed: {token_resp.text}")
+            logger.error("TikTok token exchange failed: %s", token_resp.text)
             return _oauth_complete_page(False, requested_platform, "Token exchange failed")
 
         token_data = token_resp.json()
@@ -682,6 +751,7 @@ async def google_authorize(db: AsyncSession = Depends(get_crm_db)):
         raise HTTPException(400, "Google OAuth Client ID not configured. Go to Settings → API Keys.")
 
     state = secrets.token_urlsafe(32)
+    _nonce_store(state)
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/google/callback"
 
     params = {
@@ -699,6 +769,9 @@ async def google_authorize(db: AsyncSession = Depends(get_crm_db)):
 @router.get("/oauth/google/callback")
 async def google_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
     """Handle Google OAuth callback."""
+    if not state or not _nonce_validate(state):
+        return _oauth_complete_page(False, "youtube", "Invalid or expired OAuth state")
+
     client_id = await _get_setting(db, "google_oauth_client_id")
     client_secret = await _get_setting(db, "google_oauth_client_secret")
 
@@ -717,8 +790,8 @@ async def google_callback(code: str, state: str = "", db: AsyncSession = Depends
         })
 
         if token_resp.status_code != 200:
-            logger.error(f"Google token exchange failed: {token_resp.text}")
-            return _oauth_complete_page(False, requested_platform, "Token exchange failed")
+            logger.error("Google token exchange failed: %s", token_resp.text)
+            return _oauth_complete_page(False, "youtube", "Token exchange failed")
 
         token_data = token_resp.json()
         access_token = token_data["access_token"]

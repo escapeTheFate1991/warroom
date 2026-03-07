@@ -5,9 +5,11 @@ JWT tokens with 7-day sessions. Email verification codes for signup + password r
 Organization-aware: every authenticated user carries their org context.
 """
 import logging
-import os
+import time
+import threading
 import bcrypt
 import jwt
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -21,6 +23,7 @@ from sqlalchemy.orm import selectinload
 from app.db.crm_db import get_crm_db
 from app.models.crm.user import User, Role
 from app.models.crm.organization import Tenant as Organization
+from app.config import settings
 from app.services.email import (
     generate_code, send_verification_email, send_password_reset_email,
 )
@@ -30,11 +33,54 @@ router = APIRouter()
 security = HTTPBearer(auto_error=False)  # auto_error=False allows optional auth
 
 # ── Config ──────────────────────────────────────────────────────────
-JWT_SECRET = os.getenv("JWT_SECRET", "warroom-jwt-secret-2026")
+JWT_SECRET = settings.JWT_SECRET
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 VERIFICATION_EXPIRE_MINUTES = 15
 RESET_EXPIRE_MINUTES = 15
+
+# ── Rate Limiting ────────────────────────────────────────────────────
+RATE_LIMIT_MAX_ATTEMPTS = 5
+RATE_LIMIT_WINDOW_SECONDS = 15 * 60  # 15 minutes
+
+
+class _RateLimiter:
+    """Simple in-memory rate limiter for login attempts."""
+
+    def __init__(self):
+        self._attempts: dict[str, list[float]] = defaultdict(list)
+        self._lock = threading.Lock()
+        self._last_cleanup = time.monotonic()
+
+    def _cleanup(self):
+        """Remove expired entries (called periodically)."""
+        now = time.monotonic()
+        if now - self._last_cleanup < 60:  # cleanup at most once per minute
+            return
+        self._last_cleanup = now
+        cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+        keys_to_delete = []
+        for key, timestamps in self._attempts.items():
+            self._attempts[key] = [t for t in timestamps if t > cutoff]
+            if not self._attempts[key]:
+                keys_to_delete.append(key)
+        for key in keys_to_delete:
+            del self._attempts[key]
+
+    def check(self, key: str) -> bool:
+        """Record an attempt and return True if allowed, False if rate-limited."""
+        with self._lock:
+            self._cleanup()
+            now = time.monotonic()
+            cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+            self._attempts[key] = [t for t in self._attempts[key] if t > cutoff]
+            if len(self._attempts[key]) >= RATE_LIMIT_MAX_ATTEMPTS:
+                return False
+            self._attempts[key].append(now)
+            return True
+
+
+_login_limiter = _RateLimiter()
 
 
 # ── Request/Response Models ──────────────────────────────────────────
@@ -257,8 +303,15 @@ async def signup(data: SignupRequest, db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_crm_db)):
+async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_crm_db)):
     """Authenticate and return JWT. Token valid for 7 days from last login."""
+    # Rate limit by email and IP
+    client_ip = request.client.host if request.client else "unknown"
+    if not _login_limiter.check(f"email:{data.email}"):
+        raise HTTPException(status_code=429, detail="Too many login attempts. Try again in 15 minutes.")
+    if not _login_limiter.check(f"ip:{client_ip}"):
+        raise HTTPException(status_code=429, detail="Too many login attempts. Try again in 15 minutes.")
+
     result = await db.execute(
         select(User)
         .options(selectinload(User.org), selectinload(User.role))

@@ -1,4 +1,5 @@
 """Voice I/O — Speech-to-Text via Whisper + TTS via edge-tts"""
+import re
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 import tempfile
@@ -13,6 +14,12 @@ router = APIRouter()
 
 WHISPER_TCP_HOST = os.getenv("WHISPER_HOST", "127.0.0.1")
 WHISPER_TCP_PORT = int(os.getenv("WHISPER_PORT", "18796"))
+
+# Configurable paths (replace hardcoded /home/eddy/... paths)
+VOICE_IO_SCRIPTS_PATH = os.getenv("VOICE_IO_SCRIPTS_PATH", "/home/eddy/.openclaw/workspace/skills/voice-io/scripts")
+
+# TTS text limits
+MAX_TTS_TEXT_LENGTH = 5000
 
 
 async def transcribe_via_tcp(wav_data: bytes) -> dict:
@@ -39,7 +46,7 @@ async def transcribe_via_tcp(wav_data: bytes) -> dict:
     return await loop.run_in_executor(None, _send)
 
 
-BT_SCAN_SCRIPT = "/home/eddy/.openclaw/workspace/skills/voice-io/scripts/bt-scan.sh"
+BT_SCAN_SCRIPT = os.path.join(VOICE_IO_SCRIPTS_PATH, "bt-scan.sh")
 
 
 @router.get("/bt/status")
@@ -143,11 +150,25 @@ async def transcribe_audio(file: UploadFile = File(...)):
     return {"text": result.get("text", ""), "language": result.get("language", "en")}
 
 
+def _sanitize_tts_text(text: str) -> str:
+    """Strip shell metacharacters from TTS text to prevent injection."""
+    # Remove characters that could be interpreted by shell
+    return re.sub(r'[;|&`$(){}\\<>!\n\r]', '', text)
+
+
+def _validate_tts_input(text: str) -> str:
+    """Validate and sanitize TTS text input."""
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided")
+    if len(text) > MAX_TTS_TEXT_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Text too long (max {MAX_TTS_TEXT_LENGTH} characters)")
+    return _sanitize_tts_text(text)
+
+
 @router.post("/tts")
 async def text_to_speech(text: str = "", voice: str = "en-US-AvaNeural"):
     """Generate speech from text using edge-tts, return audio stream."""
-    if not text:
-        raise HTTPException(status_code=400, detail="No text provided")
+    text = _validate_tts_input(text)
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
         tmp_path = tmp.name
@@ -171,8 +192,7 @@ async def text_to_speech(text: str = "", voice: str = "en-US-AvaNeural"):
 @router.post("/tts/play")
 async def tts_play_on_speaker(text: str = "", voice: str = "en-US-AvaNeural"):
     """Generate speech and play on the Bose speaker."""
-    if not text:
-        raise HTTPException(status_code=400, detail="No text provided")
+    text = _validate_tts_input(text)
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
         tmp_path = tmp.name
@@ -184,7 +204,7 @@ async def tts_play_on_speaker(text: str = "", voice: str = "en-US-AvaNeural"):
     if proc.returncode != 0:
         raise HTTPException(status_code=500, detail="TTS failed")
 
-    play_script = "/home/eddy/.openclaw/workspace/skills/voice-io/scripts/play-audio.sh"
+    play_script = os.path.join(VOICE_IO_SCRIPTS_PATH, "play-audio.sh")
     if os.path.exists(play_script):
         subprocess.Popen(["bash", play_script, tmp_path])
         return {"status": "playing", "path": tmp_path}
