@@ -17,7 +17,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 
-const TEAM_API = "http://10.0.0.11:18795";
+const TEAM_API = "/api/team";
 const POLL_INTERVAL = 15_000;
 
 /* ─── Types ─────────────────────────────────────────────────────── */

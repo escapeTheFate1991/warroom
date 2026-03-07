@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
-const TEAM_API = "http://10.0.0.11:18795";
+const TEAM_API = "/api/team";
 
 interface SocialAccount {
   id: number; platform: string; username: string | null;

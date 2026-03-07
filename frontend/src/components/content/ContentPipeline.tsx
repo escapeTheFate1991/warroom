@@ -1,7 +1,9 @@
+// TODO: Migrate from localStorage to backend API for persistence across devices
 "use client";
 
 import { useState, useEffect } from "react";
 import { Plus, X, GripVertical, Instagram, Youtube, Clock, User, Lightbulb, PenTool, Film, Scissors, Calendar, CheckCircle2, MoreVertical, Trash2, Edit2 } from "lucide-react";
+import EmptyState from "@/components/ui/EmptyState";
 
 interface ContentCard {
   id: string;
@@ -120,8 +122,18 @@ export default function ContentPipeline() {
         </div>
       </div>
 
+      {/* Empty State */}
+      {cards.length === 0 && (
+        <EmptyState
+          icon={<Film className="w-10 h-10" />}
+          title="No content in your pipeline"
+          description="No content in your pipeline. Click '+ New' to start planning your content."
+          action={{ label: "+ New Idea", onClick: () => setShowAddForm(true) }}
+        />
+      )}
+
       {/* Pipeline Columns */}
-      <div className="flex-1 overflow-x-auto">
+      {cards.length > 0 && <div className="flex-1 overflow-x-auto">
         <div className="flex h-full min-w-max p-4 gap-3">
           {STAGES.map(stage => {
             const stageCards = getStageCards(stage.id);
@@ -213,7 +225,7 @@ export default function ContentPipeline() {
             );
           })}
         </div>
-      </div>
+      </div>}
 
       {/* Add Idea Modal */}
       {showAddForm && (

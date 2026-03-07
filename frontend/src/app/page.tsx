@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import {
   MessageSquare, Zap, Settings, LogOut, Share2, Film, Search,
   UserSquare, Briefcase, Users, Calendar, BookOpen, GraduationCap, Package,
@@ -11,37 +12,53 @@ import {
   BarChart2, PieChart, TrendingUp, UserPlus,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
-import ChatPanel from "@/components/chat/ChatPanel";
-import KanbanPanel from "@/components/kanban/KanbanPanel";
-import LibraryPanel from "@/components/library/LibraryPanel";
-import EducatePanel from "@/components/library/EducatePanel";
-import LeadgenPanel from "@/components/leadgen/LeadgenPanel";
-import SettingsPanel from "@/components/settings/SettingsPanel";
-import ContactsManager from "@/components/crm/ContactsManager";
-import ActivitiesPanel from "@/components/crm/ActivitiesPanel";
-import DealsKanban from "@/components/crm/DealsKanban";
-import ProductsPanel from "@/components/crm/ProductsPanel";
-import SocialDashboard from "@/components/social/SocialDashboard";
-import CampaignsPanel from "@/components/marketing/CampaignsPanel";
-import EmailTemplatesPanel from "@/components/marketing/EmailTemplatesPanel";
-import AgentServiceMap from "@/components/agents/AgentServiceMap";
-import ContentPipeline from "@/components/content/ContentPipeline";
-import CompetitorIntel from "@/components/intelligence/CompetitorIntel";
-import ActivityFeed from "@/components/agents/ActivityFeed";
-import CommandCenter from "@/components/dashboard/CommandCenter";
-import UsageWidget from "@/components/dashboard/UsageWidget";
-import SkillsManager from "@/components/dashboard/SkillsManager";
-import SoulEditor from "@/components/dashboard/SoulEditor";
-import ActivityCalendar from "@/components/dashboard/ActivityCalendar";
-import PlatformContent from "@/components/content/PlatformContent";
-import ContentTracker from "@/components/content/ContentTracker";
-import ContactSubmissions from "@/components/crm/ContactSubmissions";
-import ContractsPanel from "@/components/contracts/ContractsPanel";
 import NotificationBell from "@/components/notifications/NotificationBell";
-import InvoicingPanel from "@/components/invoicing/InvoicingPanel";
-import EmailInbox from "@/components/email/EmailInbox";
-import ReportsOverview from "@/components/reports/ReportsOverview";
-import ProspectsPanel from "@/components/prospects/ProspectsPanel";
+
+const PanelLoader = () => (
+  <div className="flex items-center justify-center h-64">
+    <div className="animate-spin rounded-full h-8 w-8 border-2 border-warroom-accent border-t-transparent" />
+  </div>
+);
+
+const ChatPanel = dynamic(() => import("@/components/chat/ChatPanel"), { loading: PanelLoader });
+const KanbanPanel = dynamic(() => import("@/components/kanban/KanbanPanel"), { loading: PanelLoader });
+const LibraryPanel = dynamic(() => import("@/components/library/LibraryPanel"), { loading: PanelLoader });
+const EducatePanel = dynamic(() => import("@/components/library/EducatePanel"), { loading: PanelLoader });
+const LeadgenPanel = dynamic(() => import("@/components/leadgen/LeadgenPanel"), { loading: PanelLoader });
+const SettingsPanel = dynamic(() => import("@/components/settings/SettingsPanel"), { loading: PanelLoader });
+const ContactsManager = dynamic(() => import("@/components/crm/ContactsManager"), { loading: PanelLoader });
+const ActivitiesPanel = dynamic(() => import("@/components/crm/ActivitiesPanel"), { loading: PanelLoader });
+const DealsKanban = dynamic(() => import("@/components/crm/DealsKanban"), { loading: PanelLoader });
+const ProductsPanel = dynamic(() => import("@/components/crm/ProductsPanel"), { loading: PanelLoader });
+const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboard"), { loading: PanelLoader });
+const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
+const EmailTemplatesPanel = dynamic(() => import("@/components/marketing/EmailTemplatesPanel"), { loading: PanelLoader });
+const AgentServiceMap = dynamic(() => import("@/components/agents/AgentServiceMap"), { loading: PanelLoader });
+const ContentPipeline = dynamic(() => import("@/components/content/ContentPipeline"), { loading: PanelLoader });
+const CompetitorIntel = dynamic(() => import("@/components/intelligence/CompetitorIntel"), { loading: PanelLoader });
+const ActivityFeed = dynamic(() => import("@/components/agents/ActivityFeed"), { loading: PanelLoader });
+const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter"), { loading: PanelLoader });
+const SkillsManager = dynamic(() => import("@/components/dashboard/SkillsManager"), { loading: PanelLoader });
+const SoulEditor = dynamic(() => import("@/components/dashboard/SoulEditor"), { loading: PanelLoader });
+const ActivityCalendar = dynamic(() => import("@/components/dashboard/ActivityCalendar"), { loading: PanelLoader });
+const PlatformContent = dynamic(() => import("@/components/content/PlatformContent"), { loading: PanelLoader });
+const ContentTracker = dynamic(() => import("@/components/content/ContentTracker"), { loading: PanelLoader });
+const ContactSubmissions = dynamic(() => import("@/components/crm/ContactSubmissions"), { loading: PanelLoader });
+const ContractsPanel = dynamic(() => import("@/components/contracts/ContractsPanel"), { loading: PanelLoader });
+const InvoicingPanel = dynamic(() => import("@/components/invoicing/InvoicingPanel"), { loading: PanelLoader });
+const EmailInbox = dynamic(() => import("@/components/email/EmailInbox"), { loading: PanelLoader });
+const ReportsOverview = dynamic(() => import("@/components/reports/ReportsOverview"), { loading: PanelLoader });
+const ProspectsPanel = dynamic(() => import("@/components/prospects/ProspectsPanel"), { loading: PanelLoader });
+
+function ComingSoon({ title }: { title: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-64 text-warroom-muted">
+      <div className="text-4xl mb-4">🚧</div>
+      <h3 className="text-lg font-medium mb-2">{title}</h3>
+      <p className="text-sm">This feature is under development.</p>
+    </div>
+  );
+}
 
 // Sidebar section structure (inspired by RAWGROWTH War Room)
 const SECTIONS = [
@@ -61,7 +78,7 @@ const SECTIONS = [
     items: [
       { id: "content-tracker", label: "Tracker", icon: BarChart3 },
       { id: "social", label: "Analytics", icon: Share2 },
-      { id: "intelligence", label: "Influencers", icon: FileBarChart },
+      { id: "intelligence", label: "Competitor Intel", icon: FileBarChart },
     ],
   },
   {
@@ -125,9 +142,9 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "activity" | "calendar" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
+  | "dashboard" | "chat" | "agents" | "calendar" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
-  | "kanban" | "team" | "leadgen"
+  | "kanban" | "leadgen"
   | "crm-deals" | "crm-contacts" | "crm-activities" | "crm-products" | "crm-submissions"
   | "library-search" | "library-educate"
   | "marketing-campaigns" | "marketing-templates"
@@ -307,7 +324,7 @@ function WarRoom() {
         {activeTab === "dashboard" && <CommandCenter />}
         {activeTab === "chat" && <ChatPanel />}
         {activeTab === "agents" && <AgentServiceMap />}
-        {activeTab === "activity" && <ActivityFeed />}
+
         {activeTab === "social" && <SocialDashboard />}
         {activeTab === "content-instagram" && <PlatformContent platform="instagram" />}
         {activeTab === "content-youtube" && <PlatformContent platform="youtube" />}
@@ -335,8 +352,8 @@ function WarRoom() {
         {activeTab === "invoices" && <InvoicingPanel />}
         {activeTab === "contracts" && <ContractsPanel />}
         {activeTab === "reports-overview" && <ReportsOverview />}
-        {activeTab === "reports-revenue" && <div className="p-8 text-warroom-muted text-center">Revenue Reports — coming soon</div>}
-        {activeTab === "reports-sales" && <div className="p-8 text-warroom-muted text-center">Sales Activity — coming soon</div>}
+        {activeTab === "reports-revenue" && <ComingSoon title="Revenue Reports" />}
+        {activeTab === "reports-sales" && <ComingSoon title="Sales Activity" />}
         {activeTab === "settings" && <SettingsPanel />}
       </main>
     </div>
