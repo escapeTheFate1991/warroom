@@ -123,8 +123,8 @@ export async function login(email: string, password: string): Promise<AuthRespon
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Login failed');
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || `Login failed (${response.status})`);
   }
 
   const authResponse: AuthResponse = await response.json();
@@ -143,8 +143,8 @@ export async function signup(name: string, email: string, password: string): Pro
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || 'Signup failed');
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || `Signup failed (${response.status})`);
   }
 
   const authResponse: AuthResponse = await response.json();
@@ -181,10 +181,14 @@ export async function getCurrentUser(): Promise<User> {
       clearAuthData();
       throw new Error('Authentication expired');
     }
-    throw new Error('Failed to get user data');
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || `Failed to get user data (${response.status})`);
   }
   
-  const user = await response.json();
+  const user: User | null = await response.json().catch(() => null);
+  if (!user) {
+    throw new Error(`Failed to get user data (${response.status})`);
+  }
   // Update stored user data
   if (typeof window !== 'undefined') {
     localStorage.setItem(USER_KEY, JSON.stringify(user));

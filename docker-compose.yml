@@ -1,5 +1,7 @@
 services:
   frontend:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     build:
       context: ./frontend
       args:
@@ -8,6 +10,7 @@ services:
         # Backend runs on Brain 1 (this workstation)
         NEXT_PUBLIC_API_URL: ""
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
+        REWRITE_BACKEND_URL: ${REWRITE_BACKEND_URL:-http://host.docker.internal:8300}
     ports:
       - "3300:3000"
     restart: unless-stopped

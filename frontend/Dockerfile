@@ -12,8 +12,10 @@ COPY . .
 # are NOT read from the container environment at runtime.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8300
 ARG NEXT_PUBLIC_WS_URL=ws://localhost:18789
+ARG REWRITE_BACKEND_URL=http://host.docker.internal:8300
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+ENV REWRITE_BACKEND_URL=$REWRITE_BACKEND_URL
 RUN npm run build
 
 FROM node:20-alpine AS runner
