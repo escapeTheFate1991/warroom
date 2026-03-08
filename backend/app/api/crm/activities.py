@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.crm_db import get_crm_db
-from app.models.crm.activity import Activity, ActivityParticipant
+from app.models.crm.activity import Activity, ActivityParticipant, DealActivity, PersonActivity
 from app.models.crm.audit import AuditLog
 from .schemas import ActivityResponse, ActivityCreate, ActivityUpdate
 
@@ -47,8 +47,11 @@ async def list_activities(
 ):
     """List activities with filtering options."""
     query = select(Activity).options(selectinload(Activity.participants))
-    
-    # Filter by linked entities (would need junction table queries for deal/person)
+
+    if deal_id:
+        query = query.join(DealActivity, DealActivity.activity_id == Activity.id).where(DealActivity.deal_id == deal_id)
+    if person_id:
+        query = query.join(PersonActivity, PersonActivity.activity_id == Activity.id).where(PersonActivity.person_id == person_id)
     if user_id:
         query = query.where(Activity.user_id == user_id)
     if activity_type:
@@ -80,7 +83,7 @@ async def list_activities(
             )
         )
     
-    query = query.order_by(Activity.schedule_from.desc().nulls_last(), Activity.created_at.desc())
+    query = query.distinct().order_by(Activity.schedule_from.desc().nulls_last(), Activity.created_at.desc())
     query = query.offset(offset).limit(limit)
     
     result = await db.execute(query)

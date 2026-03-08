@@ -35,6 +35,8 @@ PUBLIC_PATHS = {
     "/api/notifications/stream",
     # Contact form webhook (public-facing)
     "/api/webhooks/contact",
+    # Telnyx voice webhook (public-facing)
+    "/api/telnyx/webhook",
 }
 
 # Prefix matches (OAuth callbacks only — authorize endpoints require auth

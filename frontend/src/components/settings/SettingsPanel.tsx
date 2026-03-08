@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X, RefreshCw } from "lucide-react";
+import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Package, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X, RefreshCw } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import { useThemeContext } from "@/components/ui/ThemeProvider";
 
@@ -107,6 +107,7 @@ const SETTINGS_TABS = [
   { id: "business", label: "Business Details", icon: Building2 },
   { id: "email", label: "Email & Calendar", icon: Mail },
   { id: "social", label: "Social Media", icon: Share2 },
+  { id: "products", label: "Products", icon: Package },
   { id: "scoring", label: "Lead Scoring", icon: Target },
   { id: "automation", label: "Automation", icon: Bot },
   { id: "access", label: "Access Control", icon: Shield },
@@ -182,6 +183,25 @@ interface Workflow {
   conditions: any;
   actions: any;
   is_active: boolean;
+}
+
+interface Product {
+  id: number;
+  name: string;
+  sku: string | null;
+  description: string | null;
+  price: number | null;
+  quantity: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ProductFormData {
+  name: string;
+  sku: string;
+  description: string;
+  price: string;
+  quantity: string;
 }
 
 export default function SettingsPanel() {
@@ -264,6 +284,21 @@ export default function SettingsPanel() {
     hot: 60,
     warm: 35,
     cold: 15
+  });
+
+  // Product management state
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productError, setProductError] = useState("");
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [productFormData, setProductFormData] = useState<ProductFormData>({
+    name: "",
+    sku: "",
+    description: "",
+    price: "",
+    quantity: "0",
   });
   
   // Access control state
@@ -383,6 +418,26 @@ export default function SettingsPanel() {
       console.error("Failed to load email accounts");
     }
   };
+
+  const loadProducts = useCallback(async () => {
+    setProductsLoading(true);
+    setProductError("");
+    try {
+      const response = await authFetch(`${API}/api/crm/products`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || "Failed to load products");
+      }
+      const data = await response.json();
+      setProducts(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load products";
+      setProductError(message);
+      console.error("Failed to load products:", error);
+    } finally {
+      setProductsLoading(false);
+    }
+  }, []);
 
   const cleanupGmailOAuth = useCallback(() => {
     if (gmailPopupCheckRef.current) {
@@ -566,6 +621,12 @@ export default function SettingsPanel() {
     };
   }, [cleanupGoogleOAuth, cleanupGmailOAuth]);
 
+  useEffect(() => {
+    if (activeTab === "products") {
+      loadProducts();
+    }
+  }, [activeTab, loadProducts]);
+
   const saveSetting = async (key: string) => {
     const value = editValues[key];
     if (value === undefined) return;
@@ -656,6 +717,98 @@ export default function SettingsPanel() {
   const connectSocialPlatform = (platform: string) => {
     // Placeholder for OAuth flow
     alert(`Connect to ${platform} - Configure in Social Media settings`);
+  };
+
+  const handleAddProduct = () => {
+    setEditingProduct(null);
+    setProductError("");
+    setProductFormData({
+      name: "",
+      sku: "",
+      description: "",
+      price: "",
+      quantity: "0",
+    });
+    setShowProductModal(true);
+  };
+
+  const handleEditProduct = (product: Product) => {
+    setEditingProduct(product);
+    setProductError("");
+    setProductFormData({
+      name: product.name,
+      sku: product.sku || "",
+      description: product.description || "",
+      price: product.price?.toString() || "",
+      quantity: product.quantity.toString(),
+    });
+    setShowProductModal(true);
+  };
+
+  const handleCloseProductModal = () => {
+    setShowProductModal(false);
+    setEditingProduct(null);
+  };
+
+  const handleSubmitProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingProduct(true);
+    setProductError("");
+
+    try {
+      const payload = {
+        name: productFormData.name.trim(),
+        sku: productFormData.sku.trim() || null,
+        description: productFormData.description.trim() || null,
+        price: productFormData.price === "" ? null : parseFloat(productFormData.price),
+        quantity: productFormData.quantity === "" ? 0 : parseInt(productFormData.quantity, 10) || 0,
+      };
+
+      const response = await authFetch(
+        editingProduct ? `${API}/api/crm/products/${editingProduct.id}` : `${API}/api/crm/products`,
+        {
+          method: editingProduct ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || "Failed to save product");
+      }
+
+      handleCloseProductModal();
+      loadProducts();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save product";
+      setProductError(message);
+      console.error("Failed to save product:", error);
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
+  const handleDeleteProduct = async (product: Product) => {
+    if (!confirm(`Are you sure you want to delete "${product.name}"?`)) return;
+
+    setProductError("");
+    try {
+      const response = await authFetch(`${API}/api/crm/products/${product.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || "Failed to delete product");
+      }
+
+      loadProducts();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete product";
+      setProductError(message);
+      console.error("Failed to delete product:", error);
+    }
   };
 
   // Group settings by category
@@ -1537,6 +1690,254 @@ export default function SettingsPanel() {
     );
   };
 
+  const renderProductsTab = () => {
+    const formatPrice = (price: number | null) => {
+      if (price === null) return "—";
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+      }).format(price);
+    };
+
+    const getProductStatus = (product: Product) => {
+      if (product.quantity > 10) {
+        return { label: "In stock", detail: `${product.quantity} available`, className: "bg-green-500/20 text-green-400" };
+      }
+      if (product.quantity > 0) {
+        return { label: "Low stock", detail: `${product.quantity} left`, className: "bg-yellow-500/20 text-yellow-400" };
+      }
+      return { label: "Out of stock", detail: "0 available", className: "bg-red-500/20 text-red-400" };
+    };
+
+    return (
+      <>
+        <div className="space-y-6">
+          <section>
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center">
+                  <Package size={16} className="text-warroom-accent" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold">Products</h3>
+                  <p className="text-xs text-warroom-muted">Manage your product catalog for CRM deals and quoting.</p>
+                </div>
+              </div>
+              <button
+                onClick={handleAddProduct}
+                className="flex items-center gap-2 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition"
+              >
+                <Plus size={16} />
+                Add Product
+              </button>
+            </div>
+
+            {productError && (
+              <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">
+                <AlertCircle size={14} />
+                <span>{productError}</span>
+              </div>
+            )}
+
+            {productsLoading ? (
+              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-10 flex items-center justify-center text-warroom-muted">
+                <Loader2 size={18} className="animate-spin mr-2" />
+                Loading products...
+              </div>
+            ) : products.length === 0 ? (
+              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-10 text-center">
+                <div className="w-12 h-12 mx-auto mb-4 rounded-xl bg-warroom-accent/10 flex items-center justify-center">
+                  <Package size={22} className="text-warroom-accent" />
+                </div>
+                <h4 className="text-sm font-semibold text-warroom-text">No products yet</h4>
+                <p className="text-sm text-warroom-muted mt-2 mb-5">Add products here to make them available throughout the CRM.</p>
+                <button
+                  onClick={handleAddProduct}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition"
+                >
+                  <Plus size={14} />
+                  Add Product
+                </button>
+              </div>
+            ) : (
+              <div className="bg-warroom-surface border border-warroom-border rounded-xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="bg-warroom-bg border-b border-warroom-border">
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-warroom-muted">Name</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-warroom-muted">Price</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-warroom-muted">Description</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-warroom-muted">Status</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-warroom-muted">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {products.map((product) => {
+                        const status = getProductStatus(product);
+                        return (
+                          <tr key={product.id} className="border-b border-warroom-border/50 last:border-b-0 hover:bg-warroom-bg/40 transition">
+                            <td className="px-4 py-4 align-top">
+                              <p className="font-medium text-warroom-text">{product.name}</p>
+                              <p className="text-xs text-warroom-muted mt-1">SKU: {product.sku || "—"}</p>
+                            </td>
+                            <td className="px-4 py-4 align-top text-warroom-text font-medium">{formatPrice(product.price)}</td>
+                            <td className="px-4 py-4 align-top text-warroom-muted max-w-md">
+                              <p className="line-clamp-2">{product.description || "No description provided."}</p>
+                            </td>
+                            <td className="px-4 py-4 align-top">
+                              <span className={`inline-flex flex-col px-2.5 py-1 rounded-full text-xs font-medium ${status.className}`}>
+                                <span>{status.label}</span>
+                                <span className="opacity-80">{status.detail}</span>
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 align-top">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleEditProduct(product)}
+                                  className="p-2 text-warroom-muted hover:text-warroom-accent hover:bg-warroom-bg rounded-lg transition"
+                                  title="Edit product"
+                                >
+                                  <Edit size={14} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteProduct(product)}
+                                  className="p-2 text-warroom-muted hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
+                                  title="Delete product"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+
+        {showProductModal && (
+          <div className="fixed inset-0 z-50 overflow-y-auto">
+            <div className="flex min-h-screen items-center justify-center px-4 py-8">
+              <div className="absolute inset-0 bg-black/50" onClick={handleCloseProductModal} />
+              <div className="relative w-full max-w-lg bg-warroom-surface border border-warroom-border rounded-xl overflow-hidden shadow-xl">
+                <form onSubmit={handleSubmitProduct}>
+                  <div className="px-6 py-4 border-b border-warroom-border flex items-center justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold text-warroom-text">
+                        {editingProduct ? "Edit Product" : "Add Product"}
+                      </h4>
+                      <p className="text-xs text-warroom-muted mt-1">Products added here are available throughout the CRM.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCloseProductModal}
+                      className="text-warroom-muted hover:text-warroom-text transition"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <div className="px-6 py-5 space-y-4">
+                    {productError && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">
+                        <AlertCircle size={14} />
+                        <span>{productError}</span>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-medium text-warroom-muted mb-1">Product Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={productFormData.name}
+                        onChange={(e) => setProductFormData((prev) => ({ ...prev, name: e.target.value }))}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                        placeholder="Enter product name"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-warroom-muted mb-1">SKU</label>
+                      <input
+                        type="text"
+                        value={productFormData.sku}
+                        onChange={(e) => setProductFormData((prev) => ({ ...prev, sku: e.target.value }))}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent font-mono"
+                        placeholder="Optional SKU"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-warroom-muted mb-1">Description</label>
+                      <textarea
+                        value={productFormData.description}
+                        onChange={(e) => setProductFormData((prev) => ({ ...prev, description: e.target.value }))}
+                        rows={3}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent resize-none"
+                        placeholder="Optional product description"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-warroom-muted mb-1">Price</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={productFormData.price}
+                          onChange={(e) => setProductFormData((prev) => ({ ...prev, price: e.target.value }))}
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                          placeholder="0.00"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-warroom-muted mb-1">Quantity</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={productFormData.quantity}
+                          onChange={(e) => setProductFormData((prev) => ({ ...prev, quantity: e.target.value }))}
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="px-6 py-4 border-t border-warroom-border flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={handleCloseProductModal}
+                      className="px-4 py-2 text-sm border border-warroom-border text-warroom-text hover:bg-warroom-bg rounded-lg transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingProduct}
+                      className="px-4 py-2 text-sm bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-60 text-white rounded-lg transition flex items-center gap-2"
+                    >
+                      {savingProduct ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                      {savingProduct ? "Saving..." : editingProduct ? "Update Product" : "Add Product"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
   const renderAutomationTab = () => {
     return (
       <div className="space-y-6">
@@ -1785,11 +2186,12 @@ export default function SettingsPanel() {
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-2xl mx-auto">
+        <div className={activeTab === "products" ? "max-w-6xl mx-auto" : "max-w-2xl mx-auto"}>
           {activeTab === "general" && renderGeneralTab()}
           {activeTab === "business" && renderBusinessTab()}
           {activeTab === "email" && renderEmailTab()}
           {activeTab === "social" && renderSocialTab()}
+          {activeTab === "products" && renderProductsTab()}
           {activeTab === "scoring" && renderScoringTab()}
           {activeTab === "automation" && renderAutomationTab()}
           {activeTab === "access" && renderAccessTab()}

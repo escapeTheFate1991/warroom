@@ -9,10 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from pydantic import BaseModel
 
 from app.db.crm_db import get_crm_db
 from app.models.crm.deal import Deal, Pipeline, PipelineStage, LeadSource, LeadType
 from app.models.crm.contact import Person, Organization
+from app.models.crm.activity import Activity, DealActivity
 from app.models.crm.audit import AuditLog
 from .schemas import (
     DealResponse, DealCreate, DealUpdate, DealStageMove, DealForecast,
@@ -21,6 +23,71 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class DealActivityLinkRequest(BaseModel):
+    activity_id: int
+
+
+DEAL_RELATION_OPTIONS = (
+    selectinload(Deal.user),
+    selectinload(Deal.person),
+    selectinload(Deal.organization),
+    selectinload(Deal.source),
+    selectinload(Deal.type),
+    selectinload(Deal.pipeline),
+    selectinload(Deal.stage),
+)
+
+
+def serialize_deal(deal: Deal) -> DealResponse:
+    reference_time = deal.updated_at or deal.created_at
+    if reference_time is None:
+        days_in_stage = 0
+    else:
+        now = datetime.now(reference_time.tzinfo) if reference_time.tzinfo else datetime.utcnow()
+        days_in_stage = max((now - reference_time).days, 0)
+
+    rotten_days = deal.pipeline.rotten_days if deal.pipeline and deal.pipeline.rotten_days is not None else 30
+    is_rotten = deal.status is None and days_in_stage > rotten_days
+
+    return DealResponse(
+        id=deal.id,
+        title=deal.title,
+        description=deal.description,
+        deal_value=deal.deal_value,
+        status=deal.status,
+        lost_reason=deal.lost_reason,
+        expected_close_date=deal.expected_close_date,
+        closed_at=deal.closed_at,
+        user_id=deal.user_id,
+        person_id=deal.person_id,
+        organization_id=deal.organization_id,
+        source_id=deal.source_id,
+        type_id=deal.type_id,
+        pipeline_id=deal.pipeline_id,
+        stage_id=deal.stage_id,
+        leadgen_lead_id=deal.leadgen_lead_id,
+        person_name=deal.person.name if deal.person else None,
+        organization_name=deal.organization.name if deal.organization else None,
+        source_name=deal.source.name if deal.source else None,
+        type_name=deal.type.name if deal.type else None,
+        pipeline_name=deal.pipeline.name if deal.pipeline else None,
+        stage_name=deal.stage.name if deal.stage else None,
+        stage_probability=deal.stage.probability if deal.stage and deal.stage.probability is not None else 0,
+        user_name=deal.user.name if deal.user else None,
+        days_in_stage=days_in_stage,
+        is_rotten=is_rotten,
+        created_at=deal.created_at,
+        updated_at=deal.updated_at,
+    )
+
+
+async def load_deal_with_related(db: AsyncSession, deal_id: int) -> Optional[Deal]:
+    result = await db.execute(
+        select(Deal).options(*DEAL_RELATION_OPTIONS).where(Deal.id == deal_id)
+    )
+    return result.scalar_one_or_none()
 
 
 async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: str, 
@@ -49,12 +116,7 @@ async def list_deals(
     db: AsyncSession = Depends(get_crm_db),
 ):
     """List deals with filtering options."""
-    query = select(Deal).options(
-        selectinload(Deal.person),
-        selectinload(Deal.organization),
-        selectinload(Deal.pipeline),
-        selectinload(Deal.stage)
-    )
+    query = select(Deal).options(*DEAL_RELATION_OPTIONS)
     
     if pipeline_id:
         query = query.where(Deal.pipeline_id == pipeline_id)
@@ -76,28 +138,18 @@ async def list_deals(
     
     result = await db.execute(query)
     deals = result.scalars().all()
-    return deals
+    return [serialize_deal(deal) for deal in deals]
 
 
 @router.get("/deals/{deal_id}", response_model=DealResponse)
 async def get_deal(deal_id: int, db: AsyncSession = Depends(get_crm_db)):
     """Get single deal with related data."""
-    query = select(Deal).options(
-        selectinload(Deal.person),
-        selectinload(Deal.organization),
-        selectinload(Deal.pipeline),
-        selectinload(Deal.stage),
-        selectinload(Deal.source),
-        selectinload(Deal.type)
-    ).where(Deal.id == deal_id)
-    
-    result = await db.execute(query)
-    deal = result.scalar_one_or_none()
+    deal = await load_deal_with_related(db, deal_id)
     
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
     
-    return deal
+    return serialize_deal(deal)
 
 
 @router.post("/deals", response_model=DealResponse)
@@ -132,7 +184,11 @@ async def create_deal(deal_data: DealCreate, db: AsyncSession = Depends(get_crm_
     await log_audit(db, "deal", deal.id, "created", deal_data.user_id, new_values=deal_data.model_dump())
     await db.commit()
     
-    return deal
+    serialized_deal = await load_deal_with_related(db, deal.id)
+    if not serialized_deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+
+    return serialize_deal(serialized_deal)
 
 
 @router.put("/deals/{deal_id}", response_model=DealResponse)
@@ -174,7 +230,42 @@ async def update_deal(deal_id: int, deal_data: DealUpdate, db: AsyncSession = De
     await log_audit(db, "deal", deal.id, "updated", deal_data.user_id, old_values, update_data)
     await db.commit()
     
-    return deal
+    serialized_deal = await load_deal_with_related(db, deal.id)
+    if not serialized_deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+
+    return serialize_deal(serialized_deal)
+
+
+@router.post("/deals/{deal_id}/activities")
+async def link_activity_to_deal(
+    deal_id: int,
+    payload: DealActivityLinkRequest,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Link an existing activity to a deal."""
+    deal_result = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = deal_result.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+
+    activity_result = await db.execute(select(Activity).where(Activity.id == payload.activity_id))
+    activity = activity_result.scalar_one_or_none()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    existing_link = await db.execute(
+        select(DealActivity).where(
+            DealActivity.deal_id == deal_id,
+            DealActivity.activity_id == payload.activity_id,
+        )
+    )
+    if existing_link.scalar_one_or_none():
+        return {"status": "already_linked", "deal_id": deal_id, "activity_id": payload.activity_id}
+
+    db.add(DealActivity(deal_id=deal_id, activity_id=payload.activity_id))
+    await db.commit()
+    return {"status": "linked", "deal_id": deal_id, "activity_id": payload.activity_id}
 
 
 @router.delete("/deals/{deal_id}")
@@ -239,7 +330,11 @@ async def move_deal_stage(deal_id: int, stage_move: DealStageMove, user_id: Opti
                    {"stage_id": old_stage_id}, {"stage_id": stage_move.stage_id})
     await db.commit()
     
-    return deal
+    serialized_deal = await load_deal_with_related(db, deal.id)
+    if not serialized_deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+
+    return serialize_deal(serialized_deal)
 
 
 @router.get("/deals/forecast", response_model=List[DealForecast])
@@ -362,4 +457,8 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
     await db.commit()
     await db.refresh(deal)
     
-    return deal
+    serialized_deal = await load_deal_with_related(db, deal.id)
+    if not serialized_deal:
+        raise HTTPException(status_code=404, detail="Deal not found")
+
+    return serialize_deal(serialized_deal)

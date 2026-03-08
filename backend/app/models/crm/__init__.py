@@ -11,6 +11,8 @@ from .user import User, Role, Group, UserGroup
 from .contact import Person, Organization, Tag, PersonTag, DealTag
 from .deal import Deal, Pipeline, PipelineStage, LeadSource, LeadType, DealProduct
 from .activity import Activity, ActivityParticipant, DealActivity, PersonActivity
+from .call_log import CallLog
+from .sms_message import SMSMessage
 from .product import Product
 from .email import Email, EmailAttachment, EmailTemplate
 from .marketing import MarketingCampaign, MarketingEvent
@@ -28,6 +30,8 @@ __all__ = [
     "Person", "Organization", "Tag", "PersonTag", "DealTag",
     "Deal", "Pipeline", "PipelineStage", "LeadSource", "LeadType", "DealProduct",
     "Activity", "ActivityParticipant", "DealActivity", "PersonActivity",
+    "CallLog",
+    "SMSMessage",
     "Product",
     "Email", "EmailAttachment", "EmailTemplate",
     "MarketingCampaign", "MarketingEvent",
