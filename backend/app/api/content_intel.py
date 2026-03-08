@@ -1844,3 +1844,49 @@ async def get_competitor_hashtags(
     except Exception as e:
         logger.error("Failed to get hashtags for competitor %s: %s", competitor_id, e)
         raise HTTPException(status_code=500, detail="Failed to get hashtags")
+
+
+@router.post("/sync-all")
+async def sync_all_competitors(db: AsyncSession = Depends(get_crm_db)):
+    """Sync all active competitors via batch Instagram scraping. Called by cron."""
+    try:
+        # Load all active Instagram competitors
+        result = await db.execute(
+            select(Competitor)
+            .where(Competitor.platform == "instagram")
+            .where(Competitor.auto_sync_enabled == True)
+        )
+        competitors = result.scalars().all()
+        
+        if not competitors:
+            return {
+                "message": "No active Instagram competitors found to sync",
+                "total": 0,
+                "success": 0,
+                "failed": 0
+            }
+        
+        # Run batch sync
+        batch_result = await sync_instagram_competitor_batch(db, competitors)
+        await db.commit()
+        
+        return {
+            "message": f"Sync completed: {batch_result.success} succeeded, {batch_result.failed} failed",
+            "total": len(competitors),
+            "success": batch_result.success,
+            "failed": batch_result.failed,
+            "posts_saved": batch_result.posts_saved,
+            "details": [
+                {
+                    "handle": profile.handle,
+                    "status": "failed" if profile.error else "success",
+                    "error": profile.error
+                }
+                for profile in batch_result.profiles
+            ]
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        logger.error("Failed to sync all competitors: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to sync all competitors")
