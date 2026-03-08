@@ -49,6 +49,8 @@ interface TopContentPost {
   competitor_handle: string;
   timestamp: string;
   url?: string;
+  start_time?: number; // Video start time in seconds
+  end_time?: number;   // Video end time in seconds
 }
 
 interface Hook {
@@ -146,6 +148,14 @@ function formatNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
   return n.toLocaleString();
+}
+
+// Format time in MM:SS format for video chunks
+function formatTime(seconds?: number): string | null {
+  if (seconds === undefined || seconds === null) return null;
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 function formatPercent(n: number, digits = 1): string {
@@ -1219,7 +1229,15 @@ export default function CompetitorIntel() {
                           <span>💬 {formatNum(post.comments)}</span>
                           {post.shares > 0 && <span>👁 {formatNum(post.shares)}</span>}
                         </div>
-                        {post.timestamp && <span>{timeAgo(post.timestamp)}</span>}
+                        <div className="flex items-center gap-2">
+                          {/* Video chunk timestamps */}
+                          {(post.start_time !== undefined && post.end_time !== undefined) && (
+                            <span className="text-warroom-accent bg-warroom-bg px-1.5 py-0.5 rounded text-[10px] font-mono">
+                              {formatTime(post.start_time)}-{formatTime(post.end_time)}
+                            </span>
+                          )}
+                          {post.timestamp && <span>{timeAgo(post.timestamp)}</span>}
+                        </div>
                       </div>
                       
                       <div className="mt-2 bg-warroom-bg rounded px-2 py-1 flex items-center justify-between gap-2">
