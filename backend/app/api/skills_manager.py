@@ -63,6 +63,48 @@ def _parse_skill_md(skill_path: Path):
     return {"name": name, "description": description}
 
 
+CATEGORY_PATTERNS = {
+    "development": ["code", "developer", "coding", "debug", "refactor", "typescript", "javascript", "python", "react",
+                     "next", "angular", "vue", "svelte", "node", "fastapi", "django", "flask", "rust", "go-",
+                     "java-", "kotlin", "swift", "flutter", "android", "ios", "mobile", "frontend", "backend",
+                     "fullstack", "full-stack", "api-", "graphql", "rest-", "database", "postgres", "mongo",
+                     "redis", "prisma", "orm", "sql", "git", "github", "testing", "jest", "pytest", "cypress",
+                     "playwright", "webpack", "vite", "tailwind", "css-", "html-", "arm-cortex", "embedded",
+                     "firmware", "clean-code", "architecture", "solid-", "design-pattern"],
+    "devops": ["docker", "kubernetes", "k8s", "terraform", "aws-", "azure-", "gcp-", "cloud", "ci-cd", "cicd",
+               "deploy", "infrastructure", "monitoring", "observability", "nginx", "linux", "server",
+               "pipeline", "helm", "ansible", "vagrant"],
+    "ai-ml": ["ai-", "ml-", "llm", "agent", "rag", "embedding", "vector", "prompt", "model",
+              "openai", "anthropic", "langchain", "langgraph", "crewai", "autogen", "mcp",
+              "machine-learning", "deep-learning", "neural", "transformer", "fine-tun"],
+    "security": ["security", "pentest", "exploit", "vulnerability", "owasp", "auth-", "hack",
+                 "forensic", "malware", "reverse-eng", "crypto-", "encryption", "firewall",
+                 "active-directory", "fuzzing", "bug-bounty"],
+    "marketing": ["marketing", "seo", "content-", "social-media", "copywrite", "copy-", "brand",
+                  "analytics", "campaign", "email-market", "influencer", "audience", "trend",
+                  "competitor", "lead-gen", "conversion", "ab-test", "app-store-optim"],
+    "design": ["design", "ui-", "ux-", "figma", "accessibility", "responsive", "animation",
+               "3d-web", "three-js", "webgl", "illustration", "color", "typography"],
+    "data": ["data-", "etl", "airflow", "spark", "dbt", "warehouse", "pipeline", "analytics",
+             "visualization", "tableau", "bigquery", "snowflake", "kafka", "streaming"],
+    "automation": ["automat", "workflow", "n8n", "zapier", "scraper", "scraping", "apify",
+                   "airtable", "notion", "slack-", "discord-", "telegram", "webhook",
+                   "cron", "scheduler", "activecampaign", "hubspot", "salesforce", "asana"],
+    "documentation": ["document", "docs-", "readme", "changelog", "adr", "wiki", "onboard",
+                      "tutorial", "guide", "api-doc", "swagger", "openapi"],
+}
+
+
+def _categorize_skill(skill_id: str, description: str) -> list[str]:
+    """Infer categories from skill name and description."""
+    text = f"{skill_id} {description}".lower()
+    cats = []
+    for cat, patterns in CATEGORY_PATTERNS.items():
+        if any(p in text for p in patterns):
+            cats.append(cat)
+    return cats or ["other"]
+
+
 def _scan_skills():
     config = _read_config()
     entries = config.get("skills", {}).get("entries", {})
@@ -74,10 +116,12 @@ def _scan_skills():
             if d.is_dir() and (d / "SKILL.md").exists():
                 meta = _parse_skill_md(d)
                 enabled = entries.get(d.name, {}).get("enabled", True) if d.name in entries else True
+                cats = _categorize_skill(d.name, meta["description"])
                 skills.append({
                     "id": d.name,
                     "name": meta["name"],
                     "description": meta["description"],
+                    "categories": cats,
                     "source": "workspace",
                     "enabled": enabled,
                     "path": str(d),
@@ -89,10 +133,12 @@ def _scan_skills():
             if d.is_dir() and (d / "SKILL.md").exists():
                 meta = _parse_skill_md(d)
                 enabled = entries.get(d.name, {}).get("enabled", True) if d.name in entries else True
+                cats = _categorize_skill(d.name, meta["description"])
                 skills.append({
                     "id": d.name,
                     "name": meta["name"],
                     "description": meta["description"],
+                    "categories": cats,
                     "source": "bundled",
                     "enabled": enabled,
                     "path": str(d),
