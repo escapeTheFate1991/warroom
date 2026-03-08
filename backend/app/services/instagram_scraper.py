@@ -369,12 +369,8 @@ async def _login_to_instagram(context) -> bool:
         )
         await password_input.fill(password)
         
-        # Click login button — Instagram uses div[role="button"] not <button type="submit">
-        # Try multiple selectors: the visible role=button with "Log in", or form submit
-        login_btn = await page.wait_for_selector(
-            '[role="button"]:has-text("Log in"):not(:has-text("Facebook"))', timeout=5000
-        )
-        await login_btn.click()
+        # Submit login — just press Enter on the password field
+        await password_input.press("Enter")
         
         # Wait for navigation away from login page
         await asyncio.sleep(5)
