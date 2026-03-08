@@ -295,7 +295,7 @@ async def _has_valid_session(context) -> bool:
         await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=15000)
         await asyncio.sleep(2)
         # If we're logged in, we won't see the login form
-        login_form = await page.query_selector('input[name="username"]')
+        login_form = await page.query_selector('input[name="username"], input[name="email"]')
         is_logged_in = login_form is None
         if is_logged_in:
             logger.info("Session cookies are valid — already logged in")
@@ -358,15 +358,21 @@ async def _login_to_instagram(context) -> bool:
         
         await asyncio.sleep(1)
         
-        # Fill login form
-        username_input = await page.wait_for_selector('input[name="username"]', timeout=15000)
+        # Fill login form — Instagram uses name="email" and name="pass" (not "username"/"password")
+        username_input = await page.wait_for_selector(
+            'input[name="username"], input[name="email"]', timeout=15000
+        )
         await username_input.fill(username)
         
-        password_input = await page.wait_for_selector('input[name="password"]', timeout=5000)
+        password_input = await page.wait_for_selector(
+            'input[name="password"], input[name="pass"]', timeout=5000
+        )
         await password_input.fill(password)
         
         # Click login button
-        login_btn = await page.wait_for_selector('button[type="submit"]', timeout=5000)
+        login_btn = await page.wait_for_selector(
+            'button[type="submit"], input[type="submit"]', timeout=5000
+        )
         await login_btn.click()
         
         # Wait for navigation away from login page
@@ -400,7 +406,7 @@ async def _login_to_instagram(context) -> bool:
         
         # Verify we're logged in
         await asyncio.sleep(2)
-        login_check = await page.query_selector('input[name="username"]')
+        login_check = await page.query_selector('input[name="username"], input[name="email"]')
         if login_check:
             logger.error("Still on login page after submit — login likely failed")
             await page.close()
