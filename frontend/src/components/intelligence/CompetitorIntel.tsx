@@ -189,6 +189,7 @@ export default function CompetitorIntel() {
   const [expandedCompetitor, setExpandedCompetitor] = useState<number | null>(null);
   const [focusedCompetitor, setFocusedCompetitor] = useState<Competitor | null>(null);
   const [competitorPosts, setCompetitorPosts] = useState<CompetitorPost[]>([]);
+  const [competitorDetailTab, setCompetitorDetailTab] = useState<"overview" | "dossier">("overview");
   
   const [showAddCompetitor, setShowAddCompetitor] = useState(false);
   const [showGenerateScript, setShowGenerateScript] = useState(false);
@@ -927,14 +928,34 @@ export default function CompetitorIntel() {
                     </div>
                   </div>
 
-                  {/* Bio */}
-                  {focusedCompetitor.bio && (
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
-                      <p className="text-sm text-warroom-text whitespace-pre-line">{focusedCompetitor.bio}</p>
-                    </div>
-                  )}
+                  {/* Competitor Detail Tabs */}
+                  <div className="flex border-b border-warroom-border">
+                    <button 
+                      onClick={() => setCompetitorDetailTab("overview")}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
+                        competitorDetailTab === "overview" 
+                          ? "border-warroom-accent text-warroom-accent" 
+                          : "border-transparent text-warroom-muted hover:text-warroom-text"
+                      }`}
+                    >
+                      Content Overview
+                    </button>
+                    <button 
+                      onClick={() => setCompetitorDetailTab("dossier")}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
+                        competitorDetailTab === "dossier" 
+                          ? "border-warroom-accent text-warroom-accent" 
+                          : "border-transparent text-warroom-muted hover:text-warroom-text"
+                      }`}
+                    >
+                      Dossier
+                    </button>
+                  </div>
 
-                  {/* ── Top Videos / Posts ── */}
+                  {/* Content Overview Tab */}
+                  {competitorDetailTab === "overview" && (
+                    <>
+                      {/* ── Top Videos / Posts ── */}
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <Flame size={16} className="text-orange-400" />
@@ -1101,6 +1122,80 @@ export default function CompetitorIntel() {
                       </div>
                     )}
                   </div>
+                    </>
+                  )}
+
+                  {/* Dossier Tab */}
+                  {competitorDetailTab === "dossier" && (
+                    <div className="space-y-6">
+                      {/* Bio Information */}
+                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <User size={16} className="text-warroom-accent" />
+                          <h4 className="text-sm font-semibold">Bio Information</h4>
+                        </div>
+                        {focusedCompetitor.bio ? (
+                          <p className="text-sm text-warroom-text whitespace-pre-line">{focusedCompetitor.bio}</p>
+                        ) : (
+                          <p className="text-sm text-warroom-muted italic">No bio available</p>
+                        )}
+                      </div>
+
+                      {/* Business Intelligence */}
+                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Target size={16} className="text-warroom-accent" />
+                          <h4 className="text-sm font-semibold">Business Intelligence</h4>
+                        </div>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Detected Products/Services</p>
+                            <p className="text-sm text-warroom-muted italic">Analysis coming soon...</p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Business Type</p>
+                            <p className="text-sm text-warroom-muted italic">Analysis coming soon...</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Links & References */}
+                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <ExternalLink size={16} className="text-warroom-accent" />
+                          <h4 className="text-sm font-semibold">Links & References</h4>
+                        </div>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Links Found in Captions</p>
+                            <p className="text-sm text-warroom-muted italic">Link extraction coming soon...</p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Affiliate Links</p>
+                            <p className="text-sm text-warroom-muted italic">Analysis coming soon...</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Network Intelligence */}
+                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Users size={16} className="text-warroom-accent" />
+                          <h4 className="text-sm font-semibold">Network Intelligence</h4>
+                        </div>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Linked Accounts Mentioned</p>
+                            <p className="text-sm text-warroom-muted italic">Account linking analysis coming soon...</p>
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Collaboration Network</p>
+                            <p className="text-sm text-warroom-muted italic">Network mapping coming soon...</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                 </div>
               ) : (
