@@ -1557,6 +1557,23 @@ export default function CompetitorIntel() {
                                 </div>
                               </div>
                             </div>
+                            <button onClick={async (e) => {
+                                e.stopPropagation();
+                                const btn = e.currentTarget;
+                                btn.classList.add("animate-spin");
+                                try {
+                                  const resp = await authFetch(`${API}/api/scraper/instagram/${comp.handle}`, { method: "POST" });
+                                  if (resp.ok) {
+                                    await fetchCompetitors();
+                                  }
+                                } catch { /* ignore */ } finally {
+                                  btn.classList.remove("animate-spin");
+                                }
+                              }}
+                              className="text-warroom-muted hover:text-warroom-accent transition"
+                              title="Sync this competitor">
+                              <RefreshCw size={14} />
+                            </button>
                             <button onClick={(e) => { e.stopPropagation(); deleteCompetitor(comp.id); }}
                               className="text-warroom-muted hover:text-red-400 transition">
                               <Trash2 size={14} />
