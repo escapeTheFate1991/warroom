@@ -84,6 +84,10 @@ export default function KanbanPanel() {
   const [newTagText, setNewTagText] = useState("");
   const [creating, setCreating] = useState(false);
 
+  // Agent state
+  const [agents, setAgents] = useState<{ id: string; name: string; emoji: string; role: string; model: string; openclaw_agent_id: string | null }[]>([]);
+  const [dispatching, setDispatching] = useState<number | null>(null);
+
   // Dependency state
   const [allDeps, setAllDeps] = useState<Record<number, TaskDeps>>({});
   const [selectedTaskDeps, setSelectedTaskDeps] = useState<TaskDeps | null>(null);
@@ -117,6 +121,13 @@ export default function KanbanPanel() {
   }, []);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
+
+  // Fetch agents for assignment dropdown
+  useEffect(() => {
+    authFetch(`${API}/api/agents`).then(r => r.ok ? r.json() : []).then(data => {
+      if (Array.isArray(data)) setAgents(data);
+    }).catch(() => {});
+  }, []);
 
   // Refresh deps whenever tasks change
   useEffect(() => {
@@ -237,6 +248,27 @@ export default function KanbanPanel() {
       if (selectedTask?.id === taskId) setSelectedTask(null);
     } catch {
       console.error("Failed to delete task");
+    }
+  };
+
+  const dispatchTask = async (taskId: number, agentId: string) => {
+    setDispatching(taskId);
+    try {
+      const resp = await authFetch(`${API}/api/task-execution/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: taskId, agent_id: agentId || undefined }),
+      });
+      if (resp.ok) {
+        const result = await resp.json();
+        // Update task status locally
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: result.success ? "done" : "in-progress" } : t));
+        fetchTasks();
+      }
+    } catch (err) {
+      console.error("Dispatch failed:", err);
+    } finally {
+      setDispatching(null);
     }
   };
 
@@ -474,8 +506,14 @@ export default function KanbanPanel() {
                 </div>
                 <div>
                   <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Assignee</label>
-                  <input value={newAssignee} onChange={(e) => setNewAssignee(e.target.value)} placeholder="friday"
-                    className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2.5 text-warroom-text focus:border-warroom-accent outline-none" />
+                  <select value={newAssignee} onChange={(e) => setNewAssignee(e.target.value)}
+                    className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2.5 text-warroom-text focus:border-warroom-accent outline-none">
+                    <option value="eddy">Eddy</option>
+                    <option value="friday">Friday</option>
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id}>{a.emoji} {a.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -579,8 +617,14 @@ export default function KanbanPanel() {
                 <div>
                   <label className="text-xs font-medium text-warroom-muted uppercase tracking-wider block mb-1.5">Assignee</label>
                   {editMode ? (
-                    <input value={editAssignee} onChange={(e) => setEditAssignee(e.target.value)}
-                      className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-warroom-text focus:border-warroom-accent outline-none" />
+                    <select value={editAssignee} onChange={(e) => setEditAssignee(e.target.value)}
+                      className="w-full text-sm bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-warroom-text focus:border-warroom-accent outline-none">
+                      <option value="eddy">Eddy</option>
+                      <option value="friday">Friday</option>
+                      {agents.map(a => (
+                        <option key={a.id} value={a.id}>{a.emoji} {a.name}</option>
+                      ))}
+                    </select>
                   ) : (
                     <p className="text-sm text-warroom-text">{selectedTask.assignee}</p>
                   )}
@@ -712,6 +756,24 @@ export default function KanbanPanel() {
                 <Trash2 size={14} /> Delete
               </button>
               <div className="flex items-center gap-2">
+                {/* Dispatch to Agent */}
+                {selectedTask.status !== "done" && !editMode && (
+                  <button
+                    onClick={() => {
+                      // Find agent matching assignee, or dispatch to friday
+                      const agent = agents.find(a => a.id === selectedTask.assignee || a.name.toLowerCase() === selectedTask.assignee.toLowerCase());
+                      dispatchTask(selectedTask.id, agent?.id || "");
+                    }}
+                    disabled={dispatching === selectedTask.id}
+                    className="flex items-center gap-1.5 text-xs bg-green-500/20 text-green-400 px-3 py-2 rounded-lg hover:bg-green-500/30 transition disabled:opacity-40"
+                  >
+                    {dispatching === selectedTask.id ? (
+                      <><Brain size={14} className="animate-spin" /> Dispatching…</>
+                    ) : (
+                      <><Play size={14} /> Dispatch</>
+                    )}
+                  </button>
+                )}
                 {editMode && (
                   <button onClick={() => setEditMode(false)} className="text-xs text-warroom-muted hover:text-warroom-text px-3 py-2 transition">Cancel</button>
                 )}

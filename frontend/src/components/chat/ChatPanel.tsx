@@ -177,8 +177,15 @@ function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
 
           {/* Model Override */}
           <div>
-            <label className="text-[9px] text-warroom-muted uppercase tracking-wide font-medium">Model Override</label>
-            {models.length > 0 ? (
+            <label className="text-[9px] text-warroom-muted uppercase tracking-wide font-medium">
+              {activeAgent !== "main" ? `Model (${activeAgentData?.name || "Agent"})` : "Model Override"}
+            </label>
+            {activeAgent !== "main" && activeAgentData ? (
+              <div className="mt-1 bg-warroom-bg border border-warroom-border rounded px-2 py-1.5 text-xs text-warroom-muted">
+                {(activeAgentData.model || "").replace("anthropic/", "").replace("google/", "")}
+                <span className="text-[9px] text-warroom-muted/50 ml-1">(set in agent config)</span>
+              </div>
+            ) : models.length > 0 ? (
               <select value={usage?.model ? "anthropic/" + usage.model : ""} onChange={(e) => switchModel(e.target.value)}
                 className="w-full mt-1 bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent">
                 {models.map(m => <option key={m} value={m}>{m.replace("anthropic/", "").replace("google/", "")}</option>)}
@@ -766,6 +773,24 @@ export default function ChatPanel() {
       clearTimeout(reconnectTimer);
       wsRef.current?.close();
     };
+  }, []);
+
+  /* ── Agent switching ──────────────────────────────────── */
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.agentId) return;
+      const agentId = detail.agentId;
+      // Build session key: agent:{agentId}:warroom for sub-agents, warroom for main
+      const sessionKey = agentId === "main" ? "warroom" : `agent:${agentId}:warroom`;
+      // Send set_session to switch the WS to this agent's session
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ action: "set_session", sessionKey }));
+      }
+    };
+    window.addEventListener("warroom:switch-agent", handler);
+    return () => window.removeEventListener("warroom:switch-agent", handler);
   }, []);
 
   /* ── Image handling ──────────────────────────────────── */
