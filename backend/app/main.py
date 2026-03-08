@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
@@ -161,6 +161,8 @@ app.include_router(google_calendar.router, prefix="/api", tags=["google-calendar
 app.include_router(ai_planning.router, prefix="/api", tags=["ai-planning"])
 app.include_router(task_deps.router, prefix="/api", tags=["task-dependencies"])
 app.include_router(task_execution.router, prefix="/api", tags=["task-execution"])
+app.include_router(blackboard.router, prefix="/api", tags=["blackboard"])
+app.include_router(agents.router, prefix="/api", tags=["agents"])
 app.include_router(contact_webhook.router, prefix="/api", tags=["contact-webhook"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
 app.include_router(cold_email.router, prefix="/api", tags=["cold-email"])

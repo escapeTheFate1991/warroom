@@ -105,38 +105,48 @@ def topological_sort(task_ids: set[int], deps: list[dict]) -> list[int]:
     return ordered
 
 
-async def execute_task_via_openclaw(title: str, description: str) -> dict:
-    """Send a task to OpenClaw for execution and return the result."""
+async def execute_task_via_openclaw(
+    title: str,
+    description: str,
+    agent_id: Optional[str] = None,
+    agent_model: Optional[str] = None,
+) -> dict:
+    """Send a task to OpenClaw for execution, optionally routed to a specific agent."""
     prompt = (
         f"Execute this task: {title}\n\n"
         f"Description: {description}\n\n"
         "Complete this task and report back with what was done."
     )
     try:
-        headers = {"Content-Type": "application/json"}
+        headers: dict[str, str] = {"Content-Type": "application/json"}
         if AUTH_TOKEN:
             headers["Authorization"] = f"Bearer {AUTH_TOKEN}"
+        if agent_id:
+            headers["X-OpenClaw-Agent"] = agent_id
+
+        body: dict = {
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        }
+        if agent_model:
+            body["model"] = agent_model
 
         async with httpx.AsyncClient(timeout=300.0) as client:
             resp = await client.post(
                 f"{OPENCLAW_API}/v1/chat/completions",
                 headers=headers,
-                json={
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": False,
-                },
+                json=body,
             )
             resp.raise_for_status()
             data = resp.json()
-            # Extract assistant message from the chat completions response
             choices = data.get("choices", [])
             if choices:
                 content = choices[0].get("message", {}).get("content", "")
-                return {"success": True, "output": content}
-            return {"success": True, "output": str(data)}
+                return {"success": True, "output": content, "agent_id": agent_id}
+            return {"success": True, "output": str(data), "agent_id": agent_id}
     except Exception as e:
-        logger.error("OpenClaw execution failed for '%s': %s", title, e)
-        return {"success": False, "output": f"Error: {e}"}
+        logger.error("OpenClaw execution failed for '%s' (agent=%s): %s", title, agent_id, e)
+        return {"success": False, "output": f"Error: {e}", "agent_id": agent_id}
 
 
 async def mark_task_done(task_id: int):
@@ -402,3 +412,123 @@ async def execution_history():
                 "completed_at": r.completed_at.isoformat() if r.completed_at else None,
             })
         return {"executions": rows}
+
+
+# ── Agent-Aware Dispatch ─────────────────────────────────────────────
+
+
+class DispatchRequest(BaseModel):
+    task_id: int
+    agent_id: Optional[str] = None  # DB agent ID — looked up for openclaw_agent_id + model
+
+
+@router.post("/task-execution/dispatch")
+async def dispatch_task(body: DispatchRequest):
+    """Assign a single task to an agent and execute immediately.
+
+    Looks up the agent's ``openclaw_agent_id`` and ``model`` from the agents
+    table, then calls OpenClaw with the right routing headers.  Posts start/end
+    events to the blackboard for other agents to observe.
+    """
+    # Fetch the task
+    all_tasks = await fetch_all_tasks()
+    task_map = {t["id"]: t for t in all_tasks}
+    task = task_map.get(body.task_id)
+    if not task:
+        raise HTTPException(404, f"Task {body.task_id} not found")
+
+    # Resolve agent
+    openclaw_agent = None
+    agent_model = None
+    agent_name = "friday"
+
+    if body.agent_id:
+        from app.db.crm_db import crm_session
+        async with crm_session() as db:
+            from sqlalchemy import text as t
+            row = await db.execute(t(
+                "SELECT name, model, openclaw_agent_id FROM agents WHERE id = :id"
+            ), {"id": body.agent_id})
+            agent = row.mappings().first()
+            if not agent:
+                raise HTTPException(404, f"Agent {body.agent_id} not found")
+            openclaw_agent = agent["openclaw_agent_id"]
+            agent_model = agent["model"]
+            agent_name = agent["name"]
+
+    title = task.get("title", f"Task #{body.task_id}")
+    description = task.get("description", "")
+
+    # Post to blackboard: task started
+    try:
+        from app.db.crm_db import crm_session as bb_session
+        async with bb_session() as db:
+            from sqlalchemy import text as t
+            import json as _json
+            await db.execute(t("""
+                INSERT INTO blackboard (id, topic, key, value, agent_id)
+                VALUES (:id, 'task-dispatch', :key, CAST(:value AS jsonb), :agent_id)
+                ON CONFLICT (topic, key) DO UPDATE SET
+                    value = CAST(EXCLUDED.value AS jsonb),
+                    agent_id = EXCLUDED.agent_id,
+                    updated_at = NOW()
+            """), {
+                "id": str(uuid.uuid4())[:12],
+                "key": f"task-{body.task_id}",
+                "value": _json.dumps({
+                    "task_id": body.task_id,
+                    "title": title,
+                    "agent": agent_name,
+                    "status": "running",
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                }),
+                "agent_id": body.agent_id,
+            })
+            await db.commit()
+    except Exception:
+        logger.warning("Failed to post dispatch start to blackboard", exc_info=True)
+
+    # Execute
+    result = await execute_task_via_openclaw(
+        title, description,
+        agent_id=openclaw_agent,
+        agent_model=agent_model,
+    )
+
+    # Mark done if successful
+    if result["success"]:
+        await mark_task_done(body.task_id)
+
+    # Post to blackboard: task completed
+    try:
+        async with bb_session() as db:
+            await db.execute(t("""
+                INSERT INTO blackboard (id, topic, key, value, agent_id)
+                VALUES (:id, 'task-dispatch', :key, CAST(:value AS jsonb), :agent_id)
+                ON CONFLICT (topic, key) DO UPDATE SET
+                    value = CAST(EXCLUDED.value AS jsonb),
+                    updated_at = NOW()
+            """), {
+                "id": str(uuid.uuid4())[:12],
+                "key": f"task-{body.task_id}",
+                "value": _json.dumps({
+                    "task_id": body.task_id,
+                    "title": title,
+                    "agent": agent_name,
+                    "status": "done" if result["success"] else "failed",
+                    "output_preview": result["output"][:500] if result.get("output") else None,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }),
+                "agent_id": body.agent_id,
+            })
+            await db.commit()
+    except Exception:
+        logger.warning("Failed to post dispatch result to blackboard", exc_info=True)
+
+    return {
+        "task_id": body.task_id,
+        "agent": agent_name,
+        "agent_id": body.agent_id,
+        "success": result["success"],
+        "output": result["output"],
+    }
