@@ -33,10 +33,13 @@ CREATE TABLE IF NOT EXISTS blackboard (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(topic, key)
-);
-CREATE INDEX IF NOT EXISTS idx_blackboard_topic ON blackboard(topic);
-CREATE INDEX IF NOT EXISTS idx_blackboard_agent ON blackboard(agent_id);
+)
 """
+
+CREATE_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_blackboard_topic ON blackboard(topic)",
+    "CREATE INDEX IF NOT EXISTS idx_blackboard_agent ON blackboard(agent_id)",
+]
 
 _ensured = False
 
@@ -46,6 +49,8 @@ async def ensure_table(db):
     if _ensured:
         return
     await db.execute(text(CREATE_TABLE))
+    for idx in CREATE_INDEXES:
+        await db.execute(text(idx))
     await db.commit()
     _ensured = True
 
