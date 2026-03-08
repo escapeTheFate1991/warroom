@@ -6,9 +6,9 @@ import {
   Film, Image, Layers, Loader2, ChevronRight, User,
   ThumbsUp, FileText, MessageSquare,
 } from "lucide-react";
-import { authFetch } from "@/lib/authFetch";
+import { API as _API, authFetch } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "";
+// API imported from @/lib/api
 
 interface TranscriptSegment {
   start: number;
@@ -95,7 +95,7 @@ export default function PostDetailModal({
 
   useEffect(() => {
     setLoading(true);
-    authFetch(`${API}/api/scraper/posts/${postId}`)
+    authFetch(`${_API}/api/scraper/posts/${postId}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data) setPost(data);

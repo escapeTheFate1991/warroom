@@ -1293,7 +1293,7 @@ export default function CompetitorIntel() {
                               {vid.media_type && (vid.media_type === "reel" || vid.media_type === "video") && (
                                 <Film size={12} className="text-pink-400 flex-shrink-0" />
                               )}
-                              {vid.has_transcript && <FileText size={10} className="text-green-400 flex-shrink-0" title="Has transcript" />}
+                              {vid.has_transcript && <span title="Has transcript"><FileText size={10} className="text-green-400 flex-shrink-0" /></span>}
                             </div>
                             {vid.hook && (
                               <p className="text-xs text-warroom-accent mb-2 line-clamp-1">🪝 {vid.hook}</p>
