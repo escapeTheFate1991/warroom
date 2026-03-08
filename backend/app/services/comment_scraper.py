@@ -443,7 +443,7 @@ async def analyze_competitor_comments_batch(
     
     for cid in competitor_ids:
         try:
-            result = await analyze_competitor_comments(db, cid, top_n=top_n_per_competitor)
+            result = await scrape_competitor_comments(db, cid, top_n=top_n_per_competitor)
             totals["analyzed"] += result.get("analyzed", 0)
             totals["processed"] += result.get("processed", 0)
         except Exception as e:

@@ -159,12 +159,12 @@ def _parse_posts_from_edges(edges: List[Dict]) -> List[ScrapedPost]:
     posts = []
     for edge in edges:
         node = edge.get("node", edge)
-        shortcode = node.get("shortcode", "")
+        shortcode = node.get("shortcode", "") or node.get("code", "")
         if not shortcode:
             continue
 
         typename = node.get("__typename", "")
-        is_video = node.get("is_video", False)
+        is_video = node.get("is_video", False) or node.get("media_type", 0) == 2
         product_type = node.get("product_type", "")
 
         if "Reel" in typename or product_type == "clips":
@@ -176,38 +176,57 @@ def _parse_posts_from_edges(edges: List[Dict]) -> List[ScrapedPost]:
         else:
             media_type, is_reel = "image", False
 
+        # Caption — old format uses edge_media_to_caption, new format uses caption dict
         caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
-        caption = caption_edges[0].get("node", {}).get("text", "") if caption_edges else ""
+        if caption_edges:
+            caption = caption_edges[0].get("node", {}).get("text", "")
+        else:
+            cap = node.get("caption")
+            caption = cap.get("text", "") if isinstance(cap, dict) else (cap or "")
 
+        # Engagement — old format uses edge_liked_by, new uses like_count
         likes = (
-            node.get("edge_liked_by", {}).get("count", 0)
+            node.get("like_count", 0)
+            or node.get("edge_liked_by", {}).get("count", 0)
             or node.get("edge_media_preview_like", {}).get("count", 0)
         )
-        comments = (
-            node.get("edge_media_to_comment", {}).get("count", 0)
+        comments_count = (
+            node.get("comment_count", 0)
+            or node.get("edge_media_to_comment", {}).get("count", 0)
             or node.get("edge_media_preview_comment", {}).get("count", 0)
         )
-        views = node.get("video_view_count", 0) or 0
+        views = node.get("video_view_count", 0) or node.get("play_count", 0) or 0
 
-        timestamp = node.get("taken_at_timestamp")
+        # Timestamp — old: taken_at_timestamp, new: taken_at
+        timestamp = node.get("taken_at_timestamp") or node.get("taken_at")
         posted_at = datetime.fromtimestamp(timestamp) if timestamp else None
 
+        # Media URLs — old: video_url/display_url, new: video_versions/image_versions2
         media_url = node.get("video_url", "") or node.get("display_url", "")
         thumbnail_url = node.get("thumbnail_src", "") or node.get("display_url", "")
+        if not media_url:
+            video_versions = node.get("video_versions", [])
+            if video_versions:
+                media_url = video_versions[0].get("url", "")
+            image_versions = node.get("image_versions2", {}).get("candidates", [])
+            if image_versions:
+                thumbnail_url = thumbnail_url or image_versions[0].get("url", "")
+                if not media_url:
+                    media_url = image_versions[0].get("url", "")
 
         posts.append(ScrapedPost(
             shortcode=shortcode,
             post_url=f"https://www.instagram.com/p/{shortcode}/",
             caption=caption,
             likes=likes,
-            comments=comments,
+            comments=comments_count,
             views=views,
             media_type=media_type,
             media_url=media_url,
             thumbnail_url=thumbnail_url,
             posted_at=posted_at,
             is_reel=is_reel,
-            engagement_score=_calc_engagement(likes, comments, views),
+            engagement_score=_calc_engagement(likes, comments_count, views),
             hook=_extract_hook(caption),
         ))
     return posts
