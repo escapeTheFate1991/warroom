@@ -5,6 +5,7 @@ import {
   Send, Bot, User, Loader2, Mic, MicOff, ChevronDown,
   Plus, Sparkles, X, StopCircle, ArrowDown,
   PanelRightOpen, Copy, Check,
+  Brain, Wrench, FileText, Search, Terminal, Globe, CheckCircle2, AlertCircle, ChevronRight,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import ArtifactPanel, { Artifact } from "./ArtifactPanel";
@@ -18,6 +19,13 @@ interface ImageAttachment {
   name: string;
 }
 
+interface ToolCall {
+  id: string;
+  name: string;
+  input: string;
+  status: "running" | "done" | "error";
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant" | "system";
@@ -25,6 +33,7 @@ interface Message {
   timestamp: Date;
   thinking?: string;
   images?: ImageAttachment[];
+  toolCalls?: ToolCall[];
 }
 
 interface GatewayRes {
@@ -333,7 +342,7 @@ export default function ChatPanel() {
   const [messages, setMessagesRaw] = useState<Message[]>(() => {
     if (typeof window !== "undefined") {
       try {
-        const cached = sessionStorage.getItem("warroom-chat-messages");
+        const cached = localStorage.getItem("warroom-chat-messages");
         if (cached) {
           const parsed = JSON.parse(cached);
           return parsed.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }));
@@ -352,8 +361,9 @@ export default function ChatPanel() {
             ...m,
             timestamp: m.timestamp.toISOString(),
             images: undefined, // Don't cache base64 images
+            toolCalls: m.toolCalls, // Preserve tool history
           }));
-          sessionStorage.setItem("warroom-chat-messages", JSON.stringify(toCache));
+          localStorage.setItem("warroom-chat-messages", JSON.stringify(toCache));
         } catch {}
       }
       return next;
@@ -361,7 +371,7 @@ export default function ChatPanel() {
   }, []);
   const [input, setInputRaw] = useState(() => {
     if (typeof window !== "undefined") {
-      return sessionStorage.getItem("warroom-chat-input") || "";
+      return localStorage.getItem("warroom-chat-input") || "";
     }
     return "";
   });
@@ -370,15 +380,33 @@ export default function ChatPanel() {
       const next = typeof val === "function" ? val(prev) : val;
       if (typeof window !== "undefined") {
         if (next) {
-          sessionStorage.setItem("warroom-chat-input", next);
+          localStorage.setItem("warroom-chat-input", next);
         } else {
-          sessionStorage.removeItem("warroom-chat-input");
+          localStorage.removeItem("warroom-chat-input");
         }
       }
       return next;
     });
   }, []);
-  const [pendingImages, setPendingImages] = useState<ImageAttachment[]>([]);
+  const [pendingImages, setPendingImages] = useState<ImageAttachment[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("warroom-chat-images");
+        if (saved) {
+          const parsed = JSON.parse(saved) as ImageAttachment[];
+          // Check staleness (24h)
+          const savedAt = localStorage.getItem("warroom-chat-images-ts");
+          if (savedAt && Date.now() - Number(savedAt) > 24 * 60 * 60 * 1000) {
+            localStorage.removeItem("warroom-chat-images");
+            localStorage.removeItem("warroom-chat-images-ts");
+            return [];
+          }
+          return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
@@ -422,6 +450,29 @@ export default function ChatPanel() {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [activeArtifactIndex, setActiveArtifactIndex] = useState(0);
   const [showArtifacts, setShowArtifacts] = useState(false);
+
+  // Streaming progress (tool calls + thinking)
+  const [activeTools, setActiveTools] = useState<ToolCall[]>([]);
+  const [thinkingText, setThinkingText] = useState<string | null>(null);
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(false);
+  const activeToolsRef = useRef<ToolCall[]>([]);
+
+  // Persist pending images to localStorage (max 5MB check)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (pendingImages.length === 0) {
+      localStorage.removeItem("warroom-chat-images");
+      localStorage.removeItem("warroom-chat-images-ts");
+    } else {
+      try {
+        const json = JSON.stringify(pendingImages);
+        if (json.length < 5 * 1024 * 1024) { // 5MB cap
+          localStorage.setItem("warroom-chat-images", json);
+          localStorage.setItem("warroom-chat-images-ts", String(Date.now()));
+        }
+      } catch {} // quota exceeded — skip silently
+    }
+  }, [pendingImages]);
 
   // UI states
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -701,6 +752,57 @@ export default function ChatPanel() {
           const message = p.message;
 
 
+          // --- Thinking blocks ---
+          if (state === "thinking") {
+            const thinking = message?.content?.[0]?.thinking || message?.thinking || extractText(message) || "";
+            if (thinking) {
+              setThinkingText(thinking);
+              setThinkingCollapsed(false);
+              setIsLoading(false);
+            }
+            return;
+          }
+
+          // --- Tool use (agent calling a tool) ---
+          if (state === "tool_use") {
+            const blocks = Array.isArray(message?.content) ? message.content : [];
+            const toolBlock = blocks.find((b: any) => b.type === "tool_use") || message;
+            const toolName = toolBlock?.name || toolBlock?.tool_name || "tool";
+            const toolInput = toolBlock?.input ? JSON.stringify(toolBlock.input).slice(0, 120) : "";
+            const toolId = toolBlock?.id || crypto.randomUUID();
+            const newTool: ToolCall = { id: toolId, name: toolName, input: toolInput, status: "running" };
+            setActiveTools(prev => {
+              const updated = [...prev, newTool];
+              activeToolsRef.current = updated;
+              return updated;
+            });
+            setThinkingText(null);
+            setIsLoading(false);
+            return;
+          }
+
+          // --- Tool result ---
+          if (state === "tool_result") {
+            const toolId = message?.tool_use_id || message?.id || "";
+            const isError = message?.is_error === true || message?.status === "error";
+            setActiveTools(prev => {
+              const updated = prev.map(t =>
+                t.id === toolId ? { ...t, status: (isError ? "error" : "done") as ToolCall["status"] } : t
+              );
+              // If no matching ID, mark the last running tool as done
+              if (!prev.some(t => t.id === toolId)) {
+                const lastRunning = [...updated].reverse().findIndex(t => t.status === "running");
+                if (lastRunning >= 0) {
+                  const idx = updated.length - 1 - lastRunning;
+                  updated[idx] = { ...updated[idx], status: isError ? "error" : "done" };
+                }
+              }
+              activeToolsRef.current = updated;
+              return updated;
+            });
+            return;
+          }
+
           if (state === "delta") {
             const text = extractText(message);
             if (text) {
@@ -711,18 +813,25 @@ export default function ChatPanel() {
             }
           } else if (state === "final") {
             const text = extractText(message);
+            const finalTools = activeToolsRef.current.length > 0
+              ? activeToolsRef.current.map(t => ({ ...t, status: "done" as ToolCall["status"] }))
+              : undefined;
             if (text) {
               setMessages(prev => [...prev, {
                 id: crypto.randomUUID(),
                 role: "assistant",
                 content: text,
                 timestamp: new Date(message?.timestamp || Date.now()),
+                toolCalls: finalTools,
               }]);
             }
             setStreamText(null);
             streamTextRef.current = null;
             setIsLoading(false);
             updateGenerating(false);
+            setActiveTools([]);
+            activeToolsRef.current = [];
+            setThinkingText(null);
 
             // If in conversation mode, speak the response
             if (text && conversationActiveRef.current) {
@@ -1357,6 +1466,27 @@ export default function ChatPanel() {
                   </div>
                 ) : (
                   <div>
+                    {/* Tool call history (collapsed) */}
+                    {msg.toolCalls && msg.toolCalls.length > 0 && (
+                      <details className="mb-2 border border-zinc-700/30 rounded-lg bg-zinc-900/40">
+                        <summary className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-400 cursor-pointer hover:text-zinc-300 transition select-none">
+                          <Wrench size={12} />
+                          <span>{msg.toolCalls.length} tool{msg.toolCalls.length > 1 ? "s" : ""} used</span>
+                        </summary>
+                        <div className="px-3 pb-2 space-y-1">
+                          {msg.toolCalls.map((tool) => (
+                            <div key={tool.id} className="flex items-center gap-2 text-xs">
+                              {tool.status === "error" ? (
+                                <AlertCircle size={10} className="text-red-400" />
+                              ) : (
+                                <CheckCircle2 size={10} className="text-green-400/60" />
+                              )}
+                              <span className="text-zinc-400 font-mono">{tool.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                     {splitContentWithCodeBlocks(msg.content).map((segment, idx) => (
                       segment.type === "url" ? (
                         <UrlBox key={idx} url={segment.url} />
@@ -1405,21 +1535,75 @@ export default function ChatPanel() {
             )
           ))}
 
-          {/* Streaming response */}
-          {streamText && (
+          {/* Live progress: thinking + tool calls */}
+          {(thinkingText || activeTools.length > 0 || streamText) && (
             <div className="flex gap-4">
               <div className="w-8 h-8 rounded-full bg-warroom-accent/10 flex items-center justify-center flex-shrink-0 mt-1">
                 <Bot size={16} className="text-warroom-accent" />
               </div>
-              <div className="max-w-[80%] prose prose-invert prose-sm max-w-none break-words [&>p]:mb-3 [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline">
-                <ReactMarkdown>{streamText}</ReactMarkdown>
-                <span className="inline-block w-2 h-4 bg-warroom-accent/60 animate-pulse ml-0.5" />
+              <div className="max-w-[80%] space-y-2 w-full">
+                {/* Thinking block */}
+                {thinkingText && (
+                  <div className="border border-zinc-700/50 rounded-lg overflow-hidden bg-zinc-900/60">
+                    <button
+                      onClick={() => setThinkingCollapsed(!thinkingCollapsed)}
+                      className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-amber-400/80 hover:text-amber-300 transition"
+                    >
+                      <Brain size={12} className="animate-pulse" />
+                      <span className="font-medium">Thinking...</span>
+                      <ChevronRight size={12} className={`ml-auto transition-transform ${thinkingCollapsed ? "" : "rotate-90"}`} />
+                    </button>
+                    {!thinkingCollapsed && (
+                      <div className="px-3 pb-2 text-xs text-zinc-400 max-h-32 overflow-y-auto leading-relaxed whitespace-pre-wrap">
+                        {thinkingText.length > 500 ? thinkingText.slice(-500) + "..." : thinkingText}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tool calls */}
+                {activeTools.length > 0 && (
+                  <div className="space-y-1">
+                    {activeTools.map((tool) => (
+                      <div key={tool.id} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-zinc-800/80 border border-zinc-700/40 text-xs">
+                        {tool.status === "running" ? (
+                          <Loader2 size={12} className="text-blue-400 animate-spin flex-shrink-0" />
+                        ) : tool.status === "error" ? (
+                          <AlertCircle size={12} className="text-red-400 flex-shrink-0" />
+                        ) : (
+                          <CheckCircle2 size={12} className="text-green-400 flex-shrink-0" />
+                        )}
+                        <span className="text-zinc-300 font-mono">{tool.name}</span>
+                        {tool.input && (
+                          <span className="text-zinc-500 truncate max-w-[300px]">{tool.input}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Streaming text */}
+                {streamText && (
+                  <div className="prose prose-invert prose-sm max-w-none break-words [&>p]:mb-3 [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline">
+                    <ReactMarkdown>{streamText}</ReactMarkdown>
+                    <span className="inline-block w-2 h-4 bg-warroom-accent/60 animate-pulse ml-0.5" />
+                  </div>
+                )}
+
+                {/* Loading dots when no text yet but tools are active */}
+                {!streamText && !thinkingText && activeTools.length > 0 && activeTools.some(t => t.status === "running") && (
+                  <div className="flex items-center gap-1 py-1">
+                    <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:0ms]" />
+                    <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:150ms]" />
+                    <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:300ms]" />
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* Loading dots */}
-          {isLoading && !streamText && (
+          {/* Loading dots (initial, no tools yet) */}
+          {isLoading && !streamText && activeTools.length === 0 && !thinkingText && (
             <div className="flex gap-4">
               <div className="w-8 h-8 rounded-full bg-warroom-accent/10 flex items-center justify-center flex-shrink-0">
                 <Bot size={16} className="text-warroom-accent" />
