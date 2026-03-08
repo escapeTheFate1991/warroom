@@ -5,8 +5,10 @@ import {
   Plus, Trash2, Edit3, Save, X, Bot, Cpu, Wrench,
   ChevronDown, ChevronRight, Loader2, Settings,
   Play, Pause, CheckCircle, AlertCircle, Zap,
-  Users, LayoutGrid,
+  Users, LayoutGrid, Pen, Palette, Code, Search,
+  BarChart3, Headphones, Globe, Cog,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -37,22 +39,37 @@ interface Skill {
 
 interface CreateAgentData {
   name: string;
-  emoji: string;
   role: string;
   description: string;
   model: string;
   skills: string[];
 }
 
-const ROLE_PRESETS: { role: string; emoji: string; description: string; model: string; skills: string[] }[] = [
-  { role: "copywriter", emoji: "📝", description: "Sales copy, cold emails, website content, marketing material", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
-  { role: "designer", emoji: "🎨", description: "UI/UX design, layouts, responsive UI, Tailwind CSS", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
-  { role: "developer", emoji: "💻", description: "Full-stack development, Next.js, APIs, databases, deployment", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
-  { role: "researcher", emoji: "🔍", description: "Market research, competitor analysis, data collection", model: "anthropic/claude-haiku-3-5-20241022", skills: [] },
-  { role: "analyst", emoji: "📊", description: "Data analysis, reporting, metrics, insights", model: "anthropic/claude-haiku-3-5-20241022", skills: [] },
-  { role: "support", emoji: "📞", description: "Customer support scripts, ticket triage, response templates", model: "anthropic/claude-haiku-3-5-20241022", skills: [] },
-  { role: "seo", emoji: "🔎", description: "SEO optimization, keyword research, content strategy", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
-  { role: "custom", emoji: "🤖", description: "", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
+const ROLE_ICON_MAP: Record<string, LucideIcon> = {
+  copywriter: Pen,
+  designer: Palette,
+  developer: Code,
+  researcher: Search,
+  analyst: BarChart3,
+  support: Headphones,
+  seo: Globe,
+  custom: Cog,
+};
+
+function AgentIcon({ role, size = 16, className = "" }: { role: string; size?: number; className?: string }) {
+  const Icon = ROLE_ICON_MAP[role] || Bot;
+  return <Icon size={size} className={className} />;
+}
+
+const ROLE_PRESETS: { role: string; description: string; model: string; skills: string[] }[] = [
+  { role: "copywriter", description: "Sales copy, cold emails, website content, marketing material", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
+  { role: "designer", description: "UI/UX design, layouts, responsive UI, Tailwind CSS", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
+  { role: "developer", description: "Full-stack development, Next.js, APIs, databases, deployment", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
+  { role: "researcher", description: "Market research, competitor analysis, data collection", model: "anthropic/claude-haiku-3-5-20241022", skills: [] },
+  { role: "analyst", description: "Data analysis, reporting, metrics, insights", model: "anthropic/claude-haiku-3-5-20241022", skills: [] },
+  { role: "support", description: "Customer support scripts, ticket triage, response templates", model: "anthropic/claude-haiku-3-5-20241022", skills: [] },
+  { role: "seo", description: "SEO optimization, keyword research, content strategy", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
+  { role: "custom", description: "", model: "anthropic/claude-sonnet-4-20250514", skills: [] },
 ];
 
 const MODEL_OPTIONS = [
@@ -82,7 +99,7 @@ export default function AgentManager() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const [createData, setCreateData] = useState<CreateAgentData>({
-    name: "", emoji: "🤖", role: "custom", description: "", model: "anthropic/claude-sonnet-4-20250514", skills: [],
+    name: "", role: "custom", description: "", model: "anthropic/claude-sonnet-4-20250514", skills: [],
   });
 
   const fetchAgents = useCallback(async () => {
@@ -118,7 +135,7 @@ export default function AgentManager() {
       });
       if (res.ok) {
         setShowCreate(false);
-        setCreateData({ name: "", emoji: "🤖", role: "custom", description: "", model: "anthropic/claude-sonnet-4-20250514", skills: [] });
+        setCreateData({ name: "", role: "custom", description: "", model: "anthropic/claude-sonnet-4-20250514", skills: [] });
         fetchAgents();
       }
     } catch (err) {
@@ -162,7 +179,6 @@ export default function AgentManager() {
   const applyPreset = (preset: typeof ROLE_PRESETS[0]) => {
     setCreateData(prev => ({
       ...prev,
-      emoji: preset.emoji,
       role: preset.role,
       description: preset.description,
       model: preset.model,
@@ -217,37 +233,28 @@ export default function AgentManager() {
                 <button
                   key={preset.role}
                   onClick={() => applyPreset(preset)}
-                  className={`px-3 py-1.5 rounded-lg text-xs border transition ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition ${
                     createData.role === preset.role
                       ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
                       : "border-warroom-border text-warroom-muted hover:text-warroom-text hover:border-warroom-text/30"
                   }`}
                 >
-                  {preset.emoji} {preset.role}
+                  <AgentIcon role={preset.role} size={12} />
+                  {preset.role}
                 </button>
               ))}
             </div>
           </div>
 
           {/* Fields */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs text-warroom-muted mb-1 block">Name</label>
-              <input
-                value={createData.name}
-                onChange={(e) => setCreateData(p => ({ ...p, name: e.target.value }))}
-                placeholder="e.g. Copy Agent"
-                className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent/50"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-warroom-muted mb-1 block">Emoji</label>
-              <input
-                value={createData.emoji}
-                onChange={(e) => setCreateData(p => ({ ...p, emoji: e.target.value }))}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent/50"
-              />
-            </div>
+          <div>
+            <label className="text-xs text-warroom-muted mb-1 block">Name</label>
+            <input
+              value={createData.name}
+              onChange={(e) => setCreateData(p => ({ ...p, name: e.target.value }))}
+              placeholder="e.g. Copy Agent"
+              className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent/50"
+            />
           </div>
 
           <div>
@@ -349,8 +356,8 @@ export default function AgentManager() {
               {/* Card Header */}
               <div className="px-4 pt-4 pb-3 flex items-start justify-between">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-warroom-accent/10 flex items-center justify-center text-lg flex-shrink-0">
-                    {agent.emoji}
+                  <div className="w-10 h-10 rounded-xl bg-warroom-accent/10 flex items-center justify-center flex-shrink-0">
+                    <AgentIcon role={agent.role} size={20} className="text-warroom-accent" />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">

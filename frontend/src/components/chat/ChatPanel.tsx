@@ -52,10 +52,20 @@ function formatTokens(n: number): string {
   return n.toString();
 }
 
+interface AgentOption {
+  id: string;
+  name: string;
+  emoji: string;
+  role: string;
+  model: string;
+}
+
 function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [models, setModels] = useState<string[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [activeAgent, setActiveAgent] = useState<string>("main");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,6 +83,9 @@ function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
   useEffect(() => {
     if (!expanded) return;
     authFetch(`${API_URL}/api/usage/models`).then(r => r.ok ? r.json() : []).then(setModels).catch(() => {});
+    authFetch(`${API_URL}/api/agents`).then(r => r.ok ? r.json() : []).then((data: AgentOption[]) => {
+      if (Array.isArray(data) && data.length > 0) setAgents(data);
+    }).catch(() => {});
   }, [expanded]);
 
   useEffect(() => {
@@ -91,25 +104,80 @@ function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
     } catch {}
   };
 
+  const switchAgent = async (agentId: string) => {
+    setActiveAgent(agentId);
+    const agent = agents.find(a => a.id === agentId);
+    if (agent?.model) {
+      await switchModel(agent.model);
+    }
+    // Notify the chat WS to switch session to this agent
+    // This is handled by the parent via a custom event
+    window.dispatchEvent(new CustomEvent("warroom:switch-agent", { detail: { agentId, model: agent?.model } }));
+  };
+
   const sessionPct = usage?.tiers?.[0]?.percent ?? 0;
   const dotColor = !wsConnected ? "bg-warroom-danger animate-pulse" : sessionPct > 80 ? "bg-red-500" : sessionPct > 60 ? "bg-amber-500" : "bg-emerald-500";
   const displayModel = (usage?.model || "unknown").replace("anthropic/", "").replace("google/", "");
+  const activeAgentData = agents.find(a => a.id === activeAgent);
+  const displayLabel = activeAgentData && activeAgent !== "main"
+    ? `${activeAgentData.name} · ${displayModel}`
+    : displayModel;
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1.5 hover:bg-warroom-border/30 rounded-full px-1.5 py-0.5 transition" title={`${displayModel} · ${sessionPct}% session`}>
+      <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1.5 hover:bg-warroom-border/30 rounded-full px-1.5 py-0.5 transition" title={`${displayLabel} · ${sessionPct}% session`}>
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
-        <span className="text-[10px] text-warroom-muted truncate max-w-[120px]">{displayModel}</span>
+        <span className="text-[10px] text-warroom-muted truncate max-w-[160px]">{displayLabel}</span>
         <span className="text-[10px] text-warroom-muted/60">·</span>
         <span className="text-[10px] text-warroom-muted">{sessionPct}%</span>
         <ChevronDown size={10} className={`text-warroom-muted flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
       </button>
 
       {expanded && (
-        <div className="absolute bottom-full right-0 mb-2 w-72 bg-warroom-surface border border-warroom-border rounded-lg shadow-xl z-50 p-3 space-y-3">
-          {/* Model */}
+        <div className="absolute bottom-full right-0 mb-2 w-80 bg-warroom-surface border border-warroom-border rounded-lg shadow-xl z-50 p-3 space-y-3">
+          {/* Agent Switcher */}
+          {agents.length > 0 && (
+            <div>
+              <label className="text-[9px] text-warroom-muted uppercase tracking-wide font-medium">Agent</label>
+              <div className="mt-1 space-y-0.5 max-h-40 overflow-y-auto">
+                {/* Main agent (Friday) */}
+                <button
+                  onClick={() => switchAgent("main")}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition ${
+                    activeAgent === "main" ? "bg-warroom-accent/10 border border-warroom-accent/30" : "hover:bg-warroom-border/30"
+                  }`}
+                >
+                  <span className="text-sm">🖤</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-warroom-text">Friday</p>
+                    <p className="text-[9px] text-warroom-muted truncate">{usage?.model || "claude-opus-4-6"}</p>
+                  </div>
+                  {activeAgent === "main" && <span className="w-1.5 h-1.5 rounded-full bg-warroom-accent flex-shrink-0" />}
+                </button>
+                {/* Created agents */}
+                {agents.map(agent => (
+                  <button
+                    key={agent.id}
+                    onClick={() => switchAgent(agent.id)}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition ${
+                      activeAgent === agent.id ? "bg-warroom-accent/10 border border-warroom-accent/30" : "hover:bg-warroom-border/30"
+                    }`}
+                  >
+                    <span className="text-sm">{agent.emoji}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-warroom-text">{agent.name}</p>
+                      <p className="text-[9px] text-warroom-muted truncate">{(agent.model || "").replace("anthropic/", "").replace("google/", "")}</p>
+                    </div>
+                    {activeAgent === agent.id && <span className="w-1.5 h-1.5 rounded-full bg-warroom-accent flex-shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Model Override */}
           <div>
-            <label className="text-[9px] text-warroom-muted uppercase tracking-wide font-medium">Model</label>
+            <label className="text-[9px] text-warroom-muted uppercase tracking-wide font-medium">Model Override</label>
             {models.length > 0 ? (
               <select value={usage?.model ? "anthropic/" + usage.model : ""} onChange={(e) => switchModel(e.target.value)}
                 className="w-full mt-1 bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent">
