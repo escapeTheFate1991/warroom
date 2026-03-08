@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, Loader2, Settings,
   Play, Pause, CheckCircle, AlertCircle, Zap,
   Users, LayoutGrid, Pen, Palette, Code, Search,
-  BarChart3, Headphones, Globe, Cog,
+  BarChart3, Headphones, Globe, Cog, Monitor, Server, ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
@@ -51,6 +51,9 @@ const ROLE_ICON_MAP: Record<string, LucideIcon> = {
   copywriter: Pen,
   designer: Palette,
   developer: Code,
+  "frontend-dev": Monitor,
+  "backend-dev": Server,
+  "security-dev": ShieldCheck,
   researcher: Search,
   analyst: BarChart3,
   support: Headphones,
@@ -68,6 +71,9 @@ const ROLE_PRESETS: { role: string; description: string; model: string; categori
   { role: "copywriter", description: "Sales copy, cold emails, website content, marketing material", model: "anthropic/claude-sonnet-4-20250514", categories: ["marketing", "documentation"], patterns: ["copy", "content", "email", "seo", "brand"] },
   { role: "designer", description: "UI/UX design, layouts, responsive UI, Tailwind CSS", model: "anthropic/claude-sonnet-4-20250514", categories: ["design"], patterns: ["ui-", "ux-", "css", "tailwind", "responsive", "figma", "accessibility"] },
   { role: "developer", description: "Full-stack development, Next.js, APIs, databases, deployment", model: "anthropic/claude-sonnet-4-20250514", categories: ["development", "devops"], patterns: ["clean-code", "api-", "architecture", "testing", "debug", "git"] },
+  { role: "frontend-dev", description: "React, Next.js, Tailwind CSS, responsive UI, component architecture, state management", model: "anthropic/claude-sonnet-4-20250514", categories: ["development", "design"], patterns: ["react", "next", "angular", "vue", "tailwind", "css", "ui-", "component", "responsive", "state-management", "accessibility", "3d-web"] },
+  { role: "backend-dev", description: "FastAPI, Node.js, PostgreSQL, Docker, API design, microservices, data pipelines", model: "anthropic/claude-sonnet-4-20250514", categories: ["development", "devops", "data"], patterns: ["api-", "fastapi", "django", "express", "postgres", "docker", "architecture", "database", "redis", "queue", "async-python", "clean-code"] },
+  { role: "security-dev", description: "Penetration testing, API security, auth systems, threat modeling, vulnerability assessment", model: "anthropic/claude-sonnet-4-20250514", categories: ["security"], patterns: ["security", "pentest", "penetration", "auth", "attack", "vulnerability", "threat", "fuzzing", "active-directory", "aws-penetration", "anti-reversing"] },
   { role: "researcher", description: "Market research, competitor analysis, data collection", model: "anthropic/claude-haiku-3-5-20241022", categories: ["data", "marketing"], patterns: ["research", "competitor", "market", "scraper", "apify", "trend"] },
   { role: "analyst", description: "Data analysis, reporting, metrics, insights", model: "anthropic/claude-haiku-3-5-20241022", categories: ["data"], patterns: ["analytics", "data-", "metrics", "report", "visualization"] },
   { role: "support", description: "Customer support scripts, ticket triage, response templates", model: "anthropic/claude-haiku-3-5-20241022", categories: ["automation"], patterns: ["support", "ticket", "email", "template", "workflow"] },
