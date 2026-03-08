@@ -210,7 +210,7 @@ export default function AgentManager() {
 
     // Always include mandatory skills
     const mandatory = ["prompt-improver", "network-ai"];
-    const finalSkills = [...new Set([...mandatory, ...autoSkills])];
+    const finalSkills = Array.from(new Set([...mandatory, ...autoSkills]));
 
     setCreateData(prev => ({
       ...prev,
