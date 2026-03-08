@@ -35,6 +35,8 @@ services:
       OPENCLAW_DEVICE_PRIVATE_KEY: ${OPENCLAW_DEVICE_PRIVATE_KEY}
       WHISPER_HOST: ${WHISPER_HOST}
       WHISPER_PORT: ${WHISPER_PORT}
+      INSTAGRAM_USERNAME: ${INSTAGRAM_USERNAME}
+      INSTAGRAM_PASSWORD: ${INSTAGRAM_PASSWORD}
       MENTAL_LIBRARY_API_URL: ${MENTAL_LIBRARY_API_URL}
       LEADGEN_BACKEND_URL: ${LEADGEN_BACKEND_URL}
       BACKEND_URL: ${BACKEND_URL}
@@ -49,7 +51,11 @@ services:
       - /home/eddy/.openclaw/workspace/skills/mental-library/backend/data:/data/mental-library:ro
       - /home/eddy/.openclaw/workspace/skills/voice-io/scripts:/voice-io-scripts:ro
       - /home/eddy/.openclaw/agents/main/sessions:/openclaw-sessions:ro
+      - instagram-cookies:/data
       - /home/eddy/.openclaw:/openclaw:rw
       - /home/eddy/.openclaw/workspace:/openclaw-workspace:rw
       - /home/eddy/.npm-global/lib/node_modules/openclaw/skills:/openclaw-bundled-skills:ro
 
+
+volumes:
+  instagram-cookies:
