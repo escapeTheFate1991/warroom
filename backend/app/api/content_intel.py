@@ -1975,6 +1975,7 @@ async def _run_sync_all():
     """Background task: sync all competitors."""
     global _sync_all_status
     _sync_all_status = {"running": True, "started_at": datetime.now(timezone.utc).isoformat(), "message": "Syncing..."}
+    logger.info("SYNC-ALL: Background task started")
     
     try:
         from app.db.crm_db import crm_session
@@ -1992,8 +1993,11 @@ async def _run_sync_all():
             
             _sync_all_status["total"] = len(competitors)
             _sync_all_status["message"] = f"Scraping {len(competitors)} competitors..."
+            logger.info("SYNC-ALL: Found %d competitors, starting batch scrape", len(competitors))
             
             batch_result = await sync_instagram_competitor_batch(db, competitors)
+            logger.info("SYNC-ALL: Batch complete — success=%s failed=%s posts=%s", 
+                       batch_result.success, batch_result.failed, batch_result.posts_saved)
             await db.commit()
             
             # Audience analysis
@@ -2032,7 +2036,8 @@ async def _run_sync_all():
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             }
     except Exception as e:
-        logger.error("Background sync failed: %s", e)
+        import traceback
+        logger.error("SYNC-ALL FAILED: %s\n%s", e, traceback.format_exc())
         _sync_all_status = {"running": False, "message": f"Failed: {str(e)[:100]}", "error": True}
 
 
