@@ -1862,28 +1862,71 @@ async def get_competitor_hashtags(
         raise HTTPException(status_code=500, detail="Failed to get hashtags")
 
 
+@router.post("/index-content")
+async def index_content_for_recommendations(
+    body: dict = {},
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Index top competitor content into Qdrant for the recommendation engine.
+    
+    Call after syncing competitors or transcribing videos to update the index.
+    Only indexes top 20% by engagement — the content worth learning from.
+    """
+    from app.services.content_embedder import index_top_content
+    
+    days = body.get("days", 90)
+    limit = body.get("limit", 200)
+    
+    stats = await index_top_content(db, days=days, limit=limit)
+    return stats
+
+
+@router.get("/recommendation-status")
+async def get_recommendation_status():
+    """Get the current state of the content recommendation index."""
+    from app.services.content_embedder import get_index_status
+    return await get_index_status()
+
+
 @router.post("/recommend")
 async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_db)):
-    """One-button recommendation engine: analyze all competitors' top content and generate script ideas.
-
-    Pulls top-performing content across ALL competitors, identifies winning patterns,
-    and generates script ideas aligned with the business settings.
+    """Embedding-based recommendation engine.
+    
+    Analyzes competitors' top content semantically and generates
+    hooks, hashtags, and script recommendations aligned to our business.
+    
+    Uses Qdrant vector search for content-based filtering.
+    Falls back to v1 rule-based engine if index is empty.
     """
-    count = body.get("count", 3)
-    topic_override = body.get("topic", None)
-
+    from app.services.recommendation_engine import recommend_content_v2
+    from app.services.content_embedder import get_index_status
+    
+    count = body.get("count", 5)
+    topic = body.get("topic", None)
+    platform = body.get("platform", "instagram")
+    
+    # Check if we have indexed content
+    status = await get_index_status()
+    
+    if status.get("points_count", 0) > 0:
+        # v2: embedding-based recommendations
+        return await recommend_content_v2(
+            db=db,
+            topic=topic,
+            platform=platform,
+            count=count,
+        )
+    
+    # Fallback: v1 rule-based (for when index hasn't been built yet)
     try:
-        # Load all active competitors
         result = await db.execute(
-            select(Competitor)
-            .where(Competitor.platform == "instagram")
+            select(Competitor).where(Competitor.platform == "instagram")
         )
         competitors = result.scalars().all()
 
         if not competitors:
-            return {"scripts": [], "message": "No competitors found. Add competitors first."}
+            return {"recommendations": [], "message": "No competitors found. Add competitors first."}
 
-        # Gather cached posts from all competitors
         all_posts = []
         for comp in competitors:
             posts = await load_cached_posts(db, comp.id, limit=20)
@@ -1893,34 +1936,30 @@ async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_
             all_posts.extend(posts)
 
         if not all_posts:
-            return {"scripts": [], "message": "No competitor content cached. Sync competitors first."}
+            return {"recommendations": [], "message": "No competitor content cached. Sync competitors first."}
 
-        # Rank by virality
         ranked = _sorted_posts_for_analysis(all_posts)[:30]
-
-        # Collect trending topics
-        candidate_topics = _collect_candidate_topics(ranked, topic_override)
-
-        # Get business settings for alignment
+        candidate_topics = _collect_candidate_topics(ranked, topic)
         business = await _get_business_settings(db)
 
-        # Generate scripts
         scripts = []
         for i, post in enumerate(ranked[:count]):
-            topic = candidate_topics[i % len(candidate_topics)] if candidate_topics else _derive_topic_label(post)
+            t = candidate_topics[i % len(candidate_topics)] if candidate_topics else _derive_topic_label(post)
             script = generate_script_content(
                 post=post,
-                topic=topic,
+                topic=t,
                 business_settings=business,
                 all_posts=ranked,
             )
             scripts.append(script)
 
         return {
-            "scripts": scripts,
+            "recommendations": scripts,
             "competitors_analyzed": len(competitors),
             "posts_analyzed": len(all_posts),
             "top_topics": candidate_topics[:5],
+            "engine": "v1_fallback",
+            "message": "Using rule-based engine. Run POST /index-content to enable v2 embedding-based recommendations.",
         }
 
     except Exception as e:
