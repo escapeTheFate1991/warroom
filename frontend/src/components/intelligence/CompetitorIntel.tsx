@@ -183,13 +183,25 @@ function timeAgo(dateString: string): string {
 
 interface DossierData {
   bio: string;
+  full_name: string;
+  is_verified: boolean;
+  category: string;
   followers: number;
   following: number;
   post_count: number;
   linked_handles: string[];
   links: string[];
+  bio_links: { url: string; title: string }[];
   affiliate_links: string[];
   product_mentions: string[];
+  business_intel: {
+    positions?: { title: string; company: string }[];
+    roles?: string[];
+    experience?: string;
+    offering?: string;
+    accepts_inquiries?: boolean;
+    full_name?: string;
+  };
   audience: {
     themes: string[];
     audience_type: string;
@@ -237,6 +249,13 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
           <User size={16} className="text-warroom-accent" />
           <h4 className="text-sm font-semibold">Bio Information</h4>
         </div>
+        {(dossier.full_name || dossier.is_verified || dossier.category) && (
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            {dossier.full_name && <span className="text-sm font-semibold text-warroom-text">{dossier.full_name}</span>}
+            {dossier.is_verified && <span className="text-blue-400 text-xs">✓ Verified</span>}
+            {dossier.category && <span className="text-xs text-warroom-muted bg-warroom-bg px-2 py-0.5 rounded-full">{dossier.category}</span>}
+          </div>
+        )}
         {dossier.bio ? (
           <p className="text-sm text-warroom-text whitespace-pre-line">{dossier.bio}</p>
         ) : (
@@ -298,20 +317,61 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
         </div>
       )}
 
-      {/* Product Mentions */}
+      {/* Products & Business */}
       <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
         <div className="flex items-center gap-2 mb-3">
           <ShoppingBag size={16} className="text-warroom-accent" />
           <h4 className="text-sm font-semibold">Products & Business</h4>
         </div>
-        {dossier.product_mentions.length > 0 ? (
-          <div className="space-y-2">
-            {dossier.product_mentions.map((p, i) => (
-              <div key={i} className="bg-warroom-bg rounded-lg px-3 py-2 text-xs text-warroom-text">{p}</div>
-            ))}
+        {(dossier.business_intel && Object.keys(dossier.business_intel).length > 0) || dossier.product_mentions.length > 0 ? (
+          <div className="space-y-3">
+            {/* Positions / Roles */}
+            {dossier.business_intel?.positions && dossier.business_intel.positions.length > 0 && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Background</p>
+                <div className="space-y-1">
+                  {dossier.business_intel.positions.map((p, i) => (
+                    <div key={i} className="bg-warroom-bg rounded-lg px-3 py-2 text-xs text-warroom-text">
+                      <span className="font-medium">{p.title}</span>
+                      {p.company && <span className="text-warroom-muted"> at {p.company}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Experience */}
+            {dossier.business_intel?.experience && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Experience</p>
+                <p className="text-sm text-warroom-text">{dossier.business_intel.experience}</p>
+              </div>
+            )}
+            {/* What they offer */}
+            {dossier.business_intel?.offering && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Offering</p>
+                <p className="text-sm text-warroom-text">{dossier.business_intel.offering}</p>
+              </div>
+            )}
+            {/* Accepts inquiries */}
+            {dossier.business_intel?.accepts_inquiries && (
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-green-400"></span>
+                <span className="text-xs text-green-400">Open to inquiries / bookings</span>
+              </div>
+            )}
+            {/* Product mentions from captions */}
+            {dossier.product_mentions.length > 0 && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Product Mentions</p>
+                {dossier.product_mentions.map((p, i) => (
+                  <div key={i} className="bg-warroom-bg rounded-lg px-3 py-2 text-xs text-warroom-text">{p}</div>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
-          <p className="text-sm text-warroom-muted italic">No product mentions detected</p>
+          <p className="text-sm text-warroom-muted italic">No business intel detected</p>
         )}
       </div>
 
@@ -322,9 +382,24 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
           <h4 className="text-sm font-semibold">Links & References</h4>
         </div>
         <div className="space-y-3">
+          {/* Profile bio links (from Instagram multi-link feature) */}
+          {dossier.bio_links && dossier.bio_links.length > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Profile Links ({dossier.bio_links.length})</p>
+              <div className="space-y-1">
+                {dossier.bio_links.map((l, i) => (
+                  <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 bg-warroom-bg rounded-lg px-3 py-2 text-xs text-warroom-accent hover:border-warroom-accent/50 border border-warroom-border transition">
+                    <ExternalLink size={10} className="flex-shrink-0" />
+                    <span className="truncate">{l.title || l.url}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Links found in captions */}
           {dossier.links.length > 0 && (
             <div>
-              <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Links ({dossier.links.length})</p>
+              <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Links in Content ({dossier.links.length})</p>
               <div className="space-y-1">
                 {dossier.links.slice(0, 10).map((l, i) => (
                   <a key={i} href={l} target="_blank" rel="noopener noreferrer" className="block text-xs text-warroom-accent hover:underline truncate">{l}</a>
@@ -342,7 +417,7 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
               </div>
             </div>
           )}
-          {dossier.links.length === 0 && dossier.affiliate_links.length === 0 && (
+          {(!dossier.bio_links || dossier.bio_links.length === 0) && dossier.links.length === 0 && dossier.affiliate_links.length === 0 && (
             <p className="text-sm text-warroom-muted italic">No links found in content</p>
           )}
         </div>
@@ -356,20 +431,29 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
         </div>
         {dossier.linked_handles.length > 0 ? (
           <div>
-            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-2">Mentioned Accounts ({dossier.linked_handles.length})</p>
+            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-2">Linked Accounts ({dossier.linked_handles.length})</p>
             <div className="flex flex-wrap gap-2">
-              {dossier.linked_handles.map((h, i) => (
-                <a
-                  key={i}
-                  href={`https://instagram.com/${h}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 px-2.5 py-1 bg-warroom-bg border border-warroom-border rounded-lg text-xs text-warroom-text hover:border-warroom-accent/50 transition"
-                >
-                  @{h}
-                  <ExternalLink size={10} className="text-warroom-muted" />
-                </a>
-              ))}
+              {dossier.linked_handles.map((h, i) => {
+                const isThreads = h.startsWith('threads:');
+                const displayHandle = isThreads ? h.replace('threads:', '') : `@${h}`;
+                const href = isThreads
+                  ? `https://threads.net/${h.replace('threads:@', '')}`
+                  : `https://instagram.com/${h}`;
+                const platform = isThreads ? '🧵' : '📷';
+                return (
+                  <a
+                    key={i}
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 px-2.5 py-1 bg-warroom-bg border border-warroom-border rounded-lg text-xs text-warroom-text hover:border-warroom-accent/50 transition"
+                  >
+                    <span>{platform}</span>
+                    {displayHandle}
+                    <ExternalLink size={10} className="text-warroom-muted" />
+                  </a>
+                );
+              })}
             </div>
           </div>
         ) : (

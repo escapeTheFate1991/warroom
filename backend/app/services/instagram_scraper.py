@@ -60,6 +60,8 @@ class ScrapedProfile:
     is_private: bool = False
     is_verified: bool = False
     external_url: str = ""
+    bio_links: List[Dict[str, str]] = field(default_factory=list)  # [{url, title}]
+    threads_handle: str = ""
     category: str = ""
     posts: List[ScrapedPost] = field(default_factory=list)
     scraped_at: Optional[datetime] = None
@@ -116,6 +118,28 @@ def _parse_user_data(user_data: Dict[str, Any], handle: str) -> ScrapedProfile:
         category=user_data.get("category_name", "") or "",
         scraped_at=datetime.now(),
     )
+
+    # Capture bio_links (Instagram multi-link feature)
+    raw_bio_links = (
+        user_data.get("bio_links", [])
+        or user_data.get("biography_links", [])
+        or []
+    )
+    for link in raw_bio_links:
+        if isinstance(link, dict):
+            url = link.get("url", "") or link.get("lynx_url", "") or ""
+            title = link.get("title", "") or ""
+            if url:
+                profile.bio_links.append({"url": url, "title": title})
+    
+    # Single external_url as fallback if bio_links is empty
+    if not profile.bio_links and profile.external_url:
+        profile.bio_links.append({"url": profile.external_url, "title": ""})
+
+    # Detect Threads handle (connected_fb_page or explicit field)
+    threads_info = user_data.get("text_app_last_visited_time") or user_data.get("is_threads_user")
+    if threads_info or user_data.get("has_threads_profile"):
+        profile.threads_handle = handle  # Same handle on Threads
 
     if profile.is_private:
         profile.error = "Account is private"
@@ -611,6 +635,24 @@ async def _extract_from_dom(page, handle: str) -> Optional[Dict]:
                 if (href) result.post_urls.push(href);
             }
             
+            // Get bio links (the "discord.gg/... and 4 more" section)
+            result.bio_links = [];
+            const bioLinks = document.querySelectorAll('header a[href], header a[rel="me nofollow noopener noreferrer"]');
+            for (const link of bioLinks) {
+                const href = link.getAttribute('href') || '';
+                const text = link.textContent || '';
+                // Filter out internal IG links
+                if (href && !href.includes('instagram.com') && !href.startsWith('/')) {
+                    result.bio_links.push({url: href, title: text.trim()});
+                }
+            }
+            
+            // Detect Threads link
+            const threadsLink = document.querySelector('a[href*="threads.net"], a[href*="threads.instagram"]');
+            if (threadsLink) {
+                result.threads_handle = (threadsLink.getAttribute('href') || '').split('/').filter(Boolean).pop() || '';
+            }
+            
             return result;
         }""", handle)
         
@@ -647,6 +689,21 @@ def _build_profile_from_captured(handle: str, captured: Dict) -> ScrapedProfile:
         profile = _parse_user_data(captured["user"], handle)
     elif "user_v1" in captured:
         user = captured["user_v1"]
+        bio_links = []
+        for link in (user.get("bio_links", []) or []):
+            if isinstance(link, dict):
+                url = link.get("url", "") or link.get("lynx_url", "") or ""
+                title = link.get("title", "") or ""
+                if url:
+                    bio_links.append({"url": url, "title": title})
+        ext_url = user.get("external_url", "") or ""
+        if not bio_links and ext_url:
+            bio_links.append({"url": ext_url, "title": ""})
+        
+        threads_handle = ""
+        if user.get("is_threads_user") or user.get("has_threads_profile"):
+            threads_handle = handle
+        
         profile = ScrapedProfile(
             handle=handle,
             full_name=user.get("full_name", ""),
@@ -658,12 +715,16 @@ def _build_profile_from_captured(handle: str, captured: Dict) -> ScrapedProfile:
                            or user.get("profile_pic_url", ""),
             is_private=user.get("is_private", False),
             is_verified=user.get("is_verified", False),
-            external_url=user.get("external_url", "") or "",
+            external_url=ext_url,
+            bio_links=bio_links,
+            threads_handle=threads_handle,
             category=user.get("category_name", "") or "",
             scraped_at=datetime.now(),
         )
     elif "dom" in captured:
         dom = captured["dom"]
+        bio_links = dom.get("bio_links", [])
+        threads_handle = dom.get("threads_handle", "")
         profile = ScrapedProfile(
             handle=handle,
             full_name=dom.get("full_name", ""),
@@ -673,6 +734,8 @@ def _build_profile_from_captured(handle: str, captured: Dict) -> ScrapedProfile:
             post_count=_parse_count(dom.get("posts_text", "")),
             profile_pic_url=dom.get("profile_pic_url", ""),
             is_private=dom.get("is_private", False),
+            bio_links=bio_links if isinstance(bio_links, list) else [],
+            threads_handle=threads_handle,
             scraped_at=datetime.now(),
         )
     else:

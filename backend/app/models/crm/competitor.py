@@ -1,5 +1,6 @@
 """Competitor tracking and intelligence models for CRM."""
 from sqlalchemy import Column, Integer, String, DateTime, Date, Text, DECIMAL, Boolean
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -35,6 +36,9 @@ class Competitor(CrmBase):
     is_auto_populated = Column(Boolean, default=False)
     last_auto_sync = Column(DateTime)
     auto_sync_enabled = Column(Boolean, default=True)
+    
+    # Enrichment data (bio_links, threads handle, business intel, etc.)
+    dossier_data = Column(JSONB, default={})
     
     # Metadata
     created_at = Column(DateTime, default=func.now())

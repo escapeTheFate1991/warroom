@@ -12,6 +12,7 @@ Endpoints:
 
 import asyncio
 import logging
+import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -151,6 +152,77 @@ def _normalize_handle(handle: str) -> str:
     return handle.strip().lstrip("@").lower()
 
 
+def _extract_business_intel(bio: str, full_name: str) -> dict:
+    """Extract structured business intelligence from bio text.
+    
+    Parses job titles, companies, expertise areas, and business signals
+    from Instagram bio descriptions.
+    """
+    intel = {}
+    if not bio:
+        return intel
+    
+    # Job titles / roles
+    role_patterns = [
+        r"(?:^|\W)(CEO|CTO|COO|CFO|CMO|VP|Director|Manager|Founder|Co-Founder|"
+        r"Engineer|Developer|Designer|Consultant|Coach|Mentor|Creator|Strategist|"
+        r"Entrepreneur|Author|Speaker|Advisor|Partner|Freelancer|Artist|Photographer|"
+        r"Producer|Editor|Analyst|Architect|Instructor|Teacher|Professor|Doctor|"
+        r"Therapist|Attorney|Lawyer|Realtor|Agent|Broker|Trainer|Chef|Stylist)(?:\W|$)",
+    ]
+    roles = set()
+    for pattern in role_patterns:
+        matches = re.findall(pattern, bio, re.IGNORECASE)
+        roles.update(m.strip() for m in matches)
+    
+    # "Ex [Role] at [Company]" or "[Role] at [Company]" patterns
+    title_at_company = re.findall(
+        r"(?:ex |former )?([\w\s]+?)\s+(?:at|@)\s+([\w\s&.]+?)(?:[,.|•\n]|$)",
+        bio, re.IGNORECASE
+    )
+    
+    positions = []
+    for title, company in title_at_company:
+        title = title.strip()
+        company = company.strip()
+        if len(title) < 50 and len(company) < 50:
+            positions.append({"title": title, "company": company})
+    
+    # "Ex [Something]" pattern (like "Ex Founding Engineer, Ex Startup CTO")
+    ex_roles = re.findall(r"[Ee]x\s+([\w\s]+?)(?:[,.|•\n]|$)", bio)
+    for role in ex_roles:
+        role = role.strip()
+        if len(role) < 50 and role not in [p.get("title") for p in positions]:
+            positions.append({"title": f"Ex {role}", "company": ""})
+    
+    if positions:
+        intel["positions"] = positions
+    if roles:
+        intel["roles"] = sorted(roles)
+    
+    # Years of experience
+    exp_match = re.search(r"(\d+)\+?\s*(?:years?|yrs?)\s+(?:of\s+)?(\w+)", bio, re.IGNORECASE)
+    if exp_match:
+        intel["experience"] = f"{exp_match.group(1)}+ years of {exp_match.group(2)}"
+    
+    # What they do / offer (helping, teaching, building patterns)
+    offering_match = re.search(
+        r"(?:helping|teaching|coaching|building|creating|making|growing|scaling)\s+(.+?)(?:[.|•\n]|$)",
+        bio, re.IGNORECASE
+    )
+    if offering_match:
+        intel["offering"] = offering_match.group(1).strip()[:200]
+    
+    # DM/booking signals
+    if re.search(r"(?:DM|book|schedule|consult|hire me|work with me|inquir)", bio, re.IGNORECASE):
+        intel["accepts_inquiries"] = True
+    
+    if full_name:
+        intel["full_name"] = full_name
+    
+    return intel
+
+
 async def _save_profile_to_competitor(
     db: AsyncSession, competitor: Competitor, profile: ScrapedProfile
 ) -> None:
@@ -170,6 +242,27 @@ async def _save_profile_to_competitor(
         competitor.bio = profile.bio
     if profile.profile_pic_url:
         competitor.profile_image_url = profile.profile_pic_url
+    
+    # Persist enrichment data for dossier
+    dossier = competitor.dossier_data or {}
+    if profile.bio_links:
+        dossier["bio_links"] = profile.bio_links
+    if profile.threads_handle:
+        dossier["threads_handle"] = profile.threads_handle
+    if profile.external_url:
+        dossier["external_url"] = profile.external_url
+    if profile.full_name:
+        dossier["full_name"] = profile.full_name
+    if profile.is_verified:
+        dossier["is_verified"] = True
+    if profile.category:
+        dossier["category"] = profile.category
+    # Extract business intel from bio
+    bio_intel = _extract_business_intel(profile.bio or "", profile.full_name or "")
+    if bio_intel:
+        dossier["business_intel"] = bio_intel
+    competitor.dossier_data = dossier
+    
     competitor.is_auto_populated = True
     competitor.last_auto_sync = datetime.now()
     competitor.updated_at = datetime.now()

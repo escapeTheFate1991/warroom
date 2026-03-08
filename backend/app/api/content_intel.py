@@ -2044,6 +2044,26 @@ async def get_competitor_dossier(
     # Extract social links from bio and captions
     captions = [p.get("caption", "") or p.get("text", "") for p in posts if p.get("caption") or p.get("text")]
     social_data = _extract_social_links(competitor.bio or "", captions)
+    
+    # Merge stored dossier_data (bio_links, threads, business intel from scraper)
+    dossier_data = {}
+    if hasattr(competitor, 'dossier_data') and competitor.dossier_data:
+        dossier_data = competitor.dossier_data if isinstance(competitor.dossier_data, dict) else {}
+    
+    # Add bio_links from stored dossier data
+    stored_bio_links = dossier_data.get("bio_links", [])
+    for link in stored_bio_links:
+        url = link.get("url", "") if isinstance(link, dict) else str(link)
+        if url and url not in social_data["links"]:
+            social_data["links"].append(url)
+    
+    # Add threads handle as linked account
+    threads_handle = dossier_data.get("threads_handle", "")
+    if threads_handle and f"@{threads_handle}" not in social_data["handles"]:
+        social_data["handles"].append(f"threads:@{threads_handle}")
+    
+    # Business intel from bio parsing
+    business_intel = dossier_data.get("business_intel", {})
 
     # Audience analysis (stored or computed)
     audience = None
@@ -2080,13 +2100,18 @@ async def get_competitor_dossier(
         "competitor_id": competitor_id,
         "handle": competitor.handle,
         "bio": competitor.bio or "",
+        "full_name": dossier_data.get("full_name", ""),
+        "is_verified": dossier_data.get("is_verified", False),
+        "category": dossier_data.get("category", ""),
         "followers": competitor.followers or 0,
         "following": getattr(competitor, 'following', 0) or 0,
         "post_count": len(posts),
         "linked_handles": social_data["handles"],
         "links": social_data["links"],
+        "bio_links": stored_bio_links,
         "affiliate_links": social_data["affiliate_links"],
         "product_mentions": social_data["products"],
+        "business_intel": business_intel,
         "audience": audience,
         "content_summary": {
             "total_posts": len(posts),
