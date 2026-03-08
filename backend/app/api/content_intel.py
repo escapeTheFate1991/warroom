@@ -1979,7 +1979,9 @@ async def _run_sync_all():
     
     try:
         from app.db.crm_db import crm_session
+        from sqlalchemy import text as sa_text
         async with crm_session() as db:
+            await db.execute(sa_text("SET search_path TO crm, public"))
             result = await db.execute(
                 select(Competitor)
                 .where(Competitor.platform == "instagram")
