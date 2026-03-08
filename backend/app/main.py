@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
@@ -34,8 +34,12 @@ async def lifespan(app: FastAPI):
         logger.info("Notifications table initialized")
         
         # Verify CRM schema exists (don't re-create, just verify)
-        await verify_crm_schema()
+        crm_schema_ok = await verify_crm_schema()
         logger.info("CRM schema verified")
+
+        if crm_schema_ok:
+            await telnyx.init_telnyx_tables()
+            logger.info("Telnyx CRM tables initialized")
         
         # Contact submissions table (public schema)
         await contact_webhook.init_contact_table()
@@ -160,6 +164,7 @@ app.include_router(contracts.router, prefix="/api", tags=["contracts"])
 app.include_router(prospects.router, prefix="/api", tags=["prospects"])
 app.include_router(content_tracker.router, prefix="/api", tags=["content-tracker"])
 app.include_router(content_ai.router, prefix="/api/content", tags=["content-ai"])
+app.include_router(telnyx.router, prefix="/api", tags=["telnyx"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])

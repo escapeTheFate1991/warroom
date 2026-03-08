@@ -173,6 +173,16 @@ class DealResponse(BaseSchema):
     pipeline_id: Optional[int] = None
     stage_id: Optional[int] = None
     leadgen_lead_id: Optional[int] = None
+    person_name: Optional[str] = None
+    organization_name: Optional[str] = None
+    source_name: Optional[str] = None
+    type_name: Optional[str] = None
+    pipeline_name: Optional[str] = None
+    stage_name: Optional[str] = None
+    stage_probability: int = 0
+    user_name: Optional[str] = None
+    days_in_stage: int = 0
+    is_rotten: bool = False
     created_at: datetime
     updated_at: datetime
 

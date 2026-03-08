@@ -8,6 +8,7 @@ import {
   AlertTriangle, X, Send,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import SalesDashboard from "@/components/dashboard/SalesDashboard";
 
 type DashboardFocus = "sales" | "social" | "ai";
 
@@ -346,109 +347,11 @@ function SalesFocus({ metrics, recentDeals, pipelineStages, upcomingActivities }
   pipelineStages: PipelineStage[];
   upcomingActivities: CRMActivity[];
 }) {
-  const kpis = [
-    { label: "Revenue This Month", value: metrics.revenueThisMonth, icon: DollarSign, color: "text-green-400", bg: "bg-green-400/10", prefix: "$" },
-    { label: "MRR", value: metrics.mrr, icon: TrendingUp, color: "text-emerald-400", bg: "bg-emerald-400/10", prefix: "$" },
-    { label: "Pipeline Value", value: metrics.pipelineValue, icon: Target, color: "text-purple-400", bg: "bg-purple-400/10", prefix: "$" },
-    { label: "Avg Close Time", value: metrics.avgCloseTime, icon: Clock, color: "text-amber-400", bg: "bg-amber-400/10", suffix: " days" },
-    { label: "New Leads This Week", value: metrics.newLeads, icon: UserPlus, color: "text-cyan-400", bg: "bg-cyan-400/10" },
-    { label: "Overdue Invoices", value: metrics.overdueInvoices, icon: AlertTriangle, color: metrics.overdueInvoices && metrics.overdueInvoices > 0 ? "text-red-400" : "text-warroom-muted", bg: metrics.overdueInvoices && metrics.overdueInvoices > 0 ? "bg-red-400/10" : "bg-gray-400/10" },
-  ];
-
-  const maxStageCount = Math.max(...pipelineStages.map(s => s.count), 1);
-
-  return (
-    <div className="space-y-6">
-      {/* KPI Grid */}
-      <div className="grid grid-cols-3 gap-4">
-        {kpis.map((kpi, i) => {
-          const Icon = kpi.icon;
-          const val = kpi.value;
-          const display = val === null ? "—" : `${kpi.prefix || ""}${kpi.prefix === "$" ? (val as number).toLocaleString() : val}${kpi.suffix || ""}`;
-          return (
-            <div key={i} className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
-              <div className={`w-8 h-8 rounded-lg ${kpi.bg} flex items-center justify-center mb-3`}>
-                <Icon size={16} className={kpi.color} />
-              </div>
-              <p className="text-xl font-bold text-warroom-text">{display}</p>
-              <p className="text-xs text-warroom-muted mt-1">{kpi.label}</p>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Pipeline Funnel */}
-      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
-        <h3 className="text-sm font-semibold flex items-center gap-2 mb-4">
-          <BarChart3 size={16} className="text-warroom-accent" /> Pipeline Funnel
-        </h3>
-        {pipelineStages.length > 0 ? (
-          <div className="space-y-2">
-            {pipelineStages.map((stage, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <span className="text-xs text-warroom-muted w-24 truncate">{stage.stage}</span>
-                <div className="flex-1 bg-warroom-bg rounded-full h-6 relative overflow-hidden">
-                  <div
-                    className="h-full bg-warroom-accent/30 rounded-full flex items-center px-2"
-                    style={{ width: `${Math.max((stage.count / maxStageCount) * 100, 8)}%` }}
-                  >
-                    <span className="text-[10px] font-medium text-warroom-text whitespace-nowrap">{stage.count} deals</span>
-                  </div>
-                </div>
-                <span className="text-xs text-warroom-muted w-20 text-right">${(stage.total_value || 0).toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-warroom-muted text-center py-4">No pipeline data available</p>
-        )}
-      </div>
-
-      {/* Bottom row: Recent Deals + Upcoming Activities */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
-          <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
-            <DollarSign size={16} className="text-green-400" /> Recent Deals
-          </h3>
-          {recentDeals.length > 0 ? (
-            <div className="space-y-2">
-              {recentDeals.slice(0, 5).map(deal => (
-                <div key={deal.id} className="flex items-center justify-between py-1.5 border-b border-warroom-border last:border-0">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium truncate">{deal.title}</p>
-                    <p className="text-[10px] text-warroom-muted">{deal.stage} {deal.contact_name ? `· ${deal.contact_name}` : ""}</p>
-                  </div>
-                  <span className="text-xs font-semibold text-green-400 ml-2">${(deal.value || 0).toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-warroom-muted text-center py-4">No recent deals</p>
-          )}
-        </div>
-        <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
-          <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
-            <Calendar size={16} className="text-blue-400" /> Upcoming Activities
-          </h3>
-          {upcomingActivities.length > 0 ? (
-            <div className="space-y-2">
-              {upcomingActivities.slice(0, 5).map(act => (
-                <div key={act.id} className="flex items-center justify-between py-1.5 border-b border-warroom-border last:border-0">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium truncate">{act.title}</p>
-                    <p className="text-[10px] text-warroom-muted">{act.type} {act.contact_name ? `· ${act.contact_name}` : ""}</p>
-                  </div>
-                  <span className="text-[10px] text-warroom-muted ml-2">{new Date(act.due_date).toLocaleDateString()}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-warroom-muted text-center py-4">No upcoming activities</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  void metrics;
+  void recentDeals;
+  void pipelineStages;
+  void upcomingActivities;
+  return <SalesDashboard />;
 }
 
 // ── Social Focus View ──────────────────────────────────────

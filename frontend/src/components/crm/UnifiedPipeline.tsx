@@ -11,6 +11,7 @@ import LoadingState from "@/components/ui/LoadingState";
 import EmptyState from "@/components/ui/EmptyState";
 import StageGateModal from "./StageGateModal";
 import DealDetailDrawer from "./DealDetailDrawer";
+import DealPage from "./DealPage";
 import { Pipeline, PipelineStage, Deal } from "./types";
 
 const STAGE_COLORS: Record<number, string> = {
@@ -62,6 +63,7 @@ export default function UnifiedPipeline() {
 
   // Deal detail drawer
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+  const [selectedDealId, setSelectedDealId] = useState<number | null>(null);
 
   // Inline editing state
   const [editingDealId, setEditingDealId] = useState<number | null>(null);
@@ -246,6 +248,18 @@ export default function UnifiedPipeline() {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
   };
 
+  if (selectedDealId !== null) {
+    return (
+      <DealPage
+        dealId={selectedDealId}
+        onBack={() => {
+          setSelectedDealId(null);
+          void loadStagesAndDeals();
+        }}
+      />
+    );
+  }
+
   if (loading) return <LoadingState message="Loading pipeline…" />;
   if (!stages.length) return <EmptyState icon={<Briefcase className="w-10 h-10" />} title="No pipeline stages" description="Set up a sales pipeline first." />;
 
@@ -314,7 +328,7 @@ export default function UnifiedPipeline() {
                 <div className="flex-1 p-2 overflow-y-auto space-y-2">
                   {stageDeals.map((deal) => (
                     <div key={deal.id} draggable onDragStart={(e) => handleDragStart(e, deal)}
-                      onClick={() => { if (editingDealId !== deal.id) setSelectedDeal(deal); }}
+                      onClick={() => { if (editingDealId !== deal.id) setSelectedDealId(deal.id); }}
                       className={`bg-warroom-bg border border-warroom-border rounded-lg p-3 cursor-grab hover:bg-warroom-border/20 transition-colors group relative ${deal.is_rotten ? "border-l-4 border-l-red-500" : ""}`}>
                       {/* Quick menu button */}
                       <button

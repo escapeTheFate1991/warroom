@@ -51,9 +51,9 @@ export interface DealFull {
   type_id: number | null;
   type_name: string | null;
   pipeline_id: number;
-  pipeline_name: string;
+  pipeline_name: string | null;
   stage_id: number;
-  stage_name: string;
+  stage_name: string | null;
   stage_probability: number;
   user_id: number | null;
   user_name: string | null;

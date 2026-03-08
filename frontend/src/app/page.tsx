@@ -5,10 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
   MessageSquare, Share2, Film, Search,
-  UserSquare, Users, Calendar, BookOpen, GraduationCap, Package,
+  Users, BookOpen, GraduationCap, Building2,
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
-  CalendarDays, Puzzle, Heart, Inbox, FileSignature, DollarSign,
+  CalendarDays, Puzzle, Heart, FileSignature, DollarSign,
   BarChart2, PieChart, TrendingUp, UserPlus,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -28,8 +28,6 @@ const EducatePanel = dynamic(() => import("@/components/library/EducatePanel"), 
 const LeadgenPanel = dynamic(() => import("@/components/leadgen/LeadgenPanel"), { loading: PanelLoader });
 const SettingsPanel = dynamic(() => import("@/components/settings/SettingsPanel"), { loading: PanelLoader });
 const ContactsManager = dynamic(() => import("@/components/crm/ContactsManager"), { loading: PanelLoader });
-const ActivitiesPanel = dynamic(() => import("@/components/crm/ActivitiesPanel"), { loading: PanelLoader });
-const ProductsPanel = dynamic(() => import("@/components/crm/ProductsPanel"), { loading: PanelLoader });
 const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboard"), { loading: PanelLoader });
 const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
 const EmailTemplatesPanel = dynamic(() => import("@/components/marketing/EmailTemplatesPanel"), { loading: PanelLoader });
@@ -42,13 +40,13 @@ const SoulEditor = dynamic(() => import("@/components/dashboard/SoulEditor"), { 
 const ActivityCalendar = dynamic(() => import("@/components/dashboard/ActivityCalendar"), { loading: PanelLoader });
 const PlatformContent = dynamic(() => import("@/components/content/PlatformContent"), { loading: PanelLoader });
 const ContentTracker = dynamic(() => import("@/components/content/ContentTracker"), { loading: PanelLoader });
-const ContactSubmissions = dynamic(() => import("@/components/crm/ContactSubmissions"), { loading: PanelLoader });
 const ContractsPanel = dynamic(() => import("@/components/contracts/ContractsPanel"), { loading: PanelLoader });
 const InvoicingPanel = dynamic(() => import("@/components/invoicing/InvoicingPanel"), { loading: PanelLoader });
 const EmailInbox = dynamic(() => import("@/components/email/EmailInbox"), { loading: PanelLoader });
 const ReportsOverview = dynamic(() => import("@/components/reports/ReportsOverview"), { loading: PanelLoader });
 const ProspectsPanel = dynamic(() => import("@/components/prospects/ProspectsPanel"), { loading: PanelLoader });
 const UnifiedPipeline = dynamic(() => import("@/components/crm/UnifiedPipeline"), { loading: PanelLoader });
+const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsPanel"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -94,15 +92,11 @@ const SECTIONS = [
   {
     label: "OPERATIONS",
     items: [
-      { id: "crm", label: "CRM", icon: UserSquare, children: [
-        { id: "crm-contacts", label: "Contacts", icon: Users },
-        { id: "crm-activities", label: "Activities", icon: Calendar },
-        { id: "crm-products", label: "Products", icon: Package },
-        { id: "crm-submissions", label: "Submissions", icon: Inbox },
-      ]},
-      { id: "pipeline-board", label: "Sales Pipeline", icon: ClipboardList },
       { id: "leadgen", label: "Leads", icon: Search },
+      { id: "pipeline-board", label: "Sales Pipeline", icon: ClipboardList },
       { id: "prospects", label: "Prospects", icon: UserPlus },
+      { id: "organizations", label: "Organizations", icon: Building2 },
+      { id: "crm-contacts", label: "Contacts", icon: Users },
     ],
   },
   {
@@ -140,8 +134,7 @@ type TabId =
   | "dashboard" | "chat" | "agents" | "calendar" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
   | "kanban" | "leadgen"
-  | "pipeline-board"
-  | "crm-contacts" | "crm-activities" | "crm-products" | "crm-submissions"
+  | "pipeline-board" | "organizations" | "crm-contacts"
   | "library-search" | "library-educate"
   | "marketing-campaigns" | "marketing-templates"
   | "skills" | "soul"
@@ -151,7 +144,6 @@ type TabId =
 
 // Map parent IDs to their children active check
 const PARENT_CHILDREN: Record<string, string[]> = {
-  crm: ["crm-contacts", "crm-activities", "crm-products", "crm-submissions"],
   library: ["library-search", "library-educate"],
   marketing: ["marketing-campaigns", "marketing-templates"],
   finance: ["invoices", "contracts", "reports-overview", "reports-revenue", "reports-sales"],
@@ -210,10 +202,8 @@ function WarRoom() {
           {activeTab === "leadgen" && <LeadgenPanel />}
           {activeTab === "prospects" && <ProspectsPanel />}
           {activeTab === "pipeline-board" && <UnifiedPipeline />}
+          {activeTab === "organizations" && <OrganizationsPanel />}
           {activeTab === "crm-contacts" && <ContactsManager />}
-          {activeTab === "crm-activities" && <ActivitiesPanel />}
-          {activeTab === "crm-products" && <ProductsPanel />}
-          {activeTab === "crm-submissions" && <ContactSubmissions />}
           {activeTab === "library-search" && <LibraryPanel />}
           {activeTab === "library-educate" && <EducatePanel />}
           {activeTab === "marketing-campaigns" && <CampaignsPanel />}
