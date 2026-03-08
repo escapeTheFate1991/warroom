@@ -1967,77 +1967,91 @@ async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_
         raise HTTPException(status_code=500, detail="Recommendation engine failed")
 
 
-@router.post("/sync-all")
-async def sync_all_competitors(db: AsyncSession = Depends(get_crm_db)):
-    """Sync all active competitors via batch Instagram scraping. Called by cron."""
-    try:
-        # Load all active Instagram competitors
-        result = await db.execute(
-            select(Competitor)
-            .where(Competitor.platform == "instagram")
-            .where(Competitor.auto_sync_enabled == True)
-        )
-        competitors = result.scalars().all()
-        
-        if not competitors:
-            return {
-                "message": "No active Instagram competitors found to sync",
-                "total": 0,
-                "success": 0,
-                "failed": 0
-            }
-        
-        # Run batch sync
-        batch_result = await sync_instagram_competitor_batch(db, competitors)
-        await db.commit()
-        
-        # Re-run audience analysis for synced competitors
-        audience_refreshed = 0
-        for comp in competitors:
-            try:
-                posts = await load_cached_posts(db, comp.id)
-                if posts:
-                    topics = await analyze_trending_topics(posts)
-                    # Store updated analysis back to competitor record
-                    await db.execute(
-                        text(
-                            "UPDATE crm.competitors SET audience_analysis = :analysis, updated_at = NOW() "
-                            "WHERE id = :cid"
-                        ),
-                        {"cid": comp.id, "analysis": json.dumps({
-                            "themes": [t.topic for t in topics[:5]] if topics else [],
-                            "audience_type": "Engaged" if len(posts) > 5 else "Unknown",
-                            "engagement_style": "Active" if sum(p.get("engagement_score", 0) for p in posts) / max(len(posts), 1) > 100 else "Moderate",
-                            "key_interests": [t.topic for t in topics[:3]] if topics else [],
-                            "refreshed_at": datetime.now(timezone.utc).isoformat(),
-                        })},
-                    )
-                    audience_refreshed += 1
-            except Exception as e:
-                logger.warning("Audience refresh failed for competitor %s: %s", comp.handle, e)
-        await db.commit()
+_sync_all_task: Optional[asyncio.Task] = None
+_sync_all_status: Dict[str, Any] = {"running": False}
 
-        return {
-            "message": f"Sync completed: {batch_result.success} succeeded, {batch_result.failed} failed",
-            "total": len(competitors),
-            "success": batch_result.success,
-            "failed": batch_result.failed,
-            "posts_saved": batch_result.posts_saved,
-            "audience_refreshed": audience_refreshed,
-            "details": [
-                {
-                    "handle": profile.handle,
-                    "status": "failed" if profile.error else "success",
-                    "error": profile.error
-                }
-                for profile in batch_result.profiles
-            ]
-        }
-        
+
+async def _run_sync_all():
+    """Background task: sync all competitors."""
+    global _sync_all_status
+    _sync_all_status = {"running": True, "started_at": datetime.now(timezone.utc).isoformat(), "message": "Syncing..."}
+    
+    try:
+        from app.db.crm_db import crm_session
+        async with crm_session() as db:
+            result = await db.execute(
+                select(Competitor)
+                .where(Competitor.platform == "instagram")
+                .where(Competitor.auto_sync_enabled == True)
+            )
+            competitors = result.scalars().all()
+            
+            if not competitors:
+                _sync_all_status = {"running": False, "message": "No active competitors", "total": 0}
+                return
+            
+            _sync_all_status["total"] = len(competitors)
+            _sync_all_status["message"] = f"Scraping {len(competitors)} competitors..."
+            
+            batch_result = await sync_instagram_competitor_batch(db, competitors)
+            await db.commit()
+            
+            # Audience analysis
+            audience_refreshed = 0
+            for comp in competitors:
+                try:
+                    posts = await load_cached_posts(db, comp.id)
+                    if posts:
+                        topics = await analyze_trending_topics(posts)
+                        await db.execute(
+                            text(
+                                "UPDATE crm.competitors SET audience_analysis = :analysis, updated_at = NOW() "
+                                "WHERE id = :cid"
+                            ),
+                            {"cid": comp.id, "analysis": json.dumps({
+                                "themes": [t.topic for t in topics[:5]] if topics else [],
+                                "audience_type": "Engaged" if len(posts) > 5 else "Unknown",
+                                "engagement_style": "Active" if sum(p.get("engagement_score", 0) for p in posts) / max(len(posts), 1) > 100 else "Moderate",
+                                "key_interests": [t.topic for t in topics[:3]] if topics else [],
+                                "refreshed_at": datetime.now(timezone.utc).isoformat(),
+                            })},
+                        )
+                        audience_refreshed += 1
+                except Exception as e:
+                    logger.warning("Audience refresh failed for %s: %s", comp.handle, e)
+            await db.commit()
+            
+            _sync_all_status = {
+                "running": False,
+                "message": f"Done: {batch_result.success}/{len(competitors)} synced, {batch_result.posts_saved} posts",
+                "total": len(competitors),
+                "success": batch_result.success,
+                "failed": batch_result.failed,
+                "posts_saved": batch_result.posts_saved,
+                "audience_refreshed": audience_refreshed,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }
     except Exception as e:
-        await db.rollback()
-        logger.error("Failed to sync all competitors: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to sync all competitors")
+        logger.error("Background sync failed: %s", e)
+        _sync_all_status = {"running": False, "message": f"Failed: {str(e)[:100]}", "error": True}
+
+
+@router.post("/sync-all")
+async def sync_all_competitors():
+    """Kick off a background sync of all competitors. Returns immediately."""
+    global _sync_all_task
+    
+    if _sync_all_status.get("running"):
+        return {"accepted": True, "message": "Sync already running", **_sync_all_status}
+    
+    _sync_all_task = asyncio.create_task(_run_sync_all())
+    return {"accepted": True, "message": "Sync started in background", "total": 0, "success": 0}
+
+
+@router.get("/sync-all/status")
+async def get_sync_all_status():
+    """Check the status of the background sync."""
+    return _sync_all_status
 
 
 # ── Linked Account Detection + Dossier ───────────────────────────

@@ -1481,17 +1481,31 @@ export default function CompetitorIntel() {
                           try {
                             const resp = await authFetch(`${API}/api/content-intel/sync-all`, { method: "POST" });
                             if (resp.ok) {
-                              const data = await resp.json();
-                              setSyncResult(`Synced ${data.success || 0}/${data.total || 0} competitors · ${data.posts_saved || 0} posts`);
-                              setLastSyncTime(new Date().toLocaleTimeString());
-                              // Refresh all views
-                              await refreshIntelligenceViews();
+                              setSyncResult("Sync started...");
+                              // Poll for completion
+                              const pollInterval = setInterval(async () => {
+                                try {
+                                  const statusResp = await authFetch(`${API}/api/content-intel/sync-all/status`);
+                                  if (statusResp.ok) {
+                                    const status = await statusResp.json();
+                                    setSyncResult(status.message || "Syncing...");
+                                    if (!status.running) {
+                                      clearInterval(pollInterval);
+                                      setSyncing(false);
+                                      setLastSyncTime(new Date().toLocaleTimeString());
+                                      await refreshIntelligenceViews();
+                                    }
+                                  }
+                                } catch { /* ignore poll errors */ }
+                              }, 3000);
+                              // Safety timeout: stop polling after 5 minutes
+                              setTimeout(() => { clearInterval(pollInterval); setSyncing(false); }, 300000);
                             } else {
-                              setSyncResult("Sync failed");
+                              setSyncResult("Sync failed to start");
+                              setSyncing(false);
                             }
                           } catch {
                             setSyncResult("Sync error");
-                          } finally {
                             setSyncing(false);
                           }
                         }}
