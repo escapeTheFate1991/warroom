@@ -78,7 +78,7 @@ export default function EducatePanel() {
   const loadVideos = useCallback(async () => {
     try {
       setLoading(true);
-      const resp = await fetch(`${ML_API}/videos`);
+      const resp = await authFetch(`${ML_API}/videos`);
       if (resp.ok) setVideos(await resp.json());
     } catch {
       console.error("Failed to load videos");
@@ -94,7 +94,7 @@ export default function EducatePanel() {
     if (!task || task.status === "completed" || task.status === "error") return;
     const interval = setInterval(async () => {
       try {
-        const resp = await fetch(`${ML_API}/videos/status/${task.taskId}`);
+        const resp = await authFetch(`${ML_API}/videos/status/${task.taskId}`);
         if (resp.ok) {
           const data = await resp.json();
           setTask({ taskId: data.task_id, status: data.status, progress: data.progress, message: data.message });
@@ -112,7 +112,7 @@ export default function EducatePanel() {
     if (!trimmed) return;
     setError("");
     try {
-      const resp = await fetch(`${ML_API}/videos/process`, {
+      const resp = await authFetch(`${ML_API}/videos/process`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: trimmed }),
@@ -133,7 +133,7 @@ export default function EducatePanel() {
   const deleteVideo = async (id: number) => {
     if (!confirm("Delete this video from the library?")) return;
     try {
-      await fetch(`${ML_API}/videos/${id}`, { method: "DELETE" });
+      await authFetch(`${ML_API}/videos/${id}`, { method: "DELETE" });
       setVideos((prev) => prev.filter((v) => v.id !== id));
     } catch {}
   };

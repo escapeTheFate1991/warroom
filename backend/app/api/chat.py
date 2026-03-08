@@ -186,6 +186,19 @@ async def chat_ws(ws: WebSocket):
                         msg_type = data.get("type", "")
                         method = data.get("method", "")
                         logger.info("GW-RAW: type=%s event=%s method=%s keys=%s", msg_type, data.get('event', ''), method, list(data.keys())[:6])
+
+                        # Detect rate limit in response errors and forward as typed alert
+                        if msg_type == "res" and not data.get("ok"):
+                            err = data.get("error", {})
+                            err_code = err.get("code", "")
+                            err_msg = err.get("message", "")
+                            if "rate" in err_code.lower() or "429" in err_msg or "rate limit" in err_msg.lower():
+                                await ws.send_text(json.dumps({
+                                    "type": "error",
+                                    "code": "rate_limited",
+                                    "message": err_msg or "API rate limit reached. Please wait before retrying.",
+                                }))
+
                         # Filter: only forward events for the active session
                         # Gateway returns full key (e.g. "agent:main:warroom") while we send short key ("warroom")
                         if msg_type == "event":
@@ -193,6 +206,22 @@ async def chat_ws(ws: WebSocket):
                             event_session = payload.get("sessionKey", "") or payload.get("session", "")
                             if event_session and session_key not in event_session:
                                 continue
+
+                            # Detect rate limit in chat events
+                            chat_state = payload.get("state", "")
+                            if chat_state == "error":
+                                err_text = ""
+                                msg = payload.get("message", "")
+                                if isinstance(msg, str):
+                                    err_text = msg
+                                elif isinstance(msg, dict):
+                                    err_text = msg.get("content", "") or msg.get("text", "")
+                                if "rate limit" in err_text.lower() or "429" in err_text:
+                                    await ws.send_text(json.dumps({
+                                        "type": "error",
+                                        "code": "rate_limited",
+                                        "message": err_text or "API rate limit reached.",
+                                    }))
 
                         await ws.send_text(json.dumps(data))
                 except websockets.exceptions.ConnectionClosed as e:
@@ -388,3 +417,156 @@ async def polish_prompt(body: dict):
         logger.warning("Polish failed: %s", exc)
 
     return {"polished": text}
+
+
+@router.post("/evaluate-prompt")
+async def evaluate_prompt(body: dict):
+    """Evaluate prompt clarity and return clarifying questions if vague.
+
+    Inspired by claude-code-prompt-improver: intercepts vague prompts,
+    asks grounded clarifying questions, then produces an improved version.
+
+    Request: { text: string, context?: string[] }
+    Response: { clear: bool, questions?: string[], improved?: string }
+    """
+    import httpx
+
+    text = body.get("text", "").strip()
+    context = body.get("context", [])  # Recent message summaries for grounding
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    auth_token = os.getenv("OPENCLAW_AUTH_TOKEN", OPENCLAW_TOKEN)
+    if not auth_token:
+        return {"clear": True}
+
+    # Phase 1: Evaluate clarity
+    eval_system = (
+        "You evaluate prompt clarity for an AI assistant. Given a user prompt and optional "
+        "conversation context, determine if the prompt is clear enough to act on.\n\n"
+        "A prompt is CLEAR if it has:\n"
+        "- A specific action or question\n"
+        "- Enough context to proceed without guessing\n"
+        "- No critical ambiguity about scope, target, or intent\n\n"
+        "A prompt is VAGUE if:\n"
+        "- The action is ambiguous (\"fix it\", \"make it better\", \"update things\")\n"
+        "- Critical details are missing (which file, which feature, what behavior)\n"
+        "- Multiple interpretations are equally valid\n"
+        "- Scope is unclear (one page vs entire app, one field vs whole form)\n\n"
+        "Respond with EXACTLY this JSON format, nothing else:\n"
+        '{"clear": true} or {"clear": false, "questions": ["question 1", "question 2", ...], "context_summary": "brief summary of what you understood"}\n\n'
+        "Rules:\n"
+        "- Max 6 questions, min 1\n"
+        "- Questions must be specific and grounded in what the user said\n"
+        "- Include multiple-choice options when possible (e.g., \"Which page? (a) Dashboard (b) Settings (c) Other\")\n"
+        "- Don't ask obvious questions the context already answers\n"
+        "- Short, direct questions — no fluff"
+    )
+
+    context_block = ""
+    if context:
+        context_block = "\n\nRecent conversation context:\n" + "\n".join(f"- {c}" for c in context[-10:])
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{os.getenv('OPENCLAW_API_URL', OPENCLAW_API)}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {auth_token}"},
+                json={
+                    "messages": [
+                        {"role": "system", "content": eval_system},
+                        {"role": "user", "content": f"Evaluate this prompt:{context_block}\n\nPrompt: \"{text}\""},
+                    ],
+                    "stream": False,
+                    "temperature": 0.1,
+                    "max_tokens": 500,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices:
+                    raw = choices[0].get("message", {}).get("content", "").strip()
+                    # Parse JSON from response (handle markdown code blocks)
+                    json_str = raw
+                    if "```" in raw:
+                        json_str = raw.split("```")[1]
+                        if json_str.startswith("json"):
+                            json_str = json_str[4:]
+                    try:
+                        result = json.loads(json_str.strip())
+                        return result
+                    except json.JSONDecodeError:
+                        logger.warning("Failed to parse evaluation JSON: %s", raw[:200])
+                        return {"clear": True}
+            else:
+                logger.warning("Prompt evaluation failed: %s", resp.status_code)
+    except Exception as exc:
+        logger.warning("Evaluate prompt failed: %s", exc)
+
+    return {"clear": True}
+
+
+@router.post("/improve-prompt")
+async def improve_prompt(body: dict):
+    """Take the original prompt + answers to clarifying questions and produce an improved prompt.
+
+    Request: { original: string, questions: string[], answers: string[] }
+    Response: { improved: string }
+    """
+    import httpx
+
+    original = body.get("original", "").strip()
+    questions = body.get("questions", [])
+    answers = body.get("answers", [])
+
+    if not original:
+        raise HTTPException(status_code=400, detail="No original prompt")
+
+    auth_token = os.getenv("OPENCLAW_AUTH_TOKEN", OPENCLAW_TOKEN)
+    if not auth_token:
+        return {"improved": original}
+
+    qa_block = ""
+    for q, a in zip(questions, answers):
+        qa_block += f"\nQ: {q}\nA: {a}"
+
+    improve_system = (
+        "You are a prompt engineer. Given the user's original prompt and their answers to "
+        "clarifying questions, rewrite the prompt to be clear, specific, and actionable.\n\n"
+        "Rules:\n"
+        "- Keep the user's intent and voice\n"
+        "- Incorporate all answers naturally\n"
+        "- Add structure (sections, bullet points) if the prompt is complex\n"
+        "- Be specific about scope, targets, and expected behavior\n"
+        "- Return ONLY the improved prompt — no explanation, no preamble, no quotes"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{os.getenv('OPENCLAW_API_URL', OPENCLAW_API)}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {auth_token}"},
+                json={
+                    "messages": [
+                        {"role": "system", "content": improve_system},
+                        {"role": "user", "content": f"Original prompt: \"{original}\"\n\nClarifying Q&A:{qa_block}\n\nRewrite the prompt:"},
+                    ],
+                    "stream": False,
+                    "temperature": 0.3,
+                    "max_tokens": 1500,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices:
+                    improved = choices[0].get("message", {}).get("content", "").strip()
+                    if improved:
+                        return {"improved": improved}
+            else:
+                logger.warning("Improve prompt failed: %s", resp.status_code)
+    except Exception as exc:
+        logger.warning("Improve prompt failed: %s", exc)
+
+    return {"improved": original}
