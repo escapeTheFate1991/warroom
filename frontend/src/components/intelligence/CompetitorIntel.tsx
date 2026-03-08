@@ -1145,7 +1145,14 @@ export default function CompetitorIntel() {
                               </div>
                               <div>
                                 <h4 className="font-semibold text-sm">@{comp.handle}</h4>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[comp.platform] || "bg-gray-500/20 text-gray-400"}`}>{comp.platform}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[comp.platform] || "bg-gray-500/20 text-gray-400"}`}>{comp.platform}</span>
+                                  {comp.last_auto_sync && (
+                                    <span className="text-[9px] text-warroom-muted">
+                                      Last synced: {timeAgo(comp.last_auto_sync)}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                             <button onClick={(e) => { e.stopPropagation(); deleteCompetitor(comp.id); }}
