@@ -1544,7 +1544,7 @@ export default function CompetitorIntel() {
                               </div>
                             </div>
                             <button onClick={(e) => { e.stopPropagation(); deleteCompetitor(comp.id); }}
-                              className="text-warroom-muted hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                              className="text-warroom-muted hover:text-red-400 transition">
                               <Trash2 size={14} />
                             </button>
                           </div>
