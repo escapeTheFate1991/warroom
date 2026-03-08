@@ -34,6 +34,7 @@ interface Skill {
   name: string;
   description: string;
   categories?: string[];
+  subcategories?: string[];
   source: string;
   enabled: boolean;
 }
@@ -200,6 +201,30 @@ export default function AgentManager() {
 
   const [skillSearch, setSkillSearch] = useState("");
   const [skillCategoryFilter, setSkillCategoryFilter] = useState<string>("all");
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [selectedSubcategories, setSelectedSubcategories] = useState<Set<string>>(new Set());
+
+  const toggleCategoryExpand = (cat: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
+  };
+
+  const toggleSubcategory = (subcat: string) => {
+    setSelectedSubcategories(prev => {
+      const next = new Set(prev);
+      if (next.has(subcat)) next.delete(subcat); else next.add(subcat);
+      return next;
+    });
+  };
+
+  const clearAllFilters = () => {
+    setSkillCategoryFilter("all");
+    setSelectedSubcategories(new Set());
+    setSkillSearch("");
+  };
 
   const applyPreset = (preset: typeof ROLE_PRESETS[0]) => {
     // Auto-select skills that match this preset's categories + patterns
@@ -388,22 +413,64 @@ export default function AgentManager() {
                 Selected ({createData.skills.length})
               </button>
               {Object.entries(CATEGORY_LABELS).map(([key, label]) => {
-                const count = skills.filter(s => s.enabled && (s.categories || []).includes(key)).length;
-                if (count === 0) return null;
+                const catSkills = skills.filter(s => s.enabled && (s.categories || []).includes(key));
+                if (catSkills.length === 0) return null;
+                const isExpanded = expandedCategories.has(key);
+                const subcats = Array.from(new Set(catSkills.flatMap(s => s.subcategories || [])));
                 return (
-                  <button
-                    key={key}
-                    onClick={() => setSkillCategoryFilter(key)}
-                    className={`px-2.5 py-1 rounded-lg text-[10px] border transition ${
-                      skillCategoryFilter === key
-                        ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
-                        : "border-warroom-border text-warroom-muted hover:text-warroom-text"
-                    }`}
-                  >
-                    {label} ({count})
-                  </button>
+                  <div key={key} className="flex flex-col">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setSkillCategoryFilter(skillCategoryFilter === key ? "all" : key)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] border transition ${
+                          skillCategoryFilter === key
+                            ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
+                            : "border-warroom-border text-warroom-muted hover:text-warroom-text"
+                        }`}
+                      >
+                        {label} ({catSkills.length})
+                      </button>
+                      {subcats.length > 0 && (
+                        <button
+                          onClick={() => toggleCategoryExpand(key)}
+                          className="text-warroom-muted hover:text-warroom-text transition p-0.5"
+                        >
+                          {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                        </button>
+                      )}
+                    </div>
+                    {isExpanded && subcats.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1 ml-2">
+                        {subcats.map(sub => {
+                          const subCount = catSkills.filter(s => (s.subcategories || []).includes(sub)).length;
+                          const isSelected = selectedSubcategories.has(sub);
+                          return (
+                            <button
+                              key={sub}
+                              onClick={() => toggleSubcategory(sub)}
+                              className={`px-2 py-0.5 rounded text-[9px] border transition ${
+                                isSelected
+                                  ? "border-blue-500 bg-blue-500/10 text-blue-400"
+                                  : "border-warroom-border/50 text-warroom-muted/60 hover:text-warroom-text"
+                              }`}
+                            >
+                              {sub} ({subCount})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
+              {(skillCategoryFilter !== "all" || selectedSubcategories.size > 0 || skillSearch) && (
+                <button
+                  onClick={clearAllFilters}
+                  className="px-2.5 py-1 rounded-lg text-[10px] border border-red-500/30 text-red-400/70 hover:text-red-300 hover:border-red-500/50 transition"
+                >
+                  Clear all
+                </button>
+              )}
             </div>
 
             {/* Skill List */}
@@ -413,13 +480,17 @@ export default function AgentManager() {
                   .filter(s => s.enabled)
                   .filter(s => {
                     if (skillCategoryFilter === "selected") return createData.skills.includes(s.name);
-                    if (skillCategoryFilter !== "all") return (s.categories || []).includes(skillCategoryFilter);
+                    if (skillCategoryFilter !== "all" && !(s.categories || []).includes(skillCategoryFilter)) return false;
+                    if (selectedSubcategories.size > 0) {
+                      const subs = s.subcategories || [];
+                      return Array.from(selectedSubcategories).some(sub => subs.includes(sub));
+                    }
                     return true;
                   })
                   .filter(s => {
                     if (!skillSearch.trim()) return true;
                     const q = skillSearch.toLowerCase();
-                    return s.id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q);
+                    return s.id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q) || (s.description || "").toLowerCase().includes(q) || (s.subcategories || []).some(sc => sc.toLowerCase().includes(q));
                   });
 
                 if (filtered.length === 0) {
@@ -446,7 +517,16 @@ export default function AgentManager() {
                     />
                     <Wrench size={11} className="text-warroom-muted flex-shrink-0" />
                     <span className="text-warroom-text truncate">{skill.name}</span>
-                    {skill.categories && skill.categories.length > 0 && (
+                    {skill.subcategories && skill.subcategories.length > 0 && (
+                      <span className="flex gap-1 flex-shrink-0">
+                        {skill.subcategories.slice(0, 3).map(sc => (
+                          <span key={sc} className="text-[8px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/30">
+                            {sc}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                    {(!skill.subcategories || skill.subcategories.length === 0) && skill.categories && skill.categories.length > 0 && (
                       <span className="text-[9px] text-warroom-muted/40 flex-shrink-0 hidden group-hover:inline">
                         {skill.categories.map(c => CATEGORY_LABELS[c] || c).join(", ")}
                       </span>
