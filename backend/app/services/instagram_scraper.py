@@ -328,19 +328,38 @@ async def _login_to_instagram(context) -> bool:
     try:
         logger.info("Logging in to Instagram as @%s", username)
         await page.goto("https://www.instagram.com/accounts/login/", wait_until="domcontentloaded", timeout=20000)
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
         
-        # Accept cookies dialog if present
-        try:
-            accept_btn = await page.query_selector('button:has-text("Allow"), button:has-text("Accept")')
-            if accept_btn:
-                await accept_btn.click()
-                await asyncio.sleep(1)
-        except Exception:
-            pass
+        # Dismiss cookie consent / GDPR dialogs (Instagram shows these before login form)
+        # Try multiple known selectors — Instagram changes these frequently
+        for _ in range(3):
+            try:
+                for selector in [
+                    'button:has-text("Allow essential and optional cookies")',
+                    'button:has-text("Allow all cookies")',
+                    'button:has-text("Accept All")',
+                    'button:has-text("Accept all")',
+                    'button:has-text("Allow")',
+                    'button:has-text("Accept")',
+                    'button:has-text("Only allow essential cookies")',
+                    'button:has-text("Decline optional cookies")',
+                    '[role="dialog"] button:first-of-type',
+                ]:
+                    btn = await page.query_selector(selector)
+                    if btn and await btn.is_visible():
+                        await btn.click()
+                        logger.info("Dismissed cookie dialog with: %s", selector)
+                        await asyncio.sleep(1)
+                        break
+                else:
+                    break  # No dialog found, move on
+            except Exception:
+                break
+        
+        await asyncio.sleep(1)
         
         # Fill login form
-        username_input = await page.wait_for_selector('input[name="username"]', timeout=10000)
+        username_input = await page.wait_for_selector('input[name="username"]', timeout=15000)
         await username_input.fill(username)
         
         password_input = await page.wait_for_selector('input[name="password"]', timeout=5000)
