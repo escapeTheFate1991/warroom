@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,8 +15,39 @@ from app.db.crm_db import get_crm_db
 from app.models.crm.competitor import Competitor
 from app.models.crm.social import SocialAccount
 from app.api.scraper import sync_instagram_competitor, sync_instagram_competitor_batch
+from app.db.crm_db import crm_session
 
 logger = logging.getLogger(__name__)
+
+
+async def _background_sync_competitor(competitor_id: int, platform: str):
+    """Background task to sync competitor after creation."""
+    try:
+        if platform.lower() != "instagram":
+            return  # Only auto-sync Instagram for now
+            
+        async with crm_session() as db:
+            # Get the competitor
+            result = await db.execute(
+                select(Competitor).where(Competitor.id == competitor_id)
+            )
+            competitor = result.scalar_one_or_none()
+            
+            if not competitor:
+                logger.error(f"Competitor {competitor_id} not found for background sync")
+                return
+                
+            # Sync the competitor
+            sync_result = await sync_instagram_competitor(db, competitor)
+            
+            if sync_result["success"]:
+                await db.commit()
+                logger.info(f"Successfully synced competitor {competitor.handle} (ID: {competitor_id})")
+            else:
+                logger.error(f"Failed to sync competitor {competitor.handle} (ID: {competitor_id}): {sync_result['error']}")
+                
+    except Exception as e:
+        logger.error(f"Background sync failed for competitor {competitor_id}: {e}")
 
 router = APIRouter()
 
@@ -292,6 +323,7 @@ async def _sync_competitor_record(
 @router.post("/competitors", response_model=CompetitorResponse)
 async def create_competitor(
     competitor_data: CompetitorCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_crm_db)
 ):
     """Create a new competitor with auto-populated data."""
@@ -335,6 +367,13 @@ async def create_competitor(
         db.add(new_competitor)
         await db.commit()
         await db.refresh(new_competitor)
+        
+        # Trigger background sync for the new competitor
+        background_tasks.add_task(
+            _background_sync_competitor, 
+            new_competitor.id, 
+            new_competitor.platform
+        )
         
         return CompetitorResponse.model_validate(new_competitor)
         
