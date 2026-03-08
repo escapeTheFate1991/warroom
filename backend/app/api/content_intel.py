@@ -1975,13 +1975,14 @@ async def _run_sync_all():
     """Background task: sync all competitors."""
     global _sync_all_status
     _sync_all_status = {"running": True, "started_at": datetime.now(timezone.utc).isoformat(), "message": "Syncing..."}
-    logger.info("SYNC-ALL: Background task started")
+    print("[SYNC-ALL] Background task started", flush=True)
     
     try:
         from app.db.crm_db import crm_session
         from sqlalchemy import text as sa_text
         async with crm_session() as db:
             await db.execute(sa_text("SET search_path TO crm, public"))
+            print("[SYNC-ALL] DB session open, search_path set", flush=True)
             result = await db.execute(
                 select(Competitor)
                 .where(Competitor.platform == "instagram")
@@ -1995,11 +1996,10 @@ async def _run_sync_all():
             
             _sync_all_status["total"] = len(competitors)
             _sync_all_status["message"] = f"Scraping {len(competitors)} competitors..."
-            logger.info("SYNC-ALL: Found %d competitors, starting batch scrape", len(competitors))
+            print(f"[SYNC-ALL] Found {len(competitors)} competitors, starting batch scrape", flush=True)
             
             batch_result = await sync_instagram_competitor_batch(db, competitors)
-            logger.info("SYNC-ALL: Batch complete — success=%s failed=%s posts=%s", 
-                       batch_result.success, batch_result.failed, batch_result.posts_saved)
+            print(f"[SYNC-ALL] Batch complete — success={batch_result.success} failed={batch_result.failed} posts={batch_result.posts_saved}", flush=True)
             await db.commit()
             
             # Audience analysis
@@ -2039,7 +2039,7 @@ async def _run_sync_all():
             }
     except Exception as e:
         import traceback
-        logger.error("SYNC-ALL FAILED: %s\n%s", e, traceback.format_exc())
+        print(f"[SYNC-ALL] FAILED: {e}\n{traceback.format_exc()}", flush=True)
         _sync_all_status = {"running": False, "message": f"Failed: {str(e)[:100]}", "error": True}
 
 
