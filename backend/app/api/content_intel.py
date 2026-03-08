@@ -4,7 +4,7 @@ import json
 import re
 import httpx
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any, Tuple
 from collections import Counter, defaultdict
 import string
@@ -19,6 +19,12 @@ from app.db.crm_db import get_crm_db
 from app.models.crm.competitor import Competitor
 from app.models.crm.content_script import ContentScript
 from app.models.crm.social import SocialAccount
+from app.api.scraper import (
+    sync_instagram_competitor,
+    sync_instagram_competitor_batch,
+    calculate_competitor_engagement_score,
+)
+from app.api.contracts import _get_business_settings
 
 # Import NLP libraries for better text processing
 try:
@@ -47,6 +53,17 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_competitor_sync_locks: Dict[int, asyncio.Lock] = {}
+
+
+def _get_competitor_sync_lock(competitor_id: int) -> asyncio.Lock:
+    """Return the in-process lock used to dedupe competitor sync requests."""
+    lock = _competitor_sync_locks.get(competitor_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _competitor_sync_locks[competitor_id] = lock
+    return lock
 
 
 # Enhanced Pydantic models
@@ -103,6 +120,7 @@ class TopContentItem(BaseModel):
     competitor_handle: str
     url: str
     timestamp: datetime
+    virality_score: float = 0.0
 
 
 class TopContentResponse(BaseModel):
@@ -118,6 +136,7 @@ class HookItem(BaseModel):
     platform: str
     competitor_handle: str
     source_url: str
+    virality_score: float = 0.0
 
 
 class HooksResponse(BaseModel):
@@ -132,6 +151,16 @@ class ScriptGenerationRequest(BaseModel):
     platform: str
     topic: Optional[str] = None
     hook_style: Optional[str] = None  # comparison, bold_claim, confession, etc.
+    count: int = Field(default=6, ge=1, le=12)
+
+
+class SimilarVideoReference(BaseModel):
+    """Reference to a similar competitor video/post used as inspiration."""
+    competitor_handle: str
+    platform: str
+    source_url: str = ""
+    hook: str = ""
+    engagement_score: float = 0.0
 
 
 class GeneratedScript(BaseModel):
@@ -146,6 +175,17 @@ class GeneratedScript(BaseModel):
     topic: Optional[str] = None
     source_post_url: Optional[str] = None
     estimated_duration: Optional[str] = None
+    created_at: Optional[datetime] = None
+    predicted_views: int = 0
+    predicted_engagement: float = 0.0
+    predicted_engagement_rate: float = 0.0
+    virality_score: float = 0.0
+    business_alignment_score: float = 0.0
+    business_alignment_label: str = "Low"
+    business_alignment_reason: str = ""
+    source_competitors: List[str] = Field(default_factory=list)
+    similar_videos: List[SimilarVideoReference] = Field(default_factory=list)
+    scene_map: List[Dict[str, str]] = Field(default_factory=list)
 
 
 def calculate_engagement_score(likes: int, comments: int, shares: int) -> float:
@@ -155,6 +195,9 @@ def calculate_engagement_score(likes: int, comments: int, shares: int) -> float:
 
 def calculate_recency_weight(posted_at: datetime) -> float:
     """Calculate recency boost factor."""
+    if posted_at.tzinfo is not None:
+        posted_at = posted_at.astimezone(timezone.utc).replace(tzinfo=None)
+
     days_ago = (datetime.now() - posted_at).days
     
     if days_ago <= 7:
@@ -163,6 +206,371 @@ def calculate_recency_weight(posted_at: datetime) -> float:
         return 1.5  # 1.5x boost for last 14 days
     else:
         return 1.0  # No boost for older content
+
+
+COMMON_STOPWORDS = {
+    "about", "after", "again", "also", "because", "been", "being", "between",
+    "could", "from", "have", "into", "just", "more", "most", "over", "than",
+    "that", "their", "them", "they", "this", "those", "through", "until",
+    "very", "what", "when", "where", "which", "while", "with", "your", "you",
+    "ours", "ourselves", "into", "onto", "then", "here", "there", "than",
+}
+
+
+def _coerce_posted_at(value: Any) -> datetime:
+    """Return a naive datetime for mixed cached/serialized values."""
+    if isinstance(value, datetime):
+        posted_at = value
+    elif isinstance(value, str):
+        try:
+            posted_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            posted_at = datetime.now(timezone.utc)
+    else:
+        posted_at = datetime.now(timezone.utc)
+
+    if posted_at.tzinfo is not None:
+        return posted_at.astimezone(timezone.utc).replace(tzinfo=None)
+    return posted_at
+
+
+def _post_engagement_score(post: Dict[str, Any]) -> float:
+    """Recompute engagement from stored interaction counts."""
+    return calculate_competitor_engagement_score(
+        post.get("likes", 0) or 0,
+        post.get("comments", 0) or 0,
+        post.get("shares", 0) or 0,
+        platform=post.get("platform"),
+    )
+
+
+def _post_engagement_rate(post: Dict[str, Any]) -> float:
+    """Estimate engagement rate from cached counts and competitor followers."""
+    followers = post.get("followers", 0) or 0
+    if followers <= 0:
+        return 0.0
+    return _post_engagement_score(post) / float(followers)
+
+
+def _post_virality_score(post: Dict[str, Any]) -> float:
+    """Blend raw engagement, engagement rate, and recency for ranking."""
+    recency_weight = calculate_recency_weight(_coerce_posted_at(post.get("posted_at")))
+    engagement = _post_engagement_score(post)
+    engagement_rate = _post_engagement_rate(post)
+    return round((engagement * recency_weight) + (engagement_rate * 1000.0), 2)
+
+
+def _sorted_posts_for_analysis(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Sort cached posts by virality, engagement, and recency."""
+    return sorted(
+        posts,
+        key=lambda post: (
+            _post_virality_score(post),
+            _post_engagement_score(post),
+            _post_engagement_rate(post),
+            _coerce_posted_at(post.get("posted_at")),
+        ),
+        reverse=True,
+    )
+
+
+def _post_hook(post: Dict[str, Any]) -> str:
+    """Return a reliable hook for a cached post."""
+    stored_hook = str(post.get("hook") or "").strip()
+    if stored_hook:
+        return stored_hook
+    return extract_hook_from_text(post.get("post_text", "") or "")
+
+
+def _estimate_predicted_views(post: Dict[str, Any]) -> int:
+    """Estimate likely views from the best available cached signals."""
+    direct_views = int(post.get("views", 0) or 0)
+    if direct_views > 0:
+        return direct_views
+
+    shares_or_views = int(post.get("shares", 0) or 0)
+    if shares_or_views > 0:
+        return shares_or_views
+
+    engagement = _post_engagement_score(post)
+    followers = int(post.get("followers", 0) or 0)
+    engagement_rate = _post_engagement_rate(post)
+
+    if followers > 0:
+        modeled_reach = followers * min(max(engagement_rate * 6.0, 0.08), 0.45)
+        return int(max(modeled_reach, engagement * 4.0, (post.get("likes", 0) or 0) * 6.0))
+
+    return int(max(engagement * 4.0, (post.get("likes", 0) or 0) * 6.0))
+
+
+def _build_similar_video_references(
+    posts: List[Dict[str, Any]],
+    limit: int = 3,
+) -> List[SimilarVideoReference]:
+    """Create similar-video references from ranked competitor posts."""
+    references: List[SimilarVideoReference] = []
+    seen: set[str] = set()
+
+    for post in _sorted_posts_for_analysis(posts):
+        signature = str(post.get("post_url") or _post_hook(post) or "").strip()
+        if not signature or signature in seen:
+            continue
+
+        seen.add(signature)
+        references.append(
+            SimilarVideoReference(
+                competitor_handle=post.get("handle", ""),
+                platform=post.get("platform", ""),
+                source_url=post.get("post_url", "") or "",
+                hook=_post_hook(post),
+                engagement_score=round(_post_engagement_score(post), 1),
+            )
+        )
+
+        if len(references) >= limit:
+            break
+
+    return references
+
+
+def _estimated_duration_for_platform(platform: str) -> str:
+    """Return a default runtime based on the output platform."""
+    platform_name = (platform or "instagram").lower()
+    if platform_name == "youtube":
+        return "6-8 minutes"
+    if platform_name == "x":
+        return "8-post thread"
+    if platform_name == "tiktok":
+        return "30-45 seconds"
+    return "45-60 seconds"
+
+
+def _collect_candidate_topics(
+    posts: List[Dict[str, Any]],
+    trending_topics: List[str],
+    requested_topic: Optional[str],
+    max_topics: int,
+) -> List[str]:
+    """Collect unique topic candidates from request, trends, and source posts."""
+    topics: List[str] = []
+    seen: set[str] = set()
+
+    def add_topic(topic: Optional[str]) -> None:
+        cleaned = str(topic or "").strip()
+        if not cleaned:
+            return
+        key = cleaned.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        topics.append(cleaned)
+
+    add_topic(requested_topic)
+    for topic in trending_topics:
+        add_topic(topic)
+    for post in posts:
+        add_topic(_derive_topic_label(post))
+
+    if not topics:
+        topics.append("Competitive content angle")
+
+    return topics[: max(1, max_topics)]
+
+
+def _extract_keywords(text: str, limit: int = 8) -> List[str]:
+    """Extract stable lowercase keywords without requiring external services."""
+    if not text:
+        return []
+
+    cleaned = re.sub(r"#[A-Za-z0-9_]+", " ", text.lower())
+    tokens = re.findall(r"[a-z0-9]+", cleaned)
+    keywords: List[str] = []
+
+    for token in tokens:
+        if len(token) < 3 or token in COMMON_STOPWORDS:
+            continue
+        if token not in keywords:
+            keywords.append(token)
+        if len(keywords) >= limit:
+            break
+
+    return keywords
+
+
+def _derive_topic_label(post: Dict[str, Any]) -> str:
+    """Derive a compact topic label from a cached post."""
+    text = post.get("post_text", "") or ""
+    phrases = extract_ngrams(text, 3) + extract_ngrams(text, 2)
+    if phrases:
+        return phrases[0].title()
+
+    keywords = _extract_keywords(text, limit=4)
+    if keywords:
+        return " ".join(keywords).title()
+
+    hook = post.get("hook") or extract_hook_from_text(text)
+    return (hook or "Competitive content angle")[:60].strip()
+
+
+def _alignment_label(score: float) -> str:
+    """Map alignment score to a user-facing label."""
+    if score >= 80:
+        return "High"
+    if score >= 60:
+        return "Medium"
+    return "Low"
+
+
+def _score_business_alignment(topic: str, hook: str, business_settings: Dict[str, Any]) -> Tuple[float, str, str]:
+    """Score how well a script concept aligns to business messaging settings."""
+    business_text = " ".join(
+        str(value or "")
+        for value in business_settings.values()
+        if isinstance(value, str) and value.strip()
+    )
+    business_keywords = _extract_keywords(business_text, limit=12)
+    script_keywords = set(_extract_keywords(f"{topic} {hook}", limit=10))
+
+    if not business_keywords:
+        score = 55.0
+        reason = "Business settings are sparse, so this idea is scored on reusable educational messaging rather than named offers."
+        return score, _alignment_label(score), reason
+
+    overlap = [keyword for keyword in business_keywords if keyword in script_keywords]
+    score = min(100.0, 35.0 + (len(overlap) / max(1, len(set(business_keywords)))) * 65.0)
+
+    if overlap:
+        reason = "Aligned with business messaging via: %s." % ", ".join(overlap[:4])
+    else:
+        reason = "This concept is strong on hook performance, but it may need your offer, proof, or CTA tightened to match business messaging."
+
+    return round(score, 1), _alignment_label(score), reason
+
+
+def _build_script_cta(platform: str, business_settings: Dict[str, Any]) -> str:
+    """Create a platform-specific CTA using business settings when possible."""
+    platform_name = (platform or "instagram").lower()
+    business_name = business_settings.get("business_name") or "your brand"
+
+    if platform_name == "youtube":
+        return "Comment your biggest question, then subscribe for the next %s breakdown." % business_name
+    if platform_name == "x":
+        return "Reply with your take and repost if you want more %s-style breakdowns." % business_name
+    if platform_name == "tiktok":
+        return "Comment 'script' if you want a follow-up angle tailored to %s." % business_name
+    return "Save this for your next shoot and DM %s if you want the full playbook." % business_name
+
+
+def _build_script_body(
+    hook: str,
+    topic: str,
+    platform: str,
+    business_settings: Dict[str, Any],
+    source_competitors: List[str],
+) -> str:
+    """Build a detailed, data-driven short-form script body."""
+    business_name = business_settings.get("business_name") or "your brand"
+    business_tagline = business_settings.get("business_tagline") or "your positioning"
+    source_line = ", ".join(source_competitors[:3]) if source_competitors else "top competitors"
+
+    return (
+        f"Hook: {hook}\n\n"
+        f"Scene 1 — Pattern interrupt:\n"
+        f"Open on the pain, mistake, or curiosity gap around {topic.lower()}. Keep it tight enough that the viewer knows exactly why they should stop scrolling.\n\n"
+        f"Scene 2 — Proof from the market:\n"
+        f"Reference what is already working across {source_line}. Show the repeated angle, objection, or transformation these competitor videos are proving in-market.\n\n"
+        f"Scene 3 — Your spin:\n"
+        f"Translate that same angle into the {business_name} point of view. Tie it back to {business_tagline} so the script sounds like your brand, not a copy of the source material.\n\n"
+        f"Scene 4 — Tactical takeaway:\n"
+        f"Give the viewer one concrete move they can apply immediately about {topic.lower()}. Make it specific enough to feel valuable before the CTA arrives.\n\n"
+        f"Scene 5 — CTA:\n"
+        f"{_build_script_cta(platform, business_settings)}"
+    )
+
+
+def _build_script_scenes(
+    hook: str,
+    topic: str,
+    platform: str,
+    business_settings: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """Build structured scene metadata for drill-down display and persistence."""
+    business_name = business_settings.get("business_name") or "your brand"
+    return [
+        {"scene": "Hook", "direction": hook, "goal": "Stop the scroll in the first second."},
+        {"scene": "Problem", "direction": f"Name the pain point tied to {topic.lower()}.", "goal": "Create relevance."},
+        {"scene": "Proof", "direction": "Show what competitors are already proving with real market traction.", "goal": "Build credibility."},
+        {"scene": "Brand angle", "direction": f"Connect the lesson back to {business_name}.", "goal": "Align with business messaging."},
+        {"scene": "CTA", "direction": _build_script_cta(platform, business_settings), "goal": "Convert attention into action."},
+    ]
+
+
+def _serialize_script_metadata(script: GeneratedScript) -> str:
+    """Pack richer script metadata into ContentScript.scene_map JSON."""
+    return json.dumps({
+        "estimated_duration": script.estimated_duration,
+        "predicted_views": script.predicted_views,
+        "predicted_engagement": script.predicted_engagement,
+        "predicted_engagement_rate": script.predicted_engagement_rate,
+        "virality_score": script.virality_score,
+        "business_alignment_score": script.business_alignment_score,
+        "business_alignment_label": script.business_alignment_label,
+        "business_alignment_reason": script.business_alignment_reason,
+        "source_competitors": script.source_competitors,
+        "similar_videos": [video.model_dump() for video in script.similar_videos],
+        "scenes": script.scene_map,
+    })
+
+
+def _parse_script_metadata(scene_map_text: Optional[str]) -> Dict[str, Any]:
+    """Parse JSON stored in ContentScript.scene_map, supporting older rows gracefully."""
+    if not scene_map_text:
+        return {}
+
+    try:
+        parsed = json.loads(scene_map_text)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+    if isinstance(parsed, list):
+        return {"scenes": parsed}
+    if isinstance(parsed, dict):
+        return parsed
+    return {}
+
+
+def _content_script_to_response(script: ContentScript) -> GeneratedScript:
+    """Convert stored script rows into the richer API response shape."""
+    metadata = _parse_script_metadata(script.scene_map)
+    similar_videos = [
+        SimilarVideoReference(**video)
+        for video in metadata.get("similar_videos", [])
+        if isinstance(video, dict)
+    ]
+
+    return GeneratedScript(
+        id=script.id,
+        competitor_id=script.competitor_id,
+        platform=script.platform,
+        title=script.title or script.hook or "Generated script",
+        hook=script.hook or script.title or "",
+        body_outline=script.body or "",
+        cta=script.cta or "",
+        topic=script.topic,
+        source_post_url=script.source_post_url,
+        estimated_duration=(metadata.get("estimated_duration") or "45-60 seconds"),
+        created_at=script.created_at,
+        predicted_views=int(metadata.get("predicted_views", 0) or 0),
+        predicted_engagement=float(metadata.get("predicted_engagement", 0.0) or 0.0),
+        predicted_engagement_rate=float(metadata.get("predicted_engagement_rate", 0.0) or 0.0),
+        virality_score=float(metadata.get("virality_score", 0.0) or 0.0),
+        business_alignment_score=float(metadata.get("business_alignment_score", 0.0) or 0.0),
+        business_alignment_label=str(metadata.get("business_alignment_label", "Low") or "Low"),
+        business_alignment_reason=str(metadata.get("business_alignment_reason", "") or ""),
+        source_competitors=list(metadata.get("source_competitors", []) or []),
+        similar_videos=similar_videos,
+        scene_map=list(metadata.get("scenes", []) or []),
+    )
 
 
 def extract_hook_from_text(text: str) -> str:
@@ -329,17 +737,21 @@ async def save_competitor_posts(db: AsyncSession, competitor_id: int, platform: 
         return False
 
 
-async def load_cached_posts(db: AsyncSession, competitor_id: int = None, 
-                           platform: str = None, days: int = 30) -> List[Dict]:
+async def load_cached_posts(db: AsyncSession, competitor_id: int = None,
+                           platform: str = None, days: Optional[int] = 30) -> List[Dict]:
     """Load cached competitor posts from database."""
     try:
         query = """
-            SELECT cp.*, c.handle 
+            SELECT cp.*, c.handle, COALESCE(c.followers, 0) AS followers
             FROM crm.competitor_posts cp
             JOIN crm.competitors c ON cp.competitor_id = c.id
-            WHERE cp.posted_at >= :cutoff_date
+            WHERE 1 = 1
         """
-        params = {"cutoff_date": datetime.now() - timedelta(days=days)}
+        params: Dict[str, Any] = {}
+
+        if days is not None:
+            query += " AND cp.posted_at >= :cutoff_date"
+            params["cutoff_date"] = datetime.now() - timedelta(days=days)
         
         if competitor_id:
             query += " AND cp.competitor_id = :competitor_id"
@@ -349,7 +761,11 @@ async def load_cached_posts(db: AsyncSession, competitor_id: int = None,
             query += " AND cp.platform = :platform"
             params["platform"] = platform
             
-        query += " ORDER BY cp.engagement_score DESC"
+        query += (
+            " ORDER BY (COALESCE(cp.likes, 0) + COALESCE(cp.comments, 0) + "
+            "CASE WHEN lower(cp.platform) = 'instagram' THEN 0 ELSE COALESCE(cp.shares, 0) END) DESC, "
+            "cp.posted_at DESC"
+        )
         
         result = await db.execute(text(query), params)
         return [dict(row._mapping) for row in result.fetchall()]
@@ -357,6 +773,94 @@ async def load_cached_posts(db: AsyncSession, competitor_id: int = None,
     except SQLAlchemyError as e:
         logger.error("Failed to load cached posts: %s", e)
         return []
+
+
+def _cached_rows_to_posts(cached_posts: List[Dict[str, Any]]) -> List[CompetitorPost]:
+    """Convert cached post rows into API response models."""
+    posts: List[CompetitorPost] = []
+
+    for cached_post in cached_posts:
+        posts.append(CompetitorPost(
+            text=cached_post.get("post_text", ""),
+            likes=cached_post.get("likes", 0),
+            comments=cached_post.get("comments", 0),
+            shares=cached_post.get("shares", 0),
+            timestamp=cached_post.get("posted_at", datetime.now()),
+            url=cached_post.get("post_url", ""),
+            engagement_score=calculate_competitor_engagement_score(
+                cached_post.get("likes", 0),
+                cached_post.get("comments", 0),
+                cached_post.get("shares", 0),
+                platform=cached_post.get("platform"),
+            ),
+            hook=cached_post.get("hook", ""),
+        ))
+
+    return posts
+
+
+def _scraped_profile_to_posts(profile: Any) -> List[CompetitorPost]:
+    """Convert a scraped Instagram profile payload into competitor posts."""
+    posts: List[CompetitorPost] = []
+
+    for post in profile.posts:
+        posts.append(CompetitorPost(
+            text=post.caption,
+            likes=post.likes,
+            comments=post.comments,
+            shares=post.views,
+            timestamp=post.posted_at or datetime.now(),
+            url=post.post_url,
+            engagement_score=calculate_competitor_engagement_score(
+                post.likes,
+                post.comments,
+                post.views,
+                platform="instagram",
+            ),
+            hook=post.hook or extract_hook_from_text(post.caption),
+        ))
+
+    return posts
+
+
+async def _get_competitor_or_404(db: AsyncSession, competitor_id: int) -> Competitor:
+    """Load a competitor or raise a 404."""
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
+    competitor = result.scalar_one_or_none()
+
+    if not competitor:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+
+    return competitor
+
+
+async def _ensure_competitor_cached_posts(
+    db: AsyncSession,
+    competitor: Competitor,
+    days: Optional[int] = None,
+) -> Tuple[List[Dict[str, Any]], Optional[Any]]:
+    """Ensure Instagram competitors have cached posts for drill-down reads."""
+    platform = competitor.platform.lower()
+    cached_posts = await load_cached_posts(db, competitor.id, platform, days=days)
+    if cached_posts or platform != "instagram":
+        return cached_posts, None
+
+    lock = _get_competitor_sync_lock(competitor.id)
+    async with lock:
+        cached_posts = await load_cached_posts(db, competitor.id, platform, days=days)
+        if cached_posts:
+            return cached_posts, None
+
+        sync_result = await sync_instagram_competitor(db, competitor)
+        if not sync_result["success"]:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Instagram scrape failed: {sync_result['error']}",
+            )
+
+        await db.commit()
+        cached_posts = await load_cached_posts(db, competitor.id, platform, days=days)
+        return cached_posts, sync_result["profile"]
 
 
 # Social media fetching functions (keep existing implementations but enhance error handling)
@@ -551,7 +1055,7 @@ async def fetch_youtube_content(handle: str, api_key: str) -> List[CompetitorPos
         return []
 
 
-async def analyze_trending_topics(posts: List[Dict], cluster_topics: bool = True) -> List[TrendingTopic]:
+async def analyze_trending_topics(posts: List[Dict], enable_clustering: bool = True) -> List[TrendingTopic]:
     """Enhanced topic analysis with n-grams, engagement weighting, and recency boost."""
     if not posts:
         return []
@@ -575,7 +1079,7 @@ async def analyze_trending_topics(posts: List[Dict], cluster_topics: bool = True
             except:
                 posted_at = datetime.now()
         
-        engagement_score = post.get('engagement_score', 0)
+        engagement_score = _post_engagement_score(post)
         recency_weight = calculate_recency_weight(posted_at)
         
         # Extract bigrams and trigrams
@@ -624,15 +1128,15 @@ async def analyze_trending_topics(posts: List[Dict], cluster_topics: bool = True
     trending.sort(key=lambda x: x.final_score, reverse=True)
     
     # Cluster related topics if requested
-    if cluster_topics and trending:
+    if enable_clustering and trending:
         topic_names = [t.topic for t in trending[:20]]  # Top 20 topics
         clusters = cluster_topics(topic_names)
         
         # Add related topics to each trending topic
         for topic in trending[:20]:
-            for cluster_name, cluster_topics in clusters.items():
-                if topic.topic in cluster_topics:
-                    related = [t for t in cluster_topics if t != topic.topic]
+            for cluster_name, cluster_members in clusters.items():
+                if topic.topic in cluster_members:
+                    related = [t for t in cluster_members if t != topic.topic]
                     topic.related_topics = related[:3]  # Max 3 related topics
                     break
     
@@ -648,60 +1152,36 @@ async def get_competitor_content(
 ):
     """Fetch recent posts from a tracked competitor using the appropriate social API."""
     try:
-        # Get competitor info
-        result = await db.execute(
-            select(Competitor).where(Competitor.id == competitor_id)
-        )
-        competitor = result.scalar_one_or_none()
-        
-        if not competitor:
-            raise HTTPException(status_code=404, detail="Competitor not found")
+        competitor = await _get_competitor_or_404(db, competitor_id)
         
         posts = []
         platform = competitor.platform.lower()
         handle = competitor.handle
         
-        # First try to load from cache
-        cached_posts = await load_cached_posts(db, competitor_id, platform)
-        
-        if cached_posts:
-            # Convert cached posts to CompetitorPost objects
-            for cached_post in cached_posts:
-                posts.append(CompetitorPost(
-                    text=cached_post.get('post_text', ''),
-                    likes=cached_post.get('likes', 0),
-                    comments=cached_post.get('comments', 0),
-                    shares=cached_post.get('shares', 0),
-                    timestamp=cached_post.get('posted_at', datetime.now()),
-                    url=cached_post.get('post_url', ''),
-                    engagement_score=cached_post.get('engagement_score', 0),
-                    hook=cached_post.get('hook', '')
-                ))
-        else:
-            # Fetch fresh content from APIs
-            if platform == "instagram":
-                token = await get_social_account_token(db, "instagram")
-                if not token:
-                    raise HTTPException(status_code=422, detail="Instagram account not connected")
-                posts = await fetch_instagram_content(handle, token)
-            
-            elif platform == "x":
-                token = await get_social_account_token(db, "x")
-                if not token:
-                    raise HTTPException(status_code=422, detail="X account not connected")
-                posts = await fetch_x_content(handle, token)
-            
-            elif platform == "youtube":
-                # For YouTube, we'd need API key configuration
-                # For now, return mock data or implement with available API key
-                raise HTTPException(status_code=422, detail="YouTube content fetching not configured")
-            
-            else:
-                raise HTTPException(status_code=422, detail=f"Content fetching not supported for {platform}")
-            
-            # Cache the posts if we fetched fresh data
+        if platform == "instagram":
+            cached_posts, synced_profile = await _ensure_competitor_cached_posts(
+                db,
+                competitor,
+                days=30,
+            )
+            if cached_posts:
+                posts = _cached_rows_to_posts(cached_posts)
+            elif synced_profile is not None:
+                posts = _scraped_profile_to_posts(synced_profile)
+
+        elif platform == "x":
+            token = await get_social_account_token(db, "x")
+            if not token:
+                raise HTTPException(status_code=422, detail="X account not connected")
+            posts = await fetch_x_content(handle, token)
             if posts:
                 await save_competitor_posts(db, competitor_id, platform, posts)
+
+        elif platform == "youtube":
+            raise HTTPException(status_code=422, detail="YouTube content fetching not configured")
+
+        else:
+            raise HTTPException(status_code=422, detail=f"Content fetching not supported for {platform}")
         
         # Calculate average engagement
         avg_engagement = sum(p.engagement_score for p in posts) / len(posts) if posts else 0
@@ -770,8 +1250,8 @@ async def get_top_content(
         if not cached_posts:
             return TopContentResponse(posts=[], total_posts=0)
         
-        # Sort by engagement score and take top posts
-        top_posts = sorted(cached_posts, key=lambda x: x.get('engagement_score', 0), reverse=True)[:limit]
+        # Recompute ranking from current counts, follower context, and recency
+        top_posts = _sorted_posts_for_analysis(cached_posts)[:limit]
         
         # Convert to response format
         top_content = []
@@ -782,11 +1262,12 @@ async def get_top_content(
                 likes=post.get('likes', 0),
                 comments=post.get('comments', 0),
                 shares=post.get('shares', 0),
-                engagement_score=post.get('engagement_score', 0),
+                engagement_score=_post_engagement_score(post),
                 platform=post.get('platform', ''),
                 competitor_handle=post.get('handle', ''),
                 url=post.get('post_url', ''),
-                timestamp=post.get('posted_at', datetime.now())
+                timestamp=post.get('posted_at', datetime.now()),
+                virality_score=_post_virality_score(post),
             ))
         
         return TopContentResponse(
@@ -814,21 +1295,27 @@ async def get_hooks(
         if not cached_posts:
             return HooksResponse(hooks=[], total_hooks=0)
         
-        # Extract hooks and sort by engagement
+        # Extract hooks and rank them from the current post performance snapshot
         hooks = []
+        seen_hooks: set[str] = set()
         for post in cached_posts:
-            hook = post.get('hook', '')
+            hook = _post_hook(post)
             if hook and len(hook.strip()) > 10:  # Filter out short/empty hooks
+                hook_key = hook.strip().lower()
+                if hook_key in seen_hooks:
+                    continue
+                seen_hooks.add(hook_key)
                 hooks.append(HookItem(
                     hook=hook,
-                    engagement_score=post.get('engagement_score', 0),
+                    engagement_score=_post_engagement_score(post),
                     platform=post.get('platform', ''),
                     competitor_handle=post.get('handle', ''),
-                    source_url=post.get('post_url', '')
+                    source_url=post.get('post_url', ''),
+                    virality_score=_post_virality_score(post),
                 ))
         
-        # Sort by engagement and take top hooks
-        hooks.sort(key=lambda x: x.engagement_score, reverse=True)
+        # Sort by virality first so refreshes reflect changing winner content
+        hooks.sort(key=lambda x: (x.virality_score, x.engagement_score), reverse=True)
         top_hooks = hooks[:limit]
         
         return HooksResponse(
@@ -862,18 +1349,31 @@ async def refresh_competitor_content(
         
         refreshed = 0
         errors = []
+
+        instagram_competitors = [
+            competitor
+            for competitor in competitors
+            if competitor.platform.lower() == "instagram"
+        ]
+
+        if instagram_competitors:
+            batch_result = await sync_instagram_competitor_batch(db, instagram_competitors)
+            refreshed += batch_result.success
+
+            for profile in batch_result.profiles:
+                if profile.error:
+                    errors.append(f"Error refreshing {profile.handle}: {profile.error}")
         
         for competitor in competitors:
             try:
                 platform_name = competitor.platform.lower()
                 handle = competitor.handle
+
+                if platform_name == "instagram":
+                    continue
                 
                 posts = []
-                if platform_name == "instagram":
-                    token = await get_social_account_token(db, "instagram")
-                    if token:
-                        posts = await fetch_instagram_content(handle, token)
-                elif platform_name == "x":
+                if platform_name == "x":
                     token = await get_social_account_token(db, "x")
                     if token:
                         posts = await fetch_x_content(handle, token)
@@ -893,6 +1393,8 @@ async def refresh_competitor_content(
             except Exception as e:
                 logger.warning("Failed to refresh competitor %s: %s", competitor.handle, e)
                 errors.append(f"Error refreshing {competitor.handle}: {str(e)}")
+
+        await db.commit()
         
         return {
             "message": f"Refreshed content for {refreshed} competitors",
@@ -907,52 +1409,55 @@ async def refresh_competitor_content(
 
 
 # Keep existing script generation endpoints
-@router.post("/competitors/{competitor_id}/generate-script", response_model=GeneratedScript)
+@router.post("/competitors/{competitor_id}/generate-script", response_model=List[GeneratedScript])
 async def generate_content_script(
     competitor_id: int,
     request: ScriptGenerationRequest,
     save_to_db: bool = False,
     db: AsyncSession = Depends(get_crm_db)
 ):
-    """Generate a script document based on competitor analysis."""
+    """Generate competitor-driven script ideas from live cached performance data."""
     try:
-        # Get competitor info
-        result = await db.execute(
-            select(Competitor).where(Competitor.id == competitor_id)
-        )
-        competitor = result.scalar_one_or_none()
-        
-        if not competitor:
-            raise HTTPException(status_code=404, detail="Competitor not found")
-        
-        # Use cached posts for hook extraction
-        cached_posts = await load_cached_posts(db, competitor_id)
-        
-        # Extract hooks from top-performing posts
-        hooks = []
-        if cached_posts:
-            sorted_posts = sorted(cached_posts, key=lambda x: x.get('engagement_score', 0), reverse=True)
-            for post in sorted_posts[:5]:  # Top 5 posts
-                hook = post.get('hook', '')
-                if hook:
-                    hooks.append(hook)
-        
-        # Use provided topic or derive from trending analysis
-        topic = request.topic or "content creation"
-        
-        # Generate script (reuse existing function)
-        script = generate_script_content(
+        competitor = await _get_competitor_or_404(db, competitor_id)
+
+        if competitor.platform.lower() == "instagram":
+            cached_posts, _ = await _ensure_competitor_cached_posts(db, competitor, days=45)
+        else:
+            cached_posts = await load_cached_posts(db, competitor_id=competitor_id, days=45)
+
+        if not cached_posts:
+            raise HTTPException(
+                status_code=422,
+                detail="No cached competitor content is available yet. Refresh competitor data first.",
+            )
+
+        ranked_posts = _sorted_posts_for_analysis(cached_posts)
+        trending_topics = await analyze_trending_topics(ranked_posts, enable_clustering=False)
+        business_settings = await _get_business_settings()
+        scripts = build_competitor_script_ideas(
             competitor_handle=competitor.handle,
             platform=request.platform,
-            topic=topic,
-            hooks=hooks
+            posts=ranked_posts,
+            business_settings=business_settings,
+            count=request.count,
+            requested_topic=request.topic,
+            hook_style=request.hook_style,
+            trending_topics=[topic.topic for topic in trending_topics],
         )
-        
-        script.competitor_id = competitor_id
-        script.source_post_url = cached_posts[0].get('post_url', '') if cached_posts else None
-        
-        # Optionally save to database
-        if save_to_db:
+
+        if not scripts:
+            raise HTTPException(status_code=422, detail="Unable to build scripts from the available competitor data")
+
+        for script in scripts:
+            script.competitor_id = competitor_id
+
+        if not save_to_db:
+            return scripts
+
+        persisted_scripts: List[GeneratedScript] = []
+        content_rows: List[ContentScript] = []
+
+        for script in scripts:
             content_script = ContentScript(
                 competitor_id=competitor_id,
                 platform=request.platform,
@@ -960,18 +1465,21 @@ async def generate_content_script(
                 hook=script.hook,
                 body=script.body_outline,
                 cta=script.cta,
-                topic=topic,
+                topic=script.topic,
                 source_post_url=script.source_post_url,
-                status='generated'
+                scene_map=_serialize_script_metadata(script),
+                status='generated',
             )
-            
             db.add(content_script)
-            await db.commit()
+            content_rows.append(content_script)
+
+        await db.commit()
+
+        for content_script in content_rows:
             await db.refresh(content_script)
-            
-            script.id = content_script.id
-        
-        return script
+            persisted_scripts.append(_content_script_to_response(content_script))
+
+        return persisted_scripts
         
     except HTTPException:
         raise
@@ -980,109 +1488,112 @@ async def generate_content_script(
         raise HTTPException(status_code=500, detail="Failed to generate script")
 
 
-def generate_script_content(competitor_handle: str, platform: str, topic: str, hooks: List[str]) -> GeneratedScript:
-    """Generate a content script based on competitor analysis."""
-    # Select best performing hook if available
-    best_hook = hooks[0] if hooks else f"Here's what I learned from studying {competitor_handle}"
-    
-    # Platform-specific script generation
-    if platform == "instagram":
-        title = f"Instagram Post: {topic} Breakdown"
-        body = f"""
-**Opening Hook:** {best_hook}
+def generate_script_content(
+    competitor_handle: str,
+    platform: str,
+    topic: str,
+    source_post: Dict[str, Any],
+    similar_posts: List[Dict[str, Any]],
+    business_settings: Dict[str, Any],
+    hook_style: Optional[str] = None,
+) -> GeneratedScript:
+    """Generate a single competitor-driven content script from cached winning posts."""
+    best_hook = _post_hook(source_post) or f"Here's the {topic.lower()} pattern {competitor_handle} is proving right now"
+    similar_videos = _build_similar_video_references(similar_posts, limit=3)
+    source_competitors = list(dict.fromkeys(
+        [competitor_handle] + [video.competitor_handle for video in similar_videos if video.competitor_handle]
+    ))
+    alignment_score, alignment_label, alignment_reason = _score_business_alignment(topic, best_hook, business_settings)
+    title = best_hook[:90]
+    if hook_style and hook_style.strip():
+        title = f"{title[:68]} — {hook_style.replace('_', ' ').title()} angle"
 
-**Main Content Points:**
-• Point 1: Share the main insight about {topic}
-• Point 2: Provide a specific example or case study  
-• Point 3: Give actionable advice
+    body_outline = _build_script_body(best_hook, topic, platform, business_settings, source_competitors)
+    if hook_style and hook_style.strip():
+        body_outline += (
+            "\n\nDelivery note:\n"
+            f"Keep the performance framing close to a {hook_style.replace('_', ' ')} while preserving the proven opening language."
+        )
 
-**Engagement Elements:**
-• Ask a question to boost comments
-• Use relevant hashtags for reach
-• Include a carousel or visual element
-
-**Timing:** Best posted during 6-9 PM EST for max engagement
-"""
-        cta = "Double-tap if you agree and save this for later! What's your experience with this? 👇"
-        duration = "60-90 seconds read time"
-    
-    elif platform == "youtube":
-        title = f"YouTube Video: The Truth About {topic}"
-        body = f"""
-**Hook (0-15s):** {best_hook}
-
-**Introduction (15-30s):**
-• Set expectations for what viewers will learn
-• Tease the biggest insight coming up
-
-**Main Content (30s-8min):**
-• Section 1: The problem/current situation
-• Section 2: Your unique perspective/solution
-• Section 3: Step-by-step breakdown
-• Section 4: Real examples/case studies
-
-**Conclusion (8-10min):**
-• Recap the key takeaways
-• Strong call to action
-"""
-        cta = "If this helped you, smash that like button and subscribe for more insights like this. What questions do you have? Drop them below!"
-        duration = "8-12 minutes"
-    
-    elif platform == "x":
-        title = f"X Thread: {topic} Deep Dive"
-        body = f"""
-**Thread Structure:**
-
-1/8 🧵 {best_hook}
-
-2/8 Here's what most people get wrong about {topic}...
-
-3/8 The real issue is [specific problem]
-
-4/8 I've seen this pattern across [number] different cases:
-
-5/8 Here's the exact framework that actually works:
-
-6/8 Step 1: [First step]
-    Step 2: [Second step]  
-    Step 3: [Third step]
-
-7/8 This approach led to [specific result] in just [timeframe]
-
-8/8 If you found this valuable:
-    • Like this tweet
-    • Retweet the thread
-    • Follow me for more insights like this
-"""
-        cta = "Retweet if this helped you. What's your biggest challenge with this topic?"
-        duration = "2-3 minutes read time"
-    
-    else:  # Default/other platforms
-        title = f"{platform.title()} Post: {topic} Insights"
-        body = f"""
-**Hook:** {best_hook}
-
-**Key Points:**
-• Main insight about {topic}
-• Supporting example or data
-• Actionable takeaway
-
-**Engagement:**
-• Ask engaging question
-• Encourage sharing/comments
-"""
-        cta = "Let me know your thoughts in the comments!"
-        duration = "1-2 minutes"
-    
     return GeneratedScript(
         platform=platform,
         title=title,
         hook=best_hook,
-        body_outline=body,
-        cta=cta,
+        body_outline=body_outline,
+        cta=_build_script_cta(platform, business_settings),
         topic=topic,
-        estimated_duration=duration
+        source_post_url=source_post.get("post_url", "") or None,
+        estimated_duration=_estimated_duration_for_platform(platform),
+        created_at=datetime.now(timezone.utc),
+        predicted_views=_estimate_predicted_views(source_post),
+        predicted_engagement=round(_post_engagement_score(source_post), 1),
+        predicted_engagement_rate=round(_post_engagement_rate(source_post) * 100.0, 2),
+        virality_score=round(_post_virality_score(source_post), 1),
+        business_alignment_score=alignment_score,
+        business_alignment_label=alignment_label,
+        business_alignment_reason=alignment_reason,
+        source_competitors=source_competitors,
+        similar_videos=similar_videos,
+        scene_map=_build_script_scenes(best_hook, topic, platform, business_settings),
     )
+
+
+def build_competitor_script_ideas(
+    competitor_handle: str,
+    platform: str,
+    posts: List[Dict[str, Any]],
+    business_settings: Dict[str, Any],
+    count: int = 6,
+    requested_topic: Optional[str] = None,
+    hook_style: Optional[str] = None,
+    trending_topics: Optional[List[str]] = None,
+) -> List[GeneratedScript]:
+    """Build a set of script ideas from ranked competitor content and current trends."""
+    ranked_posts = _sorted_posts_for_analysis(posts)
+    if not ranked_posts:
+        return []
+
+    candidate_topics = _collect_candidate_topics(
+        ranked_posts,
+        trending_topics or [],
+        requested_topic,
+        max_topics=max(count * 2, 6),
+    )
+
+    scripts: List[GeneratedScript] = []
+    used_signatures: set[Tuple[str, str]] = set()
+    post_cursor = 0
+    topic_cursor = 0
+    max_attempts = max(count * 6, 12)
+
+    while len(scripts) < count and max_attempts > 0:
+        source_post = ranked_posts[post_cursor % len(ranked_posts)]
+        topic = requested_topic.strip() if requested_topic and requested_topic.strip() else candidate_topics[topic_cursor % len(candidate_topics)]
+        hook = _post_hook(source_post) or topic
+        signature = (hook.lower(), topic.lower())
+
+        if signature not in used_signatures:
+            used_signatures.add(signature)
+            similar_posts = [source_post] + [
+                post for post in ranked_posts
+                if post.get("post_url") != source_post.get("post_url")
+            ]
+            scripts.append(generate_script_content(
+                competitor_handle=competitor_handle,
+                platform=platform,
+                topic=topic,
+                source_post=source_post,
+                similar_posts=similar_posts,
+                business_settings=business_settings,
+                hook_style=hook_style,
+            ))
+
+        post_cursor += 1
+        if not requested_topic or len(ranked_posts) == 1:
+            topic_cursor += 1
+        max_attempts -= 1
+
+    return scripts
 
 
 @router.get("/competitors/scripts", response_model=List[GeneratedScript])
@@ -1103,20 +1614,7 @@ async def list_generated_scripts(
         result = await db.execute(query)
         scripts = result.scalars().all()
         
-        return [
-            GeneratedScript(
-                id=script.id,
-                competitor_id=script.competitor_id,
-                platform=script.platform,
-                title=script.title or "",
-                hook=script.hook or "",
-                body_outline=script.body or "",
-                cta=script.cta or "",
-                topic=script.topic,
-                source_post_url=script.source_post_url
-            )
-            for script in scripts
-        ]
+        return [_content_script_to_response(script) for script in scripts]
         
     except Exception as e:
         logger.error("Failed to list scripts: %s", e)
@@ -1188,32 +1686,33 @@ async def get_competitor_top_videos(
 ):
     """Return the top-performing posts for a competitor, ordered by engagement_score."""
     try:
-        result = await db.execute(
-            text("""
-                SELECT post_url, post_text, likes, comments, shares,
-                       engagement_score, posted_at, hook
-                FROM crm.competitor_posts
-                WHERE competitor_id = :cid
-                ORDER BY engagement_score DESC
-                LIMIT :lim
-            """),
-            {"cid": competitor_id, "lim": limit},
+        competitor = await _get_competitor_or_404(db, competitor_id)
+        cached_posts, _ = await _ensure_competitor_cached_posts(
+            db,
+            competitor,
+            days=None,
         )
-        rows = result.fetchall()
 
         return [
             TopVideoItem(
-                post_url=r.post_url,
-                title=(r.post_text or "")[:100],
-                likes=r.likes or 0,
-                comments=r.comments or 0,
-                shares=r.shares or 0,
-                engagement_score=r.engagement_score or 0,
-                posted_at=r.posted_at,
-                hook=r.hook,
+                post_url=post.get("post_url", ""),
+                title=(post.get("post_text") or "")[:100],
+                likes=post.get("likes", 0) or 0,
+                comments=post.get("comments", 0) or 0,
+                shares=post.get("shares", 0) or 0,
+                engagement_score=calculate_competitor_engagement_score(
+                    post.get("likes", 0),
+                    post.get("comments", 0),
+                    post.get("shares", 0),
+                    platform=post.get("platform"),
+                ),
+                posted_at=post.get("posted_at"),
+                hook=post.get("hook"),
             )
-            for r in rows
+            for post in cached_posts[:limit]
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to get top videos for competitor %s: %s", competitor_id, e)
         raise HTTPException(status_code=500, detail="Failed to get top videos")
@@ -1326,22 +1825,22 @@ async def get_competitor_hashtags(
 ):
     """Extract hashtags from all post_text for a competitor, sorted by frequency."""
     try:
-        result = await db.execute(
-            text("""
-                SELECT post_text FROM crm.competitor_posts
-                WHERE competitor_id = :cid AND post_text IS NOT NULL
-            """),
-            {"cid": competitor_id},
+        competitor = await _get_competitor_or_404(db, competitor_id)
+        cached_posts, _ = await _ensure_competitor_cached_posts(
+            db,
+            competitor,
+            days=None,
         )
-        rows = result.fetchall()
 
         counter: Counter = Counter()
-        for r in rows:
-            for tag in re.findall(r"#\w+", r.post_text or ""):
+        for post in cached_posts:
+            for tag in re.findall(r"#\w+", post.get("post_text") or ""):
                 counter[tag.lower()] += 1
 
         return [HashtagItem(tag=tag, count=count) for tag, count in counter.most_common(50)]
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to get hashtags for competitor %s: %s", competitor_id, e)
         raise HTTPException(status_code=500, detail="Failed to get hashtags")

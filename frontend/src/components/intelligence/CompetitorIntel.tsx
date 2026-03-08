@@ -44,6 +44,7 @@ interface TopContentPost {
   comments: number;
   shares: number;
   engagement_score: number;
+  virality_score: number;
   platform: string;
   competitor_handle: string;
   timestamp: string;
@@ -53,19 +54,48 @@ interface TopContentPost {
 interface Hook {
   hook: string;
   engagement_score: number;
+  virality_score: number;
   platform: string;
   competitor_handle: string;
   source_url?: string;
 }
 
-interface Script {
-  id: number;
-  title: string;
-  content: string;
+interface SimilarVideoReference {
+  competitor_handle: string;
   platform: string;
-  hook_preview?: string;
+  source_url?: string;
+  hook: string;
+  engagement_score: number;
+}
+
+interface ScriptScene {
+  scene: string;
+  direction: string;
+  goal: string;
+}
+
+interface Script {
+  id?: number;
   competitor_id?: number;
-  created_at: string;
+  platform: string;
+  title: string;
+  hook: string;
+  body_outline: string;
+  cta: string;
+  topic?: string;
+  source_post_url?: string;
+  estimated_duration?: string;
+  created_at?: string;
+  predicted_views: number;
+  predicted_engagement: number;
+  predicted_engagement_rate: number;
+  virality_score: number;
+  business_alignment_score: number;
+  business_alignment_label: string;
+  business_alignment_reason: string;
+  source_competitors: string[];
+  similar_videos: SimilarVideoReference[];
+  scene_map: ScriptScene[];
 }
 
 interface TopVideoItem {
@@ -91,6 +121,10 @@ interface HashtagItem {
   count: number;
 }
 
+interface ScrapeStatusResponse {
+  sync_running: boolean;
+}
+
 const PLATFORM_COLORS: Record<string, string> = {
   instagram: "bg-pink-500/20 text-pink-400",
   tiktok: "bg-cyan-500/20 text-cyan-400",
@@ -100,10 +134,26 @@ const PLATFORM_COLORS: Record<string, string> = {
   threads: "bg-gray-500/20 text-gray-400",
 };
 
+const SCRIPT_SAVE_PLATFORMS = ["instagram", "youtube", "x", "facebook"] as const;
+
+const ALIGNMENT_STYLES: Record<string, string> = {
+  High: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
+  Medium: "bg-amber-500/15 text-amber-400 border-amber-500/20",
+  Low: "bg-slate-500/15 text-slate-300 border-slate-500/20",
+};
+
 function formatNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
   return n.toLocaleString();
+}
+
+function formatPercent(n: number, digits = 1): string {
+  return `${n.toFixed(digits)}%`;
+}
+
+function formatPlatformLabel(platform: string): string {
+  return platform === "x" ? "X" : platform.charAt(0).toUpperCase() + platform.slice(1);
 }
 
 function timeAgo(dateString: string): string {
@@ -125,6 +175,7 @@ export default function CompetitorIntel() {
   const [topContent, setTopContent] = useState<TopContentPost[]>([]);
   const [hooks, setHooks] = useState<Hook[]>([]);
   const [scripts, setScripts] = useState<Script[]>([]);
+  const [selectedScriptId, setSelectedScriptId] = useState<number | null>(null);
   const [expandedCompetitor, setExpandedCompetitor] = useState<number | null>(null);
   const [focusedCompetitor, setFocusedCompetitor] = useState<Competitor | null>(null);
   const [competitorPosts, setCompetitorPosts] = useState<CompetitorPost[]>([]);
@@ -135,7 +186,7 @@ export default function CompetitorIntel() {
   
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [refreshing, setRefreshing] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
   
   const [newComp, setNewComp] = useState({ handle: "", platform: "instagram" });
@@ -143,10 +194,12 @@ export default function CompetitorIntel() {
     competitor_id: 0,
     platform: "instagram",
     topic: "",
-    hook_style: ""
+    hook_style: "",
+    count: 6,
   });
   
   const [error, setError] = useState<string>("");
+  const [notice, setNotice] = useState<string>("");
 
   // New state for upgraded Reports features
   const [followerAnalysis, setFollowerAnalysis] = useState<FollowerAnalysis | null>(null);
@@ -157,19 +210,27 @@ export default function CompetitorIntel() {
   const [loadingHashtags, setLoadingHashtags] = useState(false);
 
   // Fetch competitors
-  const fetchCompetitors = async () => {
+  const fetchCompetitors = async (): Promise<Competitor[]> => {
     try {
       setLoading(true);
       setError("");
       const response = await authFetch(`${API}/api/competitors`);
       if (response.ok) {
         const data = await response.json();
-        setCompetitors(data);
+        const nextCompetitors = Array.isArray(data) ? data : [];
+        setCompetitors(nextCompetitors);
+        setFocusedCompetitor((prev) => {
+          if (!prev) return prev;
+          return nextCompetitors.find((competitor) => competitor.id === prev.id) || null;
+        });
+        return nextCompetitors;
       } else {
         setError("Failed to fetch competitors");
+        return [];
       }
     } catch (error) {
       setError("Error connecting to API");
+      return [];
     } finally {
       setLoading(false);
     }
@@ -184,7 +245,11 @@ export default function CompetitorIntel() {
       if (response.ok) {
         const data = await response.json();
         const posts = Array.isArray(data) ? data : (data.posts || []);
-        setTopContent(posts.sort((a: any, b: any) => b.engagement_score - a.engagement_score));
+        setTopContent(
+          posts.sort((a: TopContentPost, b: TopContentPost) => (
+            (b.virality_score || 0) - (a.virality_score || 0) || b.engagement_score - a.engagement_score
+          ))
+        );
       } else if (response.status === 404) {
         setTopContent([]);
         setError("No content data available. Refresh competitor data first.");
@@ -206,7 +271,12 @@ export default function CompetitorIntel() {
       const response = await authFetch(`${API}/api/content-intel/competitors/hooks`);
       if (response.ok) {
         const data = await response.json();
-        setHooks(Array.isArray(data) ? data : (data.hooks || []));
+        const nextHooks = Array.isArray(data) ? data : (data.hooks || []);
+        setHooks(
+          nextHooks.sort((a: Hook, b: Hook) => (
+            (b.virality_score || 0) - (a.virality_score || 0) || b.engagement_score - a.engagement_score
+          ))
+        );
       } else if (response.status === 404) {
         setHooks([]);
         setError("No hooks available. Refresh competitor data first.");
@@ -228,7 +298,8 @@ export default function CompetitorIntel() {
       const response = await authFetch(`${API}/api/content-intel/competitors/scripts`);
       if (response.ok) {
         const data = await response.json();
-        setScripts(data);
+        const nextScripts = Array.isArray(data) ? data : [];
+        setScripts(nextScripts);
       } else {
         setError("Failed to fetch scripts");
       }
@@ -307,6 +378,50 @@ export default function CompetitorIntel() {
     }
   };
 
+  const refreshFocusedCompetitorDetail = async (competitorId: number) => {
+    await Promise.all([
+      fetchCompetitorPosts(competitorId),
+      fetchTopVideos(competitorId),
+      fetchHashtags(competitorId),
+    ]);
+  };
+
+  const refreshIntelligenceViews = async () => {
+    const nextCompetitors = await fetchCompetitors();
+    await Promise.all([
+      fetchFollowerAnalysis(),
+      fetchTopContent(),
+      fetchHooks(),
+      focusedCompetitor ? refreshFocusedCompetitorDetail(focusedCompetitor.id) : Promise.resolve(),
+    ]);
+    return nextCompetitors;
+  };
+
+  const waitForInstagramSyncCompletion = async () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+
+      try {
+        const response = await authFetch(`${API}/api/scraper/status`);
+        if (!response.ok) {
+          break;
+        }
+
+        const status: ScrapeStatusResponse = await response.json();
+        if (!status.sync_running) {
+          await refreshIntelligenceViews();
+          setNotice("Instagram scrape finished. Competitor intelligence updated.");
+          return true;
+        }
+      } catch (error) {
+        console.warn("Failed to poll Instagram scrape status", error);
+        break;
+      }
+    }
+
+    return false;
+  };
+
   // Load data based on active tab
   // Fetch all counts on mount so tab badges are accurate
   useEffect(() => {
@@ -335,6 +450,30 @@ export default function CompetitorIntel() {
         break;
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!notice) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setNotice("");
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  useEffect(() => {
+    if (scripts.length === 0) {
+      setSelectedScriptId(null);
+      return;
+    }
+
+    setSelectedScriptId((prev) => {
+      if (prev != null && scripts.some((script) => script.id === prev)) {
+        return prev;
+      }
+      return scripts[0].id ?? null;
+    });
+  }, [scripts]);
 
   // Add competitor
   const addCompetitor = async () => {
@@ -398,35 +537,129 @@ export default function CompetitorIntel() {
     }
   };
 
-  // Refresh all competitors via our own scraper (Playwright, no third-party services)
+  const getResponseMessage = async (response: Response): Promise<string> => {
+    const payload = await response.json().catch(() => ({}));
+    return payload.detail || payload.message || response.statusText;
+  };
+
+  // Refresh all tracked competitors across the routes that actually back this UI
   const refreshAllCompetitors = async () => {
     try {
-      setLoading(true);
+      setRefreshing(true);
       setError("");
-      // Use our scraper sync endpoint — scrapes all IG competitors via headless browser
-      const response = await authFetch(`${API}/api/scraper/instagram/sync`, {
-        method: "POST",
-      });
+      setNotice("");
 
-      if (response.ok) {
-        const result = await response.json();
-        const msg = `Scraped ${result.success}/${result.total} competitors, ${result.posts_saved} posts cached`;
-        console.log(msg);
-        fetchCompetitors(); // Refresh UI with new data
+      const messages: string[] = [];
+      let refreshedAnySource = false;
+      let waitForInstagramCompletion = false;
+
+      const hasInstagramCompetitors = competitors.some(
+        (competitor) => competitor.auto_sync_enabled && competitor.platform.toLowerCase() === "instagram"
+      );
+
+      if (hasInstagramCompetitors) {
+        const instagramResponse = await authFetch(`${API}/api/scraper/instagram/sync?background=1`, {
+          method: "POST",
+        });
+
+        if (instagramResponse.ok) {
+          const result = await instagramResponse.json();
+          if (result.accepted) {
+            messages.push(
+              result.message || `Instagram scrape started in the background for ${result.total} competitors`
+            );
+            waitForInstagramCompletion = true;
+          } else {
+            messages.push(
+              `Instagram scraped: ${result.success}/${result.total} competitors, ${result.posts_saved} posts cached`
+            );
+          }
+          refreshedAnySource = true;
+        } else {
+          messages.push(`Instagram scrape failed: ${await getResponseMessage(instagramResponse)}`);
+        }
+      }
+
+      const hasXCompetitors = competitors.some(
+        (competitor) => competitor.auto_sync_enabled && competitor.platform.toLowerCase() === "x"
+      );
+
+      if (hasXCompetitors) {
+        const xContentRefreshResponse = await authFetch(
+          `${API}/api/content-intel/competitors/refresh?platform=x`,
+          { method: "POST" }
+        );
+
+        if (xContentRefreshResponse.ok) {
+          const result = await xContentRefreshResponse.json();
+          messages.push(
+            `X content refreshed: ${result.refreshed_competitors || 0}/${result.total_competitors || 0}`
+          );
+          refreshedAnySource = true;
+        } else {
+          messages.push(`X content refresh failed: ${await getResponseMessage(xContentRefreshResponse)}`);
+        }
+      }
+
+      if (!refreshedAnySource) {
+        setError(messages.join(" • ") || "No supported competitor refresh sources are available");
+        return;
+      }
+
+      setNotice(messages.join(" • "));
+
+      if (waitForInstagramCompletion) {
+        const syncCompleted = await waitForInstagramSyncCompletion();
+        if (!syncCompleted) {
+          await refreshIntelligenceViews();
+        }
       } else {
-        const errData = await response.json().catch(() => ({}));
-        setError(`Scraper sync failed: ${errData.detail || response.statusText}`);
+        await refreshIntelligenceViews();
       }
     } catch (error) {
-      setError(`Error running scraper: ${error}`);
+      setError(`Error refreshing competitors: ${error}`);
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const mergeScriptsById = (incoming: Script[], existing: Script[]) => {
+    const merged = [...incoming, ...existing];
+    const seen = new Set<number>();
+
+    return merged.filter((script) => {
+      if (script.id == null) return true;
+      if (seen.has(script.id)) return false;
+      seen.add(script.id);
+      return true;
+    });
+  };
+
+  const openGenerateScriptModal = (competitor?: Competitor | null) => {
+    if (competitor) {
+      setScriptForm((prev) => ({
+        ...prev,
+        competitor_id: competitor.id,
+        platform: competitor.platform || prev.platform,
+      }));
+    }
+    setShowGenerateScript(true);
+  };
+
+  const handleScriptCompetitorChange = (value: string) => {
+    const competitorId = parseInt(value, 10) || 0;
+    const selectedCompetitor = competitors.find((comp) => comp.id === competitorId);
+
+    setScriptForm((prev) => ({
+      ...prev,
+      competitor_id: competitorId,
+      platform: selectedCompetitor?.platform || prev.platform,
+    }));
   };
 
   // Generate script
   const generateScript = async () => {
-    if (!scriptForm.competitor_id || !scriptForm.topic.trim()) return;
+    if (!scriptForm.competitor_id) return;
     
     try {
       setSubmitting(true);
@@ -436,16 +669,20 @@ export default function CompetitorIntel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platform: scriptForm.platform,
-          topic: scriptForm.topic,
+          topic: scriptForm.topic.trim() || undefined,
           hook_style: scriptForm.hook_style || undefined,
+          count: scriptForm.count,
         }),
       });
 
       if (response.ok) {
-        const newScript = await response.json();
-        setScripts(prev => [newScript, ...prev]);
-        setScriptForm({ competitor_id: 0, platform: "instagram", topic: "", hook_style: "" });
+        const payload = await response.json();
+        const generatedScripts = Array.isArray(payload) ? payload : [payload];
+        setScripts((prev) => mergeScriptsById(generatedScripts, prev));
+        setSelectedScriptId(generatedScripts[0]?.id ?? null);
+        setScriptForm({ competitor_id: 0, platform: "instagram", topic: "", hook_style: "", count: 6 });
         setShowGenerateScript(false);
+        setNotice(`Generated ${generatedScripts.length} competitor-driven script ideas.`);
       } else {
         const error = await response.json();
         setError(`Failed to generate script: ${error.detail || response.statusText}`);
@@ -478,15 +715,19 @@ export default function CompetitorIntel() {
   const saveScriptToPlatform = (script: Script, platform: string) => {
     const key = `warroom_content_${platform}`;
     const existing = JSON.parse(localStorage.getItem(key) || "[]");
-    existing.push({
-      id: Date.now(),
+    existing.unshift({
+      id: `competitor-script-${script.id || Date.now()}`,
       title: script.title,
-      content: script.content,
-      created_at: new Date().toISOString(),
-      source: "competitor_intel"
+      description: script.body_outline,
+      stage: "scripted",
+      platform,
+      createdAt: script.created_at || new Date().toISOString(),
+      hook: script.hook,
+      views: script.predicted_views,
+      source: "competitor_intel",
     });
     localStorage.setItem(key, JSON.stringify(existing));
-    // Could show a toast notification here
+    setNotice(`Saved script to ${formatPlatformLabel(platform)} content pipeline.`);
   };
 
   // Copy hook
@@ -522,6 +763,8 @@ export default function CompetitorIntel() {
     { id: "scripts" as const, label: "Scripts", icon: BookOpen, count: scripts.length },
   ];
 
+  const selectedScript = scripts.find((script) => script.id === selectedScriptId) || scripts[0] || null;
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
@@ -548,7 +791,13 @@ export default function CompetitorIntel() {
         </div>
       </div>
 
-      {/* Error message */}
+      {/* Status messages */}
+      {notice && (
+        <div className="mx-6 mt-3 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm rounded-lg">
+          {notice}
+        </div>
+      )}
+
       {error && (
         <div className="mx-6 mt-3 px-3 py-2 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg">
           {error}
@@ -557,7 +806,7 @@ export default function CompetitorIntel() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-6xl mx-auto">
 
           {/* COMPETITORS TAB */}
           {activeTab === "competitors" && (
@@ -850,9 +1099,9 @@ export default function CompetitorIntel() {
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-warroom-muted">Click a competitor to see their top content.</p>
                     <div className="flex gap-2">
-                      <button onClick={refreshAllCompetitors} disabled={loading}
+                      <button onClick={refreshAllCompetitors} disabled={loading || refreshing}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-surface rounded-lg text-xs font-medium transition disabled:opacity-50">
-                        <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh All
+                        <RefreshCw size={14} className={loading || refreshing ? "animate-spin" : ""} /> Refresh All
                       </button>
                       <button onClick={() => setShowAddCompetitor(true)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition">
@@ -930,7 +1179,7 @@ export default function CompetitorIntel() {
           {/* TOP CONTENT TAB */}
           {activeTab === "top-content" && (
             <div className="space-y-4">
-              <p className="text-sm text-warroom-muted">Top-performing posts across all tracked competitors.</p>
+              <p className="text-sm text-warroom-muted">Top-performing posts across all tracked competitors, re-ranked by live virality and engagement on every refresh.</p>
               
               {loading ? (
                 <div className="text-center py-16">
@@ -973,8 +1222,9 @@ export default function CompetitorIntel() {
                         {post.timestamp && <span>{timeAgo(post.timestamp)}</span>}
                       </div>
                       
-                      <div className="mt-2 bg-warroom-bg rounded px-2 py-1 flex items-center justify-between">
+                      <div className="mt-2 bg-warroom-bg rounded px-2 py-1 flex items-center justify-between gap-2">
                         <span className="text-xs text-warroom-accent font-medium">Score: {post.engagement_score.toFixed(0)}</span>
+                        <span className="text-[10px] text-orange-300">Virality: {post.virality_score.toFixed(1)}</span>
                         <span className="text-[10px] text-warroom-muted">#{idx + 1}</span>
                       </div>
                     </div>
@@ -987,7 +1237,7 @@ export default function CompetitorIntel() {
           {/* HOOKS TAB */}
           {activeTab === "hooks" && (
             <div className="space-y-4">
-              <p className="text-sm text-warroom-muted">Extracted hooks from top-performing competitor content.</p>
+              <p className="text-sm text-warroom-muted">Opening hook language pulled from the current top-performing competitor posts.</p>
               
               {loading ? (
                 <div className="text-center py-16">
@@ -1002,7 +1252,7 @@ export default function CompetitorIntel() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {hooks.sort((a, b) => b.engagement_score - a.engagement_score).map((hook, idx) => (
+                  {hooks.map((hook, idx) => (
                     <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/30 transition">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
@@ -1019,6 +1269,7 @@ export default function CompetitorIntel() {
                       
                       <div className="flex items-center justify-between text-xs text-warroom-muted">
                         <span>Score: {hook.engagement_score.toFixed(0)}</span>
+                        <span className="text-orange-300">Virality: {hook.virality_score.toFixed(1)}</span>
                         {hook.source_url && (
                           <a href={hook.source_url} target="_blank" rel="noopener noreferrer" className="hover:text-warroom-accent transition">
                             <ExternalLink size={12} />
@@ -1036,8 +1287,8 @@ export default function CompetitorIntel() {
           {activeTab === "scripts" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-warroom-muted">Generated scripts based on competitor intelligence.</p>
-                <button onClick={() => setShowGenerateScript(true)}
+                <p className="text-sm text-warroom-muted">Generate hook-first script ideas from real competitor winners, then click any card to drill into the full script, metrics, and source evidence.</p>
+                <button onClick={() => openGenerateScriptModal(focusedCompetitor)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition">
                   <Plus size={14} /> Generate New
                 </button>
@@ -1055,50 +1306,202 @@ export default function CompetitorIntel() {
                   <p className="text-xs mt-1">Generate your first script based on competitor insights</p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {scripts.map(script => (
-                    <div key={script.id} className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/30 transition">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="font-semibold text-sm mb-1">{script.title}</h4>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[script.platform] || "bg-gray-500/20 text-gray-400"}`}>{script.platform}</span>
-                            <span className="text-xs text-warroom-muted">{timeAgo(script.created_at)}</span>
+                <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)] lg:items-start">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {scripts.map((script, idx) => {
+                      const isSelected = script.id != null && script.id === selectedScriptId;
+                      return (
+                        <button
+                          key={script.id ?? `${script.title}-${idx}`}
+                          onClick={() => setSelectedScriptId(script.id ?? null)}
+                          className={`text-left bg-warroom-surface border rounded-2xl p-4 transition hover:border-warroom-accent/40 ${
+                            isSelected ? "border-warroom-accent shadow-lg shadow-warroom-accent/10" : "border-warroom-border"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[script.platform] || "bg-gray-500/20 text-gray-400"}`}>{script.platform}</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${ALIGNMENT_STYLES[script.business_alignment_label] || ALIGNMENT_STYLES.Low}`}>{script.business_alignment_label} alignment</span>
+                              </div>
+                              <h4 className="font-semibold text-sm leading-snug mb-1">{script.title}</h4>
+                              <p className="text-xs text-warroom-accent line-clamp-2">🪝 {script.hook}</p>
+                            </div>
+                            {script.id != null && (
+                              <button
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  deleteScript(script.id!);
+                                }}
+                                className="text-warroom-muted hover:text-red-400 transition"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-warroom-muted line-clamp-3 mb-4">{script.body_outline}</p>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                            <div className="bg-warroom-bg rounded-lg px-3 py-2">
+                              <p className="text-[10px] text-warroom-muted mb-1">Potential Views</p>
+                              <p className="font-semibold text-warroom-text">{formatNum(script.predicted_views)}</p>
+                            </div>
+                            <div className="bg-warroom-bg rounded-lg px-3 py-2">
+                              <p className="text-[10px] text-warroom-muted mb-1">Pred. Engagement</p>
+                              <p className="font-semibold text-warroom-text">{formatNum(Math.round(script.predicted_engagement))}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] text-warroom-muted gap-2">
+                            <span>ER {formatPercent(script.predicted_engagement_rate, 2)}</span>
+                            <span>Virality {script.virality_score.toFixed(1)}</span>
+                            <span>{script.created_at ? timeAgo(script.created_at) : "Just now"}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 lg:sticky lg:top-6">
+                    {selectedScript ? (
+                      <div className="space-y-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[selectedScript.platform] || "bg-gray-500/20 text-gray-400"}`}>{selectedScript.platform}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${ALIGNMENT_STYLES[selectedScript.business_alignment_label] || ALIGNMENT_STYLES.Low}`}>{selectedScript.business_alignment_label} alignment</span>
+                              {selectedScript.estimated_duration && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-warroom-bg text-warroom-muted">{selectedScript.estimated_duration}</span>
+                              )}
+                            </div>
+                            <h3 className="text-base font-semibold leading-snug">{selectedScript.title}</h3>
+                            <p className="text-sm text-warroom-accent mt-2">🪝 {selectedScript.hook}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => deleteScript(script.id)}
-                            className="text-warroom-muted hover:text-red-400 transition">
-                            <Trash2 size={14} />
+
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div className="bg-warroom-bg rounded-xl p-3">
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">Potential Views</p>
+                            <p className="font-semibold">{formatNum(selectedScript.predicted_views)}</p>
+                          </div>
+                          <div className="bg-warroom-bg rounded-xl p-3">
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">Engagement Rate</p>
+                            <p className="font-semibold">{formatPercent(selectedScript.predicted_engagement_rate, 2)}</p>
+                          </div>
+                          <div className="bg-warroom-bg rounded-xl p-3">
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">Pred. Engagement</p>
+                            <p className="font-semibold">{formatNum(Math.round(selectedScript.predicted_engagement))}</p>
+                          </div>
+                          <div className="bg-warroom-bg rounded-xl p-3">
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">Virality Score</p>
+                            <p className="font-semibold">{selectedScript.virality_score.toFixed(1)}</p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Business Message Alignment</p>
+                          <div className="bg-warroom-bg rounded-xl p-3 border border-warroom-border">
+                            <p className="text-sm font-medium mb-1">{selectedScript.business_alignment_label} • {selectedScript.business_alignment_score.toFixed(1)}/100</p>
+                            <p className="text-xs text-warroom-muted">{selectedScript.business_alignment_reason}</p>
+                          </div>
+                        </div>
+
+                        {selectedScript.source_competitors.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Source Competitors</p>
+                            <div className="flex flex-wrap gap-2">
+                              {selectedScript.source_competitors.map((sourceCompetitor) => (
+                                <span key={sourceCompetitor} className="px-2.5 py-1 rounded-full bg-warroom-bg text-xs text-warroom-text border border-warroom-border">
+                                  @{sourceCompetitor}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Script</p>
+                          <div className="bg-warroom-bg rounded-xl p-4 border border-warroom-border space-y-3">
+                            <p className="text-sm whitespace-pre-line">{selectedScript.body_outline}</p>
+                            <div className="pt-3 border-t border-warroom-border">
+                              <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">CTA</p>
+                              <p className="text-sm">{selectedScript.cta}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {selectedScript.scene_map.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Scene Map</p>
+                            <div className="space-y-2">
+                              {selectedScript.scene_map.map((scene, idx) => (
+                                <div key={`${scene.scene}-${idx}`} className="bg-warroom-bg rounded-xl p-3 border border-warroom-border">
+                                  <p className="text-xs font-semibold mb-1">{scene.scene}</p>
+                                  <p className="text-xs text-warroom-text mb-1">{scene.direction}</p>
+                                  <p className="text-[11px] text-warroom-muted">Goal: {scene.goal}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {selectedScript.similar_videos.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Similar Competitor Videos</p>
+                            <div className="space-y-2">
+                              {selectedScript.similar_videos.map((video, idx) => (
+                                <div key={`${video.source_url || video.hook}-${idx}`} className="bg-warroom-bg rounded-xl p-3 border border-warroom-border">
+                                  <div className="flex items-center justify-between gap-2 mb-1">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[video.platform] || "bg-gray-500/20 text-gray-400"}`}>{video.platform}</span>
+                                      <span className="text-xs text-warroom-muted truncate">@{video.competitor_handle}</span>
+                                    </div>
+                                    <span className="text-[11px] text-warroom-accent">Score {video.engagement_score.toFixed(0)}</span>
+                                  </div>
+                                  <p className="text-xs text-warroom-text">{video.hook || "Reference post"}</p>
+                                  {video.source_url && (
+                                    <a href={video.source_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-[11px] text-warroom-muted hover:text-warroom-accent transition">
+                                      <ExternalLink size={11} /> View source
+                                    </a>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            onClick={() => saveScriptToPlatform(selectedScript, selectedScript.platform)}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition"
+                          >
+                            <Save size={12} /> Save to {formatPlatformLabel(selectedScript.platform)}
                           </button>
+                          {SCRIPT_SAVE_PLATFORMS.filter((platform) => platform !== selectedScript.platform).slice(0, 2).map((platform) => (
+                            <button
+                              key={platform}
+                              onClick={() => saveScriptToPlatform(selectedScript, platform)}
+                              className="flex items-center gap-1 px-2.5 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-xs hover:border-warroom-accent/30 transition"
+                            >
+                              <Save size={12} /> Save to {formatPlatformLabel(platform)}
+                            </button>
+                          ))}
                         </div>
+
+                        {selectedScript.source_post_url && (
+                          <a href={selectedScript.source_post_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-warroom-muted hover:text-warroom-accent transition">
+                            <ExternalLink size={12} /> View source post
+                          </a>
+                        )}
                       </div>
-
-                      {script.hook_preview && (
-                        <div className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 mb-3">
-                          <p className="text-xs text-warroom-muted font-medium mb-0.5">Hook Preview</p>
-                          <p className="text-sm italic">{script.hook_preview}</p>
-                        </div>
-                      )}
-
-                      <p className="text-sm text-warroom-text mb-3">{script.content.slice(0, 200)}...</p>
-
-                      <div className="flex gap-2">
-                        <button onClick={() => saveScriptToPlatform(script, "instagram")}
-                          className="flex items-center gap-1 px-2 py-1 bg-pink-500/10 text-pink-400 rounded text-xs hover:bg-pink-500/20 transition">
-                          <Save size={12} /> Save to Instagram
-                        </button>
-                        <button onClick={() => saveScriptToPlatform(script, "youtube")}
-                          className="flex items-center gap-1 px-2 py-1 bg-red-500/10 text-red-400 rounded text-xs hover:bg-red-500/20 transition">
-                          <Save size={12} /> Save to YouTube
-                        </button>
-                        <button onClick={() => saveScriptToPlatform(script, "tiktok")}
-                          className="flex items-center gap-1 px-2 py-1 bg-cyan-500/10 text-cyan-400 rounded text-xs hover:bg-cyan-500/20 transition">
-                          <Save size={12} /> Save to TikTok
-                        </button>
+                    ) : (
+                      <div className="text-center py-12 text-warroom-muted">
+                        <BookOpen size={32} className="mx-auto mb-3 opacity-20" />
+                        <p className="text-sm">Select a script idea to inspect the full detail.</p>
                       </div>
-                    </div>
-                  ))}
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1161,18 +1564,19 @@ export default function CompetitorIntel() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Generate Script</h3>
+              <h3 className="text-lg font-semibold">Generate Competitor-Driven Scripts</h3>
               <button onClick={() => setShowGenerateScript(false)} className="text-warroom-muted hover:text-warroom-text">
                 <X size={20} />
               </button>
             </div>
 
             <div className="space-y-3">
+              <p className="text-xs text-warroom-muted">We’ll use the competitor’s latest winning posts, hook language, and engagement patterns to generate multiple script ideas. Topic is optional if you want to steer the angle.</p>
               <div>
                 <label className="text-xs text-warroom-muted block mb-1">Competitor</label>
                 <select 
                   value={scriptForm.competitor_id} 
-                  onChange={e => setScriptForm({ ...scriptForm, competitor_id: parseInt(e.target.value) })}
+                  onChange={e => handleScriptCompetitorChange(e.target.value)}
                   className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent">
                   <option value={0}>Select a competitor</option>
                   {competitors.map(comp => (
@@ -1192,14 +1596,25 @@ export default function CompetitorIntel() {
               </div>
               
               <div>
-                <label className="text-xs text-warroom-muted block mb-1">Topic</label>
+                <label className="text-xs text-warroom-muted block mb-1">Topic Override (optional)</label>
                 <input 
                   type="text" 
                   value={scriptForm.topic} 
                   onChange={e => setScriptForm({ ...scriptForm, topic: e.target.value })}
                   className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent" 
-                  placeholder="What should this script be about?" 
+                  placeholder="Leave blank to let current competitor trends drive the angle" 
                 />
+              </div>
+
+              <div>
+                <label className="text-xs text-warroom-muted block mb-1">How many ideas?</label>
+                <select
+                  value={scriptForm.count}
+                  onChange={e => setScriptForm({ ...scriptForm, count: parseInt(e.target.value, 10) || 6 })}
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                >
+                  {[3, 6, 9].map((count) => <option key={count} value={count}>{count} ideas</option>)}
+                </select>
               </div>
               
               <div>
@@ -1219,9 +1634,9 @@ export default function CompetitorIntel() {
                 className="flex-1 px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm hover:bg-warroom-surface transition">
                 Cancel
               </button>
-              <button onClick={generateScript} disabled={!scriptForm.competitor_id || !scriptForm.topic.trim() || submitting}
+              <button onClick={generateScript} disabled={!scriptForm.competitor_id || submitting}
                 className="flex-1 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
-                {submitting ? <><Loader2 size={14} className="animate-spin" /> Generating...</> : "Generate Script"}
+                {submitting ? <><Loader2 size={14} className="animate-spin" /> Generating...</> : "Generate Ideas"}
               </button>
             </div>
           </div>

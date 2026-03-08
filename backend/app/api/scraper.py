@@ -10,16 +10,18 @@ Endpoints:
   GET  /api/scraper/status                 — Last scrape times, error counts
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_crm_db, crm_session
 from app.models.crm.competitor import Competitor
 from app.services.instagram_scraper import (
     scrape_profile,
@@ -31,6 +33,8 @@ from app.services.instagram_scraper import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_instagram_sync_task: Optional[asyncio.Task] = None
 
 
 # ── Response Models ──────────────────────────────────────────────
@@ -77,6 +81,8 @@ class BulkScrapeResponse(BaseModel):
     failed: int
     profiles: List[ScrapedProfileResponse]
     posts_saved: int = 0
+    accepted: bool = False
+    message: Optional[str] = None
 
 
 class ScrapeStatusResponse(BaseModel):
@@ -84,9 +90,22 @@ class ScrapeStatusResponse(BaseModel):
     total_cached_posts: int
     last_scrape: Optional[datetime] = None
     competitors: List[Dict[str, Any]] = []
+    sync_running: bool = False
 
 
 # ── Helpers ──────────────────────────────────────────────────────
+
+def calculate_competitor_engagement_score(
+    likes: int,
+    comments: int,
+    shares: int = 0,
+    platform: Optional[str] = None,
+) -> float:
+    """Calculate competitor engagement from stored interaction counts."""
+    total = (likes or 0) + (comments or 0)
+    if platform and platform.lower() != "instagram":
+        total += shares or 0
+    return float(total)
 
 def _profile_to_response(profile: ScrapedProfile) -> ScrapedProfileResponse:
     """Convert internal ScrapedProfile to API response."""
@@ -112,7 +131,12 @@ def _profile_to_response(profile: ScrapedProfile) -> ScrapedProfileResponse:
                 media_type=p.media_type,
                 posted_at=p.posted_at,
                 is_reel=p.is_reel,
-                engagement_score=p.engagement_score,
+                engagement_score=calculate_competitor_engagement_score(
+                    p.likes,
+                    p.comments,
+                    p.views,
+                    platform="instagram",
+                ),
                 hook=p.hook,
             )
             for p in profile.posts
@@ -120,6 +144,11 @@ def _profile_to_response(profile: ScrapedProfile) -> ScrapedProfileResponse:
         scraped_at=profile.scraped_at,
         error=profile.error,
     )
+
+
+def _normalize_handle(handle: str) -> str:
+    """Normalize a social handle for matching competitor records."""
+    return handle.strip().lstrip("@").lower()
 
 
 async def _save_profile_to_competitor(
@@ -148,12 +177,24 @@ async def _save_profile_to_competitor(
             competitor.posting_frequency = f"{freq:.1f} posts/week"
         
         # Calculate avg engagement rate
-        total_eng = sum(p.engagement_score for p in profile.posts)
+        total_eng = sum(
+            calculate_competitor_engagement_score(
+                p.likes,
+                p.comments,
+                p.views,
+                platform="instagram",
+            )
+            for p in profile.posts
+        )
         avg_eng = total_eng / len(profile.posts)
         if profile.followers > 0:
             competitor.avg_engagement_rate = round(
                 (avg_eng / profile.followers) * 100, 2
             )
+        else:
+            competitor.avg_engagement_rate = 0.0
+    else:
+        competitor.avg_engagement_rate = 0.0
 
 
 async def _save_posts_to_cache(
@@ -162,45 +203,210 @@ async def _save_posts_to_cache(
     """Save scraped posts to competitor_posts cache table. Returns count saved."""
     if not posts:
         return 0
-    
-    # Delete old cached posts for this competitor
-    await db.execute(
-        text(
-            "DELETE FROM crm.competitor_posts "
-            "WHERE competitor_id = :cid AND platform = :platform"
-        ),
-        {"cid": competitor_id, "platform": platform},
-    )
-    
-    saved = 0
-    for post in posts:
-        try:
+
+    try:
+        async with db.begin_nested():
             await db.execute(
-                text("""
-                    INSERT INTO crm.competitor_posts 
-                    (competitor_id, platform, post_text, likes, comments, shares,
-                     engagement_score, hook, post_url, posted_at, fetched_at)
-                    VALUES (:cid, :platform, :text, :likes, :comments, :shares,
-                            :score, :hook, :url, :posted_at, NOW())
-                """),
-                {
-                    "cid": competitor_id,
-                    "platform": platform,
-                    "text": post.caption,
-                    "likes": post.likes,
-                    "comments": post.comments,
-                    "shares": post.views,  # Use views as "shares" for video reach
-                    "score": post.engagement_score,
-                    "hook": post.hook,
-                    "url": post.post_url,
-                    "posted_at": post.posted_at,
-                },
+                text(
+                    "DELETE FROM crm.competitor_posts "
+                    "WHERE competitor_id = :cid AND platform = :platform"
+                ),
+                {"cid": competitor_id, "platform": platform},
             )
-            saved += 1
-        except Exception as e:
-            logger.warning("Failed to save post %s: %s", post.shortcode, e)
-    
-    return saved
+
+            saved = 0
+            for post in posts:
+                await db.execute(
+                    text("""
+                        INSERT INTO crm.competitor_posts 
+                        (competitor_id, platform, post_text, likes, comments, shares,
+                         engagement_score, hook, post_url, posted_at, fetched_at)
+                        VALUES (:cid, :platform, :text, :likes, :comments, :shares,
+                                :score, :hook, :url, :posted_at, NOW())
+                    """),
+                    {
+                        "cid": competitor_id,
+                        "platform": platform,
+                        "text": post.caption,
+                        "likes": post.likes,
+                        "comments": post.comments,
+                        "shares": post.views,  # Use views as "shares" for video reach
+                        "score": calculate_competitor_engagement_score(
+                            post.likes,
+                            post.comments,
+                            post.views,
+                            platform=platform,
+                        ),
+                        "hook": post.hook,
+                        "url": post.post_url,
+                        "posted_at": post.posted_at,
+                    },
+                )
+                saved += 1
+
+        return saved
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Failed to cache posts for competitor %s on %s: %s",
+            competitor_id,
+            platform,
+            exc,
+        )
+        return 0
+
+
+async def _competitor_posts_cache_available(db: AsyncSession) -> bool:
+    """Return whether the competitor post cache table is available."""
+    try:
+        result = await db.execute(text("SELECT to_regclass('crm.competitor_posts')"))
+        return bool(result.scalar())
+    except SQLAlchemyError as exc:
+        logger.warning("Failed to check competitor_posts cache table: %s", exc)
+        return False
+
+
+def _instagram_sync_running() -> bool:
+    """Return whether an Instagram sync background task is active."""
+    return _instagram_sync_task is not None and not _instagram_sync_task.done()
+
+
+async def _load_instagram_competitors(db: AsyncSession) -> List[Competitor]:
+    """Load Instagram competitors that are enabled for auto sync."""
+    result = await db.execute(
+        select(Competitor)
+        .where(Competitor.platform == "instagram")
+        .where(Competitor.auto_sync_enabled == True)
+    )
+    return result.scalars().all()
+
+
+async def sync_instagram_competitor(
+    db: AsyncSession,
+    competitor: Competitor,
+    cache_available: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Scrape and persist a single Instagram competitor without committing."""
+    handle = competitor.handle.strip().lstrip("@")
+    profile = await scrape_profile(handle)
+
+    if profile.error:
+        return {
+            "success": False,
+            "error": profile.error,
+            "posts_saved": 0,
+            "profile": profile,
+        }
+
+    if cache_available is None:
+        cache_available = await _competitor_posts_cache_available(db)
+        if not cache_available:
+            logger.warning(
+                "crm.competitor_posts table is unavailable; scraper sync will skip post caching"
+            )
+
+    await _save_profile_to_competitor(db, competitor, profile)
+
+    posts_saved = 0
+    if cache_available:
+        posts_saved = await _save_posts_to_cache(
+            db, competitor.id, "instagram", profile.posts
+        )
+
+    return {
+        "success": True,
+        "error": None,
+        "posts_saved": posts_saved,
+        "profile": profile,
+    }
+
+
+async def sync_instagram_competitor_batch(
+    db: AsyncSession,
+    competitors: List[Competitor],
+) -> BulkScrapeResponse:
+    """Scrape and persist a batch of Instagram competitors without committing."""
+    if not competitors:
+        raise HTTPException(status_code=404, detail="No Instagram competitors to sync")
+
+    cache_available = await _competitor_posts_cache_available(db)
+    if not cache_available:
+        logger.warning(
+            "crm.competitor_posts table is unavailable; scraper sync will skip post caching"
+        )
+
+    handles = [c.handle.strip().lstrip("@") for c in competitors]
+    handle_to_competitor = {_normalize_handle(c.handle): c for c in competitors}
+
+    profiles = await scrape_multiple(handles, delay_range=(3, 7))
+
+    success = 0
+    failed = 0
+    total_posts_saved = 0
+    responses = []
+
+    for profile in profiles:
+        if profile.error:
+            failed += 1
+        else:
+            success += 1
+
+            competitor = handle_to_competitor.get(_normalize_handle(profile.handle))
+            if competitor:
+                await _save_profile_to_competitor(db, competitor, profile)
+                if cache_available:
+                    posts_saved = await _save_posts_to_cache(
+                        db, competitor.id, "instagram", profile.posts
+                    )
+                    total_posts_saved += posts_saved
+
+        responses.append(_profile_to_response(profile))
+
+    return BulkScrapeResponse(
+        total=len(profiles),
+        success=success,
+        failed=failed,
+        profiles=responses,
+        posts_saved=total_posts_saved,
+    )
+
+
+async def _execute_instagram_sync(db: AsyncSession) -> BulkScrapeResponse:
+    """Run the full Instagram sync and return the API response payload."""
+    competitors = await _load_instagram_competitors(db)
+    return await sync_instagram_competitor_batch(db, competitors)
+
+
+async def _run_instagram_sync_in_background() -> None:
+    """Run the Instagram sync in a detached task so long scrapes survive proxy limits."""
+    try:
+        async with crm_session() as db:
+            await db.execute(text("SET search_path TO crm, public"))
+            result = await _execute_instagram_sync(db)
+            await db.commit()
+            logger.info(
+                "Background Instagram sync finished: %s/%s succeeded, %s posts cached",
+                result.success,
+                result.total,
+                result.posts_saved,
+            )
+    except HTTPException as exc:
+        logger.warning("Background Instagram sync skipped: %s", exc.detail)
+    except Exception as exc:
+        logger.exception("Background Instagram sync failed: %s", exc)
+
+
+def _empty_competitor_status(competitor: Competitor) -> Dict[str, Any]:
+    """Build a scraper status row when cache data is unavailable."""
+    return {
+        "id": competitor.id,
+        "handle": competitor.handle,
+        "followers": competitor.followers,
+        "post_count": competitor.post_count,
+        "cached_posts": 0,
+        "last_scrape": None,
+        "is_populated": competitor.is_auto_populated,
+        "avg_engagement_rate": float(competitor.avg_engagement_rate or 0),
+    }
 
 
 # ── Endpoints ────────────────────────────────────────────────────
@@ -209,62 +415,55 @@ async def _save_posts_to_cache(
 
 @router.post("/scraper/instagram/sync", response_model=BulkScrapeResponse)
 async def sync_all_instagram_competitors(
+    background: bool = False,
     db: AsyncSession = Depends(get_crm_db),
 ):
     """Scrape ALL tracked Instagram competitors, update their records, and cache posts.
     
     This is the main data collection endpoint for the Reports feature.
     """
-    # Get all Instagram competitors
-    result = await db.execute(
-        select(Competitor)
-        .where(Competitor.platform == "instagram")
-        .where(Competitor.auto_sync_enabled == True)
-    )
-    competitors = result.scalars().all()
-    
-    if not competitors:
-        raise HTTPException(status_code=404, detail="No Instagram competitors to sync")
-    
-    handles = [c.handle for c in competitors]
-    handle_to_competitor = {c.handle: c for c in competitors}
-    
-    # Scrape all profiles
-    profiles = await scrape_multiple(handles, delay_range=(3, 7))
-    
-    success = 0
-    failed = 0
-    total_posts_saved = 0
-    responses = []
-    
-    for profile in profiles:
-        if profile.error:
-            failed += 1
-        else:
-            success += 1
-            
-            # Update competitor record
-            competitor = handle_to_competitor.get(profile.handle)
-            if competitor:
-                await _save_profile_to_competitor(db, competitor, profile)
-                
-                # Cache posts
-                posts_saved = await _save_posts_to_cache(
-                    db, competitor.id, "instagram", profile.posts
+    global _instagram_sync_task
+
+    try:
+        competitors = await _load_instagram_competitors(db)
+        if not competitors:
+            raise HTTPException(status_code=404, detail="No Instagram competitors to sync")
+
+        if background:
+            if _instagram_sync_running():
+                return BulkScrapeResponse(
+                    total=len(competitors),
+                    success=0,
+                    failed=0,
+                    profiles=[],
+                    posts_saved=0,
+                    accepted=True,
+                    message="Instagram scrape is already running in the background.",
                 )
-                total_posts_saved += posts_saved
-        
-        responses.append(_profile_to_response(profile))
-    
-    await db.commit()
-    
-    return BulkScrapeResponse(
-        total=len(profiles),
-        success=success,
-        failed=failed,
-        profiles=responses,
-        posts_saved=total_posts_saved,
-    )
+
+            _instagram_sync_task = asyncio.create_task(_run_instagram_sync_in_background())
+            return BulkScrapeResponse(
+                total=len(competitors),
+                success=0,
+                failed=0,
+                profiles=[],
+                posts_saved=0,
+                accepted=True,
+                message=(
+                    f"Instagram scrape started in the background for {len(competitors)} competitors. "
+                    "Refresh again shortly to load the updated content cache."
+                ),
+            )
+
+        result = await _execute_instagram_sync(db)
+        await db.commit()
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("Instagram competitor sync failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Instagram competitor sync failed")
 
 
 @router.post("/scraper/instagram/bulk", response_model=BulkScrapeResponse)
@@ -311,47 +510,60 @@ async def get_scrape_status(db: AsyncSession = Depends(get_crm_db)):
     )
     competitors = comp_result.scalars().all()
     
-    # Total cached posts
-    post_count = await db.execute(
-        text("SELECT COUNT(*) FROM crm.competitor_posts")
-    )
-    total_posts = post_count.scalar() or 0
-    
-    # Last scrape time
-    last_scrape_result = await db.execute(
-        text("SELECT MAX(fetched_at) FROM crm.competitor_posts")
-    )
-    last_scrape = last_scrape_result.scalar()
-    
-    # Per-competitor status
-    comp_status = []
-    for c in competitors:
-        # Count posts for this competitor
-        cp_result = await db.execute(
-            text(
-                "SELECT COUNT(*), MAX(fetched_at) FROM crm.competitor_posts "
-                "WHERE competitor_id = :cid"
-            ),
-            {"cid": c.id},
+    if not await _competitor_posts_cache_available(db):
+        return ScrapeStatusResponse(
+            total_competitors=len(competitors),
+            total_cached_posts=0,
+            last_scrape=None,
+            competitors=[_empty_competitor_status(c) for c in competitors],
+            sync_running=_instagram_sync_running(),
         )
-        row = cp_result.fetchone()
-        
-        comp_status.append({
-            "id": c.id,
-            "handle": c.handle,
-            "followers": c.followers,
-            "post_count": c.post_count,
-            "cached_posts": row[0] if row else 0,
-            "last_scrape": row[1].isoformat() if row and row[1] else None,
-            "is_populated": c.is_auto_populated,
-            "avg_engagement_rate": float(c.avg_engagement_rate or 0),
-        })
+
+    total_posts = 0
+    last_scrape = None
+    comp_status = []
+
+    try:
+        post_count = await db.execute(
+            text("SELECT COUNT(*) FROM crm.competitor_posts")
+        )
+        total_posts = post_count.scalar() or 0
+
+        last_scrape_result = await db.execute(
+            text("SELECT MAX(fetched_at) FROM crm.competitor_posts")
+        )
+        last_scrape = last_scrape_result.scalar()
+
+        for c in competitors:
+            cp_result = await db.execute(
+                text(
+                    "SELECT COUNT(*), MAX(fetched_at) FROM crm.competitor_posts "
+                    "WHERE competitor_id = :cid"
+                ),
+                {"cid": c.id},
+            )
+            row = cp_result.fetchone()
+
+            comp_status.append({
+                "id": c.id,
+                "handle": c.handle,
+                "followers": c.followers,
+                "post_count": c.post_count,
+                "cached_posts": row[0] if row else 0,
+                "last_scrape": row[1].isoformat() if row and row[1] else None,
+                "is_populated": c.is_auto_populated,
+                "avg_engagement_rate": float(c.avg_engagement_rate or 0),
+            })
+    except SQLAlchemyError as exc:
+        logger.warning("Failed to load scraper cache status: %s", exc)
+        comp_status = [_empty_competitor_status(c) for c in competitors]
     
     return ScrapeStatusResponse(
         total_competitors=len(competitors),
         total_cached_posts=total_posts,
         last_scrape=last_scrape,
         competitors=comp_status,
+        sync_running=_instagram_sync_running(),
     )
 
 

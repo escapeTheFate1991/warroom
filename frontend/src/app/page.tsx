@@ -32,6 +32,7 @@ const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboar
 const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
 const EmailTemplatesPanel = dynamic(() => import("@/components/marketing/EmailTemplatesPanel"), { loading: PanelLoader });
 const AgentServiceMap = dynamic(() => import("@/components/agents/AgentServiceMap"), { loading: PanelLoader });
+const AgentManager = dynamic(() => import("@/components/agents/AgentManager"), { loading: PanelLoader });
 const ContentPipeline = dynamic(() => import("@/components/content/ContentPipeline"), { loading: PanelLoader });
 const CompetitorIntel = dynamic(() => import("@/components/intelligence/CompetitorIntel"), { loading: PanelLoader });
 const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter"), { loading: PanelLoader });
@@ -74,7 +75,6 @@ const SECTIONS = [
   {
     label: "SOCIALS",
     items: [
-      { id: "content-tracker", label: "Tracker", icon: BarChart3 },
       { id: "social", label: "Analytics", icon: Share2 },
       { id: "intelligence", label: "Competitor Intel", icon: FileBarChart },
     ],
@@ -132,7 +132,7 @@ const SECTIONS = [
 
 type TabId =
   | "dashboard" | "chat" | "agents" | "calendar" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
-  | "content-instagram" | "content-youtube" | "content-facebook" | "content-x" | "content-tracker"
+  | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
   | "kanban" | "leadgen"
   | "pipeline-board" | "organizations" | "crm-contacts"
   | "library-search" | "library-educate"
@@ -141,6 +141,12 @@ type TabId =
   | "invoices" | "contracts"
   | "reports-overview" | "reports-revenue" | "reports-sales"
   | "settings";
+
+function normalizeTab(tab: string | null): TabId {
+  if (!tab) return "dashboard";
+  if (tab === "content-tracker") return "social";
+  return tab as TabId;
+}
 
 // Map parent IDs to their children active check
 const PARENT_CHILDREN: Record<string, string[]> = {
@@ -162,18 +168,27 @@ function WarRoom() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = (searchParams.get("tab") as TabId) || "dashboard";
+  const initialTab = normalizeTab(searchParams.get("tab"));
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
 
   const handleTabChange = useCallback((tab: string) => {
-    setActiveTab(tab as TabId);
-    router.push(`/?tab=${tab}`, { scroll: false });
+    const nextTab = normalizeTab(tab);
+    setActiveTab(nextTab);
+    router.push(`/?tab=${nextTab}`, { scroll: false });
   }, [router]);
 
   useEffect(() => {
-    const tab = searchParams.get("tab") as TabId;
-    if (tab && tab !== activeTab) setActiveTab(tab);
-  }, [searchParams]);
+    const rawTab = searchParams.get("tab");
+    const nextTab = normalizeTab(rawTab);
+
+    if (nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+
+    if (rawTab === "content-tracker") {
+      router.replace("/?tab=social", { scroll: false });
+    }
+  }, [activeTab, router, searchParams]);
 
   const isChildActive = useCallback((parentId: string) => {
     const children = PARENT_CHILDREN[parentId];
@@ -188,7 +203,15 @@ function WarRoom() {
         <main className="flex-1 overflow-hidden relative">
           {activeTab === "dashboard" && <CommandCenter />}
           {activeTab === "chat" && <ChatPanel />}
-          {activeTab === "agents" && <AgentServiceMap />}
+          {activeTab === "agents" && (
+            <div className="h-full overflow-y-auto p-6 space-y-8">
+              <AgentManager />
+              <div className="border-t border-warroom-border pt-6">
+                <h3 className="text-sm font-semibold text-warroom-muted mb-4 px-1">Live Activity</h3>
+                <AgentServiceMap />
+              </div>
+            </div>
+          )}
 
           {activeTab === "social" && <SocialDashboard />}
           {activeTab === "content-instagram" && <PlatformContent platform="instagram" />}
@@ -196,7 +219,6 @@ function WarRoom() {
           {activeTab === "content-facebook" && <PlatformContent platform="facebook" />}
           {activeTab === "content-x" && <PlatformContent platform="x" />}
           {activeTab === "pipeline" && <ContentPipeline />}
-          {activeTab === "content-tracker" && <ContentTracker />}
           {activeTab === "intelligence" && <CompetitorIntel />}
           {activeTab === "kanban" && <KanbanPanel />}
           {activeTab === "leadgen" && <LeadgenPanel />}

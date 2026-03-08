@@ -528,8 +528,10 @@ async def scrape_multiple(
             logger.warning("@%s: %s", handle, profile.error)
         else:
             logger.info(
-                f"@{handle}: {profile.followers} followers, "
-                f"{len(profile.posts)} posts scraped"
+                "@%s: %s followers, %s posts scraped",
+                handle,
+                profile.followers,
+                len(profile.posts),
             )
 
         if i < len(handles) - 1:

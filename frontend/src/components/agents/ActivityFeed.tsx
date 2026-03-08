@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Activity, Clock, ArrowRight, Zap } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
 const TEAM_API = "/api/team";
 
@@ -48,6 +49,24 @@ function getAgentInfo(id: string) {
   return AGENT_META[id] || { emoji: "🤖", color: "text-gray-400" };
 }
 
+function normalizeTeamEvents(payload: any): AgentEvent[] {
+  const rawEvents = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.events)
+      ? payload.events
+      : [];
+
+  return rawEvents.map((event: any) => ({
+    id: event?.id,
+    event_type: event?.event_type || "unknown",
+    from_agent: event?.from_agent || "unknown",
+    to_agent: event?.to_agent || "unknown",
+    summary: event?.summary || "",
+    timestamp: event?.timestamp || event?.created_at || new Date().toISOString(),
+    metadata: event?.metadata,
+  }));
+}
+
 export default function ActivityFeed() {
   const [events, setEvents] = useState<AgentEvent[]>(DEMO_EVENTS);
   const [demoMode, setDemoMode] = useState(true);
@@ -55,11 +74,12 @@ export default function ActivityFeed() {
 
   const fetchEvents = useCallback(async () => {
     try {
-      const resp = await fetch(`${TEAM_API}/events?limit=50`);
-      if (resp.ok) {
+      const resp = await authFetch(`${API}${TEAM_API}/events?limit=50`).catch(() => null);
+      if (resp?.ok) {
         const data = await resp.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setEvents(data);
+        const normalizedEvents = normalizeTeamEvents(data);
+        if (normalizedEvents.length > 0) {
+          setEvents(normalizedEvents);
           setDemoMode(false);
         }
       }

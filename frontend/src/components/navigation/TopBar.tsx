@@ -54,49 +54,47 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch }: TopB
   };
 
   return (
-    <div className="h-12 bg-warroom-surface border-b border-warroom-border flex items-center px-4 gap-3 flex-shrink-0">
-      {/* Search */}
-      <div className="flex-1 max-w-xl relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={handleSearchKeyDown}
-          placeholder={scope.placeholder}
-          className="w-full pl-9 pr-24 py-1.5 bg-warroom-bg border border-warroom-border rounded-lg text-sm text-warroom-text placeholder:text-warroom-muted/50 focus:outline-none focus:border-warroom-accent/50"
-        />
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-warroom-muted bg-warroom-border/50 px-2 py-0.5 rounded">
-          {scope.label}
-        </span>
-      </div>
+    <div className="bg-warroom-surface border-b border-warroom-border px-4 py-3 flex-shrink-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:order-1 sm:max-w-xl sm:flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder={scope.placeholder}
+            className="w-full pl-9 pr-24 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm text-warroom-text placeholder:text-warroom-muted/50 focus:outline-none focus:border-warroom-accent/50"
+          />
+          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 max-w-[40%] truncate text-[10px] font-medium text-warroom-muted bg-warroom-border/50 px-2 py-0.5 rounded">
+            {scope.label}
+          </span>
+        </div>
 
-      {/* Right side */}
-      <div className="flex items-center gap-2">
-        {/* Theme toggle */}
-        <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-warroom-bg transition-colors text-warroom-muted hover:text-warroom-text" title="Toggle theme">
-          {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
-
-        {/* Notifications */}
-        <NotificationBell />
-
-        {/* User menu */}
-        <div className="relative" ref={menuRef}>
-          <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-warroom-bg transition-colors">
-            <div className="w-7 h-7 rounded-full bg-warroom-accent/20 flex items-center justify-center">
-              <User size={14} className="text-warroom-accent" />
-            </div>
-            <ChevronDown size={14} className="text-warroom-muted" />
+        <div className="flex items-center justify-between gap-2 sm:order-2 sm:flex-shrink-0 sm:justify-end">
+          <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-warroom-bg transition-colors text-warroom-muted hover:text-warroom-text" title="Toggle theme">
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          {showUserMenu && (
-            <div className="absolute right-0 top-full mt-1 w-48 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl py-1 z-50">
-              {userName && <div className="px-3 py-2 text-sm font-medium border-b border-warroom-border text-warroom-text">{userName}</div>}
-              <button onClick={onLogout} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-warroom-bg transition-colors">
-                <LogOut size={14} /> Sign Out
-              </button>
-            </div>
-          )}
+
+          <NotificationBell />
+
+          <div className="relative" ref={menuRef}>
+            <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center gap-2 rounded-lg p-1.5 hover:bg-warroom-bg transition-colors max-w-[12rem]">
+              <div className="w-7 h-7 rounded-full bg-warroom-accent/20 flex items-center justify-center flex-shrink-0">
+                <User size={14} className="text-warroom-accent" />
+              </div>
+              {userName && <span className="hidden md:block truncate text-sm text-warroom-text">{userName}</span>}
+              <ChevronDown size={14} className="text-warroom-muted hidden sm:block" />
+            </button>
+            {showUserMenu && (
+              <div className="absolute right-0 top-full mt-1 w-48 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl py-1 z-50">
+                {userName && <div className="px-3 py-2 text-sm font-medium border-b border-warroom-border text-warroom-text break-words">{userName}</div>}
+                <button onClick={onLogout} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-warroom-bg transition-colors">
+                  <LogOut size={14} /> Sign Out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

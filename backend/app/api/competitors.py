@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.crm_db import get_crm_db
 from app.models.crm.competitor import Competitor
 from app.models.crm.social import SocialAccount
+from app.api.scraper import sync_instagram_competitor, sync_instagram_competitor_batch
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +249,46 @@ async def auto_populate_competitor_data(handle: str, platform: str, db: AsyncSes
         return SocialPlatformData(success=False, error=f"Unknown platform: {platform}")
 
 
+def _apply_social_platform_data(
+    competitor: Competitor,
+    auto_data: SocialPlatformData,
+) -> None:
+    """Apply fetched platform data to a competitor row."""
+    competitor.followers = auto_data.followers
+    competitor.following = auto_data.following
+    competitor.post_count = auto_data.post_count
+    competitor.bio = auto_data.bio
+    competitor.profile_image_url = auto_data.profile_image_url
+    competitor.posting_frequency = auto_data.posting_frequency
+    competitor.is_auto_populated = True
+    competitor.last_auto_sync = datetime.now()
+    competitor.updated_at = datetime.now()
+
+
+async def _sync_competitor_record(
+    db: AsyncSession,
+    competitor: Competitor,
+) -> tuple[bool, Optional[str]]:
+    """Refresh a competitor through the correct platform-specific data path."""
+    platform = competitor.platform.lower()
+
+    if platform == "instagram":
+        sync_result = await sync_instagram_competitor(db, competitor)
+        return sync_result["success"], sync_result["error"]
+
+    auto_data = await auto_populate_competitor_data(
+        competitor.handle,
+        competitor.platform,
+        db,
+    )
+
+    if not auto_data.success:
+        return False, auto_data.error
+
+    _apply_social_platform_data(competitor, auto_data)
+    return True, None
+
+
 @router.post("/competitors", response_model=CompetitorResponse)
 async def create_competitor(
     competitor_data: CompetitorCreate,
@@ -268,22 +309,28 @@ async def create_competitor(
         if existing_result.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Competitor already exists")
         
-        # Try to auto-populate data
-        auto_data = await auto_populate_competitor_data(handle, platform, db)
-        
-        # Create competitor record
-        new_competitor = Competitor(
-            handle=handle,
-            platform=platform,
-            followers=auto_data.followers,
-            following=auto_data.following,
-            post_count=auto_data.post_count,
-            bio=auto_data.bio,
-            profile_image_url=auto_data.profile_image_url,
-            posting_frequency=auto_data.posting_frequency,
-            is_auto_populated=auto_data.success,
-            last_auto_sync=datetime.now() if auto_data.success else None,
-        )
+        if platform == "instagram":
+            new_competitor = Competitor(
+                handle=handle,
+                platform=platform,
+                is_auto_populated=False,
+                last_auto_sync=None,
+            )
+        else:
+            auto_data = await auto_populate_competitor_data(handle, platform, db)
+
+            new_competitor = Competitor(
+                handle=handle,
+                platform=platform,
+                followers=auto_data.followers,
+                following=auto_data.following,
+                post_count=auto_data.post_count,
+                bio=auto_data.bio,
+                profile_image_url=auto_data.profile_image_url,
+                posting_frequency=auto_data.posting_frequency,
+                is_auto_populated=auto_data.success,
+                last_auto_sync=datetime.now() if auto_data.success else None,
+            )
         
         db.add(new_competitor)
         await db.commit()
@@ -408,6 +455,40 @@ async def delete_competitor(
         raise HTTPException(status_code=500, detail="Failed to delete competitor")
 
 
+@router.post("/competitors/{competitor_id}/auto-populate", response_model=CompetitorResponse)
+async def auto_populate_competitor(
+    competitor_id: int,
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Populate an existing competitor through the real platform-specific write path."""
+    try:
+        result = await db.execute(
+            select(Competitor).where(Competitor.id == competitor_id)
+        )
+        competitor = result.scalar_one_or_none()
+
+        if not competitor:
+            raise HTTPException(status_code=404, detail="Competitor not found")
+
+        success, error = await _sync_competitor_record(db, competitor)
+        if not success:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Failed to auto-populate competitor: {error}",
+            )
+
+        await db.commit()
+        await db.refresh(competitor)
+
+        return CompetitorResponse.model_validate(competitor)
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error("Failed to auto-populate competitor: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to auto-populate competitor")
+
+
 @router.post("/competitors/sync")
 async def sync_competitors(
     platform: Optional[str] = None,
@@ -429,26 +510,46 @@ async def sync_competitors(
             "failed": 0,
             "details": []
         }
+
+        instagram_competitors = [
+            competitor
+            for competitor in competitors
+            if competitor.platform.lower() == "instagram"
+        ]
+
+        if instagram_competitors:
+            batch_result = await sync_instagram_competitor_batch(db, instagram_competitors)
+            instagram_lookup = {
+                competitor.handle.strip().lstrip("@").lower(): competitor
+                for competitor in instagram_competitors
+            }
+
+            sync_results["success"] += batch_result.success
+            sync_results["failed"] += batch_result.failed
+
+            for profile in batch_result.profiles:
+                competitor = instagram_lookup.get(profile.handle.strip().lstrip("@").lower())
+                if not competitor:
+                    continue
+
+                detail = {
+                    "id": competitor.id,
+                    "handle": competitor.handle,
+                    "platform": competitor.platform,
+                    "status": "failed" if profile.error else "success",
+                }
+                if profile.error:
+                    detail["error"] = profile.error
+                sync_results["details"].append(detail)
         
         for competitor in competitors:
+            if competitor.platform.lower() == "instagram":
+                continue
+
             try:
-                auto_data = await auto_populate_competitor_data(
-                    competitor.handle, 
-                    competitor.platform, 
-                    db
-                )
-                
-                if auto_data.success:
-                    # Update competitor data
-                    competitor.followers = auto_data.followers
-                    competitor.following = auto_data.following
-                    competitor.post_count = auto_data.post_count
-                    competitor.bio = auto_data.bio
-                    competitor.profile_image_url = auto_data.profile_image_url
-                    competitor.posting_frequency = auto_data.posting_frequency
-                    competitor.last_auto_sync = datetime.now()
-                    competitor.updated_at = datetime.now()
-                    
+                success, error = await _sync_competitor_record(db, competitor)
+
+                if success:
                     sync_results["success"] += 1
                     sync_results["details"].append({
                         "id": competitor.id,
@@ -463,7 +564,7 @@ async def sync_competitors(
                         "handle": competitor.handle,
                         "platform": competitor.platform,
                         "status": "failed",
-                        "error": auto_data.error
+                        "error": error
                     })
                     
             except Exception as e:
@@ -504,29 +605,13 @@ async def sync_single_competitor(
         if not competitor:
             raise HTTPException(status_code=404, detail="Competitor not found")
         
-        # Fetch fresh data
-        auto_data = await auto_populate_competitor_data(
-            competitor.handle, 
-            competitor.platform, 
-            db
-        )
-        
-        if not auto_data.success:
+        success, error = await _sync_competitor_record(db, competitor)
+
+        if not success:
             raise HTTPException(
                 status_code=422, 
-                detail=f"Failed to sync data: {auto_data.error}"
+                detail=f"Failed to sync data: {error}"
             )
-        
-        # Update competitor
-        competitor.followers = auto_data.followers
-        competitor.following = auto_data.following
-        competitor.post_count = auto_data.post_count
-        competitor.bio = auto_data.bio
-        competitor.profile_image_url = auto_data.profile_image_url
-        competitor.posting_frequency = auto_data.posting_frequency
-        competitor.is_auto_populated = True
-        competitor.last_auto_sync = datetime.now()
-        competitor.updated_at = datetime.now()
         
         await db.commit()
         await db.refresh(competitor)

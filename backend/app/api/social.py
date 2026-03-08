@@ -71,13 +71,69 @@ class SocialSummaryResponse(BaseModel):
     total_reach: int
     engagement_rate: float
     accounts_connected: int
+    total_link_clicks: int = 0
+    total_shares: int = 0
+    total_saves: int = 0
+    total_video_views: int = 0
+
+
+class SocialAnalyticsSeriesPoint(BaseModel):
+    """Aggregated analytics point for charting."""
+    bucket: date
+    label: str
+    engagement: int
+    impressions: int
+    reach: int
+    shares: int
+    saves: int
+    link_clicks: int
+    video_views: int
+    likes: int
+    comments: int
+
+
+def _shift_months(value: date, months: int) -> date:
+    """Shift a month-start date backward or forward by a number of months."""
+    month_index = (value.year * 12) + (value.month - 1) + months
+    year = month_index // 12
+    month = (month_index % 12) + 1
+    return date(year, month, 1)
+
+
+def _build_time_buckets(end_date: date, granularity: str) -> tuple[date, List[date]]:
+    """Return the start date and ordered bucket boundaries for the requested granularity."""
+    if granularity == "daily":
+        start_date = end_date - timedelta(days=13)
+        buckets = [start_date + timedelta(days=index) for index in range(14)]
+        return start_date, buckets
+
+    if granularity == "weekly":
+        current_week_start = end_date - timedelta(days=end_date.weekday())
+        start_date = current_week_start - timedelta(weeks=11)
+        buckets = [start_date + timedelta(weeks=index) for index in range(12)]
+        return start_date, buckets
+
+    current_month_start = end_date.replace(day=1)
+    start_date = _shift_months(current_month_start, -11)
+    buckets = [_shift_months(start_date, index) for index in range(12)]
+    return start_date, buckets
+
+
+def _format_bucket_label(bucket: date, granularity: str) -> str:
+    """Return a concise chart label for a bucket start date."""
+    if granularity == "monthly":
+        return bucket.strftime("%b %Y")
+
+    return bucket.strftime("%b %d").replace(" 0", " ")
 
 
 @router.get("/accounts", response_model=List[SocialAccountResponse])
 async def get_social_accounts(db: AsyncSession = Depends(get_crm_db)):
     """List all connected social media accounts."""
     try:
-        result = await db.execute(select(SocialAccount))
+        result = await db.execute(
+            select(SocialAccount).where(SocialAccount.status == "connected")
+        )
         accounts = result.scalars().all()
         return [SocialAccountResponse.model_validate(account) for account in accounts]
     except Exception as e:
@@ -148,7 +204,7 @@ async def get_social_analytics(
     """Get aggregated social media analytics."""
     try:
         # Base query
-        query = select(SocialAccount)
+        query = select(SocialAccount).where(SocialAccount.status == "connected")
         if platform:
             query = query.where(SocialAccount.platform == platform)
         
@@ -163,7 +219,11 @@ async def get_social_analytics(
                 total_impressions=0,
                 total_reach=0,
                 engagement_rate=0.0,
-                accounts_connected=0
+                accounts_connected=0,
+                total_link_clicks=0,
+                total_shares=0,
+                total_saves=0,
+                total_video_views=0,
             )
         
         # Get recent analytics (last 30 days)
@@ -171,6 +231,7 @@ async def get_social_analytics(
         start_date = end_date - timedelta(days=30)
         
         analytics_query = select(SocialAnalytics).join(SocialAccount).where(
+            SocialAccount.status == "connected",
             SocialAnalytics.metric_date >= start_date,
             SocialAnalytics.metric_date <= end_date
         )
@@ -186,6 +247,10 @@ async def get_social_analytics(
         total_engagement = sum(a.engagement for a in analytics)
         total_impressions = sum(a.impressions for a in analytics)
         total_reach = sum(a.reach for a in analytics)
+        total_link_clicks = sum(a.link_clicks for a in analytics)
+        total_shares = sum(a.shares for a in analytics)
+        total_saves = sum(a.saves for a in analytics)
+        total_video_views = sum(a.video_views for a in analytics)
         
         # Calculate engagement rate
         engagement_rate = (total_engagement / total_impressions * 100) if total_impressions > 0 else 0
@@ -196,65 +261,15 @@ async def get_social_analytics(
             total_impressions=total_impressions,
             total_reach=total_reach,
             engagement_rate=round(engagement_rate, 2),
-            accounts_connected=len(accounts)
+            accounts_connected=len(accounts),
+            total_link_clicks=total_link_clicks,
+            total_shares=total_shares,
+            total_saves=total_saves,
+            total_video_views=total_video_views,
         )
     except Exception as e:
         logger.error("Failed to fetch social analytics: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch analytics")
-
-
-@router.get("/analytics/{platform}", response_model=List[SocialAnalyticsResponse])
-async def get_platform_analytics(
-    platform: str,
-    days: int = 30,
-    db: AsyncSession = Depends(get_crm_db)
-):
-    """Get analytics for a specific platform."""
-    try:
-        end_date = date.today()
-        start_date = end_date - timedelta(days=days)
-        
-        query = (
-            select(SocialAnalytics)
-            .join(SocialAccount)
-            .where(
-                SocialAccount.platform == platform,
-                SocialAnalytics.metric_date >= start_date,
-                SocialAnalytics.metric_date <= end_date
-            )
-            .order_by(SocialAnalytics.metric_date.desc())
-        )
-        
-        result = await db.execute(query)
-        analytics = result.scalars().all()
-        
-        if not analytics:
-            # Return empty data if no analytics exist
-            return []
-        
-        return [
-            SocialAnalyticsResponse(
-                platform=platform,
-                metric_date=a.metric_date,
-                impressions=a.impressions,
-                reach=a.reach,
-                engagement=a.engagement,
-                engagement_rate=float(a.engagement_rate),
-                followers_gained=a.followers_gained,
-                followers_lost=a.followers_lost,
-                profile_views=a.profile_views,
-                link_clicks=a.link_clicks,
-                shares=a.shares,
-                saves=a.saves,
-                comments=a.comments,
-                likes=a.likes,
-                video_views=a.video_views
-            )
-            for a in analytics
-        ]
-    except Exception as e:
-        logger.error("Failed to fetch platform analytics: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to fetch platform analytics")
 
 
 @router.get("/analytics/sparkline")
@@ -268,7 +283,7 @@ async def get_analytics_sparkline(
         start_date = end_date - timedelta(days=days)
         
         # Get all accounts
-        accounts_query = select(SocialAccount)
+        accounts_query = select(SocialAccount).where(SocialAccount.status == "connected")
         accounts_result = await db.execute(accounts_query)
         accounts = accounts_result.scalars().all()
         
@@ -337,7 +352,8 @@ async def get_analytics_trends(db: AsyncSession = Depends(get_crm_db)):
                 SUM(sa.followers_gained - sa.followers_lost) as net_followers
             FROM crm.social_analytics sa
             JOIN crm.social_accounts acc ON sa.account_id = acc.id
-            WHERE sa.metric_date >= :start_date AND sa.metric_date <= :end_date
+            WHERE acc.status = 'connected'
+              AND sa.metric_date >= :start_date AND sa.metric_date <= :end_date
         """)
         
         # Query last week's data  
@@ -348,7 +364,8 @@ async def get_analytics_trends(db: AsyncSession = Depends(get_crm_db)):
                 SUM(sa.followers_gained - sa.followers_lost) as net_followers
             FROM crm.social_analytics sa
             JOIN crm.social_accounts acc ON sa.account_id = acc.id
-            WHERE sa.metric_date >= :start_date AND sa.metric_date <= :end_date
+            WHERE acc.status = 'connected'
+              AND sa.metric_date >= :start_date AND sa.metric_date <= :end_date
         """)
         
         this_week_result = await db.execute(this_week_query, {
@@ -393,6 +410,145 @@ async def get_analytics_trends(db: AsyncSession = Depends(get_crm_db)):
             "engagement": "+0.0%", 
             "impressions": "+0.0%"
         }
+
+
+@router.get("/analytics/timeseries", response_model=List[SocialAnalyticsSeriesPoint])
+async def get_analytics_timeseries(
+    platform: Optional[str] = None,
+    granularity: str = "daily",
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Get aggregated analytics bars for the dashboard."""
+    allowed_granularities = {
+        "daily": "day",
+        "weekly": "week",
+        "monthly": "month",
+    }
+
+    if granularity not in allowed_granularities:
+        raise HTTPException(status_code=422, detail="granularity must be one of daily, weekly, monthly")
+
+    try:
+        end_date = date.today()
+        start_date, buckets = _build_time_buckets(end_date, granularity)
+        truncate_unit = allowed_granularities[granularity]
+        platform_filter = "AND acc.platform = :platform" if platform else ""
+
+        query = text(f"""
+            SELECT
+                date_trunc('{truncate_unit}', sa.metric_date::timestamp)::date AS bucket_date,
+                COALESCE(SUM(sa.engagement), 0) AS engagement,
+                COALESCE(SUM(sa.impressions), 0) AS impressions,
+                COALESCE(SUM(sa.reach), 0) AS reach,
+                COALESCE(SUM(sa.shares), 0) AS shares,
+                COALESCE(SUM(sa.saves), 0) AS saves,
+                COALESCE(SUM(sa.link_clicks), 0) AS link_clicks,
+                COALESCE(SUM(sa.video_views), 0) AS video_views,
+                COALESCE(SUM(sa.likes), 0) AS likes,
+                COALESCE(SUM(sa.comments), 0) AS comments
+            FROM crm.social_analytics sa
+            JOIN crm.social_accounts acc ON sa.account_id = acc.id
+            WHERE acc.status = 'connected'
+              AND sa.metric_date >= :start_date
+              AND sa.metric_date <= :end_date
+              {platform_filter}
+            GROUP BY bucket_date
+            ORDER BY bucket_date ASC
+        """)
+
+        params = {
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        if platform:
+            params["platform"] = platform
+
+        result = await db.execute(query, params)
+        rows = result.mappings().all()
+        rows_by_bucket: Dict[date, Dict] = {
+            row["bucket_date"]: row for row in rows
+        }
+
+        series = []
+        for bucket in buckets:
+            row = rows_by_bucket.get(bucket, {})
+            series.append(
+                SocialAnalyticsSeriesPoint(
+                    bucket=bucket,
+                    label=_format_bucket_label(bucket, granularity),
+                    engagement=int(row.get("engagement", 0) or 0),
+                    impressions=int(row.get("impressions", 0) or 0),
+                    reach=int(row.get("reach", 0) or 0),
+                    shares=int(row.get("shares", 0) or 0),
+                    saves=int(row.get("saves", 0) or 0),
+                    link_clicks=int(row.get("link_clicks", 0) or 0),
+                    video_views=int(row.get("video_views", 0) or 0),
+                    likes=int(row.get("likes", 0) or 0),
+                    comments=int(row.get("comments", 0) or 0),
+                )
+            )
+
+        return series
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to fetch analytics timeseries: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch analytics timeseries")
+
+
+@router.get("/analytics/{platform}", response_model=List[SocialAnalyticsResponse])
+async def get_platform_analytics(
+    platform: str,
+    days: int = 30,
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Get analytics for a specific platform."""
+    try:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+        
+        query = (
+            select(SocialAnalytics)
+            .join(SocialAccount)
+            .where(
+                SocialAccount.status == "connected",
+                SocialAccount.platform == platform,
+                SocialAnalytics.metric_date >= start_date,
+                SocialAnalytics.metric_date <= end_date
+            )
+            .order_by(SocialAnalytics.metric_date.desc())
+        )
+        
+        result = await db.execute(query)
+        analytics = result.scalars().all()
+        
+        if not analytics:
+            # Return empty data if no analytics exist
+            return []
+        
+        return [
+            SocialAnalyticsResponse(
+                platform=platform,
+                metric_date=a.metric_date,
+                impressions=a.impressions,
+                reach=a.reach,
+                engagement=a.engagement,
+                engagement_rate=float(a.engagement_rate),
+                followers_gained=a.followers_gained,
+                followers_lost=a.followers_lost,
+                profile_views=a.profile_views,
+                link_clicks=a.link_clicks,
+                shares=a.shares,
+                saves=a.saves,
+                comments=a.comments,
+                likes=a.likes,
+                video_views=a.video_views
+            )
+            for a in analytics
+        ]
+    except Exception as e:
+        logger.error("Failed to fetch platform analytics: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch platform analytics")
 
 
 @router.post("/sync")

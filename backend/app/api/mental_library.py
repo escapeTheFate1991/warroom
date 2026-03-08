@@ -1,54 +1,101 @@
-"""Mental Library — proxy mutations to the running mental-library service;
-read-only endpoints query the shared SQLite DB directly (mounted read-only).
+"""Mental Library — Video knowledge base stored in PostgreSQL.
+
+Migrated from SQLite to the shared warroom PostgreSQL database.
+Supports video processing, chunk storage, and search.
 """
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel
-import sqlite3
+from typing import Optional, List
 import httpx
 import os
+import json
+import logging
+from sqlalchemy import text
 
+from app.db.crm_db import get_crm_db
+
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Path to the SQLite DB mounted from the mental-library service volume.
-DB_PATH = os.getenv(
-    "MENTAL_LIBRARY_DB",
-    "/data/mental-library/mental_library.db"
-)
-
 # The running mental-library service handles download, transcription, deletion.
-# Currently on Brain 1 (10.0.0.1). Set via MENTAL_LIBRARY_API_URL env var.
 MENTAL_LIBRARY_API_URL = os.getenv("MENTAL_LIBRARY_API_URL", "http://10.0.0.1:8100")
 
+# ── Table setup ──────────────────────────────────────────────────
 
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+CREATE_VIDEOS = """
+CREATE TABLE IF NOT EXISTS ml_videos (
+    id SERIAL PRIMARY KEY,
+    url TEXT NOT NULL,
+    title TEXT DEFAULT '',
+    author TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    duration INTEGER DEFAULT 0,
+    thumbnail_url TEXT DEFAULT '',
+    processed_at TIMESTAMPTZ DEFAULT NOW(),
+    transcript_path TEXT DEFAULT '',
+    audio_path TEXT DEFAULT '',
+    topic_tags TEXT DEFAULT '',
+    language TEXT DEFAULT 'en',
+    chunk_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    error_message TEXT DEFAULT '',
+    document_text TEXT DEFAULT ''
+);
+"""
 
+CREATE_CHUNKS = """
+CREATE TABLE IF NOT EXISTS ml_chunks (
+    id SERIAL PRIMARY KEY,
+    video_id INTEGER NOT NULL REFERENCES ml_videos(id) ON DELETE CASCADE,
+    chunk_index INTEGER DEFAULT 0,
+    text TEXT DEFAULT '',
+    start_time REAL DEFAULT 0,
+    end_time REAL DEFAULT 0,
+    embedding_vector_id TEXT DEFAULT '',
+    token_count INTEGER DEFAULT 0,
+    topic_tags TEXT DEFAULT '',
+    confidence_score REAL DEFAULT 0
+);
+"""
+
+
+async def ensure_tables(db):
+    await db.execute(text(CREATE_VIDEOS))
+    await db.execute(text(CREATE_CHUNKS))
+    await db.commit()
+
+
+def _parse_tags(tags_str: str) -> list[str]:
+    return [t.strip() for t in (tags_str or "").split(",") if t.strip()]
+
+
+def _video_row_to_dict(r: dict) -> dict:
+    return {
+        "id": r["id"],
+        "url": r["url"],
+        "title": r["title"],
+        "author": r["author"],
+        "duration": r["duration"] or 0,
+        "thumbnail_url": r["thumbnail_url"],
+        "processed_at": str(r["processed_at"]) if r["processed_at"] else None,
+        "topic_tags": _parse_tags(r.get("topic_tags", "")),
+        "chunk_count": r["chunk_count"] or 0,
+        "status": r["status"],
+    }
+
+
+# ── Endpoints ────────────────────────────────────────────────────
 
 @router.get("/videos")
-async def list_videos():
-    db = get_db()
-    rows = db.execute(
+async def list_videos(db=Depends(get_crm_db)):
+    await ensure_tables(db)
+    result = await db.execute(text(
         "SELECT id, url, title, author, duration, thumbnail_url, processed_at, "
-        "topic_tags, chunk_count, status FROM videos WHERE status='completed' ORDER BY id DESC"
-    ).fetchall()
-    db.close()
-    return [
-        {
-            "id": r["id"],
-            "url": r["url"],
-            "title": r["title"],
-            "author": r["author"],
-            "duration": r["duration"] or 0,
-            "thumbnail_url": r["thumbnail_url"],
-            "processed_at": r["processed_at"],
-            "topic_tags": [t.strip() for t in (r["topic_tags"] or "").split(",") if t.strip()],
-            "chunk_count": r["chunk_count"] or 0,
-            "status": r["status"],
-        }
-        for r in rows
-    ]
+        "topic_tags, chunk_count, status FROM ml_videos "
+        "WHERE status='completed' ORDER BY id DESC"
+    ))
+    rows = result.mappings().all()
+    return [_video_row_to_dict(dict(r)) for r in rows]
 
 
 @router.post("/videos/process")
@@ -79,47 +126,50 @@ async def video_status(task_id: str):
 
 
 @router.delete("/videos/{video_id}")
-async def delete_video(video_id: int):
-    """Proxy to the mental-library service: delete a video and its embeddings."""
+async def delete_video(video_id: int, db=Depends(get_crm_db)):
+    """Delete a video and its chunks. Also proxy to external service if running."""
+    await ensure_tables(db)
+
+    # Delete from our DB
+    await db.execute(text("DELETE FROM ml_chunks WHERE video_id = :vid"), {"vid": video_id})
+    result = await db.execute(text("DELETE FROM ml_videos WHERE id = :vid RETURNING id"), {"vid": video_id})
+    await db.commit()
+
+    if not result.first():
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    # Also try to proxy delete to the external service (best effort)
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.delete(f"{MENTAL_LIBRARY_API_URL}/videos/{video_id}")
-            return Response(content=resp.content, status_code=resp.status_code, media_type="application/json")
-    except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail="Mental library service is not reachable")
+            await client.delete(f"{MENTAL_LIBRARY_API_URL}/videos/{video_id}")
+    except Exception:
+        pass  # External service may not be running
+
+    return {"deleted": True, "video_id": video_id}
 
 
 @router.get("/videos/{video_id}")
-async def get_video(video_id: int):
-    db = get_db()
-    r = db.execute("SELECT * FROM videos WHERE id=?", (video_id,)).fetchone()
-    db.close()
+async def get_video(video_id: int, db=Depends(get_crm_db)):
+    await ensure_tables(db)
+    result = await db.execute(text("SELECT * FROM ml_videos WHERE id = :vid"), {"vid": video_id})
+    r = result.mappings().first()
     if not r:
         raise HTTPException(status_code=404, detail="Video not found")
+    row = dict(r)
     return {
-        "id": r["id"],
-        "url": r["url"],
-        "title": r["title"],
-        "author": r["author"],
-        "description": r["description"],
-        "duration": r["duration"] or 0,
-        "thumbnail_url": r["thumbnail_url"],
-        "processed_at": r["processed_at"],
-        "topic_tags": [t.strip() for t in (r["topic_tags"] or "").split(",") if t.strip()],
-        "chunk_count": r["chunk_count"] or 0,
-        "status": r["status"],
-        "document_text": r["document_text"],
+        **_video_row_to_dict(row),
+        "description": row.get("description", ""),
+        "document_text": row.get("document_text", ""),
     }
 
 
 @router.get("/videos/{video_id}/chunks")
-async def get_video_chunks(video_id: int):
-    db = get_db()
-    rows = db.execute(
+async def get_video_chunks(video_id: int, db=Depends(get_crm_db)):
+    await ensure_tables(db)
+    result = await db.execute(text(
         "SELECT id, chunk_index, text, start_time, end_time, token_count, topic_tags "
-        "FROM chunks WHERE video_id=? ORDER BY id", (video_id,)
-    ).fetchall()
-    db.close()
+        "FROM ml_chunks WHERE video_id = :vid ORDER BY chunk_index"
+    ), {"vid": video_id})
     return [
         {
             "id": r["id"],
@@ -128,21 +178,43 @@ async def get_video_chunks(video_id: int):
             "start_time": r["start_time"],
             "end_time": r["end_time"],
             "token_count": r["token_count"] or 0,
-            "topic_tags": [t.strip() for t in (r["topic_tags"] or "").split(",") if t.strip()],
+            "topic_tags": _parse_tags(r.get("topic_tags", "")),
         }
-        for r in rows
+        for r in result.mappings().all()
     ]
 
 
 @router.get("/stats")
-async def stats():
-    db = get_db()
-    videos = db.execute("SELECT count(*) as c FROM videos WHERE status='completed'").fetchone()
-    chunks = db.execute("SELECT count(*) as c FROM chunks").fetchone()
-    duration = db.execute("SELECT coalesce(sum(duration),0) as d FROM videos WHERE status='completed'").fetchone()
-    db.close()
+async def stats(db=Depends(get_crm_db)):
+    await ensure_tables(db)
+    videos = await db.execute(text("SELECT count(*) as c FROM ml_videos WHERE status='completed'"))
+    chunks = await db.execute(text("SELECT count(*) as c FROM ml_chunks"))
+    duration = await db.execute(text("SELECT coalesce(sum(duration),0) as d FROM ml_videos WHERE status='completed'"))
     return {
-        "total_videos": videos["c"],
-        "total_chunks": chunks["c"],
-        "total_duration": duration["d"],
+        "total_videos": videos.scalar() or 0,
+        "total_chunks": chunks.scalar() or 0,
+        "total_duration": duration.scalar() or 0,
     }
+
+
+@router.get("/search")
+async def search_videos(q: str = "", db=Depends(get_crm_db)):
+    """Full-text search across video titles, authors, tags, and chunk text."""
+    await ensure_tables(db)
+
+    if not q.strip():
+        return await list_videos(db)
+
+    pattern = f"%{q}%"
+    result = await db.execute(text(
+        "SELECT DISTINCT v.id, v.url, v.title, v.author, v.duration, v.thumbnail_url, "
+        "v.processed_at, v.topic_tags, v.chunk_count, v.status "
+        "FROM ml_videos v "
+        "LEFT JOIN ml_chunks c ON c.video_id = v.id "
+        "WHERE v.status = 'completed' AND ("
+        "  v.title ILIKE :q OR v.author ILIKE :q OR v.topic_tags ILIKE :q "
+        "  OR v.description ILIKE :q OR c.text ILIKE :q"
+        ") ORDER BY v.id DESC LIMIT 50"
+    ), {"q": pattern})
+    rows = result.mappings().all()
+    return [_video_row_to_dict(dict(r)) for r in rows]

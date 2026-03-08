@@ -16,6 +16,7 @@ import {
   Hash,
   RefreshCw,
 } from "lucide-react";
+import { API, authFetch } from "@/lib/api";
 
 const TEAM_API = "/api/team";
 const POLL_INTERVAL = 15_000;
@@ -92,6 +93,42 @@ function formatDuration(ms: number): string {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+function normalizeTeamAgents(payload: any): AgentData[] {
+  const rawAgents = Array.isArray(payload?.agents)
+    ? payload.agents
+    : Array.isArray(payload)
+      ? payload
+      : [];
+
+  return rawAgents
+    .filter(Boolean)
+    .map((agent: any) => ({
+      id: String(agent?.id || agent?.name || "unknown"),
+      name: String(agent?.name || agent?.id || "Unknown Agent"),
+      emoji: agent?.emoji || "🤖",
+      role: agent?.role || "Agent",
+      model: agent?.model || "unknown",
+      color: agent?.color || "#6366f1",
+    }));
+}
+
+function normalizeTeamEvents(payload: any): EventData[] {
+  const rawEvents = Array.isArray(payload?.events)
+    ? payload.events
+    : Array.isArray(payload)
+      ? payload
+      : [];
+
+  return rawEvents.map((event: any) => ({
+    event_type: event?.event_type || "unknown",
+    from_agent: event?.from_agent || "unknown",
+    to_agent: event?.to_agent || "unknown",
+    summary: event?.summary || "",
+    timestamp: event?.timestamp || event?.created_at || new Date().toISOString(),
+    metadata: event?.metadata,
+  }));
 }
 
 /* ─── Derive agent state from raw API + events ──────────────────── */
@@ -825,21 +862,21 @@ export default function AgentServiceMap() {
     if (isManual) setRefreshing(true);
     try {
       const [agentsResp, eventsResp] = await Promise.all([
-        fetch(`${TEAM_API}/agents`).catch(() => null),
-        fetch(`${TEAM_API}/events`).catch(() => null),
+        authFetch(`${API}${TEAM_API}/agents`).catch(() => null),
+        authFetch(`${API}${TEAM_API}/events`).catch(() => null),
       ]);
 
       if (agentsResp?.ok) {
         const data = await agentsResp.json();
-        if (data?.agents && Array.isArray(data.agents)) {
-          setRawAgents(data.agents);
+        if (Array.isArray(data?.agents) || Array.isArray(data)) {
+          setRawAgents(normalizeTeamAgents(data));
         }
       }
 
       if (eventsResp?.ok) {
         const data = await eventsResp.json();
-        if (data?.events && Array.isArray(data.events)) {
-          setEvents(data.events);
+        if (Array.isArray(data?.events) || Array.isArray(data)) {
+          setEvents(normalizeTeamEvents(data));
         }
       }
 

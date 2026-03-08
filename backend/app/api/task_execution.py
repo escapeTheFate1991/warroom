@@ -128,7 +128,7 @@ async def execute_task_via_openclaw(title: str, description: str) -> dict:
             )
             resp.raise_for_status()
             data = resp.json()
-            # Extract assistant message from OpenAI-compatible response
+            # Extract assistant message from the chat completions response
             choices = data.get("choices", [])
             if choices:
                 content = choices[0].get("message", {}).get("content", "")

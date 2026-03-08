@@ -90,6 +90,73 @@ async def list_activities(
     return result.scalars().all()
 
 
+@router.get("/activities/upcoming", response_model=List[ActivityResponse])
+async def get_upcoming_activities(
+    days_ahead: int = Query(default=7, le=30),
+    user_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Get upcoming scheduled activities."""
+    now = datetime.now()
+    future_date = now + timedelta(days=days_ahead)
+
+    query = select(Activity).where(
+        and_(
+            Activity.is_done == False,
+            Activity.schedule_from >= now,
+            Activity.schedule_from <= future_date
+        )
+    )
+
+    if user_id:
+        query = query.where(Activity.user_id == user_id)
+
+    query = query.order_by(Activity.schedule_from)
+
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.get("/activities/overdue", response_model=List[ActivityResponse])
+async def get_overdue_activities(
+    user_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Get overdue activities (past schedule_to date and not done)."""
+    now = datetime.now()
+
+    query = select(Activity).where(
+        and_(
+            Activity.is_done == False,
+            Activity.schedule_to < now
+        )
+    )
+
+    if user_id:
+        query = query.where(Activity.user_id == user_id)
+
+    query = query.order_by(Activity.schedule_to.desc())
+
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.get("/activities/types")
+async def get_activity_types(db: AsyncSession = Depends(get_crm_db)):
+    """Get list of activity types in use."""
+    result = await db.execute(
+        select(Activity.type).distinct().where(Activity.type.isnot(None))
+    )
+    types = [row[0] for row in result.all()]
+
+    common_types = ["call", "meeting", "note", "task", "email", "lunch"]
+    for activity_type in common_types:
+        if activity_type not in types:
+            types.append(activity_type)
+
+    return {"types": sorted(types)}
+
+
 @router.get("/activities/{activity_id}", response_model=ActivityResponse)
 async def get_activity(activity_id: int, db: AsyncSession = Depends(get_crm_db)):
     """Get single activity by ID."""
@@ -207,70 +274,3 @@ async def mark_activity_done(activity_id: int, user_id: Optional[int] = None,
     
     return activity
 
-
-@router.get("/activities/upcoming", response_model=List[ActivityResponse])
-async def get_upcoming_activities(
-    days_ahead: int = Query(default=7, le=30),
-    user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db),
-):
-    """Get upcoming scheduled activities."""
-    now = datetime.now()
-    future_date = now + timedelta(days=days_ahead)
-    
-    query = select(Activity).where(
-        and_(
-            Activity.is_done == False,
-            Activity.schedule_from >= now,
-            Activity.schedule_from <= future_date
-        )
-    )
-    
-    if user_id:
-        query = query.where(Activity.user_id == user_id)
-    
-    query = query.order_by(Activity.schedule_from)
-    
-    result = await db.execute(query)
-    return result.scalars().all()
-
-
-@router.get("/activities/overdue", response_model=List[ActivityResponse])
-async def get_overdue_activities(
-    user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db),
-):
-    """Get overdue activities (past schedule_to date and not done)."""
-    now = datetime.now()
-    
-    query = select(Activity).where(
-        and_(
-            Activity.is_done == False,
-            Activity.schedule_to < now
-        )
-    )
-    
-    if user_id:
-        query = query.where(Activity.user_id == user_id)
-    
-    query = query.order_by(Activity.schedule_to.desc())
-    
-    result = await db.execute(query)
-    return result.scalars().all()
-
-
-@router.get("/activities/types")
-async def get_activity_types(db: AsyncSession = Depends(get_crm_db)):
-    """Get list of activity types in use."""
-    result = await db.execute(
-        select(Activity.type).distinct().where(Activity.type.isnot(None))
-    )
-    types = [row[0] for row in result.all()]
-    
-    # Add common types if not in use yet
-    common_types = ["call", "meeting", "note", "task", "email", "lunch"]
-    for activity_type in common_types:
-        if activity_type not in types:
-            types.append(activity_type)
-    
-    return {"types": sorted(types)}

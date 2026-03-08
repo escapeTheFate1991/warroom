@@ -109,7 +109,7 @@ async def call_ai(description: str, board_context: Optional[str] = None) -> dict
         raise HTTPException(502, "AI service unavailable")
 
     data = resp.json()
-    # Extract content from OpenAI-compatible response
+    # Extract content from the chat completions response
     content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
     # Strip markdown fences if present

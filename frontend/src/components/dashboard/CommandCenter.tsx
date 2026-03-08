@@ -61,6 +61,33 @@ function timeAgo(ts: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function getStoredPipelineCards(): any[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem("warroom_content_pipeline") || "[]";
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeTeamEvents(payload: any): AgentEvent[] {
+  const rawEvents = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.events)
+      ? payload.events
+      : [];
+
+  return rawEvents.map((event: any) => ({
+    event_type: event?.event_type || "unknown",
+    from_agent: event?.from_agent || "unknown",
+    to_agent: event?.to_agent || "unknown",
+    summary: event?.summary || "",
+    timestamp: event?.timestamp || event?.created_at || new Date().toISOString(),
+  }));
+}
+
 function MiniSparkline({ color, data }: { color: string; data?: number[] }) {
   const sparkData = data?.length ? data : Array.from({ length: 12 }, () => Math.random() * 80 + 20);
   const max = Math.max(...sparkData, 1);
@@ -73,19 +100,15 @@ function MiniSparkline({ color, data }: { color: string; data?: number[] }) {
   );
 }
 
-// Content pipeline data from localStorage
 function getPipelineStats() {
-  if (typeof window === "undefined") return { total: 0, ideas: 0, inProduction: 0, posted: 0 };
-  try {
-    const cards = JSON.parse(localStorage.getItem("warroom_content_pipeline") || "[]");
-    return {
-      total: cards.length,
-      ideas: cards.filter((c: any) => c.stage === "idea").length,
-      inProduction: cards.filter((c: any) => ["script", "filming", "editing"].includes(c.stage)).length,
-      posted: cards.filter((c: any) => c.stage === "posted").length,
-      scheduled: cards.filter((c: any) => c.stage === "scheduled").length,
-    };
-  } catch { return { total: 0, ideas: 0, inProduction: 0, posted: 0, scheduled: 0 }; }
+  const cards = getStoredPipelineCards();
+  return {
+    total: cards.length,
+    ideas: cards.filter((c: any) => c.stage === "idea").length,
+    inProduction: cards.filter((c: any) => ["script", "filming", "editing"].includes(c.stage)).length,
+    posted: cards.filter((c: any) => c.stage === "posted").length,
+    scheduled: cards.filter((c: any) => c.stage === "scheduled").length,
+  };
 }
 
 interface BusinessMetrics {
@@ -168,10 +191,10 @@ export default function CommandCenter() {
 
       // Team events
       try {
-        const evResp = await fetch(`${TEAM_API}/events?limit=8`);
-        if (evResp.ok) {
+        const evResp = await authFetch(`${API}${TEAM_API}/events?limit=8`).catch(() => null);
+        if (evResp?.ok) {
           const data = await evResp.json();
-          if (Array.isArray(data)) setEvents(data);
+          setEvents(normalizeTeamEvents(data));
         }
       } catch {}
     } catch {} finally { setLoading(false); }
@@ -373,7 +396,7 @@ function SocialFocus({ accounts, summary, trends, sparklineData, pipelineStats }
   const topPerforming: { title: string; platform: string; stage: string }[] = [];
   if (typeof window !== "undefined") {
     try {
-      const cards = JSON.parse(localStorage.getItem("warroom_content_pipeline") || "[]");
+      const cards = getStoredPipelineCards();
       cards.filter((c: any) => c.stage === "posted").slice(0, 5).forEach((c: any) => {
         topPerforming.push({ title: c.title, platform: c.platforms?.[0] || "all", stage: c.stage });
       });

@@ -1,6 +1,7 @@
 """Settings API — manage app configuration and API keys."""
 
 import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +16,65 @@ from app.models.crm.user import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+LEGACY_SETTING_KEYS = {
+    "openai_api_key": "openclaw_auth_token",
+}
+
+API_KEY_ENV_MAP = {
+    "google_maps_api_key": "GOOGLE_MAPS_API_KEY",
+    "serp_api_key": "SERP_API_KEY",
+    "openclaw_auth_token": "OPENCLAW_AUTH_TOKEN",
+}
+
+
+def _normalize_setting_key(key: str) -> str:
+    """Map legacy setting keys to their canonical key names."""
+    return LEGACY_SETTING_KEYS.get(key, key)
+
+
+def _sync_setting_env(key: str, value: str) -> None:
+    """Load or clear a supported API key in the process environment."""
+    env_name = API_KEY_ENV_MAP.get(_normalize_setting_key(key))
+    if not env_name:
+        return
+
+    if value:
+        os.environ[env_name] = value
+        logger.info("Loaded %s from DB into environment", env_name)
+    else:
+        os.environ.pop(env_name, None)
+        logger.info("Cleared %s from environment", env_name)
+
+
+async def _migrate_legacy_ai_setting(db: AsyncSession) -> bool:
+    """Rename the legacy AI key so existing DB-stored values keep working."""
+    legacy_key = "openai_api_key"
+    canonical_key = _normalize_setting_key(legacy_key)
+
+    legacy_result = await db.execute(select(Setting).where(Setting.key == legacy_key))
+    legacy_setting = legacy_result.scalar_one_or_none()
+    if not legacy_setting:
+        return False
+
+    current_result = await db.execute(select(Setting).where(Setting.key == canonical_key))
+    current_setting = current_result.scalar_one_or_none()
+
+    if current_setting:
+        if not current_setting.value and legacy_setting.value:
+            current_setting.value = legacy_setting.value
+        current_setting.category = "api_keys"
+        current_setting.description = "OpenClaw auth token for AI-powered features"
+        current_setting.is_secret = 1
+        await db.delete(legacy_setting)
+    else:
+        legacy_setting.key = canonical_key
+        legacy_setting.category = "api_keys"
+        legacy_setting.description = "OpenClaw auth token for AI-powered features"
+        legacy_setting.is_secret = 1
+
+    logger.info("Migrated legacy setting %s to %s", legacy_key, canonical_key)
+    return True
 
 
 # --- Schemas ---
@@ -56,10 +116,10 @@ DEFAULT_SETTINGS = [
         "is_secret": True,
     },
     {
-        "key": "openai_api_key",
+        "key": "openclaw_auth_token",
         "value": "",
         "category": "api_keys",
-        "description": "OpenAI API key for AI-powered features",
+        "description": "OpenClaw auth token for AI-powered features",
         "is_secret": True,
     },
     {
@@ -314,38 +374,30 @@ DEFAULT_SETTINGS = [
 
 async def init_settings_table(engine):
     """Create settings table and seed defaults, then load secrets into env."""
-    import os
-
     async with engine.begin() as conn:
         await conn.run_sync(SettingsBase.metadata.create_all)
 
     # Seed defaults — upsert so new settings are always added
     from app.db.leadgen_db import leadgen_session
     async with leadgen_session() as db:
+        migrated = await _migrate_legacy_ai_setting(db)
         seeded = 0
         for s in DEFAULT_SETTINGS:
             existing = await db.execute(select(Setting).where(Setting.key == s["key"]))
             if not existing.scalar_one_or_none():
                 db.add(Setting(**s))
                 seeded += 1
-        if seeded:
+        if seeded or migrated:
             await db.commit()
-            logger.info("Seeded %d new default settings", seeded)
+            if seeded:
+                logger.info("Seeded %d new default settings", seeded)
 
         # Load API keys from DB into environment so services can use them
         api_key_settings = await db.execute(
             select(Setting).where(Setting.category == "api_keys")
         )
-        env_map = {
-            "google_maps_api_key": "GOOGLE_MAPS_API_KEY",
-            "serp_api_key": "SERP_API_KEY",
-            "openai_api_key": "OPENAI_API_KEY",
-        }
         for setting in api_key_settings.scalars().all():
-            env_name = env_map.get(setting.key)
-            if env_name and setting.value:
-                os.environ[env_name] = setting.value
-                logger.info("Loaded %s from DB into environment", env_name)
+            _sync_setting_env(setting.key, setting.value)
 
 
 def _mask_value(value: str) -> str:
@@ -394,6 +446,7 @@ async def get_setting(
     db: AsyncSession = Depends(get_leadgen_db),
 ):
     """Get a single setting by key. Secret values masked for non-superadmin."""
+    key = _normalize_setting_key(key)
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalars().first()
     if not setting:
@@ -418,12 +471,21 @@ async def update_setting(
     db: AsyncSession = Depends(get_leadgen_db),
 ):
     """Update a setting value."""
+    key = _normalize_setting_key(key)
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalars().first()
 
     if not setting:
         # Create it if it doesn't exist
-        setting = Setting(key=key, value=body.value, category="general", is_secret=False)
+        is_secret = key in API_KEY_ENV_MAP
+        description = next((s["description"] for s in DEFAULT_SETTINGS if s["key"] == key), None)
+        setting = Setting(
+            key=key,
+            value=body.value,
+            category="api_keys" if is_secret else "general",
+            description=description,
+            is_secret=1 if is_secret else 0,
+        )
         db.add(setting)
     else:
         setting.value = body.value
@@ -431,11 +493,7 @@ async def update_setting(
     await db.commit()
     await db.refresh(setting)
 
-    # If this is the Google API key, also set it in the environment for the leadgen service
-    if key == "google_maps_api_key":
-        import os
-        os.environ["GOOGLE_MAPS_API_KEY"] = body.value
-        logger.info("Updated GOOGLE_MAPS_API_KEY in environment")
+    _sync_setting_env(key, body.value)
 
     return SettingResponse(
         key=setting.key,
@@ -453,6 +511,7 @@ async def create_setting(
     db: AsyncSession = Depends(get_leadgen_db),
 ):
     """Create a new setting."""
+    body.key = _normalize_setting_key(body.key)
     # Check if key already exists
     result = await db.execute(select(Setting).where(Setting.key == body.key))
     if result.scalars().first():
@@ -481,6 +540,7 @@ async def create_setting(
 @router.delete("/{key}")
 async def delete_setting(key: str, user: User = Depends(require_superadmin()), db: AsyncSession = Depends(get_leadgen_db)):
     """Delete a setting."""
+    key = _normalize_setting_key(key)
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalars().first()
     if not setting:
@@ -488,4 +548,5 @@ async def delete_setting(key: str, user: User = Depends(require_superadmin()), d
 
     await db.execute(delete(Setting).where(Setting.key == key))
     await db.commit()
+    _sync_setting_env(key, "")
     return {"status": "deleted", "key": key}
