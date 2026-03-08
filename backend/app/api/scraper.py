@@ -322,9 +322,11 @@ async def _save_posts_to_cache(
                     text("""
                         INSERT INTO crm.competitor_posts 
                         (competitor_id, platform, post_text, likes, comments, shares,
-                         engagement_score, hook, post_url, posted_at, fetched_at)
+                         engagement_score, hook, post_url, posted_at, fetched_at,
+                         media_type, media_url, thumbnail_url, shortcode)
                         VALUES (:cid, :platform, :text, :likes, :comments, :shares,
-                                :score, :hook, :url, :posted_at, NOW())
+                                :score, :hook, :url, :posted_at, NOW(),
+                                :media_type, :media_url, :thumbnail_url, :shortcode)
                     """),
                     {
                         "cid": competitor_id,
@@ -333,6 +335,10 @@ async def _save_posts_to_cache(
                         "likes": post.likes,
                         "comments": post.comments,
                         "shares": post.views,  # Use views as "shares" for video reach
+                        "media_type": post.media_type,
+                        "media_url": post.media_url,
+                        "thumbnail_url": post.thumbnail_url,
+                        "shortcode": post.shortcode,
                         "score": calculate_competitor_engagement_score(
                             post.likes,
                             post.comments,
