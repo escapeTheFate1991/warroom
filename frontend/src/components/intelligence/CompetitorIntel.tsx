@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
 
@@ -177,6 +177,221 @@ function timeAgo(dateString: string): string {
   if (diffDays < 7) return `${diffDays}d ago`;
   if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
   return `${Math.floor(diffDays / 30)}mo ago`;
+}
+
+/* ── Dossier Panel ─────────────────────────────────────── */
+
+interface DossierData {
+  bio: string;
+  followers: number;
+  following: number;
+  post_count: number;
+  linked_handles: string[];
+  links: string[];
+  affiliate_links: string[];
+  product_mentions: string[];
+  audience: {
+    themes: string[];
+    audience_type: string;
+    engagement_style: string;
+    key_interests: string[];
+  } | null;
+  content_summary: {
+    total_posts: number;
+    avg_engagement: number;
+    top_hashtags: { tag: string; count: number }[];
+    post_frequency: string;
+  };
+}
+
+function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: string }) {
+  const [dossier, setDossier] = useState<DossierData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    authFetch(`${API}/api/content-intel/competitors/${competitorId}/dossier`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setDossier(data); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [competitorId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="animate-spin text-warroom-accent" size={24} />
+      </div>
+    );
+  }
+
+  if (!dossier) {
+    return <p className="text-sm text-warroom-muted text-center py-8">Failed to load dossier data.</p>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Bio */}
+      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <User size={16} className="text-warroom-accent" />
+          <h4 className="text-sm font-semibold">Bio Information</h4>
+        </div>
+        {dossier.bio ? (
+          <p className="text-sm text-warroom-text whitespace-pre-line">{dossier.bio}</p>
+        ) : (
+          <p className="text-sm text-warroom-muted italic">No bio available</p>
+        )}
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          <div className="text-center bg-warroom-bg rounded-lg p-2">
+            <p className="text-lg font-bold text-warroom-text">{(dossier.followers || 0).toLocaleString()}</p>
+            <p className="text-[10px] text-warroom-muted uppercase">Followers</p>
+          </div>
+          <div className="text-center bg-warroom-bg rounded-lg p-2">
+            <p className="text-lg font-bold text-warroom-text">{(dossier.following || 0).toLocaleString()}</p>
+            <p className="text-[10px] text-warroom-muted uppercase">Following</p>
+          </div>
+          <div className="text-center bg-warroom-bg rounded-lg p-2">
+            <p className="text-lg font-bold text-warroom-text">{dossier.content_summary.post_frequency}</p>
+            <p className="text-[10px] text-warroom-muted uppercase">Post Freq</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Audience Intelligence */}
+      {dossier.audience && (
+        <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Target size={16} className="text-warroom-accent" />
+            <h4 className="text-sm font-semibold">Audience Intelligence</h4>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Audience Type</p>
+              <p className="text-sm text-warroom-text font-medium">{dossier.audience.audience_type}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Engagement Style</p>
+              <p className="text-sm text-warroom-text">{dossier.audience.engagement_style}</p>
+            </div>
+            {dossier.audience.themes.length > 0 && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Content Themes</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {dossier.audience.themes.map((t, i) => (
+                    <span key={i} className="px-2 py-0.5 bg-warroom-accent/10 text-warroom-accent rounded-full text-[10px]">{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {dossier.audience.key_interests.length > 0 && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Key Interests</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {dossier.audience.key_interests.map((k, i) => (
+                    <span key={i} className="px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-full text-[10px]">{k}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Product Mentions */}
+      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <ShoppingBag size={16} className="text-warroom-accent" />
+          <h4 className="text-sm font-semibold">Products & Business</h4>
+        </div>
+        {dossier.product_mentions.length > 0 ? (
+          <div className="space-y-2">
+            {dossier.product_mentions.map((p, i) => (
+              <div key={i} className="bg-warroom-bg rounded-lg px-3 py-2 text-xs text-warroom-text">{p}</div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-warroom-muted italic">No product mentions detected</p>
+        )}
+      </div>
+
+      {/* Links & Affiliate */}
+      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <ExternalLink size={16} className="text-warroom-accent" />
+          <h4 className="text-sm font-semibold">Links & References</h4>
+        </div>
+        <div className="space-y-3">
+          {dossier.links.length > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Links ({dossier.links.length})</p>
+              <div className="space-y-1">
+                {dossier.links.slice(0, 10).map((l, i) => (
+                  <a key={i} href={l} target="_blank" rel="noopener noreferrer" className="block text-xs text-warroom-accent hover:underline truncate">{l}</a>
+                ))}
+              </div>
+            </div>
+          )}
+          {dossier.affiliate_links.length > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wide text-red-400 mb-1">Affiliate Links ({dossier.affiliate_links.length})</p>
+              <div className="space-y-1">
+                {dossier.affiliate_links.map((l, i) => (
+                  <a key={i} href={l} target="_blank" rel="noopener noreferrer" className="block text-xs text-red-400 hover:underline truncate">{l}</a>
+                ))}
+              </div>
+            </div>
+          )}
+          {dossier.links.length === 0 && dossier.affiliate_links.length === 0 && (
+            <p className="text-sm text-warroom-muted italic">No links found in content</p>
+          )}
+        </div>
+      </div>
+
+      {/* Network / Linked Accounts */}
+      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Users size={16} className="text-warroom-accent" />
+          <h4 className="text-sm font-semibold">Network Intelligence</h4>
+        </div>
+        {dossier.linked_handles.length > 0 ? (
+          <div>
+            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-2">Mentioned Accounts ({dossier.linked_handles.length})</p>
+            <div className="flex flex-wrap gap-2">
+              {dossier.linked_handles.map((h, i) => (
+                <a
+                  key={i}
+                  href={`https://instagram.com/${h}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 px-2.5 py-1 bg-warroom-bg border border-warroom-border rounded-lg text-xs text-warroom-text hover:border-warroom-accent/50 transition"
+                >
+                  @{h}
+                  <ExternalLink size={10} className="text-warroom-muted" />
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-warroom-muted italic">No linked accounts detected</p>
+        )}
+
+        {/* Top Hashtags */}
+        {dossier.content_summary.top_hashtags.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-2">Top Hashtags</p>
+            <div className="flex flex-wrap gap-1.5">
+              {dossier.content_summary.top_hashtags.map((h, i) => (
+                <span key={i} className="px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-full text-[10px]">
+                  #{h.tag} <span className="text-blue-400/50">({h.count})</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function CompetitorIntel() {
@@ -1127,74 +1342,7 @@ export default function CompetitorIntel() {
 
                   {/* Dossier Tab */}
                   {competitorDetailTab === "dossier" && (
-                    <div className="space-y-6">
-                      {/* Bio Information */}
-                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <User size={16} className="text-warroom-accent" />
-                          <h4 className="text-sm font-semibold">Bio Information</h4>
-                        </div>
-                        {focusedCompetitor.bio ? (
-                          <p className="text-sm text-warroom-text whitespace-pre-line">{focusedCompetitor.bio}</p>
-                        ) : (
-                          <p className="text-sm text-warroom-muted italic">No bio available</p>
-                        )}
-                      </div>
-
-                      {/* Business Intelligence */}
-                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Target size={16} className="text-warroom-accent" />
-                          <h4 className="text-sm font-semibold">Business Intelligence</h4>
-                        </div>
-                        <div className="space-y-3">
-                          <div>
-                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Detected Products/Services</p>
-                            <p className="text-sm text-warroom-muted italic">Analysis coming soon...</p>
-                          </div>
-                          <div>
-                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Business Type</p>
-                            <p className="text-sm text-warroom-muted italic">Analysis coming soon...</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Links & References */}
-                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <ExternalLink size={16} className="text-warroom-accent" />
-                          <h4 className="text-sm font-semibold">Links & References</h4>
-                        </div>
-                        <div className="space-y-3">
-                          <div>
-                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Links Found in Captions</p>
-                            <p className="text-sm text-warroom-muted italic">Link extraction coming soon...</p>
-                          </div>
-                          <div>
-                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Affiliate Links</p>
-                            <p className="text-sm text-warroom-muted italic">Analysis coming soon...</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Network Intelligence */}
-                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Users size={16} className="text-warroom-accent" />
-                          <h4 className="text-sm font-semibold">Network Intelligence</h4>
-                        </div>
-                        <div className="space-y-3">
-                          <div>
-                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Linked Accounts Mentioned</p>
-                            <p className="text-sm text-warroom-muted italic">Account linking analysis coming soon...</p>
-                          </div>
-                          <div>
-                            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Collaboration Network</p>
-                            <p className="text-sm text-warroom-muted italic">Network mapping coming soon...</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <DossierPanel competitorId={focusedCompetitor.id} bio={focusedCompetitor.bio} />
                   )}
 
                 </div>

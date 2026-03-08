@@ -67,8 +67,15 @@ async def lifespan(app: FastAPI):
         
     except Exception as e:
         logger.error("Failed to initialize databases: %s", e)
-    
+
+    # Start background scheduler (competitor syncs, etc.)
+    from app.services.scheduler import start_scheduler, stop_scheduler
+    await start_scheduler()
+
     yield
+
+    # Shutdown scheduler
+    await stop_scheduler()
 
 
 async def verify_crm_schema():

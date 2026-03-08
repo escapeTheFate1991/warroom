@@ -1846,6 +1846,72 @@ async def get_competitor_hashtags(
         raise HTTPException(status_code=500, detail="Failed to get hashtags")
 
 
+@router.post("/recommend")
+async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_db)):
+    """One-button recommendation engine: analyze all competitors' top content and generate script ideas.
+
+    Pulls top-performing content across ALL competitors, identifies winning patterns,
+    and generates script ideas aligned with the business settings.
+    """
+    count = body.get("count", 3)
+    topic_override = body.get("topic", None)
+
+    try:
+        # Load all active competitors
+        result = await db.execute(
+            select(Competitor)
+            .where(Competitor.platform == "instagram")
+        )
+        competitors = result.scalars().all()
+
+        if not competitors:
+            return {"scripts": [], "message": "No competitors found. Add competitors first."}
+
+        # Gather cached posts from all competitors
+        all_posts = []
+        for comp in competitors:
+            posts = await load_cached_posts(db, comp.id, limit=20)
+            for p in posts:
+                p["competitor_handle"] = comp.handle
+                p["competitor_id"] = comp.id
+            all_posts.extend(posts)
+
+        if not all_posts:
+            return {"scripts": [], "message": "No competitor content cached. Sync competitors first."}
+
+        # Rank by virality
+        ranked = _sorted_posts_for_analysis(all_posts)[:30]
+
+        # Collect trending topics
+        candidate_topics = _collect_candidate_topics(ranked, topic_override)
+
+        # Get business settings for alignment
+        business = await _get_business_settings(db)
+
+        # Generate scripts
+        scripts = []
+        for i, post in enumerate(ranked[:count]):
+            topic = candidate_topics[i % len(candidate_topics)] if candidate_topics else _derive_topic_label(post)
+            script = generate_script_content(
+                post=post,
+                topic=topic,
+                business_settings=business,
+                all_posts=ranked,
+            )
+            scripts.append(script)
+
+        return {
+            "scripts": scripts,
+            "competitors_analyzed": len(competitors),
+            "posts_analyzed": len(all_posts),
+            "top_topics": candidate_topics[:5],
+        }
+
+    except Exception as e:
+        logger.error("Recommendation engine failed: %s", e)
+        raise HTTPException(status_code=500, detail="Recommendation engine failed")
+
+
 @router.post("/sync-all")
 async def sync_all_competitors(db: AsyncSession = Depends(get_crm_db)):
     """Sync all active competitors via batch Instagram scraping. Called by cron."""
@@ -1870,12 +1936,39 @@ async def sync_all_competitors(db: AsyncSession = Depends(get_crm_db)):
         batch_result = await sync_instagram_competitor_batch(db, competitors)
         await db.commit()
         
+        # Re-run audience analysis for synced competitors
+        audience_refreshed = 0
+        for comp in competitors:
+            try:
+                posts = await load_cached_posts(db, comp.id, limit=50)
+                if posts:
+                    analysis = analyze_trending_topics(posts)
+                    # Store updated analysis back to competitor record
+                    await db.execute(
+                        text(
+                            "UPDATE crm.competitors SET audience_analysis = :analysis, updated_at = NOW() "
+                            "WHERE id = :cid"
+                        ),
+                        {"cid": comp.id, "analysis": json.dumps({
+                            "themes": analysis.themes if hasattr(analysis, 'themes') else [],
+                            "audience_type": analysis.audience_type if hasattr(analysis, 'audience_type') else "Unknown",
+                            "engagement_style": analysis.engagement_style if hasattr(analysis, 'engagement_style') else "Unknown",
+                            "key_interests": analysis.key_interests if hasattr(analysis, 'key_interests') else [],
+                            "refreshed_at": datetime.now(timezone.utc).isoformat(),
+                        })},
+                    )
+                    audience_refreshed += 1
+            except Exception as e:
+                logger.warning("Audience refresh failed for competitor %s: %s", comp.handle, e)
+        await db.commit()
+
         return {
             "message": f"Sync completed: {batch_result.success} succeeded, {batch_result.failed} failed",
             "total": len(competitors),
             "success": batch_result.success,
             "failed": batch_result.failed,
             "posts_saved": batch_result.posts_saved,
+            "audience_refreshed": audience_refreshed,
             "details": [
                 {
                     "handle": profile.handle,
@@ -1890,3 +1983,148 @@ async def sync_all_competitors(db: AsyncSession = Depends(get_crm_db)):
         await db.rollback()
         logger.error("Failed to sync all competitors: %s", e)
         raise HTTPException(status_code=500, detail="Failed to sync all competitors")
+
+
+# ── Linked Account Detection + Dossier ───────────────────────────
+
+def _extract_social_links(bio: str, captions: list[str]) -> dict:
+    """Extract social platform handles and links from bio and post captions."""
+    import re
+
+    results = {
+        "handles": [],
+        "links": [],
+        "affiliate_links": [],
+        "products": [],
+    }
+
+    all_text = bio + " " + " ".join(captions[:20])
+
+    # Extract @mentions (potential linked accounts)
+    mentions = set(re.findall(r"@([a-zA-Z0-9_.]{1,30})", all_text))
+    results["handles"] = sorted(mentions)
+
+    # Extract URLs
+    urls = re.findall(r"https?://[^\s<>\"')\]]+", all_text)
+    for url in urls:
+        url_lower = url.lower()
+        if any(aff in url_lower for aff in ["amzn.to", "bit.ly", "linktr.ee", "stan.store", "gumroad", "shopify", "etsy", "beacons.ai", "tap.bio"]):
+            results["affiliate_links"].append(url)
+        else:
+            results["links"].append(url)
+
+    # Extract linktree/bio link patterns
+    link_patterns = re.findall(r"(?:linktr\.ee|link\.bio|beacons\.ai|stan\.store)/([a-zA-Z0-9_.]+)", all_text)
+    for lp in link_patterns:
+        if lp not in results["handles"]:
+            results["handles"].append(lp)
+
+    # Detect product mentions (common commerce keywords)
+    product_keywords = ["shop", "store", "buy", "order", "discount", "code", "coupon", "sale", "launch", "available now", "link in bio", "dm to order"]
+    for caption in captions[:20]:
+        cap_lower = caption.lower()
+        if any(kw in cap_lower for kw in product_keywords):
+            # Extract first sentence as product hint
+            first_line = caption.split("\n")[0][:100]
+            if first_line not in results["products"]:
+                results["products"].append(first_line)
+
+    return results
+
+
+@router.get("/competitors/{competitor_id}/dossier")
+async def get_competitor_dossier(
+    competitor_id: int,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Get comprehensive dossier for a competitor: bio, links, products, network."""
+    competitor = await _get_competitor_or_404(db, competitor_id)
+    posts = await load_cached_posts(db, competitor_id, limit=50)
+
+    # Extract social links from bio and captions
+    captions = [p.get("caption", "") or p.get("text", "") for p in posts if p.get("caption") or p.get("text")]
+    social_data = _extract_social_links(competitor.bio or "", captions)
+
+    # Audience analysis (stored or computed)
+    audience = None
+    try:
+        result = await db.execute(
+            text("SELECT audience_analysis FROM crm.competitors WHERE id = :cid"),
+            {"cid": competitor_id},
+        )
+        row = result.first()
+        if row and row[0]:
+            audience = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+    except Exception:
+        pass
+
+    if not audience and posts:
+        analysis = analyze_trending_topics(posts)
+        audience = {
+            "themes": analysis.themes if hasattr(analysis, 'themes') else [],
+            "audience_type": analysis.audience_type if hasattr(analysis, 'audience_type') else "Unknown",
+            "engagement_style": analysis.engagement_style if hasattr(analysis, 'engagement_style') else "Unknown",
+            "key_interests": analysis.key_interests if hasattr(analysis, 'key_interests') else [],
+        }
+
+    return {
+        "competitor_id": competitor_id,
+        "handle": competitor.handle,
+        "bio": competitor.bio or "",
+        "followers": competitor.followers or 0,
+        "following": getattr(competitor, 'following', 0) or 0,
+        "post_count": len(posts),
+        "linked_handles": social_data["handles"],
+        "links": social_data["links"],
+        "affiliate_links": social_data["affiliate_links"],
+        "product_mentions": social_data["products"],
+        "audience": audience,
+        "content_summary": {
+            "total_posts": len(posts),
+            "avg_engagement": sum(p.get("engagement_score", 0) for p in posts) / max(len(posts), 1),
+            "top_hashtags": _get_top_hashtags(posts, 10),
+            "post_frequency": _estimate_post_frequency(posts),
+        },
+    }
+
+
+def _get_top_hashtags(posts: list, limit: int = 10) -> list[dict]:
+    """Extract top hashtags from posts."""
+    counter: Counter = Counter()
+    for p in posts:
+        tags = p.get("hashtags", [])
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+        counter.update(tags)
+    return [{"tag": t, "count": c} for t, c in counter.most_common(limit)]
+
+
+def _estimate_post_frequency(posts: list) -> str:
+    """Estimate how often the competitor posts."""
+    if len(posts) < 2:
+        return "Unknown"
+    dates = sorted(
+        [p["posted_at"] for p in posts if p.get("posted_at")],
+        reverse=True,
+    )
+    if len(dates) < 2:
+        return "Unknown"
+    # Calculate average days between posts
+    try:
+        if isinstance(dates[0], str):
+            from dateutil.parser import parse
+            dates = [parse(d) for d in dates]
+        gaps = [(dates[i] - dates[i + 1]).days for i in range(min(len(dates) - 1, 10))]
+        avg_gap = sum(gaps) / len(gaps) if gaps else 0
+        if avg_gap <= 1:
+            return "Daily"
+        elif avg_gap <= 3:
+            return "Every 2-3 days"
+        elif avg_gap <= 7:
+            return "Weekly"
+        elif avg_gap <= 14:
+            return "Bi-weekly"
+        else:
+            return f"Every ~{int(avg_gap)} days"
+    except Exception:
+        return "Unknown"
