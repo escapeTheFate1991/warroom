@@ -413,6 +413,9 @@ export default function CompetitorIntel() {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
   const [loadingPosts, setLoadingPosts] = useState(false);
   
   const [newComp, setNewComp] = useState({ handle: "", platform: "instagram" });
@@ -1349,16 +1352,50 @@ export default function CompetitorIntel() {
               ) : (
                 /* GRID VIEW — all competitors */
                 <>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-warroom-muted">Click a competitor to see their top content.</p>
-                    <div className="flex gap-2">
-                      <button onClick={refreshAllCompetitors} disabled={loading || refreshing}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-surface rounded-lg text-xs font-medium transition disabled:opacity-50">
-                        <RefreshCw size={14} className={loading || refreshing ? "animate-spin" : ""} /> Refresh All
+                  {/* Sync Status Bar */}
+                  <div className="flex items-center justify-between bg-warroom-surface border border-warroom-border rounded-xl px-4 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${syncing ? "bg-warroom-accent animate-pulse" : "bg-emerald-500"}`} />
+                      <div>
+                        <p className="text-xs text-warroom-text font-medium">
+                          {syncing ? "Syncing competitors..." : "Competitor Intelligence"}
+                        </p>
+                        <p className="text-[10px] text-warroom-muted">
+                          {syncResult ? syncResult : lastSyncTime ? `Last synced: ${lastSyncTime}` : "Not synced yet"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          setSyncing(true);
+                          setSyncResult(null);
+                          try {
+                            const resp = await authFetch(`${API}/api/content-intel/sync-all`, { method: "POST" });
+                            if (resp.ok) {
+                              const data = await resp.json();
+                              setSyncResult(`Synced ${data.success || 0}/${data.total || 0} competitors · ${data.posts_saved || 0} posts`);
+                              setLastSyncTime(new Date().toLocaleTimeString());
+                              // Refresh all views
+                              await refreshIntelligenceViews();
+                            } else {
+                              setSyncResult("Sync failed");
+                            }
+                          } catch {
+                            setSyncResult("Sync error");
+                          } finally {
+                            setSyncing(false);
+                          }
+                        }}
+                        disabled={syncing}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-border/50 rounded-lg text-xs font-medium transition disabled:opacity-50"
+                      >
+                        <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+                        Sync All
                       </button>
                       <button onClick={() => setShowAddCompetitor(true)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition">
-                        <Plus size={14} /> Add Competitor
+                        <Plus size={14} /> Add
                       </button>
                     </div>
                   </div>

@@ -862,14 +862,24 @@ export default function AgentServiceMap() {
     if (isManual) setRefreshing(true);
     try {
       const [agentsResp, eventsResp] = await Promise.all([
-        authFetch(`${API}${TEAM_API}/agents`).catch(() => null),
+        authFetch(`${API}/api/agents`).catch(() => null),
         authFetch(`${API}${TEAM_API}/events`).catch(() => null),
       ]);
 
       if (agentsResp?.ok) {
         const data = await agentsResp.json();
-        if (Array.isArray(data?.agents) || Array.isArray(data)) {
-          setRawAgents(normalizeTeamAgents(data));
+        // Use DB agents as source of truth (from /api/agents)
+        const dbAgents = Array.isArray(data) ? data : [];
+        const mapped: AgentData[] = dbAgents.map((a: any) => ({
+          id: a.id || a.name?.toLowerCase().replace(/\s+/g, "-") || "unknown",
+          name: a.name || "Unknown",
+          emoji: a.emoji || "🤖",
+          role: a.role || "Agent",
+          model: (a.model || "unknown").replace("anthropic/", "").replace("google/", ""),
+          color: a.color || "#6366f1",
+        }));
+        if (mapped.length > 0) {
+          setRawAgents(mapped);
         }
       }
 
