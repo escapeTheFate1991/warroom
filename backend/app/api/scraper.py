@@ -243,24 +243,28 @@ async def _save_profile_to_competitor(
     if profile.profile_pic_url:
         competitor.profile_image_url = profile.profile_pic_url
     
-    # Persist enrichment data for dossier
+    # Dossier enrichment — only on every 5th sync or first sync (dossier rarely changes)
+    sync_count = (competitor.dossier_data or {}).get("_sync_count", 0) + 1
     dossier = competitor.dossier_data or {}
-    if profile.bio_links:
-        dossier["bio_links"] = profile.bio_links
-    if profile.threads_handle:
-        dossier["threads_handle"] = profile.threads_handle
-    if profile.external_url:
-        dossier["external_url"] = profile.external_url
-    if profile.full_name:
-        dossier["full_name"] = profile.full_name
-    if profile.is_verified:
-        dossier["is_verified"] = True
-    if profile.category:
-        dossier["category"] = profile.category
-    # Extract business intel from bio
-    bio_intel = _extract_business_intel(profile.bio or "", profile.full_name or "")
-    if bio_intel:
-        dossier["business_intel"] = bio_intel
+    dossier["_sync_count"] = sync_count
+    
+    if sync_count == 1 or sync_count % 5 == 0:
+        if profile.bio_links:
+            dossier["bio_links"] = profile.bio_links
+        if profile.threads_handle:
+            dossier["threads_handle"] = profile.threads_handle
+        if profile.external_url:
+            dossier["external_url"] = profile.external_url
+        if profile.full_name:
+            dossier["full_name"] = profile.full_name
+        if profile.is_verified:
+            dossier["is_verified"] = True
+        if profile.category:
+            dossier["category"] = profile.category
+        bio_intel = _extract_business_intel(profile.bio or "", profile.full_name or "")
+        if bio_intel:
+            dossier["business_intel"] = bio_intel
+    
     competitor.dossier_data = dossier
     
     competitor.is_auto_populated = True
@@ -302,22 +306,65 @@ async def _save_profile_to_competitor(
 async def _save_posts_to_cache(
     db: AsyncSession, competitor_id: int, platform: str, posts: List[ScrapedPost]
 ) -> int:
-    """Save scraped posts to competitor_posts cache table. Returns count saved."""
+    """Save scraped posts to competitor_posts cache table using UPSERT.
+    
+    Preserves transcript and comments_data on existing posts.
+    Only inserts new posts or updates engagement metrics on existing ones.
+    """
     if not posts:
         return 0
 
     try:
-        async with db.begin_nested():
-            await db.execute(
-                text(
-                    "DELETE FROM crm.competitor_posts "
-                    "WHERE competitor_id = :cid AND platform = :platform"
-                ),
-                {"cid": competitor_id, "platform": platform},
+        saved = 0
+        for post in posts:
+            score = calculate_competitor_engagement_score(
+                post.likes, post.comments, post.views, platform=platform,
             )
+            # UPSERT: insert if new shortcode, update metrics if exists
+            # Never touch transcript or comments_data — those are enriched separately
+            if post.shortcode:
+                upsert_key = "shortcode"
+                upsert_val = post.shortcode
+            else:
+                upsert_key = "post_url"
+                upsert_val = post.post_url
 
-            saved = 0
-            for post in posts:
+            # Check if post exists
+            existing = await db.execute(
+                text(f"SELECT id FROM crm.competitor_posts WHERE competitor_id = :cid AND {upsert_key} = :key LIMIT 1"),
+                {"cid": competitor_id, "key": upsert_val},
+            )
+            row = existing.fetchone()
+
+            if row:
+                # Update engagement metrics only
+                await db.execute(
+                    text("""
+                        UPDATE crm.competitor_posts SET
+                            likes = :likes, comments = :comments, shares = :shares,
+                            engagement_score = :score, post_text = :text, hook = :hook,
+                            media_type = :media_type, media_url = COALESCE(NULLIF(:media_url, ''), media_url),
+                            thumbnail_url = COALESCE(NULLIF(:thumbnail_url, ''), thumbnail_url),
+                            shortcode = COALESCE(NULLIF(:shortcode, ''), shortcode),
+                            fetched_at = NOW()
+                        WHERE id = :id
+                    """),
+                    {
+                        "id": row[0],
+                        "likes": post.likes,
+                        "comments": post.comments,
+                        "shares": post.views,
+                        "score": score,
+                        "text": post.caption,
+                        "hook": post.hook,
+                        "media_type": post.media_type,
+                        "media_url": post.media_url,
+                        "thumbnail_url": post.thumbnail_url,
+                        "shortcode": post.shortcode,
+                    },
+                )
+            else:
+                # New post — insert
                 await db.execute(
                     text("""
                         INSERT INTO crm.competitor_posts 
@@ -334,17 +381,12 @@ async def _save_posts_to_cache(
                         "text": post.caption,
                         "likes": post.likes,
                         "comments": post.comments,
-                        "shares": post.views,  # Use views as "shares" for video reach
+                        "shares": post.views,
                         "media_type": post.media_type,
                         "media_url": post.media_url,
                         "thumbnail_url": post.thumbnail_url,
                         "shortcode": post.shortcode,
-                        "score": calculate_competitor_engagement_score(
-                            post.likes,
-                            post.comments,
-                            post.views,
-                            platform=platform,
-                        ),
+                        "score": score,
                         "hook": post.hook,
                         "url": post.post_url,
                         "posted_at": post.posted_at,
@@ -356,9 +398,7 @@ async def _save_posts_to_cache(
     except SQLAlchemyError as exc:
         logger.warning(
             "Failed to cache posts for competitor %s on %s: %s",
-            competitor_id,
-            platform,
-            exc,
+            competitor_id, platform, exc,
         )
         return 0
 

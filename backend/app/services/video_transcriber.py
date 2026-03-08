@@ -250,3 +250,26 @@ async def transcribe_competitor_videos(
                 logger.debug("Deleted temp video: %s", video_path)
     
     return stats
+
+
+async def transcribe_competitor_videos_batch(
+    db: AsyncSession,
+    competitor_ids: List[int],
+    limit_per_competitor: int = 5,
+) -> Dict:
+    """Batch transcribe videos across multiple competitors.
+    
+    Returns: {transcribed: int, failed: int, total_processed: int}
+    """
+    totals = {"transcribed": 0, "failed": 0, "total_processed": 0}
+    
+    for cid in competitor_ids:
+        try:
+            result = await transcribe_competitor_videos(db, cid, limit=limit_per_competitor)
+            totals["transcribed"] += result.get("transcribed", 0)
+            totals["failed"] += result.get("failed", 0)
+            totals["total_processed"] += result.get("processed", 0)
+        except Exception as e:
+            logger.warning("Transcription batch failed for competitor %s: %s", cid, e)
+    
+    return totals

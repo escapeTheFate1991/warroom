@@ -2027,20 +2027,59 @@ async def _run_sync_all():
                     logger.warning("Audience refresh failed for %s: %s", comp.handle, e)
             await db.commit()
             
+            # Phase 2: Transcription + Comment analysis (parallel, non-blocking)
+            _sync_all_status["message"] = f"Synced {batch_result.success}/{len(competitors)}. Enriching content..."
+            print(f"[SYNC-ALL] Starting parallel enrichment (transcription + comments)", flush=True)
+            
+            enriched = {"transcribed": 0, "comments_analyzed": 0}
+            try:
+                from app.services.video_transcriber import transcribe_competitor_videos_batch
+                from app.services.comment_scraper import analyze_competitor_comments_batch
+                
+                # Get competitor IDs that synced successfully
+                synced_ids = [c.id for c in competitors]
+                
+                # Run transcription and comment analysis in parallel
+                results = await asyncio.gather(
+                    _safe_enrich(transcribe_competitor_videos_batch, db, synced_ids, "transcription"),
+                    _safe_enrich(analyze_competitor_comments_batch, db, synced_ids, "comments"),
+                    return_exceptions=True,
+                )
+                
+                for r in results:
+                    if isinstance(r, dict):
+                        enriched["transcribed"] += r.get("transcribed", 0)
+                        enriched["comments_analyzed"] += r.get("analyzed", 0)
+                
+                await db.commit()
+                print(f"[SYNC-ALL] Enrichment done — {enriched}", flush=True)
+            except Exception as enrich_err:
+                print(f"[SYNC-ALL] Enrichment error (non-fatal): {enrich_err}", flush=True)
+            
             _sync_all_status = {
                 "running": False,
-                "message": f"Done: {batch_result.success}/{len(competitors)} synced, {batch_result.posts_saved} posts",
+                "message": f"Done: {batch_result.success}/{len(competitors)} synced, {batch_result.posts_saved} new posts, {enriched['transcribed']} transcribed, {enriched['comments_analyzed']} comments analyzed",
                 "total": len(competitors),
                 "success": batch_result.success,
                 "failed": batch_result.failed,
                 "posts_saved": batch_result.posts_saved,
                 "audience_refreshed": audience_refreshed,
+                "enriched": enriched,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             }
     except Exception as e:
         import traceback
         print(f"[SYNC-ALL] FAILED: {e}\n{traceback.format_exc()}", flush=True)
         _sync_all_status = {"running": False, "message": f"Failed: {str(e)[:100]}", "error": True}
+
+
+async def _safe_enrich(fn, db, competitor_ids, label):
+    """Run an enrichment function safely, catching errors."""
+    try:
+        return await fn(db, competitor_ids)
+    except Exception as e:
+        print(f"[SYNC-ALL] {label} enrichment failed: {e}", flush=True)
+        return {}
 
 
 @router.post("/sync-all")

@@ -428,3 +428,25 @@ async def scrape_competitor_comments(
         await asyncio.sleep(random.uniform(2, 5))
     
     return stats
+
+
+async def analyze_competitor_comments_batch(
+    db: AsyncSession,
+    competitor_ids: List[int],
+    top_n_per_competitor: int = 5,
+) -> Dict:
+    """Batch comment analysis across multiple competitors.
+    
+    Returns: {analyzed: int, processed: int}
+    """
+    totals = {"analyzed": 0, "processed": 0}
+    
+    for cid in competitor_ids:
+        try:
+            result = await analyze_competitor_comments(db, cid, top_n=top_n_per_competitor)
+            totals["analyzed"] += result.get("analyzed", 0)
+            totals["processed"] += result.get("processed", 0)
+        except Exception as e:
+            logger.warning("Comment analysis batch failed for competitor %s: %s", cid, e)
+    
+    return totals
