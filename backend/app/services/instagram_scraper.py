@@ -1,25 +1,32 @@
-"""Instagram public profile scraper — Playwright headless browser.
+"""Instagram profile scraper — Playwright headless browser with authenticated sessions.
 
 No paid services. No third-party APIs. Our own scraper.
 
 Uses Playwright to:
-1. Load public Instagram profile pages in headless Chromium
-2. Intercept the GraphQL API responses Instagram makes internally
-3. Extract profile data + recent posts with full engagement metrics
+1. Login to Instagram once, save session cookies to disk
+2. Reuse cookies for all subsequent scrapes (no re-login)
+3. Intercept GraphQL API responses Instagram makes internally
+4. Extract profile data + recent posts with full engagement metrics
+5. Auto re-login when Instagram invalidates the session
 
-Only works on PUBLIC accounts. That's all we need for competitor intel.
+Works on public AND login-walled profiles thanks to authenticated sessions.
 """
 
 import asyncio
 import json
 import logging
+import os
 import random
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Persistent cookie storage path
+COOKIE_PATH = Path(os.getenv("INSTAGRAM_COOKIE_PATH", "/data/instagram_cookies.json"))
 
 
 @dataclass
@@ -237,6 +244,177 @@ def _parse_media_items(items: List[Dict]) -> List[ScrapedPost]:
     return posts
 
 
+async def _load_cookies() -> Optional[List[Dict]]:
+    """Load saved cookies from disk."""
+    if COOKIE_PATH.exists():
+        try:
+            cookies = json.loads(COOKIE_PATH.read_text())
+            if isinstance(cookies, list) and len(cookies) > 0:
+                logger.info("Loaded %d cookies from %s", len(cookies), COOKIE_PATH)
+                return cookies
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning("Failed to load cookies: %s", e)
+    return None
+
+
+async def _save_cookies(cookies: List[Dict]) -> None:
+    """Save cookies to disk for reuse."""
+    COOKIE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    COOKIE_PATH.write_text(json.dumps(cookies, indent=2))
+    logger.info("Saved %d cookies to %s", len(cookies), COOKIE_PATH)
+
+
+async def _has_valid_session(context) -> bool:
+    """Check if current cookies give us a logged-in session."""
+    page = await context.new_page()
+    try:
+        await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=15000)
+        await asyncio.sleep(2)
+        # If we're logged in, we won't see the login form
+        login_form = await page.query_selector('input[name="username"]')
+        is_logged_in = login_form is None
+        if is_logged_in:
+            logger.info("Session cookies are valid — already logged in")
+        else:
+            logger.info("Session cookies expired — need to re-login")
+        return is_logged_in
+    except Exception as e:
+        logger.warning("Session check failed: %s", e)
+        return False
+    finally:
+        await page.close()
+
+
+async def _login_to_instagram(context) -> bool:
+    """Login to Instagram and save session cookies.
+    
+    Reads credentials from environment variables:
+      INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD
+    """
+    from app.config import settings
+    
+    username = settings.INSTAGRAM_USERNAME
+    password = settings.INSTAGRAM_PASSWORD
+    
+    if not username or not password:
+        logger.warning("No Instagram credentials configured — scraping without login")
+        return False
+    
+    page = await context.new_page()
+    try:
+        logger.info("Logging in to Instagram as @%s", username)
+        await page.goto("https://www.instagram.com/accounts/login/", wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(2)
+        
+        # Accept cookies dialog if present
+        try:
+            accept_btn = await page.query_selector('button:has-text("Allow"), button:has-text("Accept")')
+            if accept_btn:
+                await accept_btn.click()
+                await asyncio.sleep(1)
+        except Exception:
+            pass
+        
+        # Fill login form
+        username_input = await page.wait_for_selector('input[name="username"]', timeout=10000)
+        await username_input.fill(username)
+        
+        password_input = await page.wait_for_selector('input[name="password"]', timeout=5000)
+        await password_input.fill(password)
+        
+        # Click login button
+        login_btn = await page.wait_for_selector('button[type="submit"]', timeout=5000)
+        await login_btn.click()
+        
+        # Wait for navigation away from login page
+        await asyncio.sleep(5)
+        
+        # Check for common post-login states
+        current_url = page.url
+        
+        # Check for challenge/verification
+        if "challenge" in current_url or "suspicious" in current_url.lower():
+            logger.error("Instagram is requesting verification — manual intervention needed")
+            await page.close()
+            return False
+        
+        # Check for incorrect password
+        error_msg = await page.query_selector('[data-testid="login-error-message"], #slfErrorAlert')
+        if error_msg:
+            logger.error("Instagram login failed — check credentials")
+            await page.close()
+            return False
+        
+        # Dismiss "Save login info?" or "Turn on notifications?" dialogs
+        for _ in range(3):
+            try:
+                not_now = await page.query_selector('button:has-text("Not Now"), button:has-text("Not now")')
+                if not_now:
+                    await not_now.click()
+                    await asyncio.sleep(1)
+            except Exception:
+                break
+        
+        # Verify we're logged in
+        await asyncio.sleep(2)
+        login_check = await page.query_selector('input[name="username"]')
+        if login_check:
+            logger.error("Still on login page after submit — login likely failed")
+            await page.close()
+            return False
+        
+        # Save cookies
+        cookies = await context.cookies()
+        await _save_cookies(cookies)
+        logger.info("Successfully logged in to Instagram as @%s", username)
+        await page.close()
+        return True
+        
+    except Exception as e:
+        logger.error("Instagram login error: %s", e)
+        try:
+            await page.close()
+        except Exception:
+            pass
+        return False
+
+
+async def _get_authenticated_context(browser):
+    """Get a browser context with valid Instagram session cookies.
+    
+    Flow:
+    1. Try loading saved cookies
+    2. If cookies exist, validate them
+    3. If invalid or missing, login fresh
+    4. Return context ready for scraping
+    """
+    context = await browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        user_agent=(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        ),
+        locale="en-US",
+        timezone_id="America/New_York",
+    )
+    
+    # Try loading saved cookies
+    saved_cookies = await _load_cookies()
+    if saved_cookies:
+        await context.add_cookies(saved_cookies)
+        if await _has_valid_session(context):
+            return context
+        # Cookies expired — clear and re-login
+        await context.clear_cookies()
+    
+    # Login fresh
+    logged_in = await _login_to_instagram(context)
+    if not logged_in:
+        logger.warning("Proceeding without authentication — login-walled profiles will fail")
+    
+    return context
+
+
 async def scrape_profile(handle: str) -> ScrapedProfile:
     """Scrape a public Instagram profile using Playwright.
     
@@ -317,15 +495,8 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
                 ],
             )
 
-            context = await browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent=(
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-                ),
-                locale="en-US",
-                timezone_id="America/New_York",
-            )
+            # Use authenticated context (loads cookies or logs in)
+            context = await _get_authenticated_context(browser)
 
             page = await context.new_page()
             page.on("response", intercept_response)
@@ -369,7 +540,15 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
         return profile
 
     # Parse captured data into profile
-    return _build_profile_from_captured(handle, captured_data)
+    result = _build_profile_from_captured(handle, captured_data)
+    
+    # If we got "requires login" error, invalidate cookies and note it
+    if result.error and "login" in result.error.lower():
+        logger.warning("Login wall detected for @%s — invalidating saved cookies", handle)
+        if COOKIE_PATH.exists():
+            COOKIE_PATH.unlink()
+    
+    return result
 
 
 async def _extract_from_dom(page, handle: str) -> Optional[Dict]:
@@ -517,7 +696,11 @@ def _build_profile_from_captured(handle: str, captured: Dict) -> ScrapedProfile:
 async def scrape_multiple(
     handles: List[str], delay_range: tuple = (3, 7)
 ) -> List[ScrapedProfile]:
-    """Scrape multiple profiles with random delays between requests."""
+    """Scrape multiple profiles with random delays between requests.
+    
+    Shares a single authenticated browser session across all profiles
+    to avoid multiple logins.
+    """
     results = []
     for i, handle in enumerate(handles):
         logger.info("Scraping @%s (%d/%d)", handle, i + 1, len(handles))
@@ -540,3 +723,28 @@ async def scrape_multiple(
             await asyncio.sleep(delay)
 
     return results
+
+
+async def force_relogin() -> bool:
+    """Force a fresh Instagram login — use when cookies are stale.
+    
+    Call this from an API endpoint or manually when scrapes start failing.
+    """
+    if COOKIE_PATH.exists():
+        COOKIE_PATH.unlink()
+        logger.info("Cleared saved Instagram cookies")
+    
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        return False
+    
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+        )
+        context = await _get_authenticated_context(browser)
+        is_valid = await _has_valid_session(context)
+        await browser.close()
+        return is_valid

@@ -158,11 +158,18 @@ async def _save_profile_to_competitor(
     if profile.error or profile.is_private:
         return
     
-    competitor.followers = profile.followers
-    competitor.following = profile.following
-    competitor.post_count = profile.post_count
-    competitor.bio = profile.bio
-    competitor.profile_image_url = profile.profile_pic_url
+    # Only update fields if we got real data (Instagram login wall returns
+    # profile stats via GraphQL but zero posts — don't regress stored values)
+    if profile.followers:
+        competitor.followers = profile.followers
+    if profile.following:
+        competitor.following = profile.following
+    if profile.post_count:
+        competitor.post_count = profile.post_count
+    if profile.bio:
+        competitor.bio = profile.bio
+    if profile.profile_pic_url:
+        competitor.profile_image_url = profile.profile_pic_url
     competitor.is_auto_populated = True
     competitor.last_auto_sync = datetime.now()
     competitor.updated_at = datetime.now()
@@ -194,7 +201,9 @@ async def _save_profile_to_competitor(
         else:
             competitor.avg_engagement_rate = 0.0
     else:
-        competitor.avg_engagement_rate = 0.0
+        # Don't zero out engagement rate if we simply couldn't scrape posts
+        # (e.g. Instagram login wall). Keep the previously stored value.
+        pass
 
 
 async def _save_posts_to_cache(

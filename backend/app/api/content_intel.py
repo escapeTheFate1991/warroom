@@ -1940,9 +1940,9 @@ async def sync_all_competitors(db: AsyncSession = Depends(get_crm_db)):
         audience_refreshed = 0
         for comp in competitors:
             try:
-                posts = await load_cached_posts(db, comp.id, limit=50)
+                posts = await load_cached_posts(db, comp.id)
                 if posts:
-                    analysis = analyze_trending_topics(posts)
+                    topics = await analyze_trending_topics(posts)
                     # Store updated analysis back to competitor record
                     await db.execute(
                         text(
@@ -1950,10 +1950,10 @@ async def sync_all_competitors(db: AsyncSession = Depends(get_crm_db)):
                             "WHERE id = :cid"
                         ),
                         {"cid": comp.id, "analysis": json.dumps({
-                            "themes": analysis.themes if hasattr(analysis, 'themes') else [],
-                            "audience_type": analysis.audience_type if hasattr(analysis, 'audience_type') else "Unknown",
-                            "engagement_style": analysis.engagement_style if hasattr(analysis, 'engagement_style') else "Unknown",
-                            "key_interests": analysis.key_interests if hasattr(analysis, 'key_interests') else [],
+                            "themes": [t.topic for t in topics[:5]] if topics else [],
+                            "audience_type": "Engaged" if len(posts) > 5 else "Unknown",
+                            "engagement_style": "Active" if sum(p.get("engagement_score", 0) for p in posts) / max(len(posts), 1) > 100 else "Moderate",
+                            "key_interests": [t.topic for t in topics[:3]] if topics else [],
                             "refreshed_at": datetime.now(timezone.utc).isoformat(),
                         })},
                     )
@@ -2039,7 +2039,7 @@ async def get_competitor_dossier(
 ):
     """Get comprehensive dossier for a competitor: bio, links, products, network."""
     competitor = await _get_competitor_or_404(db, competitor_id)
-    posts = await load_cached_posts(db, competitor_id, limit=50)
+    posts = await load_cached_posts(db, competitor_id)
 
     # Extract social links from bio and captions
     captions = [p.get("caption", "") or p.get("text", "") for p in posts if p.get("caption") or p.get("text")]
@@ -2059,13 +2059,22 @@ async def get_competitor_dossier(
         pass
 
     if not audience and posts:
-        analysis = analyze_trending_topics(posts)
-        audience = {
-            "themes": analysis.themes if hasattr(analysis, 'themes') else [],
-            "audience_type": analysis.audience_type if hasattr(analysis, 'audience_type') else "Unknown",
-            "engagement_style": analysis.engagement_style if hasattr(analysis, 'engagement_style') else "Unknown",
-            "key_interests": analysis.key_interests if hasattr(analysis, 'key_interests') else [],
-        }
+        try:
+            topics = await analyze_trending_topics(posts)
+            # analyze_trending_topics returns a list of TrendingTopic, extract audience info
+            audience = {
+                "themes": [t.topic for t in topics[:5]] if topics else [],
+                "audience_type": "Engaged" if len(posts) > 5 else "Unknown",
+                "engagement_style": "Active" if sum(p.get("engagement_score", 0) for p in posts) / max(len(posts), 1) > 100 else "Moderate",
+                "key_interests": [t.topic for t in topics[:3]] if topics else [],
+            }
+        except Exception:
+            audience = {
+                "themes": [],
+                "audience_type": "Unknown",
+                "engagement_style": "Unknown",
+                "key_interests": [],
+            }
 
     return {
         "competitor_id": competitor_id,

@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # ── Paths ────────────────────────────────────────────────────────
     MENTAL_LIBRARY_DB: str = "/data/mental-library/mental_library.db"
 
+    # ── Instagram Scraper (authenticated session) ──────────────────
+    INSTAGRAM_USERNAME: str = ""
+    INSTAGRAM_PASSWORD: str = ""
+
     # ── Admin seed ───────────────────────────────────────────────────
     ADMIN_PASSWORD: str = ""
 
