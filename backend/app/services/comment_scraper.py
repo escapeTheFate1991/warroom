@@ -243,19 +243,143 @@ def _format_timestamp(ts) -> Optional[str]:
         return None
 
 
+def _analyze_comments(comments: List[Dict], post_caption: str = "") -> Dict:
+    """Analyze raw comments into audience intelligence — no raw text stored.
+    
+    Extracts: sentiment, themes, questions, pain points, product mentions,
+    engagement patterns. Raw comment text is discarded after analysis.
+    """
+    if not comments:
+        return {"analyzed": 0, "sentiment": "neutral", "themes": [], "questions": [], "pain_points": []}
+    
+    import re
+    from collections import Counter
+    
+    total = len(comments)
+    total_likes = sum(c.get("likes", 0) for c in comments)
+    
+    # Sentiment: simple keyword-based (fast, no API needed)
+    positive_words = {"love", "amazing", "great", "awesome", "perfect", "best", "beautiful", 
+                      "incredible", "excellent", "fantastic", "fire", "insane", "goat", "🔥", "❤️", "💯", "🙌"}
+    negative_words = {"hate", "terrible", "worst", "awful", "bad", "disappointed", "scam",
+                      "waste", "boring", "fake", "cringe", "mid", "👎"}
+    question_words = {"how", "what", "where", "when", "why", "which", "can", "do", "does", "is", "are"}
+    
+    pos_count = 0
+    neg_count = 0
+    questions = []
+    pain_points = []
+    product_mentions = []
+    themes = Counter()
+    top_commenters = Counter()
+    reply_rate = sum(1 for c in comments if c.get("is_reply")) / max(total, 1)
+    
+    for c in comments:
+        text = (c.get("text") or "").lower()
+        username = c.get("username", "")
+        likes = c.get("likes", 0)
+        
+        # Sentiment
+        words = set(re.findall(r'\w+', text)) | set(re.findall(r'[🔥❤️💯🙌👎😂💀🤔💡👀✅]', text))
+        if words & positive_words:
+            pos_count += 1
+        if words & negative_words:
+            neg_count += 1
+        
+        # Questions (audience wants to know)
+        first_word = text.split()[0] if text.split() else ""
+        if "?" in text or first_word in question_words:
+            # Extract the question (first sentence with ?)
+            q_match = re.search(r'([^.!]*\?)', text)
+            if q_match and len(q_match.group(1)) > 10:
+                questions.append({"question": q_match.group(1).strip()[:150], "likes": likes})
+        
+        # Pain points ("I struggle with", "I wish", "I need", "how do I")
+        pain_patterns = [
+            r"i (?:struggle|can't|cant|don't know|wish|need help|have trouble)\b.{5,80}",
+            r"how do (?:i|you|we)\b.{5,80}",
+            r"(?:frustrat|confus|stuck|lost|overwhelm)\w*.{5,60}",
+        ]
+        for pattern in pain_patterns:
+            match = re.search(pattern, text)
+            if match:
+                pain_points.append({"pain": match.group(0).strip()[:150], "likes": likes})
+                break
+        
+        # Product/tool mentions
+        product_patterns = [
+            r"(?:use|using|try|tried|recommend|check out|switched to)\s+(\w[\w\s]{2,30})",
+            r"@(\w+)\s+(?:is|has|makes)",
+        ]
+        for pattern in product_patterns:
+            match = re.search(pattern, text)
+            if match:
+                product_mentions.append(match.group(1).strip()[:50])
+        
+        # Theme extraction (significant words, skip common filler)
+        stop_words = {"the", "and", "for", "this", "that", "you", "your", "with", "from", "have", "are",
+                      "but", "not", "was", "were", "been", "being", "its", "just", "really", "very",
+                      "would", "could", "should", "will", "can", "more", "about", "like", "what",
+                      "how", "all", "they", "them", "their", "there", "here", "also", "than", "then",
+                      "too", "out", "get", "got", "has", "had", "did", "does", "don", "one", "who"}
+        sig_words = [w for w in re.findall(r'\b[a-z]{4,}\b', text) if w not in stop_words]
+        themes.update(sig_words)
+        
+        if username:
+            top_commenters[username] += 1
+    
+    # Determine overall sentiment
+    if pos_count > neg_count * 2:
+        sentiment = "very_positive"
+    elif pos_count > neg_count:
+        sentiment = "positive"
+    elif neg_count > pos_count * 2:
+        sentiment = "very_negative"
+    elif neg_count > pos_count:
+        sentiment = "negative"
+    else:
+        sentiment = "neutral"
+    
+    # Sort questions and pain points by likes (most-liked = most resonant)
+    questions.sort(key=lambda x: x.get("likes", 0), reverse=True)
+    pain_points.sort(key=lambda x: x.get("likes", 0), reverse=True)
+    
+    # Deduplicate product mentions
+    product_counter = Counter(product_mentions)
+    
+    return {
+        "analyzed": total,
+        "sentiment": sentiment,
+        "sentiment_breakdown": {
+            "positive": pos_count,
+            "negative": neg_count,
+            "neutral": total - pos_count - neg_count,
+        },
+        "avg_comment_likes": round(total_likes / max(total, 1), 1),
+        "reply_rate": round(reply_rate * 100, 1),
+        "questions": questions[:10],  # Top 10 questions by likes
+        "pain_points": pain_points[:10],
+        "product_mentions": [{"product": p, "count": c} for p, c in product_counter.most_common(10)],
+        "themes": [{"theme": t, "count": c} for t, c in themes.most_common(15)],
+        "top_commenters": [{"username": u, "count": c} for u, c in top_commenters.most_common(10)],
+        "engagement_quality": "high" if total_likes / max(total, 1) > 5 else "moderate" if total_likes / max(total, 1) > 1 else "low",
+    }
+
+
 async def scrape_competitor_comments(
     db: AsyncSession,
     competitor_id: int,
     top_n: int = 10,
     comments_per_post: int = 50,
 ) -> Dict:
-    """Scrape comments for top N posts by engagement that don't have comments yet.
+    """Scrape comments for top N posts, analyze them, store ONLY the analysis.
     
-    Returns: {processed: int, scraped: int, total_comments: int, errors: [str]}
+    Raw comment text is never persisted — only audience intelligence and sentiment.
+    Returns: {processed: int, analyzed: int, errors: [str]}
     """
     result = await db.execute(
         text("""
-            SELECT id, shortcode
+            SELECT id, shortcode, post_text
             FROM crm.competitor_posts
             WHERE competitor_id = :cid
               AND comments_data IS NULL
@@ -269,38 +393,35 @@ async def scrape_competitor_comments(
     posts = result.fetchall()
     
     if not posts:
-        return {"processed": 0, "scraped": 0, "total_comments": 0, "errors": []}
+        return {"processed": 0, "analyzed": 0, "errors": []}
     
-    stats = {"processed": 0, "scraped": 0, "total_comments": 0, "errors": []}
+    stats = {"processed": 0, "analyzed": 0, "errors": []}
     
-    for post_id, shortcode in posts:
+    for post_id, shortcode, post_caption in posts:
         stats["processed"] += 1
-        logger.info("Scraping comments for %s...", shortcode)
+        logger.info("Scraping + analyzing comments for %s...", shortcode)
         
         try:
-            comments = await scrape_post_comments(shortcode, limit=comments_per_post)
+            # Scrape raw comments (held in memory only)
+            raw_comments = await scrape_post_comments(shortcode, limit=comments_per_post)
             
-            if comments:
-                await db.execute(
-                    text("UPDATE crm.competitor_posts SET comments_data = :c WHERE id = :id"),
-                    {"c": json.dumps(comments), "id": post_id},
-                )
-                await db.commit()
-                stats["scraped"] += 1
-                stats["total_comments"] += len(comments)
-                logger.info("✅ %s: %d comments stored", shortcode, len(comments))
-            else:
-                # Store empty array to mark as attempted
-                await db.execute(
-                    text("UPDATE crm.competitor_posts SET comments_data = '[]' WHERE id = :id"),
-                    {"id": post_id},
-                )
-                await db.commit()
-                stats["errors"].append(f"{shortcode}: no comments found")
-        
+            # Analyze into audience intelligence — raw text discarded
+            analysis = _analyze_comments(raw_comments, post_caption or "")
+            
+            # Store ONLY the analysis, not raw comments
+            await db.execute(
+                text("UPDATE crm.competitor_posts SET comments_data = :c WHERE id = :id"),
+                {"c": json.dumps(analysis), "id": post_id},
+            )
+            await db.commit()
+            stats["analyzed"] += 1
+            logger.info("✅ %s: analyzed %d comments → %s sentiment, %d questions, %d pain points",
+                        shortcode, analysis["analyzed"], analysis["sentiment"],
+                        len(analysis["questions"]), len(analysis["pain_points"]))
+            
         except Exception as e:
             stats["errors"].append(f"{shortcode}: {str(e)[:100]}")
-            logger.error("Comment scraping failed for %s: %s", shortcode, e)
+            logger.error("Comment analysis failed for %s: %s", shortcode, e)
         
         # Random delay between posts to avoid rate limiting
         import random

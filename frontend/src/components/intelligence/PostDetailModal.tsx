@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   X, ExternalLink, Heart, MessageCircle, Eye, Clock,
-  Film, Image, Layers, Loader2, ChevronRight, User,
-  ThumbsUp, FileText, MessageSquare,
+  Film, Image, Layers, Loader2, FileText, MessageSquare,
 } from "lucide-react";
 import { API as _API, authFetch } from "@/lib/api";
 
@@ -16,12 +15,18 @@ interface TranscriptSegment {
   text: string;
 }
 
-interface Comment {
-  username: string;
-  text: string;
-  likes: number;
-  timestamp: string | null;
-  is_reply: boolean;
+interface CommentAnalysis {
+  analyzed: number;
+  sentiment: string;
+  sentiment_breakdown: { positive: number; negative: number; neutral: number };
+  avg_comment_likes: number;
+  reply_rate: number;
+  questions: { question: string; likes: number }[];
+  pain_points: { pain: string; likes: number }[];
+  product_mentions: { product: string; count: number }[];
+  themes: { theme: string; count: number }[];
+  top_commenters: { username: string; count: number }[];
+  engagement_quality: string;
 }
 
 interface PostDetail {
@@ -42,7 +47,7 @@ interface PostDetail {
   post_url: string;
   posted_at: string | null;
   transcript: TranscriptSegment[] | null;
-  comments_data: Comment[] | null;
+  comments_data: CommentAnalysis | null;
 }
 
 function formatTimestamp(seconds: number): string {
@@ -114,7 +119,7 @@ export default function PostDetailModal({
   }, [onClose]);
 
   const hasTranscript = post?.transcript && post.transcript.length > 0;
-  const hasComments = post?.comments_data && post.comments_data.length > 0;
+  const hasComments = post?.comments_data && post.comments_data.analyzed > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -167,7 +172,7 @@ export default function PostDetailModal({
               {[
                 { key: "overview" as const, label: "Overview", icon: FileText },
                 { key: "transcript" as const, label: `Transcript${hasTranscript ? ` (${post.transcript!.length})` : ""}`, icon: Film },
-                { key: "comments" as const, label: `Comments${hasComments ? ` (${post.comments_data!.length})` : ""}`, icon: MessageSquare },
+                { key: "comments" as const, label: `Audience Intel${hasComments ? ` (${post.comments_data!.analyzed})` : ""}`, icon: MessageSquare },
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -253,51 +258,139 @@ export default function PostDetailModal({
                 </div>
               )}
 
-              {/* Comments Tab */}
+              {/* Audience Intelligence Tab */}
               {activeTab === "comments" && (
                 <div>
-                  {hasComments ? (
-                    <div className="space-y-3">
-                      {post.comments_data!.map((c, i) => (
-                        <div
-                          key={i}
-                          className={`flex gap-3 py-2.5 px-3 rounded-xl ${
-                            c.is_reply ? "ml-8 bg-warroom-bg/30" : "bg-warroom-bg/50"
-                          }`}
-                        >
-                          <div className="w-7 h-7 rounded-full bg-warroom-border flex items-center justify-center flex-shrink-0">
-                            <User size={12} className="text-warroom-muted" />
+                  {hasComments ? (() => {
+                    const data = post.comments_data!;
+                    const sentimentColors: Record<string, string> = {
+                      very_positive: "text-green-400", positive: "text-green-300",
+                      neutral: "text-warroom-muted", negative: "text-orange-400", very_negative: "text-red-400",
+                    };
+                    return (
+                      <div className="space-y-5">
+                        {/* Sentiment + Stats Row */}
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="bg-warroom-bg rounded-xl p-3 text-center">
+                            <p className={`text-lg font-bold capitalize ${sentimentColors[data.sentiment] || "text-warroom-text"}`}>
+                              {data.sentiment.replace("_", " ")}
+                            </p>
+                            <p className="text-[10px] text-warroom-muted uppercase">Sentiment</p>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <a
-                                href={`https://instagram.com/${c.username}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs font-semibold text-warroom-accent hover:underline"
-                              >
-                                @{c.username}
-                              </a>
-                              {c.timestamp && (
-                                <span className="text-[10px] text-warroom-muted">{timeAgo(c.timestamp)}</span>
-                              )}
-                            </div>
-                            <p className="text-sm text-warroom-text leading-relaxed">{c.text}</p>
-                            {c.likes > 0 && (
-                              <div className="flex items-center gap-1 mt-1">
-                                <ThumbsUp size={10} className="text-warroom-muted" />
-                                <span className="text-[10px] text-warroom-muted">{c.likes}</span>
-                              </div>
-                            )}
+                          <div className="bg-warroom-bg rounded-xl p-3 text-center">
+                            <p className="text-lg font-bold text-warroom-text">{data.analyzed}</p>
+                            <p className="text-[10px] text-warroom-muted uppercase">Analyzed</p>
+                          </div>
+                          <div className="bg-warroom-bg rounded-xl p-3 text-center">
+                            <p className="text-lg font-bold text-warroom-text capitalize">{data.engagement_quality}</p>
+                            <p className="text-[10px] text-warroom-muted uppercase">Quality</p>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
+
+                        {/* Sentiment Breakdown Bar */}
+                        {data.sentiment_breakdown && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1.5">Sentiment Breakdown</p>
+                            <div className="flex h-2.5 rounded-full overflow-hidden bg-warroom-bg">
+                              {data.sentiment_breakdown.positive > 0 && (
+                                <div className="bg-green-400" style={{ width: `${(data.sentiment_breakdown.positive / data.analyzed) * 100}%` }} />
+                              )}
+                              {data.sentiment_breakdown.neutral > 0 && (
+                                <div className="bg-warroom-border" style={{ width: `${(data.sentiment_breakdown.neutral / data.analyzed) * 100}%` }} />
+                              )}
+                              {data.sentiment_breakdown.negative > 0 && (
+                                <div className="bg-red-400" style={{ width: `${(data.sentiment_breakdown.negative / data.analyzed) * 100}%` }} />
+                              )}
+                            </div>
+                            <div className="flex justify-between text-[10px] text-warroom-muted mt-1">
+                              <span className="text-green-400">👍 {data.sentiment_breakdown.positive}</span>
+                              <span>😐 {data.sentiment_breakdown.neutral}</span>
+                              <span className="text-red-400">👎 {data.sentiment_breakdown.negative}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Questions from Audience */}
+                        {data.questions && data.questions.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Questions from Audience</p>
+                            <div className="space-y-1.5">
+                              {data.questions.map((q, i) => (
+                                <div key={i} className="flex items-start gap-2 bg-warroom-bg/50 rounded-lg px-3 py-2">
+                                  <span className="text-blue-400 text-xs mt-0.5">❓</span>
+                                  <p className="text-xs text-warroom-text flex-1">{q.question}</p>
+                                  {q.likes > 0 && <span className="text-[10px] text-warroom-muted flex-shrink-0">👍 {q.likes}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Pain Points */}
+                        {data.pain_points && data.pain_points.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Pain Points</p>
+                            <div className="space-y-1.5">
+                              {data.pain_points.map((p, i) => (
+                                <div key={i} className="flex items-start gap-2 bg-red-400/5 border border-red-400/10 rounded-lg px-3 py-2">
+                                  <span className="text-red-400 text-xs mt-0.5">🎯</span>
+                                  <p className="text-xs text-warroom-text flex-1">{p.pain}</p>
+                                  {p.likes > 0 && <span className="text-[10px] text-warroom-muted flex-shrink-0">👍 {p.likes}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Product Mentions */}
+                        {data.product_mentions && data.product_mentions.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Product / Tool Mentions</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {data.product_mentions.map((p, i) => (
+                                <span key={i} className="px-2.5 py-1 bg-purple-400/10 text-purple-400 rounded-full text-[10px]">
+                                  {p.product} ({p.count})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Themes */}
+                        {data.themes && data.themes.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Comment Themes</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {data.themes.map((t, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-warroom-accent/10 text-warroom-accent rounded-full text-[10px]">
+                                  {t.theme} ({t.count})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Top Commenters */}
+                        {data.top_commenters && data.top_commenters.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Top Commenters</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {data.top_commenters.map((u, i) => (
+                                <a key={i} href={`https://instagram.com/${u.username}`} target="_blank" rel="noopener noreferrer"
+                                  className="px-2.5 py-1 bg-warroom-bg border border-warroom-border rounded-full text-[10px] text-warroom-text hover:border-warroom-accent/50 transition">
+                                  @{u.username} ({u.count})
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })() : (
                     <div className="text-center py-12">
                       <MessageSquare size={32} className="text-warroom-muted mx-auto mb-3" />
                       <p className="text-sm text-warroom-muted">
-                        No comments scraped yet — trigger from Competitor Intel
+                        No audience intel yet — trigger comment analysis from Competitor Intel
                       </p>
                     </div>
                   )}
