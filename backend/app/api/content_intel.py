@@ -69,6 +69,7 @@ def _get_competitor_sync_lock(competitor_id: int) -> asyncio.Lock:
 # Enhanced Pydantic models
 class CompetitorPost(BaseModel):
     """Individual competitor post data."""
+    id: Optional[int] = None
     text: str
     likes: int = 0
     comments: int = 0
@@ -77,6 +78,9 @@ class CompetitorPost(BaseModel):
     url: str
     engagement_score: float = 0.0
     hook: Optional[str] = None
+    media_type: Optional[str] = None
+    has_transcript: bool = False
+    has_comments: bool = False
 
 
 class CompetitorContentResponse(BaseModel):
@@ -781,6 +785,7 @@ def _cached_rows_to_posts(cached_posts: List[Dict[str, Any]]) -> List[Competitor
 
     for cached_post in cached_posts:
         posts.append(CompetitorPost(
+            id=cached_post.get("id"),
             text=cached_post.get("post_text", ""),
             likes=cached_post.get("likes", 0),
             comments=cached_post.get("comments", 0),
@@ -794,6 +799,9 @@ def _cached_rows_to_posts(cached_posts: List[Dict[str, Any]]) -> List[Competitor
                 platform=cached_post.get("platform"),
             ),
             hook=cached_post.get("hook", ""),
+            media_type=cached_post.get("media_type"),
+            has_transcript=bool(cached_post.get("transcript")),
+            has_comments=bool(cached_post.get("comments_data")),
         ))
 
     return posts
@@ -1654,6 +1662,7 @@ async def delete_script(
 
 class TopVideoItem(BaseModel):
     """Top-performing video/post for a competitor."""
+    id: Optional[int] = None
     post_url: Optional[str] = None
     title: str
     likes: int = 0
@@ -1662,6 +1671,9 @@ class TopVideoItem(BaseModel):
     engagement_score: float = 0.0
     posted_at: Optional[datetime] = None
     hook: Optional[str] = None
+    media_type: Optional[str] = None
+    has_transcript: bool = False
+    has_comments: bool = False
 
 
 class FollowerAnalysisResponse(BaseModel):
@@ -1695,6 +1707,7 @@ async def get_competitor_top_videos(
 
         return [
             TopVideoItem(
+                id=post.get("id"),
                 post_url=post.get("post_url", ""),
                 title=(post.get("post_text") or "")[:100],
                 likes=post.get("likes", 0) or 0,
@@ -1708,6 +1721,9 @@ async def get_competitor_top_videos(
                 ),
                 posted_at=post.get("posted_at"),
                 hook=post.get("hook"),
+                media_type=post.get("media_type"),
+                has_transcript=bool(post.get("transcript")),
+                has_comments=bool(post.get("comments_data")),
             )
             for post in cached_posts[:limit]
         ]

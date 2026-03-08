@@ -681,3 +681,160 @@ async def scrape_instagram_profile(handle: str):
     """Scrape a single public Instagram profile. No auth needed."""
     profile = await scrape_profile(handle)
     return _profile_to_response(profile)
+
+
+# ── Deep Intelligence Endpoints ──────────────────────────────────
+
+@router.post("/scraper/transcribe/{competitor_id}")
+async def transcribe_competitor_videos_endpoint(
+    competitor_id: int,
+    limit: int = 10,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Download, transcribe, and delete video/reel posts for a competitor.
+    
+    Only processes posts with media_type in (video, reel) that don't have transcripts yet.
+    Videos are deleted immediately after transcription.
+    """
+    from app.services.video_transcriber import transcribe_competitor_videos
+    
+    # Verify competitor exists
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
+    competitor = result.scalar_one_or_none()
+    if not competitor:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    
+    stats = await transcribe_competitor_videos(db, competitor_id, limit=limit)
+    return {
+        "competitor_id": competitor_id,
+        "handle": competitor.handle,
+        **stats,
+    }
+
+
+@router.post("/scraper/comments/{competitor_id}")
+async def scrape_competitor_comments_endpoint(
+    competitor_id: int,
+    top_n: int = 10,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Scrape comments from a competitor's top posts.
+    
+    Uses authenticated Playwright to access post pages and extract comments.
+    Only processes posts that don't have comments scraped yet.
+    """
+    from app.services.comment_scraper import scrape_competitor_comments
+    
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
+    competitor = result.scalar_one_or_none()
+    if not competitor:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    
+    stats = await scrape_competitor_comments(db, competitor_id, top_n=top_n)
+    return {
+        "competitor_id": competitor_id,
+        "handle": competitor.handle,
+        **stats,
+    }
+
+
+@router.get("/scraper/posts/{post_id}")
+async def get_post_detail(
+    post_id: int,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Get full post detail including transcript and comments."""
+    result = await db.execute(
+        text("""
+            SELECT cp.*, c.handle
+            FROM crm.competitor_posts cp
+            JOIN crm.competitors c ON c.id = cp.competitor_id
+            WHERE cp.id = :pid
+        """),
+        {"pid": post_id},
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    row_dict = dict(row._mapping)
+    
+    # Parse JSONB fields
+    transcript = row_dict.get("transcript")
+    if isinstance(transcript, str):
+        transcript = json.loads(transcript)
+    
+    comments_data = row_dict.get("comments_data")
+    if isinstance(comments_data, str):
+        comments_data = json.loads(comments_data)
+    
+    return {
+        "id": row_dict["id"],
+        "competitor_id": row_dict["competitor_id"],
+        "handle": row_dict["handle"],
+        "shortcode": row_dict.get("shortcode"),
+        "platform": row_dict.get("platform"),
+        "post_text": row_dict.get("post_text", ""),
+        "hook": row_dict.get("hook", ""),
+        "likes": row_dict.get("likes", 0),
+        "comments": row_dict.get("comments", 0),
+        "shares": row_dict.get("shares", 0),
+        "engagement_score": float(row_dict.get("engagement_score", 0)),
+        "media_type": row_dict.get("media_type", "image"),
+        "media_url": row_dict.get("media_url"),
+        "thumbnail_url": row_dict.get("thumbnail_url"),
+        "post_url": row_dict.get("post_url"),
+        "posted_at": row_dict.get("posted_at"),
+        "transcript": transcript,
+        "comments_data": comments_data,
+    }
+
+
+@router.get("/scraper/posts/by-shortcode/{shortcode}")
+async def get_post_by_shortcode(
+    shortcode: str,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Get post detail by Instagram shortcode."""
+    result = await db.execute(
+        text("""
+            SELECT cp.*, c.handle
+            FROM crm.competitor_posts cp
+            JOIN crm.competitors c ON c.id = cp.competitor_id
+            WHERE cp.shortcode = :sc
+            LIMIT 1
+        """),
+        {"sc": shortcode},
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    row_dict = dict(row._mapping)
+    transcript = row_dict.get("transcript")
+    if isinstance(transcript, str):
+        transcript = json.loads(transcript)
+    comments_data = row_dict.get("comments_data")
+    if isinstance(comments_data, str):
+        comments_data = json.loads(comments_data)
+    
+    return {
+        "id": row_dict["id"],
+        "competitor_id": row_dict["competitor_id"],
+        "handle": row_dict["handle"],
+        "shortcode": row_dict.get("shortcode"),
+        "platform": row_dict.get("platform"),
+        "post_text": row_dict.get("post_text", ""),
+        "hook": row_dict.get("hook", ""),
+        "likes": row_dict.get("likes", 0),
+        "comments": row_dict.get("comments", 0),
+        "shares": row_dict.get("shares", 0),
+        "engagement_score": float(row_dict.get("engagement_score", 0)),
+        "media_type": row_dict.get("media_type", "image"),
+        "media_url": row_dict.get("media_url"),
+        "thumbnail_url": row_dict.get("thumbnail_url"),
+        "post_url": row_dict.get("post_url"),
+        "posted_at": row_dict.get("posted_at"),
+        "transcript": transcript,
+        "comments_data": comments_data,
+    }

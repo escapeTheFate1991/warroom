@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import PostDetailModal from "./PostDetailModal";
 
 
 interface Competitor {
@@ -27,6 +28,7 @@ interface Competitor {
 }
 
 interface CompetitorPost {
+  id?: number;
   text: string;
   likes: number;
   comments: number;
@@ -35,6 +37,9 @@ interface CompetitorPost {
   timestamp: string;
   url?: string;
   hook?: string;
+  media_type?: string;
+  has_transcript?: boolean;
+  has_comments?: boolean;
 }
 
 interface TopContentPost {
@@ -101,6 +106,7 @@ interface Script {
 }
 
 interface TopVideoItem {
+  id?: number;
   post_url?: string;
   title: string;
   likes: number;
@@ -109,6 +115,9 @@ interface TopVideoItem {
   engagement_score: number;
   posted_at?: string;
   hook?: string;
+  media_type?: string;
+  has_transcript?: boolean;
+  has_comments?: boolean;
 }
 
 interface FollowerAnalysis {
@@ -518,6 +527,7 @@ export default function CompetitorIntel() {
   const [followerAnalysis, setFollowerAnalysis] = useState<FollowerAnalysis | null>(null);
   const [loadingFollowerAnalysis, setLoadingFollowerAnalysis] = useState(false);
   const [topVideos, setTopVideos] = useState<TopVideoItem[]>([]);
+  const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
   const [loadingTopVideos, setLoadingTopVideos] = useState(false);
   const [hashtags, setHashtags] = useState<HashtagItem[]>([]);
   const [loadingHashtags, setLoadingHashtags] = useState(false);
@@ -1273,8 +1283,18 @@ export default function CompetitorIntel() {
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         {topVideos.map((vid, idx) => (
-                          <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition">
-                            <p className="text-sm text-warroom-text font-medium line-clamp-2 mb-2">{vid.title || "Untitled"}</p>
+                          <div
+                            key={idx}
+                            className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
+                            onClick={() => vid.id && setSelectedPostId(vid.id)}
+                          >
+                            <div className="flex items-center gap-2 mb-2">
+                              <p className="text-sm text-warroom-text font-medium line-clamp-2 flex-1">{vid.title || "Untitled"}</p>
+                              {vid.media_type && (vid.media_type === "reel" || vid.media_type === "video") && (
+                                <Film size={12} className="text-pink-400 flex-shrink-0" />
+                              )}
+                              {vid.has_transcript && <FileText size={10} className="text-green-400 flex-shrink-0" title="Has transcript" />}
+                            </div>
                             {vid.hook && (
                               <p className="text-xs text-warroom-accent mb-2 line-clamp-1">🪝 {vid.hook}</p>
                             )}
@@ -1370,7 +1390,11 @@ export default function CompetitorIntel() {
                         {[...competitorPosts]
                           .sort((a, b) => b.engagement_score - a.engagement_score)
                           .map((post, idx) => (
-                          <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-5 hover:border-warroom-accent/20 transition">
+                          <div
+                            key={idx}
+                            className="bg-warroom-surface border border-warroom-border rounded-xl p-5 hover:border-warroom-accent/20 transition cursor-pointer"
+                            onClick={() => post.id && setSelectedPostId(post.id)}
+                          >
                             {/* Rank badge */}
                             <div className="flex items-start gap-4">
                               <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
@@ -2030,6 +2054,14 @@ export default function CompetitorIntel() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Post Detail Modal */}
+      {selectedPostId && (
+        <PostDetailModal
+          postId={selectedPostId}
+          onClose={() => setSelectedPostId(null)}
+        />
       )}
     </div>
   );
