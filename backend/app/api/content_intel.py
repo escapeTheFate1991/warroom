@@ -2056,9 +2056,15 @@ async def _run_sync_all():
             except Exception as enrich_err:
                 print(f"[SYNC-ALL] Enrichment error (non-fatal): {enrich_err}", flush=True)
             
+            summary = f"Done: {batch_result.success}/{len(competitors)} synced, {batch_result.posts_saved} new posts"
+            if enriched["transcribed"]:
+                summary += f", {enriched['transcribed']} transcribed"
+            if enriched["comments_analyzed"]:
+                summary += f", {enriched['comments_analyzed']} comments analyzed"
+            
             _sync_all_status = {
                 "running": False,
-                "message": f"Done: {batch_result.success}/{len(competitors)} synced, {batch_result.posts_saved} new posts, {enriched['transcribed']} transcribed, {enriched['comments_analyzed']} comments analyzed",
+                "message": summary,
                 "total": len(competitors),
                 "success": batch_result.success,
                 "failed": batch_result.failed,
@@ -2067,10 +2073,44 @@ async def _run_sync_all():
                 "enriched": enriched,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             }
+            
+            # Create notification
+            await _create_sync_notification(summary, batch_result, enriched)
+            
     except Exception as e:
         import traceback
         print(f"[SYNC-ALL] FAILED: {e}\n{traceback.format_exc()}", flush=True)
         _sync_all_status = {"running": False, "message": f"Failed: {str(e)[:100]}", "error": True}
+        await _create_sync_notification(f"Sync failed: {str(e)[:80]}", None, None, is_error=True)
+
+
+async def _create_sync_notification(message: str, batch_result=None, enriched=None, is_error=False):
+    """Create a notification for sync completion/failure."""
+    try:
+        from app.db.leadgen_db import leadgen_session
+        async with leadgen_session() as ndb:
+            data = {}
+            if batch_result:
+                data = {"success": batch_result.success, "failed": batch_result.failed, "posts": batch_result.posts_saved}
+            if enriched:
+                data["enriched"] = enriched
+            
+            await ndb.execute(
+                text("""
+                    INSERT INTO public.notifications (user_id, type, title, message, data)
+                    VALUES (1, :type, :title, :message, CAST(:data AS jsonb))
+                """),
+                {
+                    "type": "alert" if is_error else "success",
+                    "title": "❌ Competitor Sync Failed" if is_error else "✅ Competitor Sync Complete",
+                    "message": message,
+                    "data": json.dumps(data),
+                },
+            )
+            await ndb.commit()
+            print(f"[SYNC-ALL] Notification created: {message}", flush=True)
+    except Exception as e:
+        print(f"[SYNC-ALL] Failed to create notification: {e}", flush=True)
 
 
 async def _safe_enrich(fn, db, competitor_ids, label):

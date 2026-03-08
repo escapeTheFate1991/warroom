@@ -93,9 +93,34 @@ function linkToTab(link: string): string | null {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
+/* ---- Sound + Toast ------------------------------------------------ */
+
+function playNotificationSound() {
+  try {
+    const ctx = new AudioContext();
+    // Two-tone chime: C5 → E5
+    [523.25, 659.25].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.4);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.15);
+      osc.stop(ctx.currentTime + i * 0.15 + 0.4);
+    });
+  } catch { /* audio not available */ }
+}
+
+let _toastCallback: ((n: Notification) => void) | null = null;
+export function onToast(cb: (n: Notification) => void) { _toastCallback = cb; }
+
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
+  const [toast, setToast] = useState<Notification | null>(null);
+  const [lastSeenId, setLastSeenId] = useState<string | null>(null);
   const router = useRouter();
 
   /* ---- Fetch ---------------------------------------------------- */
@@ -105,12 +130,27 @@ export default function NotificationBell() {
       const res = await authFetch(`${API}/api/notifications`);
       if (!res.ok) return;
       const data = await res.json();
-      const list = Array.isArray(data) ? data : (data.notifications ?? []);
+      const list: Notification[] = Array.isArray(data) ? data : (data.notifications ?? []);
+      
+      // Detect new unread notifications → sound + toast
+      const unread = list.filter(n => !n.read);
+      if (unread.length > 0 && lastSeenId !== null) {
+        const newest = unread[0];
+        if (newest.id !== lastSeenId) {
+          playNotificationSound();
+          setToast(newest);
+          setTimeout(() => setToast(null), 8000);
+        }
+      }
+      if (unread.length > 0) {
+        setLastSeenId(unread[0].id);
+      }
+      
       setNotifications(list);
     } catch {
       // Silently ignore; will retry on next poll
     }
-  }, []);
+  }, [lastSeenId]);
 
   useEffect(() => {
     fetchNotifications();
@@ -182,6 +222,25 @@ export default function NotificationBell() {
 
   return (
     <>
+      {/* Toast Banner */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-[9999] animate-in slide-in-from-top-2 fade-in duration-300 max-w-sm">
+          <div className={`flex items-start gap-3 px-4 py-3 rounded-xl shadow-2xl border backdrop-blur-sm ${
+            toast.type === "alert" || toast.type === "warning"
+              ? "bg-red-500/10 border-red-500/30 text-red-300"
+              : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+          }`}>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate">{toast.title}</p>
+              <p className="text-xs opacity-80 mt-0.5 line-clamp-2">{toast.message}</p>
+            </div>
+            <button onClick={() => setToast(null)} className="text-warroom-muted hover:text-white mt-0.5">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Bell Button */}
       <button
         onClick={() => setOpen(true)}
