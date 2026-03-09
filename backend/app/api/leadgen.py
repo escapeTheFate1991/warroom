@@ -17,6 +17,7 @@ from app.services.leadgen.google_places import search_places
 from app.services.leadgen.enrichment import enrich_job
 from app.services.leadgen.website_auditor import audit_website
 from app.services.leadgen.lead_scorer import score_lead
+from app.api.agent_assignment_helpers import load_assignment_summaries
 from app.api.leadgen_schemas import (
     LeadResponse, LeadUpdate, StatsResponse, SearchRequest,
     SearchJobResponse, WebsiteAuditResult, ContactLogRequest
@@ -273,7 +274,18 @@ async def list_leads(
         query = query.offset(offset).limit(limit)
 
         result = await db.execute(query)
-        return result.scalars().all()
+        leads = result.scalars().all()
+        assignment_map = await load_assignment_summaries(
+            db,
+            entity_type="leadgen_lead",
+            entity_ids=[lead.id for lead in leads],
+        )
+        return [
+            LeadResponse.model_validate(lead).model_copy(
+                update={"agent_assignments": assignment_map.get(str(lead.id), [])}
+            )
+            for lead in leads
+        ]
     except Exception as exc:
         logger.error("Failed to list leads: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to load leads: {str(exc)[:200]}")
@@ -615,7 +627,14 @@ async def get_lead(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
         lead = result.scalar_one_or_none()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
-        return lead
+        assignment_map = await load_assignment_summaries(
+            db,
+            entity_type="leadgen_lead",
+            entity_ids=[lead.id],
+        )
+        return LeadResponse.model_validate(lead).model_copy(
+            update={"agent_assignments": assignment_map.get(str(lead.id), [])}
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -806,8 +825,18 @@ async def list_contacts(
         query = query.order_by(Lead.contacted_at.desc()).offset(offset).limit(limit)
         result = await db.execute(query)
         leads = result.scalars().all()
+        assignment_map = await load_assignment_summaries(
+            db,
+            entity_type="leadgen_lead",
+            entity_ids=[lead.id for lead in leads],
+        )
 
-        return [LeadResponse.model_validate(lead) for lead in leads]
+        return [
+            LeadResponse.model_validate(lead).model_copy(
+                update={"agent_assignments": assignment_map.get(str(lead.id), [])}
+            )
+            for lead in leads
+        ]
     except Exception as exc:
         logger.error("Failed to list contacts: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list contacts: {str(exc)[:200]}")

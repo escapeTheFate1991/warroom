@@ -9,25 +9,10 @@ import {
   BarChart3, Headphones, Globe, Cog,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { AgentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
 
 /* ── Types ─────────────────────────────────────────────── */
-
-interface Agent {
-  id: string;
-  name: string;
-  emoji: string;
-  role: string;
-  description: string;
-  model: string;
-  skills: string[];
-  config: Record<string, any>;
-  status: string;
-  openclaw_agent_id: string | null;
-  active_tasks: number;
-  created_at: string;
-  updated_at: string;
-}
 
 interface Skill {
   id: string;
@@ -90,7 +75,7 @@ const STATUS_COLORS: Record<string, string> = {
 /* ── Component ─────────────────────────────────────────── */
 
 export default function AgentManager() {
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -143,7 +128,7 @@ export default function AgentManager() {
     }
   };
 
-  const handleUpdate = async (agentId: string, updates: Partial<Agent>) => {
+  const handleUpdate = async (agentId: string, updates: Partial<AgentSummary>) => {
     try {
       const res = await authFetch(`${API}/api/agents/${agentId}`, {
         method: "PUT",
@@ -400,7 +385,7 @@ export default function AgentManager() {
                 </span>
                 <span className="flex items-center gap-1">
                   <Zap size={10} />
-                  {agent.active_tasks} tasks
+                  {agent.active_assignments ?? agent.active_tasks} assignments
                 </span>
               </div>
 

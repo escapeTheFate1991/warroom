@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Mail, Search, RefreshCw, Inbox, Check, ChevronLeft, ChevronRight, Filter,
+  Mail, Search, RefreshCw, Inbox, Check, ChevronLeft, ChevronRight, Filter, Bot,
 } from "lucide-react";
+import EntityAssignmentControl from "@/components/agents/EntityAssignmentControl";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
 
 /* ── Types ── */
@@ -26,14 +28,23 @@ interface EmailMessage {
   body_text?: string;
   date: string;
   is_read: boolean;
+  agent_assignments: AgentAssignmentSummary[];
 }
 
 interface MessagesResponse {
   messages: EmailMessage[];
   total: number;
   page: number;
-  limit: number;
+  per_page: number;
 }
+
+type RawEmailMessage = Partial<EmailMessage> & {
+  id: string | number;
+  account_id?: string | number;
+  from_address?: string;
+  to_addresses?: Array<{ email?: string; name?: string } | string>;
+  agent_assignments?: AgentAssignmentSummary[];
+};
 
 /* ── Helpers ── */
 const LIMIT = 25;
@@ -72,6 +83,30 @@ function sanitizeHTML(html: string): string {
 
 function avatarLetter(name: string): string {
   return (name?.[0] ?? "?").toUpperCase();
+}
+
+function normalizeRecipients(value: RawEmailMessage["to_addresses"] | string[] | undefined): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => typeof entry === "string" ? entry : entry.email || entry.name || "")
+    .filter(Boolean);
+}
+
+function normalizeMessage(raw: RawEmailMessage): EmailMessage {
+  return {
+    id: String(raw.id),
+    account_id: String(raw.account_id ?? ""),
+    from_name: raw.from_name || "",
+    from_email: raw.from_email || raw.from_address || "",
+    to: normalizeRecipients(raw.to || raw.to_addresses),
+    subject: raw.subject || "",
+    snippet: raw.snippet || "",
+    body_html: raw.body_html,
+    body_text: raw.body_text,
+    date: raw.date || new Date().toISOString(),
+    is_read: Boolean(raw.is_read),
+    agent_assignments: Array.isArray(raw.agent_assignments) ? raw.agent_assignments : [],
+  };
 }
 
 /* ── Skeleton Loader ── */
@@ -137,7 +172,7 @@ export default function EmailInbox() {
       const params = new URLSearchParams({
         account_id: selectedAccountId,
         page: String(page),
-        limit: String(LIMIT),
+        per_page: String(LIMIT),
       });
       if (unreadOnly) params.set("is_read", "false");
       if (debouncedSearch) params.set("search", debouncedSearch);
@@ -145,7 +180,7 @@ export default function EmailInbox() {
       const res = await authFetch(`${API}/api/email/messages?${params}`);
       if (!res.ok) return;
       const data: MessagesResponse = await res.json();
-      setMessages(data.messages ?? []);
+      setMessages((data.messages ?? []).map((message) => normalizeMessage(message)));
       setTotal(data.total ?? 0);
     } catch { /* silent */ } finally {
       if (!silent) setLoading(false);
@@ -168,12 +203,10 @@ export default function EmailInbox() {
     try {
       const res = await authFetch(`${API}/api/email/messages/${msg.id}`);
       if (res.ok) {
-        const full: EmailMessage = await res.json();
+        const full = normalizeMessage((await res.json()) as RawEmailMessage);
         setDetail(full);
+        setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, is_read: true, agent_assignments: full.agent_assignments } : m));
         // Update in list if now read
-        if (!msg.is_read) {
-          setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, is_read: true } : m));
-        }
       }
     } catch { /* silent */ } finally {
       setDetailLoading(false);
@@ -219,6 +252,11 @@ export default function EmailInbox() {
       return next;
     });
   };
+
+  const updateMessageAssignments = useCallback((messageId: string, assignments: AgentAssignmentSummary[]) => {
+    setMessages((prev) => prev.map((message) => message.id === messageId ? { ...message, agent_assignments: assignments } : message));
+    setDetail((prev) => prev && prev.id === messageId ? { ...prev, agent_assignments: assignments } : prev);
+  }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
@@ -339,7 +377,15 @@ export default function EmailInbox() {
                       <span className={`text-sm truncate ${!msg.is_read ? "font-semibold text-warroom-text" : "text-warroom-text/80"}`}>
                         {msg.from_name || msg.from_email}
                       </span>
-                      <span className="text-xs text-warroom-muted flex-shrink-0">{relativeDate(msg.date)}</span>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {msg.agent_assignments.length > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-warroom-accent/15 px-1.5 py-0.5 text-[10px] text-warroom-accent">
+                            <Bot size={10} />
+                            {msg.agent_assignments.length}
+                          </span>
+                        )}
+                        <span className="text-xs text-warroom-muted">{relativeDate(msg.date)}</span>
+                      </div>
                     </div>
                     <p className={`text-sm truncate ${!msg.is_read ? "font-medium text-warroom-text/90" : "text-warroom-muted"}`}>
                       {msg.subject}
@@ -427,6 +473,14 @@ export default function EmailInbox() {
                     </p>
                   </div>
                 </div>
+                <EntityAssignmentControl
+                  entityType="email_message"
+                  entityId={detail.id}
+                  title={detail.subject || "Email message"}
+                  initialAssignments={detail.agent_assignments}
+                  onAssignmentsChange={(assignments) => updateMessageAssignments(detail.id, assignments)}
+                  emptyLabel="No AI agents assigned to this message yet."
+                />
               </div>
 
               {/* Detail body */}

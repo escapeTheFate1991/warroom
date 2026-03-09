@@ -8,7 +8,7 @@ import {
   Users, BookOpen, GraduationCap, Building2,
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
-  CalendarDays, Puzzle, Heart, FileSignature, DollarSign,
+  CalendarDays, Puzzle, Heart, FileSignature, DollarSign, PhoneCall,
   BarChart2, PieChart, TrendingUp, UserPlus,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -48,6 +48,7 @@ const ReportsOverview = dynamic(() => import("@/components/reports/ReportsOvervi
 const ProspectsPanel = dynamic(() => import("@/components/prospects/ProspectsPanel"), { loading: PanelLoader });
 const UnifiedPipeline = dynamic(() => import("@/components/crm/UnifiedPipeline"), { loading: PanelLoader });
 const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsPanel"), { loading: PanelLoader });
+const CommunicationsConsole = dynamic(() => import("@/components/communications/CommunicationsConsole"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -68,6 +69,7 @@ const SECTIONS = [
       { id: "chat", label: "Chat", icon: MessageSquare },
       { id: "agents", label: "Agents", icon: Bot },
       { id: "calendar", label: "Calendar", icon: CalendarDays },
+      { id: "communications", label: "Comms", icon: PhoneCall },
       { id: "email", label: "Email", icon: Mail },
       { id: "kanban", label: "Tasks", icon: ClipboardList },
     ],
@@ -131,7 +133,7 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "calendar" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
+  | "dashboard" | "chat" | "agents" | "calendar" | "communications" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
   | "kanban" | "leadgen"
   | "pipeline-board" | "organizations" | "crm-contacts"
@@ -222,6 +224,7 @@ function WarRoom() {
           {activeTab === "intelligence" && <CompetitorIntel />}
           {activeTab === "kanban" && <KanbanPanel />}
           {activeTab === "leadgen" && <LeadgenPanel />}
+          {activeTab === "communications" && <CommunicationsConsole />}
           {activeTab === "prospects" && <ProspectsPanel />}
           {activeTab === "pipeline-board" && <UnifiedPipeline />}
           {activeTab === "organizations" && <OrganizationsPanel />}

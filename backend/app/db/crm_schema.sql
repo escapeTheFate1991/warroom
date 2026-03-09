@@ -247,8 +247,13 @@ CREATE TABLE IF NOT EXISTS crm.email_attachments (
 CREATE TABLE IF NOT EXISTS crm.email_templates (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
+    description TEXT,
+    channel TEXT DEFAULT 'email',
     subject TEXT,
     content TEXT,
+    use_case TEXT,
+    content_blocks JSONB,
+    channel_config JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -265,16 +270,37 @@ CREATE TABLE IF NOT EXISTS crm.marketing_events (
 CREATE TABLE IF NOT EXISTS crm.marketing_campaigns (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
+    channel TEXT DEFAULT 'email',
     subject TEXT,
     status BOOLEAN DEFAULT false,
     type TEXT,  -- newsletter, event
+    use_case TEXT,
     mail_to TEXT,
     spooling TEXT,
+    audience JSONB,
+    schedule JSONB,
+    content JSONB,
+    channel_config JSONB,
     template_id INTEGER REFERENCES crm.email_templates(id) ON DELETE SET NULL,
     event_id INTEGER REFERENCES crm.marketing_events(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'email';
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS use_case TEXT;
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS content_blocks JSONB;
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS channel_config JSONB;
+UPDATE crm.email_templates SET channel = 'email' WHERE channel IS NULL;
+
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'email';
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS use_case TEXT;
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS audience JSONB;
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS schedule JSONB;
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS content JSONB;
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS channel_config JSONB;
+UPDATE crm.marketing_campaigns SET channel = 'email' WHERE channel IS NULL;
 
 -- Quotes
 CREATE TABLE IF NOT EXISTS crm.quotes (

@@ -13,6 +13,7 @@ const SEARCH_SCOPES: Record<string, { label: string; placeholder: string }> = {
   "crm-deals": { label: "Deals", placeholder: "Search deals..." },
   "crm-contacts": { label: "Contacts", placeholder: "Search contacts..." },
   "crm-activities": { label: "Activities", placeholder: "Search activities..." },
+  communications: { label: "Communications", placeholder: "Search operators, calls, or CRM contacts..." },
   email: { label: "Email", placeholder: "Search emails..." },
   pipeline: { label: "Content", placeholder: "Search content..." },
   social: { label: "Social", placeholder: "Search social accounts..." },

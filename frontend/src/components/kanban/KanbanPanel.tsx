@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Plus, GripVertical, CheckCircle2, Circle, Clock, Archive, Trash2, X, Lock, CheckCheck, Link, Unlink, Brain, Play, Save, Edit3, Eye, Tag, Paperclip, Calendar, User, Hash } from "lucide-react";
+import { Plus, GripVertical, CheckCircle2, Circle, Clock, Archive, Trash2, X, Lock, CheckCheck, Link, Unlink, Brain, Play, Save, Edit3, Eye, Tag, Paperclip, Calendar, User, Hash, Bot } from "lucide-react";
 import AIPlanningModal from "./AIPlanningModal";
 import BoardExecutionModal from "./BoardExecutionModal";
+import EntityAssignmentControl from "@/components/agents/EntityAssignmentControl";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
 
 
@@ -18,6 +20,7 @@ interface Task {
   created_at: string;
   updated_at?: string;
   completed_at: string | null;
+  agent_assignments?: AgentAssignmentSummary[];
 }
 
 interface DepEntry {
@@ -53,6 +56,7 @@ const PRIORITY_BORDER_COLORS: Record<string, string> = {
 
 const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"];
 const STATUS_OPTIONS = COLUMNS.map((c) => c.id);
+const EMPTY_ASSIGNMENTS: AgentAssignmentSummary[] = [];
 
 export default function KanbanPanel() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -89,14 +93,35 @@ export default function KanbanPanel() {
   const [selectedTaskDeps, setSelectedTaskDeps] = useState<TaskDeps | null>(null);
   const [addingDep, setAddingDep] = useState(false);
   const [depDropdownValue, setDepDropdownValue] = useState<number | "">("");
+  const [taskAssignments, setTaskAssignments] = useState<Record<number, AgentAssignmentSummary[]>>({});
 
   const fetchTasks = useCallback(async () => {
     try {
       const resp = await authFetch(`${API}/api/kanban/tasks`);
       const data = await resp.json();
-      setTasks(Array.isArray(data) ? data : data.tasks || []);
+      const nextTasks = Array.isArray(data) ? data : data.tasks || [];
+      setTasks(nextTasks);
+      setSelectedTask((current) => current ? nextTasks.find((task: Task) => task.id === current.id) ?? current : current);
     } catch {
       console.error("Failed to fetch tasks");
+    }
+  }, []);
+
+  const fetchTaskAssignments = useCallback(async () => {
+    try {
+      const resp = await authFetch(`${API}/api/agents/assignments?entity_type=kanban_task&limit=500`);
+      if (!resp.ok) return;
+      const data = (await resp.json()) as AgentAssignmentSummary[];
+      const grouped = data.reduce<Record<number, AgentAssignmentSummary[]>>((acc, assignment) => {
+        const taskId = Number(assignment.entity_id);
+        if (!Number.isNaN(taskId)) {
+          acc[taskId] = [...(acc[taskId] || []), assignment];
+        }
+        return acc;
+      }, {});
+      setTaskAssignments(grouped);
+    } catch {
+      console.error("Failed to fetch task assignments");
     }
   }, []);
 
@@ -116,7 +141,10 @@ export default function KanbanPanel() {
     setAllDeps(depsMap);
   }, []);
 
-  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+  useEffect(() => {
+    fetchTasks();
+    fetchTaskAssignments();
+  }, [fetchTaskAssignments, fetchTasks]);
 
   // Refresh deps whenever tasks change
   useEffect(() => {
@@ -293,6 +321,13 @@ export default function KanbanPanel() {
   };
 
   const taskById = (id: number) => tasks.find((t) => t.id === id);
+  const getTaskAssignments = (task: Task) => taskAssignments[task.id] ?? task.agent_assignments ?? EMPTY_ASSIGNMENTS;
+
+  const handleTaskAssignmentsChange = useCallback((taskId: number, assignments: AgentAssignmentSummary[]) => {
+    setTaskAssignments((prev) => ({ ...prev, [taskId]: assignments }));
+    setTasks((prev) => prev.map((task) => task.id === taskId ? { ...task, agent_assignments: assignments } : task));
+    setSelectedTask((prev) => prev && prev.id === taskId ? { ...prev, agent_assignments: assignments } : prev);
+  }, []);
 
   /** Check if a task has unmet dependencies (depends on tasks not in "done") */
   const hasUnmetDeps = (taskId: number): boolean => {
@@ -376,6 +411,7 @@ export default function KanbanPanel() {
                   {columnTasks.map((task) => {
                     const unmet = hasUnmetDeps(task.id);
                     const ready = allDepsMet(task.id);
+                    const assignments = getTaskAssignments(task);
                     return (
                       <div
                         key={task.id}
@@ -397,6 +433,12 @@ export default function KanbanPanel() {
                               {ready && (
                                 <span title="All dependencies met" className="flex-shrink-0">
                                   <CheckCheck size={12} className="text-green-400" />
+                                </span>
+                              )}
+                              {assignments.length > 0 && (
+                                <span title={`${assignments.length} AI assignment${assignments.length === 1 ? "" : "s"}`} className="flex items-center gap-1 rounded-full bg-warroom-accent/15 px-1.5 py-0.5 text-[10px] text-warroom-accent">
+                                  <Bot size={10} />
+                                  {assignments.length}
                                 </span>
                               )}
                               <p className="text-sm font-semibold truncate">{task.title}</p>
@@ -625,6 +667,15 @@ export default function KanbanPanel() {
                 <div><Calendar size={12} className="inline mr-1" />Created: {formatDate(selectedTask.created_at)}</div>
                 {selectedTask.completed_at && <div><CheckCircle2 size={12} className="inline mr-1" />Completed: {formatDate(selectedTask.completed_at)}</div>}
               </div>
+
+              <EntityAssignmentControl
+                entityType="kanban_task"
+                entityId={selectedTask.id}
+                title={selectedTask.title}
+                initialAssignments={getTaskAssignments(selectedTask)}
+                onAssignmentsChange={(assignments) => handleTaskAssignmentsChange(selectedTask.id, assignments)}
+                emptyLabel="No AI agents assigned yet."
+              />
 
               {/* ── Dependencies Section ── */}
               <div className="border-t border-warroom-border pt-4 mt-2">

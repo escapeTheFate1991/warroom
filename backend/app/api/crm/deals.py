@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 
+from app.api.agent_assignment_helpers import load_assignment_summaries
 from app.db.crm_db import get_crm_db
 from app.models.crm.deal import Deal, Pipeline, PipelineStage, LeadSource, LeadType
 from app.models.crm.contact import Person, Organization
@@ -40,7 +41,7 @@ DEAL_RELATION_OPTIONS = (
 )
 
 
-def serialize_deal(deal: Deal) -> DealResponse:
+def serialize_deal(deal: Deal, agent_assignments=None) -> DealResponse:
     reference_time = deal.updated_at or deal.created_at
     if reference_time is None:
         days_in_stage = 0
@@ -76,11 +77,30 @@ def serialize_deal(deal: Deal) -> DealResponse:
         stage_name=deal.stage.name if deal.stage else None,
         stage_probability=deal.stage.probability if deal.stage and deal.stage.probability is not None else 0,
         user_name=deal.user.name if deal.user else None,
+        agent_assignments=agent_assignments or [],
         days_in_stage=days_in_stage,
         is_rotten=is_rotten,
         created_at=deal.created_at,
         updated_at=deal.updated_at,
     )
+
+
+async def serialize_deal_list(db: AsyncSession, deals: List[Deal]) -> List[DealResponse]:
+    assignment_map = await load_assignment_summaries(
+        db,
+        entity_type="crm_deal",
+        entity_ids=[deal.id for deal in deals],
+    )
+    return [serialize_deal(deal, assignment_map.get(str(deal.id), [])) for deal in deals]
+
+
+async def serialize_single_deal(db: AsyncSession, deal: Deal) -> DealResponse:
+    assignment_map = await load_assignment_summaries(
+        db,
+        entity_type="crm_deal",
+        entity_ids=[deal.id],
+    )
+    return serialize_deal(deal, assignment_map.get(str(deal.id), []))
 
 
 async def load_deal_with_related(db: AsyncSession, deal_id: int) -> Optional[Deal]:
@@ -138,7 +158,7 @@ async def list_deals(
     
     result = await db.execute(query)
     deals = result.scalars().all()
-    return [serialize_deal(deal) for deal in deals]
+    return await serialize_deal_list(db, deals)
 
 
 @router.get("/deals/{deal_id}", response_model=DealResponse)
@@ -149,7 +169,7 @@ async def get_deal(deal_id: int, db: AsyncSession = Depends(get_crm_db)):
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
     
-    return serialize_deal(deal)
+    return await serialize_single_deal(db, deal)
 
 
 @router.post("/deals", response_model=DealResponse)
@@ -188,7 +208,7 @@ async def create_deal(deal_data: DealCreate, db: AsyncSession = Depends(get_crm_
     if not serialized_deal:
         raise HTTPException(status_code=404, detail="Deal not found")
 
-    return serialize_deal(serialized_deal)
+    return await serialize_single_deal(db, serialized_deal)
 
 
 @router.put("/deals/{deal_id}", response_model=DealResponse)
@@ -234,7 +254,7 @@ async def update_deal(deal_id: int, deal_data: DealUpdate, db: AsyncSession = De
     if not serialized_deal:
         raise HTTPException(status_code=404, detail="Deal not found")
 
-    return serialize_deal(serialized_deal)
+    return await serialize_single_deal(db, serialized_deal)
 
 
 @router.post("/deals/{deal_id}/activities")
@@ -334,7 +354,7 @@ async def move_deal_stage(deal_id: int, stage_move: DealStageMove, user_id: Opti
     if not serialized_deal:
         raise HTTPException(status_code=404, detail="Deal not found")
 
-    return serialize_deal(serialized_deal)
+    return await serialize_single_deal(db, serialized_deal)
 
 
 @router.get("/deals/forecast", response_model=List[DealForecast])
@@ -461,4 +481,4 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
     if not serialized_deal:
         raise HTTPException(status_code=404, detail="Deal not found")
 
-    return serialize_deal(serialized_deal)
+    return await serialize_single_deal(db, serialized_deal)

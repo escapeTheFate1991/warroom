@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, agents
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
@@ -139,6 +139,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(kanban.router, prefix="/api/kanban", tags=["kanban"])
 app.include_router(team.router, prefix="/api/team", tags=["team"])
+app.include_router(agents.router, prefix="/api", tags=["agents"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(leadgen.router, prefix="/api/leadgen", tags=["leadgen"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])

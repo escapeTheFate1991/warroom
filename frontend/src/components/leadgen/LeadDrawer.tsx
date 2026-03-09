@@ -24,7 +24,9 @@ import {
   UserPlus,
   Rocket
 } from "lucide-react";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
+import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
 
 
 export interface LeadFull {
@@ -66,6 +68,7 @@ export interface LeadFull {
   notes: string | null;
   tags: string[];
   website_platform: string | null;
+  agent_assignments?: AgentAssignmentSummary[];
 }
 
 interface LeadDrawerProps {
@@ -575,6 +578,14 @@ ${lead.phone || ""}`;
                     </div>
                   </div>
                 )}
+
+                <AgentAssignmentCard
+                  className="mt-4"
+                  entityType="leadgen_lead"
+                  entityId={lead.id}
+                  initialAssignments={lead.agent_assignments}
+                  title={`Work lead: ${lead.business_name}`}
+                />
               </div>
             </div>
           </div>

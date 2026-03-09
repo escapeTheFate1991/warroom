@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
+  Bot,
   Mail,
   Plus,
   Send,
@@ -15,21 +16,81 @@ import {
   BarChart3,
   Clock,
 } from "lucide-react";
+import EntityAssignmentControl from "@/components/agents/EntityAssignmentControl";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
 
+type MarketingChannel = "email" | "sms" | "voice" | "social";
+
+interface ChannelOption {
+  value: MarketingChannel;
+  label: string;
+}
+
+function getCampaignContentDefaults(channel: MarketingChannel, subject: string | null): Record<string, any> {
+  if (channel === "sms") return { message: null, stages: [] as unknown[] };
+  if (channel === "voice") return { script: null, stages: [] as unknown[] };
+  if (channel === "social") return { posts: [] as unknown[], stages: [] as unknown[] };
+  return { subject, body: null, stages: [] as unknown[] };
+}
+
+function getCampaignConfigDefaults(channel: MarketingChannel): Record<string, any> {
+  if (channel === "sms") return { sender_number: null, track_clicks: true };
+  if (channel === "voice") return { caller_id: null, voice_profile: null };
+  if (channel === "social") return { platforms: [] as unknown[], profile_id: null };
+  return { sender_profile: null, reply_to: null, track_opens: true };
+}
+
+function getSubjectPlaceholder(channel: MarketingChannel) {
+  if (channel === "email") return "Email subject line";
+  if (channel === "social") return "Campaign headline or theme";
+  if (channel === "voice") return "Call topic or script title";
+  return "Optional message summary";
+}
+
+function getAudiencePlaceholder(channel: MarketingChannel) {
+  if (channel === "sms") return "Recipients (phone list or SMS segment)";
+  if (channel === "voice") return "Recipients (call list or voice segment)";
+  if (channel === "social") return "Audience segment or social target";
+  return "Recipients (email list or segment)";
+}
+
+function getCampaignAssignmentHint(channel: MarketingChannel) {
+  if (channel === "sms") return "Assign pooled agents to own SMS setup, targeting, and later messaging skills.";
+  if (channel === "voice") return "Assign pooled agents to own voice setup, scripting, and later call orchestration hooks.";
+  if (channel === "social") return "Assign pooled agents to own social setup, platform routing, and later publishing skills.";
+  return "Assign pooled agents to own email setup, sequencing, and later marketing orchestration hooks.";
+}
+
+function summarizeAssignedAgents(assignments?: AgentAssignmentSummary[]) {
+  if (!assignments || assignments.length === 0) return "No AI owners assigned";
+  const names = assignments
+    .map((assignment) => assignment.agent_name || assignment.agent_id)
+    .slice(0, 2)
+    .join(", ");
+  const extra = assignments.length > 2 ? ` +${assignments.length - 2} more` : "";
+  return `AI owners: ${names}${extra}`;
+}
 
 interface Campaign {
   id: number;
   name: string;
+  channel: MarketingChannel;
   subject: string | null;
   status: boolean;
   type: string | null;
+  use_case: string | null;
   mail_to: string | null;
   spooling: string | null;
+  audience?: Record<string, any> | null;
+  schedule?: Record<string, any> | null;
+  content?: Record<string, any> | null;
+  channel_config?: Record<string, any> | null;
   template_id: number | null;
   event_id: number | null;
   created_at: string;
   updated_at: string;
+  agent_assignments?: AgentAssignmentSummary[];
 }
 
 interface CampaignType {
@@ -41,13 +102,16 @@ export default function CampaignsPanel() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [types, setTypes] = useState<CampaignType[]>([]);
+  const [channels, setChannels] = useState<ChannelOption[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Campaign | null>(null);
 
   // Form
   const [formName, setFormName] = useState("");
+  const [formChannel, setFormChannel] = useState<MarketingChannel>("email");
   const [formSubject, setFormSubject] = useState("");
   const [formType, setFormType] = useState("");
+  const [formUseCase, setFormUseCase] = useState("");
   const [formMailTo, setFormMailTo] = useState("");
 
   const loadCampaigns = useCallback(async () => {
@@ -65,6 +129,7 @@ export default function CampaignsPanel() {
       if (res.ok) {
         const data = await res.json();
         setTypes(data.types || []);
+        setChannels(data.channels || []);
       }
     } catch {}
   }, []);
@@ -74,10 +139,21 @@ export default function CampaignsPanel() {
     loadTypes();
   }, [loadCampaigns, loadTypes]);
 
+  const syncCampaignAssignments = useCallback((campaignId: number, assignments: AgentAssignmentSummary[]) => {
+    setCampaigns((current) => current.map((campaign) => (
+      campaign.id === campaignId ? { ...campaign, agent_assignments: assignments } : campaign
+    )));
+    setEditing((current) => (
+      current && current.id === campaignId ? { ...current, agent_assignments: assignments } : current
+    ));
+  }, []);
+
   function resetForm() {
     setFormName("");
+    setFormChannel("email");
     setFormSubject("");
     setFormType("");
+    setFormUseCase("");
     setFormMailTo("");
     setEditing(null);
     setShowForm(false);
@@ -86,9 +162,11 @@ export default function CampaignsPanel() {
   function openEdit(c: Campaign) {
     setEditing(c);
     setFormName(c.name);
+    setFormChannel(c.channel || "email");
     setFormSubject(c.subject || "");
     setFormType(c.type || "");
-    setFormMailTo(c.mail_to || "");
+    setFormUseCase(c.use_case || "");
+    setFormMailTo(c.mail_to || c.audience?.segment || "");
     setShowForm(true);
   }
 
@@ -96,11 +174,40 @@ export default function CampaignsPanel() {
     e.preventDefault();
     if (!formName.trim()) return;
 
+    const content = {
+      ...getCampaignContentDefaults(formChannel, formSubject || null),
+      ...(editing?.channel === formChannel ? editing.content || {} : {}),
+    };
+    const channelConfig = {
+      ...getCampaignConfigDefaults(formChannel),
+      ...(editing?.channel === formChannel ? editing.channel_config || {} : {}),
+    };
+    const audience = {
+      recipients: editing?.audience?.recipients || [],
+      ...(editing?.audience || {}),
+      segment: formMailTo || null,
+    };
+    const schedule = {
+      mode: "manual",
+      stages: editing?.schedule?.stages || [],
+      ...(editing?.schedule || {}),
+    };
+
+    if (formChannel === "email") {
+      content.subject = formSubject || null;
+    }
+
     const body = {
       name: formName,
+      channel: formChannel,
       subject: formSubject || null,
       type: formType || null,
+      use_case: formUseCase || null,
       mail_to: formMailTo || null,
+      audience,
+      schedule,
+      content,
+      channel_config: channelConfig,
     };
 
     try {
@@ -189,11 +296,28 @@ export default function CampaignsPanel() {
                 required
                 className="col-span-2 px-3 py-1.5 text-xs bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text placeholder-warroom-muted focus:outline-none focus:border-warroom-accent"
               />
+              <select
+                value={formChannel}
+                onChange={(e) => setFormChannel(e.target.value as MarketingChannel)}
+                className="px-3 py-1.5 text-xs bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text"
+              >
+                {channels.map((channel) => (
+                  <option key={channel.value} value={channel.value}>{channel.label}</option>
+                ))}
+                {channels.length === 0 && (
+                  <>
+                    <option value="email">Email</option>
+                    <option value="sms">SMS</option>
+                    <option value="voice">Voice</option>
+                    <option value="social">Social</option>
+                  </>
+                )}
+              </select>
               <input
                 type="text"
                 value={formSubject}
                 onChange={(e) => setFormSubject(e.target.value)}
-                placeholder="Email subject line"
+                placeholder={getSubjectPlaceholder(formChannel)}
                 className="px-3 py-1.5 text-xs bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text placeholder-warroom-muted focus:outline-none focus:border-warroom-accent"
               />
               <select
@@ -212,11 +336,40 @@ export default function CampaignsPanel() {
               </select>
               <input
                 type="text"
+                value={formUseCase}
+                onChange={(e) => setFormUseCase(e.target.value)}
+                placeholder="Reusable use case (optional)"
+                className="px-3 py-1.5 text-xs bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text placeholder-warroom-muted focus:outline-none focus:border-warroom-accent"
+              />
+              <input
+                type="text"
                 value={formMailTo}
                 onChange={(e) => setFormMailTo(e.target.value)}
-                placeholder="Recipients (email list or segment)"
+                placeholder={getAudiencePlaceholder(formChannel)}
                 className="col-span-2 px-3 py-1.5 text-xs bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text placeholder-warroom-muted focus:outline-none focus:border-warroom-accent"
               />
+            </div>
+            <div className="rounded-xl border border-warroom-border bg-warroom-bg/60 p-3">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-warroom-muted">
+                <Bot size={13} className="text-warroom-accent" />
+                <span>AI orchestration</span>
+              </div>
+              <p className="mt-1 text-xs text-warroom-muted">{getCampaignAssignmentHint(formChannel)}</p>
+              {editing ? (
+                <EntityAssignmentControl
+                  className="mt-3 border-0 bg-transparent p-0"
+                  entityType="marketing_campaign"
+                  entityId={editing.id}
+                  emptyLabel={`No AI owners assigned to this ${formChannel} campaign yet.`}
+                  initialAssignments={editing.agent_assignments || []}
+                  onAssignmentsChange={(assignments) => syncCampaignAssignments(editing.id, assignments)}
+                  title={`Own ${formChannel} campaign: ${formName || editing.name}`}
+                />
+              ) : (
+                <p className="mt-2 text-[11px] text-warroom-muted">
+                  Save this campaign first to assign pooled agents for {formChannel} orchestration.
+                </p>
+              )}
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={resetForm} className="px-3 py-1.5 text-xs text-warroom-muted">
@@ -258,6 +411,9 @@ export default function CampaignsPanel() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-warroom-text">{campaign.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-warroom-accent/10 text-warroom-accent border border-warroom-accent/20 uppercase">
+                        {campaign.channel}
+                      </span>
                       {campaign.type && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-warroom-surface text-warroom-muted border border-warroom-border">
                           {campaign.type}
@@ -274,6 +430,13 @@ export default function CampaignsPanel() {
                     {campaign.subject && (
                       <p className="text-xs text-warroom-muted mt-0.5">Subject: {campaign.subject}</p>
                     )}
+                    {campaign.use_case && (
+                      <p className="text-[10px] text-warroom-muted mt-0.5">Use case: {campaign.use_case}</p>
+                    )}
+                    <p className="text-[10px] text-warroom-muted mt-0.5 flex items-center gap-1">
+                      <Bot size={10} />
+                      {summarizeAssignedAgents(campaign.agent_assignments)}
+                    </p>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-[10px] text-warroom-muted flex items-center gap-1">
                         <Clock size={10} />

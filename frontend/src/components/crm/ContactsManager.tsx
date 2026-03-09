@@ -3,9 +3,12 @@
 import { useState, useEffect } from "react";
 import { Users, Phone, Search, Filter, X, Loader2, UserPlus, Mail } from "lucide-react";
 import LeadDrawer, { LeadFull } from "../leadgen/LeadDrawer";
+import PersonDrawer from "./PersonDrawer";
 import { API, authFetch } from "@/lib/api";
+import CallEvidence, { getCallEvidence } from "./CallEvidence";
 import LoadingState from "@/components/ui/LoadingState";
 import EmptyState from "@/components/ui/EmptyState";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 
 
 interface Contact {
@@ -31,8 +34,22 @@ interface CRMContact {
   company: string | null;
   source: string;
   assigned_to: string | null;
+  agent_assignments?: AgentAssignmentSummary[];
   created_at: string;
   updated_at: string;
+}
+
+interface DrawerPerson {
+  id: number;
+  name: string;
+  emails: { value: string; label: string }[];
+  contact_numbers: { value: string; label: string }[];
+  job_title: string | null;
+  organization_id: number | null;
+  organization?: { id: number; name: string };
+  notes?: string;
+  agent_assignments?: AgentAssignmentSummary[];
+  created_at: string;
 }
 
 const OUTCOME_COLORS: Record<string, string> = {
@@ -52,6 +69,8 @@ export default function ContactsManager() {
   const [contactedByFilter, setContactedByFilter] = useState("");
   const [selectedLead, setSelectedLead] = useState<LeadFull | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [selectedPerson, setSelectedPerson] = useState<DrawerPerson | null>(null);
+  const [isPersonDrawerOpen, setIsPersonDrawerOpen] = useState(false);
 
   const loadCrmContacts = async () => {
     try {
@@ -120,6 +139,27 @@ export default function ContactsManager() {
     setSelectedLead(null);
   };
 
+  const handleCrmContactClick = (contact: CRMContact) => {
+    setSelectedPerson({
+      id: contact.id,
+      name: contact.name,
+      emails: contact.email ? [{ value: contact.email, label: "primary" }] : [],
+      contact_numbers: contact.phone ? [{ value: contact.phone, label: "primary" }] : [],
+      job_title: null,
+      organization_id: null,
+      organization: contact.company ? { id: 0, name: contact.company } : undefined,
+      notes: "",
+      agent_assignments: contact.agent_assignments,
+      created_at: contact.created_at,
+    });
+    setIsPersonDrawerOpen(true);
+  };
+
+  const closePersonDrawer = () => {
+    setIsPersonDrawerOpen(false);
+    setSelectedPerson(null);
+  };
+
   const clearFilters = () => {
     setOutcomeFilter("");
     setContactedByFilter("");
@@ -185,9 +225,12 @@ export default function ContactsManager() {
                   </thead>
                   <tbody>
                     {crmContacts.map((contact) => (
-                      <tr key={contact.id} className="border-b border-warroom-border/50 hover:bg-warroom-border/20 cursor-pointer">
+                      <tr key={contact.id} onClick={() => handleCrmContactClick(contact)} className="border-b border-warroom-border/50 hover:bg-warroom-border/20 cursor-pointer">
                         <td className="px-4 py-3">
                           <p className="font-medium text-warroom-text">{contact.name}</p>
+                          {!!contact.agent_assignments?.length && (
+                            <div className="mt-1 text-xs text-warroom-accent">{contact.agent_assignments.length} AI action{contact.agent_assignments.length === 1 ? "" : "s"}</div>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-warroom-text">{contact.email}</span>
@@ -393,6 +436,12 @@ export default function ContactsManager() {
         onClose={closeDrawer}
         onUpdate={handleLeadUpdate}
       />
+      <PersonDrawer
+        person={selectedPerson}
+        isOpen={isPersonDrawerOpen}
+        onClose={closePersonDrawer}
+        onUpdate={setSelectedPerson}
+      />
     </div>
   );
 }
@@ -426,6 +475,10 @@ function ActivityList({ contactId }: { contactId?: number }) {
               {a.is_done && <span className="text-[9px] px-1 py-0.5 bg-green-500/10 text-green-400 rounded">Done</span>}
             </div>
             {a.comment && <p className="text-[10px] text-warroom-muted mt-0.5 line-clamp-2">{a.comment}</p>}
+            {a.type === "call" && (() => {
+              const evidence = getCallEvidence(a);
+              return <CallEvidence recordingUrl={evidence.recordingUrl} transcript={evidence.transcript} className="mt-2" />;
+            })()}
             {a.schedule_from && <p className="text-[10px] text-warroom-muted mt-0.5">{new Date(a.schedule_from).toLocaleString()}</p>}
           </div>
         </div>

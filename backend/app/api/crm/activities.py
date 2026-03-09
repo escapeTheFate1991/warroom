@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, date, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, delete, and_, or_
@@ -12,7 +12,18 @@ from sqlalchemy.orm import selectinload
 from app.db.crm_db import get_crm_db
 from app.models.crm.activity import Activity, ActivityParticipant, DealActivity, PersonActivity
 from app.models.crm.audit import AuditLog
-from .schemas import ActivityResponse, ActivityCreate, ActivityUpdate
+from app.models.crm.contact import Person
+from app.models.crm.deal import Deal
+from app.models.crm.email import Email
+from .schemas import (
+    ActivityCreate,
+    ActivityResponse,
+    ActivityUpdate,
+    CommunicationHistoryItem,
+    CommunicationHistoryResponse,
+    CommunicationHistoryScope,
+    CommunicationHistoryTarget,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -30,6 +41,228 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
         new_values=new_values
     )
     db.add(audit_log)
+
+
+def parse_leadgen_prospect_id(prospect_id: str) -> int:
+    """Resolve a prospects API id into the linked leadgen lead id."""
+    normalized = (prospect_id or "").strip()
+    source, separator, raw_id = normalized.partition("-")
+    if separator != "-" or source not in {"lead", "leadgen"} or not raw_id.isdigit():
+        raise ValueError("Prospect communications history is only available for lead-backed prospects like lead-123")
+    return int(raw_id)
+
+
+def compact_history_metadata(values: dict[str, Any]) -> dict[str, Any] | None:
+    """Drop empty values from metadata blocks for a cleaner AI contract."""
+    compacted = {
+        key: value
+        for key, value in values.items()
+        if value not in (None, "", [], {})
+    }
+    return compacted or None
+
+
+def history_item_sort_timestamp(item: CommunicationHistoryItem) -> datetime:
+    """Sort history items by the best available timeline timestamp."""
+    return item.occurred_at or item.created_at
+
+
+def serialize_activity_history_item(activity: Activity) -> CommunicationHistoryItem:
+    """Convert a CRM activity into the unified communications history contract."""
+    additional = activity.additional if isinstance(activity.additional, dict) else {}
+    channel = activity.type or "activity"
+    content = activity.comment
+    if channel == "sms" and isinstance(additional.get("body"), str):
+        content = additional["body"]
+    elif channel == "call" and isinstance(additional.get("transcript"), str):
+        content = additional["transcript"] or activity.comment
+
+    return CommunicationHistoryItem(
+        entry_id=f"activity:{activity.id}",
+        source="activity",
+        channel=channel,
+        occurred_at=activity.schedule_from or activity.created_at,
+        created_at=activity.created_at,
+        title=activity.title,
+        content=content,
+        linked_person_ids=sorted(
+            person.id for person in getattr(activity, "persons", []) if getattr(person, "id", None) is not None
+        ),
+        linked_deal_ids=sorted(
+            deal.id for deal in getattr(activity, "deals", []) if getattr(deal, "id", None) is not None
+        ),
+        participant_person_ids=sorted(
+            participant.id
+            for participant in getattr(activity, "participants", [])
+            if getattr(participant, "id", None) is not None
+        ),
+        direction=additional.get("direction") if isinstance(additional.get("direction"), str) else None,
+        status=additional.get("status") if isinstance(additional.get("status"), str) else None,
+        from_number=additional.get("from_number") if isinstance(additional.get("from_number"), str) else None,
+        to_number=additional.get("to_number") if isinstance(additional.get("to_number"), str) else None,
+        recording_url=additional.get("recording_url") if isinstance(additional.get("recording_url"), str) else None,
+        transcript=additional.get("transcript") if isinstance(additional.get("transcript"), str) else None,
+        metadata=compact_history_metadata(
+            {
+                "type": activity.type,
+                "comment": activity.comment,
+                "location": activity.location,
+                "schedule_to": activity.schedule_to.isoformat() if activity.schedule_to else None,
+                "is_done": activity.is_done,
+                "user_id": activity.user_id,
+                "additional": additional or None,
+            }
+        ),
+    )
+
+
+def serialize_email_history_item(email: Email) -> CommunicationHistoryItem:
+    """Convert a CRM email into the unified communications history contract."""
+    attachments = [
+        {
+            "name": attachment.name,
+            "content_type": attachment.content_type,
+            "size": attachment.size,
+            "filepath": attachment.filepath,
+        }
+        for attachment in getattr(email, "attachments", [])
+    ]
+    addresses = compact_history_metadata(
+        {
+            "from_addr": email.from_addr,
+            "sender": email.sender,
+            "reply_to": email.reply_to,
+            "cc": email.cc,
+            "bcc": email.bcc,
+        }
+    )
+    return CommunicationHistoryItem(
+        entry_id=f"email:{email.id}",
+        source="email",
+        channel="email",
+        occurred_at=email.created_at,
+        created_at=email.created_at,
+        title=email.subject,
+        content=email.reply,
+        linked_person_ids=[email.person_id] if email.person_id is not None else [],
+        linked_deal_ids=[email.deal_id] if email.deal_id is not None else [],
+        addresses=addresses,
+        attachments=attachments,
+        metadata=compact_history_metadata(
+            {
+                "source": email.source,
+                "name": email.name,
+                "folders": email.folders,
+                "message_id": email.message_id,
+                "reference_ids": email.reference_ids,
+                "parent_id": email.parent_id,
+                "is_read": email.is_read,
+            }
+        ),
+    )
+
+
+async def resolve_communication_scope(
+    db: AsyncSession,
+    *,
+    person_id: int | None = None,
+    deal_id: int | None = None,
+    prospect_id: str | None = None,
+) -> CommunicationHistoryScope:
+    """Resolve the exact person/deal scope for unified communications history reads."""
+    person_ids: set[int] = set()
+    deal_ids: set[int] = set()
+    leadgen_lead_id: int | None = None
+
+    if person_id is not None:
+        result = await db.execute(select(Person.id).where(Person.id == person_id).limit(1))
+        if result.scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        person_ids.add(person_id)
+        person_deal_ids = await db.execute(select(Deal.id).where(Deal.person_id == person_id))
+        deal_ids.update(person_deal_ids.scalars().all())
+
+    if deal_id is not None:
+        result = await db.execute(select(Deal.id, Deal.person_id).where(Deal.id == deal_id).limit(1))
+        row = result.first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Deal not found")
+        deal_ids.add(row.id)
+        if row.person_id is not None:
+            person_ids.add(row.person_id)
+
+    if prospect_id is not None:
+        leadgen_lead_id = parse_leadgen_prospect_id(prospect_id)
+        result = await db.execute(select(Deal.id, Deal.person_id).where(Deal.leadgen_lead_id == leadgen_lead_id))
+        for row in result.all():
+            deal_ids.add(row.id)
+            if row.person_id is not None:
+                person_ids.add(row.person_id)
+
+    return CommunicationHistoryScope(
+        person_ids=sorted(person_ids),
+        deal_ids=sorted(deal_ids),
+        leadgen_lead_id=leadgen_lead_id,
+    )
+
+
+async def load_history_activities(
+    db: AsyncSession,
+    scope: CommunicationHistoryScope,
+    *,
+    limit: int,
+) -> list[Activity]:
+    """Load activity-backed communication records for the resolved scope."""
+    filters = []
+    if scope.deal_ids:
+        filters.append(
+            Activity.id.in_(select(DealActivity.activity_id).where(DealActivity.deal_id.in_(scope.deal_ids)))
+        )
+    if scope.person_ids:
+        filters.append(
+            Activity.id.in_(select(PersonActivity.activity_id).where(PersonActivity.person_id.in_(scope.person_ids)))
+        )
+    if not filters:
+        return []
+
+    result = await db.execute(
+        select(Activity)
+        .options(
+            selectinload(Activity.participants),
+            selectinload(Activity.persons),
+            selectinload(Activity.deals),
+        )
+        .where(or_(*filters))
+        .distinct()
+        .order_by(Activity.schedule_from.desc().nulls_last(), Activity.created_at.desc())
+        .limit(limit)
+    )
+    return result.scalars().all()
+
+
+async def load_history_emails(
+    db: AsyncSession,
+    scope: CommunicationHistoryScope,
+    *,
+    limit: int,
+) -> list[Email]:
+    """Load email communication records for the resolved scope."""
+    filters = []
+    if scope.deal_ids:
+        filters.append(Email.deal_id.in_(scope.deal_ids))
+    if scope.person_ids:
+        filters.append(Email.person_id.in_(scope.person_ids))
+    if not filters:
+        return []
+
+    result = await db.execute(
+        select(Email)
+        .options(selectinload(Email.attachments))
+        .where(or_(*filters))
+        .order_by(Email.created_at.desc())
+        .limit(limit)
+    )
+    return result.scalars().all()
 
 
 @router.get("/activities", response_model=List[ActivityResponse])
@@ -155,6 +388,42 @@ async def get_activity_types(db: AsyncSession = Depends(get_crm_db)):
             types.append(activity_type)
 
     return {"types": sorted(types)}
+
+
+@router.get("/communications/history", response_model=CommunicationHistoryResponse)
+async def get_communications_history(
+    person_id: Optional[int] = None,
+    deal_id: Optional[int] = None,
+    prospect_id: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Return a unified AI-readable communications timeline for a CRM entity."""
+    selectors = [person_id is not None, deal_id is not None, prospect_id is not None]
+    if sum(selectors) != 1:
+        raise HTTPException(status_code=400, detail="Provide exactly one of person_id, deal_id, or prospect_id")
+
+    try:
+        scope = await resolve_communication_scope(
+            db,
+            person_id=person_id,
+            deal_id=deal_id,
+            prospect_id=prospect_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    activities = await load_history_activities(db, scope, limit=limit)
+    emails = await load_history_emails(db, scope, limit=limit)
+    items = [serialize_activity_history_item(activity) for activity in activities]
+    items.extend(serialize_email_history_item(email) for email in emails)
+    items.sort(key=history_item_sort_timestamp, reverse=True)
+
+    return CommunicationHistoryResponse(
+        target=CommunicationHistoryTarget(person_id=person_id, deal_id=deal_id, prospect_id=prospect_id),
+        resolved_scope=scope,
+        items=items[:limit],
+    )
 
 
 @router.get("/activities/{activity_id}", response_model=ActivityResponse)

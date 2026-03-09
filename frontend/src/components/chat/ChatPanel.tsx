@@ -9,6 +9,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import ArtifactPanel, { Artifact } from "./ArtifactPanel";
 import PromptImproverModal from "./PromptImproverModal";
+import type { AgentSummary } from "@/lib/agentAssignments";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -52,13 +53,7 @@ function formatTokens(n: number): string {
   return n.toString();
 }
 
-interface AgentOption {
-  id: string;
-  name: string;
-  emoji: string;
-  role: string;
-  model: string;
-}
+type AgentOption = Pick<AgentSummary, "id" | "name" | "emoji" | "role" | "model">;
 
 function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
   const [usage, setUsage] = useState<UsageData | null>(null);

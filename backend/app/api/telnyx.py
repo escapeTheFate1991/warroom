@@ -17,10 +17,12 @@ from app.models.crm.contact import Person
 from app.models.crm.deal import Deal
 from app.models.crm.sms_message import SMSMessage
 from app.services.telnyx_client import (
+    answer_call,
     TelnyxConfigError,
     TelnyxRequestError,
     hangup_call,
     make_call,
+    reject_call,
     send_sms,
     speak_text,
 )
@@ -33,7 +35,7 @@ class TelnyxCallRequest(BaseModel):
     phone_number: str
 
 
-class TelnyxHangupRequest(BaseModel):
+class TelnyxCallControlRequest(BaseModel):
     call_control_id: str
 
 
@@ -476,8 +478,34 @@ async def create_telnyx_call(body: TelnyxCallRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@router.post("/telnyx/answer")
+async def answer_telnyx_call(body: TelnyxCallControlRequest):
+    """Answer an active incoming Telnyx call."""
+    try:
+        return await answer_call(body.call_control_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TelnyxConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except TelnyxRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/telnyx/reject")
+async def reject_telnyx_call(body: TelnyxCallControlRequest):
+    """Reject an active incoming Telnyx call."""
+    try:
+        return await reject_call(body.call_control_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TelnyxConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except TelnyxRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/telnyx/hangup")
-async def hangup_telnyx_call(body: TelnyxHangupRequest):
+async def hangup_telnyx_call(body: TelnyxCallControlRequest):
     """Hang up an active Telnyx call."""
     try:
         return await hangup_call(body.call_control_id)

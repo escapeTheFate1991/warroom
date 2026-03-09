@@ -1,6 +1,7 @@
 """CRM Marketing models - Campaigns and Events."""
 
 from sqlalchemy import Column, Integer, Text, Boolean, Date, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -23,17 +24,23 @@ class MarketingEvent(CrmBase):
 
 
 class MarketingCampaign(CrmBase):
-    """Marketing campaigns."""
+    """Marketing campaigns with channel-aware delivery foundations."""
     __tablename__ = "marketing_campaigns"
     __table_args__ = {"schema": "crm"}
 
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
+    channel = Column(Text, nullable=False, default="email", server_default="email")
     subject = Column(Text)
     status = Column(Boolean, default=False)
     type = Column(Text)  # newsletter, event
+    use_case = Column(Text)
     mail_to = Column(Text)
     spooling = Column(Text)
+    audience = Column(JSONB)
+    schedule = Column(JSONB)
+    content = Column(JSONB)
+    channel_config = Column(JSONB)
     template_id = Column(Integer, ForeignKey("crm.email_templates.id", ondelete="SET NULL"))
     event_id = Column(Integer, ForeignKey("crm.marketing_events.id", ondelete="SET NULL"))
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())

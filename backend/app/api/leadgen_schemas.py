@@ -2,7 +2,9 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.api.agent_contract import AgentAssignmentSummary
 
 
 class SearchRequest(BaseModel):
@@ -81,6 +83,7 @@ class LeadResponse(BaseModel):
     contact_champion: str | None
     contact_history: list[dict] | None
 
+    agent_assignments: list[AgentAssignmentSummary] = Field(default_factory=list)
     created_at: datetime
 
     class Config:

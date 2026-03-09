@@ -19,11 +19,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from app.api.agent_contract import load_agent_assignment_map
+from app.db.crm_db import get_crm_db
 from app.db.leadgen_db import leadgen_engine, leadgen_session
 
 logger = logging.getLogger(__name__)
@@ -873,6 +875,7 @@ async def list_messages(
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
+    crm_db=Depends(get_crm_db),
 ):
     """List email messages with pagination and filtering."""
     conditions = []
@@ -918,6 +921,12 @@ async def list_messages(
         )
         rows = result.fetchall()
 
+    assignment_map = await load_agent_assignment_map(
+        crm_db,
+        entity_type="email_message",
+        entity_ids=[str(r[0]) for r in rows],
+    )
+
     return {
         "messages": [
             {
@@ -937,6 +946,7 @@ async def list_messages(
                 "synced_at": r[13].isoformat() if r[13] else None,
                 "provider": r[14],
                 "account_email": r[15],
+                "agent_assignments": assignment_map.get(str(r[0]), []),
             }
             for r in rows
         ],
@@ -948,7 +958,7 @@ async def list_messages(
 
 
 @router.get("/email/messages/{message_id}")
-async def get_message(message_id: int):
+async def get_message(message_id: int, crm_db=Depends(get_crm_db)):
     """Get full message including body."""
     async with _session() as db:
         result = await db.execute(
@@ -972,6 +982,13 @@ async def get_message(message_id: int):
     for date_field in ("date", "synced_at"):
         if msg.get(date_field) and hasattr(msg[date_field], "isoformat"):
             msg[date_field] = msg[date_field].isoformat()
+
+    assignment_map = await load_agent_assignment_map(
+        crm_db,
+        entity_type="email_message",
+        entity_ids=[str(message_id)],
+    )
+    msg["agent_assignments"] = assignment_map.get(str(message_id), [])
 
     return msg
 

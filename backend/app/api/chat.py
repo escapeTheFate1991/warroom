@@ -4,7 +4,10 @@ Implements the OpenClaw Gateway WS protocol v3 with device identity auth
 for full operator scopes (chat.send, chat.history, chat.abort).
 """
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
 import websockets
 import asyncio
 import json
@@ -15,6 +18,9 @@ import base64
 import logging
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key, Encoding, PublicFormat
+
+from app.api.agent_contract import AssignableEntityType, load_agent_assignment_map
+from app.db.crm_db import get_crm_db
 
 logger = logging.getLogger("chat")
 logger.setLevel(logging.INFO)
@@ -40,6 +46,25 @@ SCOPES = ["operator.admin", "operator.read", "operator.write", "operator.approva
 CLIENT_ID = "openclaw-probe"
 CLIENT_MODE = "webchat"
 PROTOCOL_VERSION = 3
+
+
+class GroundingFact(BaseModel):
+    label: str
+    value: Any
+
+
+class GroundingContext(BaseModel):
+    surface: str = "general"
+    entity_type: AssignableEntityType | None = None
+    entity_id: str | None = None
+    title: str | None = None
+    summary: str | None = None
+    facts: list[GroundingFact] = Field(default_factory=list)
+
+
+class ChatMessageRequest(BaseModel):
+    message: str
+    context: GroundingContext | None = None
 
 
 def base64url_encode(data: bytes) -> str:
@@ -365,6 +390,103 @@ async def list_sessions():
             return resp.json()
     except Exception:
         return {"sessions": [], "note": "openclaw not reachable"}
+
+
+async def _load_grounded_assignments(db, context: GroundingContext | None) -> list[dict[str, Any]]:
+    if not context or not context.entity_type or not context.entity_id:
+        return []
+
+    assignment_map = await load_agent_assignment_map(
+        db,
+        entity_type=context.entity_type,
+        entity_ids=[str(context.entity_id)],
+    )
+    return assignment_map.get(str(context.entity_id), [])
+
+
+def _build_grounding_payload(context: GroundingContext | None, assignments: list[dict[str, Any]]) -> tuple[str, str | None]:
+    if not context:
+        return "", None
+
+    summary_bits = [context.surface.replace("_", " ").title()]
+    if context.title:
+        summary_bits.append(context.title)
+
+    grounding_lines = [f"Surface: {context.surface}"]
+    if context.entity_type and context.entity_id:
+        grounding_lines.append(f"Entity: {context.entity_type} #{context.entity_id}")
+    if context.title:
+        grounding_lines.append(f"Title: {context.title}")
+    if context.summary:
+        grounding_lines.append(f"Summary: {context.summary}")
+
+    cleaned_facts = [fact for fact in context.facts if fact.label and fact.value not in (None, "")]
+    if cleaned_facts:
+        grounding_lines.append("Facts:")
+        grounding_lines.extend([f"- {fact.label}: {fact.value}" for fact in cleaned_facts[:8]])
+
+    if assignments:
+        grounding_lines.append("Assigned agents:")
+        grounding_lines.extend([
+            f"- {assignment.get('agent_emoji') or '🤖'} {assignment.get('agent_name') or assignment.get('agent_id')} ({assignment.get('status', 'queued')})"
+            for assignment in assignments[:6]
+        ])
+
+    grounding_summary = " • ".join(summary_bits)
+    return "\n".join(grounding_lines), grounding_summary
+
+
+@router.post("/message")
+async def send_message(body: ChatMessageRequest, db=Depends(get_crm_db)):
+    import httpx
+
+    text = body.message.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="No message provided")
+
+    assignments = await _load_grounded_assignments(db, body.context)
+    grounding_block, grounding_summary = _build_grounding_payload(body.context, assignments)
+
+    auth_token = os.getenv("OPENCLAW_AUTH_TOKEN", OPENCLAW_TOKEN)
+    if not auth_token:
+        return {
+            "response": "AI chat is not configured right now. Add OpenClaw credentials to enable grounded replies.",
+            "grounding_summary": grounding_summary,
+        }
+
+    system_prompt = (
+        "You are the shared WAR ROOM AI assistant. Answer the user's question using the provided business context when it is relevant. "
+        "Be specific about the current surface or record, mention assigned agents when helpful, and clearly say when the grounding context is insufficient."
+    )
+    user_content = text if not grounding_block else f"Grounding context:\n{grounding_block}\n\nUser request:\n{text}"
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{os.getenv('OPENCLAW_API_URL', OPENCLAW_API)}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {auth_token}"},
+                json={
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                    "stream": False,
+                    "temperature": 0.3,
+                    "max_tokens": 1200,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices:
+                    content = choices[0].get("message", {}).get("content", "").strip()
+                    if content:
+                        return {"response": content, "grounding_summary": grounding_summary}
+            logger.warning("Grounded chat failed: %s", resp.status_code)
+    except Exception as exc:
+        logger.warning("Grounded chat exception: %s", exc)
+
+    raise HTTPException(status_code=502, detail="Failed to get chat response")
 
 
 

@@ -4,9 +4,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, Clock, FileText, Loader2, Eye, X,
   Plus, Trash2, CalendarDays, Activity, Pencil,
-  MoreHorizontal, MapPin, Users, Bell, Type, CheckSquare, BellRing,
+  MoreHorizontal, MapPin, Users, Bell, Type, CheckSquare, BellRing, Bot,
   Repeat, Globe, Briefcase
 } from "lucide-react";
+import EntityAssignmentControl from "@/components/agents/EntityAssignmentControl";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
 
 
@@ -46,6 +48,7 @@ interface PersonalEvent {
   all_day?: boolean;
   visibility?: string;
   status?: string;
+  agent_assignments?: AgentAssignmentSummary[];
 }
 
 interface PersonalCalendarData {
@@ -298,11 +301,13 @@ function EventDetailPopover({
   onClose,
   onEdit,
   onDelete,
+  onAssignmentsChange,
 }: {
   event: PersonalEvent;
   onClose: () => void;
   onEdit: (event: PersonalEvent) => void;
   onDelete: (eventId: string) => void;
+  onAssignmentsChange: (eventId: string, assignments: AgentAssignmentSummary[]) => void;
 }) {
   const dotColor = EVENT_DOT_COLORS[event.type || "default"] || EVENT_DOT_COLORS.default;
 
@@ -370,6 +375,16 @@ function EventDetailPopover({
               </span>
             </div>
           )}
+
+          <EntityAssignmentControl
+            entityType="calendar_event"
+            entityId={event.id}
+            title={event.title}
+            initialAssignments={event.agent_assignments}
+            onAssignmentsChange={(assignments) => onAssignmentsChange(event.id, assignments)}
+            emptyLabel="No AI agents assigned to this event yet."
+            className="mt-3"
+          />
         </div>
 
         {/* Action buttons */}
@@ -819,6 +834,14 @@ export default function ActivityCalendar() {
     });
   };
 
+  const handleEventAssignmentsChange = useCallback((eventId: string, assignments: AgentAssignmentSummary[]) => {
+    setPersonalData((prev) => prev ? {
+      ...prev,
+      events: prev.events.map((event) => event.id === eventId ? { ...event, agent_assignments: assignments } : event),
+    } : prev);
+    setSelectedEvent((prev) => prev && prev.id === eventId ? { ...prev, agent_assignments: assignments } : prev);
+  }, []);
+
   /* ── Navigation ───────────────────────────────────────── */
 
   const navigateMonth = (delta: number) => {
@@ -1085,6 +1108,7 @@ export default function ActivityCalendar() {
                                   }`}
                                 >
                                   {ev.source === "google" && <Globe size={7} className="shrink-0" />}
+                                  {ev.agent_assignments && ev.agent_assignments.length > 0 && <Bot size={7} className="shrink-0" />}
                                   {ev.time ? `${ev.time} ` : ""}{ev.title}
                                 </div>
                               ))}
@@ -1154,6 +1178,7 @@ export default function ActivityCalendar() {
           onClose={() => setSelectedEvent(null)}
           onEdit={openEditFromEvent}
           onDelete={deleteEvent}
+          onAssignmentsChange={handleEventAssignmentsChange}
         />
       )}
 
