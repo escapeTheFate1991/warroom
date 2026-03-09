@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows
 from app.db.leadgen_db import leadgen_engine
-from app.db.crm_db import crm_engine
+from app.db.crm_db import crm_engine, crm_session
 from app.models.lead import Base
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,13 @@ async def lifespan(app: FastAPI):
         if crm_schema_ok:
             await telnyx.init_telnyx_tables()
             logger.info("Telnyx CRM tables initialized")
+        
+        # Agents tables (crm schema — must exist before any feature queries agent_assignments)
+        from app.api.agents import ensure_tables as ensure_agent_tables
+        async with crm_session() as db:
+            await db.execute(sa_text("SET search_path TO crm, public"))
+            await ensure_agent_tables(db)
+        logger.info("Agent tables initialized (crm schema)")
         
         # Contact submissions table (public schema)
         await contact_webhook.init_contact_table()

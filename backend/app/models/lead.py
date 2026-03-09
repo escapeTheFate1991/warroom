@@ -89,6 +89,10 @@ class Lead(Base):
     # Audit lite (quick surface-level flags from enrichment crawl)
     audit_lite_flags = Column(ARRAY(Text), default=[])
 
+    # Source
+    lead_source = Column(Text, default="google_places")
+    enrichment_error = Column(Text)
+
     # Pipeline status
     enrichment_status = Column(String(20), default="pending")
     audit_status = Column(String(20), default="pending")

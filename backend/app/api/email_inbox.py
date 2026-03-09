@@ -99,13 +99,24 @@ INDEX_SQLS = [
 
 
 async def init_email_tables():
-    """Create email tables + indexes on startup."""
+    """Create email tables + indexes on startup, then warm Gmail token."""
     async with _engine.begin() as conn:
         await conn.execute(text(ACCOUNTS_TABLE_SQL))
         await conn.execute(text(MESSAGES_TABLE_SQL))
         for idx_sql in INDEX_SQLS:
             await conn.execute(text(idx_sql))
     logger.info("Email inbox tables initialized")
+
+    # Proactively refresh Gmail token on startup so first request doesn't fail
+    try:
+        tokens = await _load_gmail_tokens()
+        if tokens and tokens.get("refresh_token"):
+            _ = await _get_gmail_access_token()
+            logger.info("Gmail token warmed on startup")
+        else:
+            logger.info("No Gmail tokens to warm (not connected)")
+    except Exception as exc:
+        logger.warning("Gmail token warm failed (reconnect may be needed): %s", exc)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

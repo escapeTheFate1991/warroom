@@ -28,6 +28,7 @@ import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
 import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
 import ScrollTabs from "@/components/ui/ScrollTabs";
+import QuickActions from "@/components/communications/QuickActions";
 
 
 export interface LeadFull {
@@ -246,6 +247,7 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
   const [saving, setSaving] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [teamMembers, setTeamMembers] = useState<{ id: number; name: string }[]>([]);
 
   // Load platform settings for script generation
   useEffect(() => {
@@ -256,6 +258,11 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
         items.forEach((s: any) => { map[s.key] = s.value || ""; });
         setSettings(map);
       })
+      .catch(() => {});
+    // Load team members for dropdown
+    authFetch(`${API}/api/crm/users`)
+      .then(r => r.ok ? r.json() : [])
+      .then((users: any[]) => setTeamMembers(users.map((u: any) => ({ id: u.id, name: u.name }))))
       .catch(() => {});
   }, []);
 
@@ -518,6 +525,17 @@ ${lead.phone || ""}`;
                       <span>{lead.emails[0]}</span>
                     </div>
                   )}
+                  {(lead.phone || lead.emails?.[0]) && (
+                    <div className="flex items-center gap-1 col-span-2">
+                      <span className="text-xs text-warroom-muted mr-1">Quick:</span>
+                      <QuickActions
+                        phone={lead.phone}
+                        email={lead.emails?.[0]}
+                        name={lead.business_name}
+                        size="sm"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Rating & Social */}
@@ -724,12 +742,17 @@ ${lead.phone || ""}`;
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-warroom-muted mb-1">Contacted By</label>
-                    <input
+                    <select
                       value={contactForm.contacted_by}
                       onChange={(e) => setContactForm(prev => ({ ...prev, contacted_by: e.target.value }))}
-                      className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
-                      placeholder="Your name"
-                    />
+                      className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+                      style={{ colorScheme: "dark" }}
+                    >
+                      <option value="">Select team member...</option>
+                      {teamMembers.map((u) => (
+                        <option key={u.id} value={u.name}>{u.name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-warroom-muted mb-1">Who Answered</label>
