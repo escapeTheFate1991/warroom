@@ -218,7 +218,6 @@ async def _send_confirmation_sms_and_call(submission_id: int, name: str, phone: 
         await asyncio.sleep(120)
 
         try:
-            config = await get_twilio_config()
             # Use the webhook URL for the AI conversation flow
             webhook_base = "https://warroom.stuffnthings.io/api/twilio"
             await make_call(

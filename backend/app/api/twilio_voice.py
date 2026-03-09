@@ -67,6 +67,7 @@ def _twiml(body: str) -> Response:
 # Voice config — Twilio's built-in neural voices
 VOICE = "Polly.Joanna"  # AWS Polly neural voice (warm, professional female)
 GATHER_OPTS = 'input="speech" speechTimeout="3" language="en-US"'
+BASE_URL = "https://warroom.stuffnthings.io/api/twilio"
 
 
 # ── Step 1: Welcome + Ask about pain points ──────────────────────────
@@ -115,7 +116,7 @@ async def voice_welcome(request: Request):
             Thank you for reaching out to us.
         </Say>
         <Pause length="1"/>
-        <Gather {GATHER_OPTS} action="/api/twilio/voice/gather-tasks">
+        <Gather {GATHER_OPTS} action="https://warroom.stuffnthings.io/api/twilio/voice/gather-tasks">
             <Say voice="{VOICE}">
                 We'd love to learn more about your business.
                 What tasks or processes do you feel are taking time away from your core business?
@@ -124,7 +125,7 @@ async def voice_welcome(request: Request):
         <Say voice="{VOICE}">
             I didn't catch that. Let me move on.
         </Say>
-        <Redirect>/api/twilio/voice/gather-services</Redirect>
+        <Redirect>https://warroom.stuffnthings.io/api/twilio/voice/gather-services</Redirect>
     """)
 
 
@@ -152,7 +153,7 @@ async def voice_gather_tasks(request: Request):
             Got it, that's really helpful. Thank you for sharing that.
         </Say>
         <Pause length="1"/>
-        <Gather {GATHER_OPTS} action="/api/twilio/voice/gather-services">
+        <Gather {GATHER_OPTS} action="https://warroom.stuffnthings.io/api/twilio/voice/gather-services">
             <Say voice="{VOICE}">
                 Now, what services were you most interested in?
                 For example, we offer website design and development, A I workflow automation,
@@ -162,7 +163,7 @@ async def voice_gather_tasks(request: Request):
         <Say voice="{VOICE}">
             No worries. Let me move to the next question.
         </Say>
-        <Redirect>/api/twilio/voice/gather-schedule</Redirect>
+        <Redirect>https://warroom.stuffnthings.io/api/twilio/voice/gather-schedule</Redirect>
     """)
 
 
@@ -189,7 +190,7 @@ async def voice_gather_services(request: Request):
             Great choices. We can definitely help with that.
         </Say>
         <Pause length="1"/>
-        <Gather {GATHER_OPTS} action="/api/twilio/voice/gather-schedule">
+        <Gather {GATHER_OPTS} action="https://warroom.stuffnthings.io/api/twilio/voice/gather-schedule">
             <Say voice="{VOICE}">
                 Last question. When would be a good day and time for one of our team members
                 to meet with you for a more detailed consultation?
@@ -199,7 +200,7 @@ async def voice_gather_services(request: Request):
         <Say voice="{VOICE}">
             No problem. We'll follow up by email to find a time that works.
         </Say>
-        <Redirect>/api/twilio/voice/complete</Redirect>
+        <Redirect>https://warroom.stuffnthings.io/api/twilio/voice/complete</Redirect>
     """)
 
 
@@ -232,7 +233,7 @@ async def voice_gather_schedule(request: Request):
             Thank you so much for your time today. We're excited to work with you.
             Have a great day!
         </Say>
-        <Redirect>/api/twilio/voice/complete</Redirect>
+        <Redirect>https://warroom.stuffnthings.io/api/twilio/voice/complete</Redirect>
     """)
 
 
