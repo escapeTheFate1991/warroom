@@ -491,6 +491,13 @@ export default function ChatPanel() {
   const audioPlayingRef = useRef<boolean>(false);
   const lastSpokenTextRef = useRef<string>("");
   const lastSpokenTimeRef = useRef<number>(0);
+  // Accumulates assistant text across tool cycles within a single response
+  const partialContentRef = useRef<string>("");
+  const [partialContent, setPartialContent] = useState<string>("");
+  const updatePartial = useCallback((val: string) => {
+    partialContentRef.current = val;
+    setPartialContent(val);
+  }, []);
 
   // Keep ref in sync with state
   useEffect(() => { streamTextRef.current = streamText; }, [streamText]);
@@ -640,7 +647,7 @@ export default function ChatPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  useEffect(() => { scrollToBottom(); }, [messages, streamText, scrollToBottom]);
+  useEffect(() => { scrollToBottom(); }, [messages, streamText, partialContent, scrollToBottom]);
 
   // Scroll detection
   useEffect(() => {
@@ -715,7 +722,8 @@ export default function ChatPanel() {
                 role: extractRole(m),
                 content: extractText(m),
                 timestamp: new Date(m.timestamp || Date.now()),
-              }));
+              }))
+              .filter((m: Message) => m.content.trim().length > 0);
             setMessages(history);
           }
           if (res.ok && res.payload?.runId) {
@@ -766,6 +774,10 @@ export default function ChatPanel() {
             const toolInput = toolBlock?.input ? JSON.stringify(toolBlock.input).slice(0, 120) : "";
             const toolId = toolBlock?.id || crypto.randomUUID();
             const newTool: ToolCall = { id: toolId, name: toolName, input: toolInput, status: "running" };
+            // Snapshot any streaming text before tool call so it stays visible
+            if (streamTextRef.current) {
+              updatePartial(streamTextRef.current);
+            }
             setActiveTools(prev => {
               const updated = [...prev, newTool];
               activeToolsRef.current = updated;
@@ -801,6 +813,13 @@ export default function ChatPanel() {
           if (state === "delta") {
             const text = extractText(message);
             if (text) {
+              // Gateway sends cumulative text per assistant turn, but resets between tool cycles.
+              // If new delta is shorter than what we had (new turn after tool), preserve partial.
+              const prev = streamTextRef.current || "";
+              if (text.length < prev.length * 0.5 && prev.length > 20) {
+                // Looks like a new turn — snapshot previous text into partial buffer
+                updatePartial(prev);
+              }
               setStreamText(text);
               streamTextRef.current = text;
               setIsLoading(false);
@@ -811,7 +830,7 @@ export default function ChatPanel() {
             const finalTools = activeToolsRef.current.length > 0
               ? activeToolsRef.current.map(t => ({ ...t, status: "done" as ToolCall["status"] }))
               : undefined;
-            if (text) {
+            if (text && text.trim().length > 0) {
               setMessages(prev => [...prev, {
                 id: crypto.randomUUID(),
                 role: "assistant",
@@ -822,6 +841,7 @@ export default function ChatPanel() {
             }
             setStreamText(null);
             streamTextRef.current = null;
+            updatePartial("");
             setIsLoading(false);
             updateGenerating(false);
             setActiveTools([]);
@@ -833,8 +853,8 @@ export default function ChatPanel() {
               speakText(text);
             }
           } else if (state === "aborted") {
-            const partial = streamTextRef.current;
-            if (partial) {
+            const partial = streamTextRef.current || partialContentRef.current;
+            if (partial && partial.trim().length > 0) {
               setMessages(prev => [...prev, {
                 id: crypto.randomUUID(),
                 role: "assistant",
@@ -844,6 +864,7 @@ export default function ChatPanel() {
             }
             setStreamText(null);
             streamTextRef.current = null;
+            updatePartial("");
             setIsLoading(false);
             updateGenerating(false);
           } else if (state === "error") {
@@ -855,6 +876,7 @@ export default function ChatPanel() {
             }
             setStreamText(null);
             streamTextRef.current = null;
+            updatePartial("");
             setIsLoading(false);
             updateGenerating(false);
           }
@@ -1433,7 +1455,7 @@ export default function ChatPanel() {
             </div>
           )}
 
-          {messages.map((msg) => (
+          {messages.filter(msg => msg.role === "system" || msg.content.trim().length > 0).map((msg) => (
             msg.role === "system" ? (
               <div key={msg.id} className="flex justify-center">
                 <div className="bg-warroom-surface/50 border border-warroom-border/50 rounded-full px-4 py-1.5 text-xs text-warroom-muted flex items-center gap-2">
@@ -1537,6 +1559,13 @@ export default function ChatPanel() {
                 <Bot size={16} className="text-warroom-accent" />
               </div>
               <div className="max-w-[80%] space-y-2 w-full">
+                {/* Partial content from before tool calls — keeps text visible during tool execution */}
+                {!streamText && partialContent && activeTools.length > 0 && (
+                  <div className="prose prose-invert prose-sm max-w-none break-words [&>p]:mb-3 [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline opacity-70">
+                    <ReactMarkdown>{partialContent}</ReactMarkdown>
+                  </div>
+                )}
+
                 {/* Thinking block */}
                 {thinkingText && (
                   <div className="border border-zinc-700/50 rounded-lg overflow-hidden bg-zinc-900/60">
@@ -1585,8 +1614,8 @@ export default function ChatPanel() {
                   </div>
                 )}
 
-                {/* Loading dots when no text yet but tools are active */}
-                {!streamText && !thinkingText && activeTools.length > 0 && activeTools.some(t => t.status === "running") && (
+                {/* Loading dots when no text yet but tools are active (and no partial content either) */}
+                {!streamText && !partialContent && !thinkingText && activeTools.length > 0 && activeTools.some(t => t.status === "running") && (
                   <div className="flex items-center gap-1 py-1">
                     <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:0ms]" />
                     <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:150ms]" />

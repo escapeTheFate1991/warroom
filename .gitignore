@@ -17,7 +17,9 @@ dist/
 build/
 *.egg
 .venv/
+.venv*/
 venv/
+venv*/
 env/
 
 # Environment files

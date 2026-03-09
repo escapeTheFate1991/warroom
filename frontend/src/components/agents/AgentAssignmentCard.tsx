@@ -96,7 +96,7 @@ export default function AgentAssignmentCard({ entityType, entityId, title, initi
         context={{
           surface: getAISurface(entityType),
           entityType,
-          entityId,
+          entityId: String(entityId),
           title,
           summary: assignments.length > 0 ? `${assignments.length} shared AI agent(s) assigned.` : "No AI actions assigned.",
           facts: [{ label: "Assigned agents", value: assignments.length }],
