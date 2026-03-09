@@ -879,8 +879,8 @@ export default function ActivityCalendar() {
   /* ── Render ───────────────────────────────────────────── */
 
   return (
-    <div className="h-full flex flex-col p-4 gap-4 overflow-auto">
-      <div className="bg-warroom-surface border border-warroom-border rounded-2xl overflow-hidden flex-1 flex flex-col">
+    <div className="h-full flex flex-col overflow-hidden">
+      <div className="bg-warroom-surface border-b border-warroom-border overflow-hidden flex-1 flex flex-col">
         {/* Header with Tabs */}
         <div className="border-b border-warroom-border p-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -986,27 +986,27 @@ export default function ActivityCalendar() {
           )}
         </div>
 
-        {/* Calendar Grid */}
-        <div className="flex-1 p-4">
+        {/* Calendar Grid — Samsung-style: full width, tall rows, events inline */}
+        <div className="flex-1 flex flex-col overflow-hidden">
           {(loading || personalLoading) ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 size={24} className="animate-spin text-warroom-accent" />
             </div>
           ) : (
-            <div>
+            <div className="flex flex-col flex-1 min-h-0">
               {/* Day headers */}
-              <div className="grid grid-cols-7 gap-2 mb-2">
+              <div className="grid grid-cols-7 border-b border-warroom-border flex-shrink-0">
                 {DAY_NAMES.map((d) => (
-                  <div key={d} className="text-center py-2">
-                    <span className="text-xs font-medium text-warroom-muted">{d}</span>
+                  <div key={d} className="text-center py-1.5">
+                    <span className="text-[11px] font-medium text-warroom-muted">{d}</span>
                   </div>
                 ))}
               </div>
 
-              {/* Calendar days */}
-              <div className="space-y-2">
+              {/* Calendar weeks */}
+              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
                 {grid.map((week, wi) => (
-                  <div key={wi} className="grid grid-cols-7 gap-2">
+                  <div key={wi} className="grid grid-cols-7 flex-1 min-h-[80px] border-b border-warroom-border/40">
                     {week.map((info, di) => {
                       const hasContent =
                         tab === "activities" ? info.hasMemory : info.dayEvents.length > 0;
@@ -1018,78 +1018,60 @@ export default function ActivityCalendar() {
                             if (tab === "activities" && info.hasMemory) {
                               loadDayDetail(info.dateStr);
                             }
-                            if (tab === "personal") {
-                              if (info.dayEvents.length === 0 && info.isCurrentMonth) {
-                                openQuickAdd(info.dateStr);
-                              }
-                              // If has events, clicking the day cell with no specific event opens quick-add too
-                              // Individual events are clickable separately below
-                              if (info.dayEvents.length > 0 && info.isCurrentMonth) {
-                                openQuickAdd(info.dateStr);
-                              }
+                            if (tab === "personal" && info.isCurrentMonth) {
+                              openQuickAdd(info.dateStr);
                             }
                           }}
                           className={`
-                            relative rounded-lg p-2 text-sm transition-colors border min-h-[72px] flex flex-col
+                            relative px-1 pt-1 pb-0.5 text-left transition-colors flex flex-col
+                            ${di < 6 ? "border-r border-warroom-border/20" : ""}
                             ${!info.isCurrentMonth
-                              ? "text-warroom-muted bg-warroom-bg/50 border-transparent cursor-default"
+                              ? "text-warroom-muted/40"
                               : hasContent
-                                ? "bg-warroom-accent/10 border-warroom-accent/30 hover:bg-warroom-accent/20 cursor-pointer"
+                                ? "hover:bg-warroom-accent/5 cursor-pointer"
                                 : tab === "personal"
-                                  ? "bg-warroom-bg border-warroom-border hover:bg-warroom-surface cursor-pointer"
-                                  : "bg-warroom-bg border-warroom-border cursor-default"
+                                  ? "hover:bg-warroom-surface/50 cursor-pointer"
+                                  : ""
                             }
-                            ${info.isToday ? "ring-2 ring-warroom-accent" : ""}
                           `}
                         >
-                          <span
-                            className={`font-medium text-xs ${
-                              !info.isCurrentMonth
-                                ? "text-warroom-muted"
-                                : info.isToday
-                                  ? "text-warroom-accent"
-                                  : "text-warroom-text"
-                            }`}
-                          >
+                          {/* Day number */}
+                          <span className={`text-xs font-medium inline-flex items-center justify-center w-6 h-6 rounded-full mb-0.5 ${
+                            info.isToday
+                              ? "bg-warroom-accent text-white"
+                              : !info.isCurrentMonth
+                                ? "text-warroom-muted/40"
+                                : "text-warroom-text"
+                          }`}>
                             {info.day}
                           </span>
 
-                          {/* Activity indicator */}
+                          {/* Activity dot */}
                           {tab === "activities" && info.hasMemory && (
-                            <>
-                              <div className="absolute top-1 right-1 w-2 h-2 bg-warroom-accent rounded-full" />
-                              {info.memoryData && (
-                                <div className="mt-auto">
-                                  <div className="text-[9px] text-warroom-muted bg-warroom-bg/80 rounded px-1">
-                                    {Math.round(info.memoryData.size / 1024)}K
-                                  </div>
-                                </div>
-                              )}
-                            </>
+                            <div className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-warroom-accent rounded-full" />
                           )}
 
-                          {/* Personal event chips (clickable individually) */}
+                          {/* Event chips — Samsung style */}
                           {tab === "personal" && info.dayEvents.length > 0 && (
-                            <div className="mt-1 flex flex-col gap-0.5 overflow-hidden">
-                              {info.dayEvents.slice(0, 2).map((ev) => (
+                            <div className="flex flex-col gap-px overflow-hidden flex-1 min-w-0">
+                              {info.dayEvents.slice(0, 3).map((ev) => (
                                 <div
                                   key={ev.id}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedEvent(ev);
                                   }}
-                                  className={`text-[9px] px-1 rounded truncate text-white cursor-pointer hover:opacity-80 transition flex items-center gap-0.5 ${
+                                  className={`text-[9px] leading-tight px-1 py-px rounded-sm truncate text-white cursor-pointer hover:opacity-80 ${
                                     ev.source === "google"
-                                      ? "bg-blue-600"
+                                      ? "bg-emerald-700"
                                       : EVENT_COLORS[ev.type || "default"] || EVENT_COLORS.default
                                   }`}
                                 >
-                                  {ev.source === "google" && <Globe size={7} className="shrink-0" />}
-                                  {ev.time ? `${ev.time} ` : ""}{ev.title}
+                                  {ev.title}
                                 </div>
                               ))}
-                              {info.dayEvents.length > 2 && (
-                                <span className="text-[9px] text-warroom-muted">+{info.dayEvents.length - 2} more</span>
+                              {info.dayEvents.length > 3 && (
+                                <span className="text-[8px] text-warroom-muted">+{info.dayEvents.length - 3}</span>
                               )}
                             </div>
                           )}
@@ -1134,6 +1116,34 @@ export default function ActivityCalendar() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Quick-Add Bar (bottom) ── */}
+      {tab === "personal" && (
+        <div className="flex items-center gap-2 px-3 py-2 border-t border-warroom-border bg-warroom-surface/80 flex-shrink-0">
+          <input
+            type="text"
+            placeholder="Quick add event…"
+            className="flex-1 bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2 text-sm text-warroom-text placeholder:text-warroom-muted/50 focus:outline-none focus:ring-1 focus:ring-warroom-accent"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
+                const today = new Date().toISOString().split("T")[0];
+                const val = (e.target as HTMLInputElement).value.trim();
+                saveEvent({ title: val, date: today, type: "event" });
+                (e.target as HTMLInputElement).value = "";
+              }
+            }}
+          />
+          <button
+            onClick={() => {
+              const today = new Date().toISOString().split("T")[0];
+              openQuickAdd(today);
+            }}
+            className="w-10 h-10 rounded-full bg-warroom-muted/20 hover:bg-warroom-accent/20 flex items-center justify-center text-warroom-muted hover:text-warroom-accent transition flex-shrink-0"
+          >
+            <Plus size={20} />
+          </button>
         </div>
       )}
 
