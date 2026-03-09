@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Phone, Search, Filter, X, Loader2 } from "lucide-react";
 import LeadDrawer, { LeadFull } from "../leadgen/LeadDrawer";
+import QuickActions from "../communications/QuickActions";
 import { API, authFetch } from "@/lib/api";
 
 
@@ -171,6 +172,7 @@ export default function ContactsPanel() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Date</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Outcome</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Notes</th>
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -224,6 +226,13 @@ export default function ContactsPanel() {
                       <div className="text-xs text-warroom-muted max-w-xs truncate">
                         {contact.contact_notes || "No notes"}
                       </div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <QuickActions
+                        phone={contact.phone}
+                        name={contact.business_name}
+                        className="justify-center"
+                      />
                     </td>
                   </tr>
                 ))}

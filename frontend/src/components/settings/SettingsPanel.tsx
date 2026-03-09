@@ -1733,6 +1733,67 @@ export default function SettingsPanel() {
             })}
           </div>
         </div>
+
+        {/* Twilio */}
+        <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <PhoneCall size={20} className="text-green-400" />
+            <div>
+              <h3 className="text-base font-semibold text-warroom-text">Twilio Voice & SMS</h3>
+              <p className="text-xs text-warroom-muted">Primary integration for calls, SMS, and IVR</p>
+            </div>
+          </div>
+          <div className="space-y-4">
+            {[
+              { key: "twilio_account_sid", label: "Account SID", placeholder: "AC...", secret: false },
+              { key: "twilio_auth_token", label: "Auth Token", placeholder: "Your auth token", secret: true },
+              { key: "twilio_phone_number", label: "Phone Number", placeholder: "+1234567890" },
+            ].map(({ key, label, placeholder, secret }) => {
+              const currentValue = editValues[key] || "";
+              const hasValue = settings.some(s => s.key === key && s.value);
+              return (
+                <div key={key}>
+                  <label className="text-xs text-warroom-muted mb-1 block">{label}</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type={secret && !revealed[key] ? "password" : "text"}
+                      value={currentValue}
+                      onChange={(e) => setEditValues(prev => ({ ...prev, [key]: e.target.value }))}
+                      placeholder={placeholder}
+                      className="flex-1 bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/40 focus:outline-none focus:border-warroom-accent/50"
+                    />
+                    {secret && (
+                      <button
+                        onClick={() => setRevealed(prev => ({ ...prev, [key]: !prev[key] }))}
+                        className="p-2 text-warroom-muted hover:text-warroom-text"
+                      >
+                        {revealed[key] ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    )}
+                    <button
+                      onClick={async () => {
+                        try {
+                          await authFetch(`${API}/api/settings`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ key, value: currentValue, category: "communications" }),
+                          });
+                          loadSettings();
+                        } catch {}
+                      }}
+                      className="px-3 py-2 bg-warroom-accent text-white rounded-xl text-xs hover:bg-warroom-accent/80 transition"
+                    >
+                      <Save size={12} />
+                    </button>
+                  </div>
+                  {hasValue && (
+                    <p className="text-[10px] text-green-400/60 mt-1">✓ Configured</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   };

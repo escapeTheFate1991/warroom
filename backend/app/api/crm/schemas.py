@@ -194,6 +194,8 @@ class DealResponse(BaseSchema):
     stage_id: Optional[int] = None
     leadgen_lead_id: Optional[int] = None
     person_name: Optional[str] = None
+    person_phone: Optional[str] = None
+    person_email: Optional[str] = None
     organization_name: Optional[str] = None
     source_name: Optional[str] = None
     type_name: Optional[str] = None

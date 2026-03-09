@@ -10,6 +10,7 @@ import { Deal, DealFull, Activity, PipelineStage } from "./types";
 import { API, authFetch } from "@/lib/api";
 import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
 import CallEvidence, { getCallEvidence } from "./CallEvidence";
+import QuickActions from "@/components/communications/QuickActions";
 
 interface DealDetailDrawerProps {
   deal: Deal;
@@ -122,7 +123,15 @@ export default function DealDetailDrawer({ deal, stages, onClose, onAdvance }: D
 
           {/* Contact Info */}
           <div className="p-5 border-b border-warroom-border space-y-2">
-            <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-2">Contact</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider">Contact</h3>
+              <QuickActions
+                phone={d?.person_phone as string | undefined}
+                email={d?.person_email as string | undefined}
+                name={deal.person_name || undefined}
+                size="md"
+              />
+            </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
               {deal.person_name && (
                 <div className="flex items-center gap-2 text-warroom-text"><User size={13} className="text-warroom-muted" />{deal.person_name}</div>

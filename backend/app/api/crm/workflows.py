@@ -490,6 +490,130 @@ WORKFLOW_TEMPLATE_SEEDS: List[Dict[str, Any]] = [
             {"type": "send_sms", "channel": "sms", "message": "Send the approved payment reminder or review nudge if the invoice remains open."},
         ],
     },
+    # ── Healthcare / Appointment Management ──
+    {
+        "seed_key": "appointment-confirmation-sms",
+        "name": "Appointment confirmation via SMS",
+        "description": "Automatically send an SMS confirmation when an appointment is booked, with a reminder 24 hours before.",
+        "category": "Healthcare • Appointments",
+        "entity_type": "activity",
+        "event": "created",
+        "condition_type": "and",
+        "conditions": [
+            {"field": "activity_type", "operator": "equals", "value": "appointment"},
+        ],
+        "actions": [
+            {"type": "send_sms", "channel": "sms", "message": "Confirm the appointment details — date, time, location, and any preparation instructions."},
+            {"type": "delay", "duration": "PT24H_BEFORE"},
+            {"type": "send_sms", "channel": "sms", "message": "Send a friendly reminder 24 hours before the appointment with check-in instructions."},
+        ],
+    },
+    {
+        "seed_key": "appointment-no-show-follow-up",
+        "name": "No-show follow up",
+        "description": "When a patient or client misses an appointment, automatically reach out to reschedule.",
+        "category": "Healthcare • Appointments",
+        "entity_type": "activity",
+        "event": "updated",
+        "condition_type": "and",
+        "conditions": [
+            {"field": "status", "operator": "equals", "value": "no_show"},
+        ],
+        "actions": [
+            {"type": "send_sms", "channel": "sms", "message": "We missed you today. Would you like to reschedule? Reply YES and we'll find a time that works."},
+            {"type": "delay", "duration": "P1D"},
+            {"type": "create_activity", "activity_type": "task", "title": "Follow up on no-show — call to reschedule"},
+            {"type": "notify_owner", "channel": "inbox", "message": "Patient/client no-show. SMS sent, follow-up task created."},
+        ],
+    },
+    {
+        "seed_key": "appointment-cancellation-reschedule",
+        "name": "Cancellation and reschedule offer",
+        "description": "When an appointment is cancelled, offer to reschedule and optionally fill the slot from a waitlist.",
+        "category": "Healthcare • Appointments",
+        "entity_type": "activity",
+        "event": "updated",
+        "condition_type": "and",
+        "conditions": [
+            {"field": "status", "operator": "equals", "value": "cancelled"},
+        ],
+        "actions": [
+            {"type": "send_sms", "channel": "sms", "message": "Your appointment has been cancelled. Would you like to reschedule? We have openings this week."},
+            {"type": "create_activity", "activity_type": "task", "title": "Check waitlist to fill cancelled slot"},
+        ],
+    },
+    # ── IVR / Phone System ──
+    {
+        "seed_key": "basic-ivr-call-routing",
+        "name": "Phone menu and call routing",
+        "description": "Set up an automated phone menu that greets callers, shares business hours, and routes them to the right department or voicemail.",
+        "category": "Phone • IVR",
+        "entity_type": "activity",
+        "event": "created",
+        "condition_type": "and",
+        "conditions": [
+            {"field": "activity_type", "operator": "equals", "value": "incoming_call"},
+        ],
+        "actions": [
+            {"type": "ai_generate", "goal": "Generate a professional greeting TwiML that welcomes the caller, states business hours, and offers options: Press 1 for sales, 2 for support, 3 for billing."},
+            {"type": "make_call", "channel": "phone", "message": "Route the call based on the caller's selection or send to voicemail if outside business hours."},
+            {"type": "create_activity", "activity_type": "task", "title": "Review incoming call and follow up if needed"},
+        ],
+    },
+    {
+        "seed_key": "after-hours-voicemail",
+        "name": "After hours auto-response",
+        "description": "When a call comes in outside business hours, play a message with your hours and offer to take a voicemail or send a callback SMS.",
+        "category": "Phone • IVR",
+        "entity_type": "activity",
+        "event": "created",
+        "condition_type": "and",
+        "conditions": [
+            {"field": "activity_type", "operator": "equals", "value": "incoming_call"},
+            {"field": "time_of_day", "operator": "not_between", "value": "09:00-17:00"},
+        ],
+        "actions": [
+            {"type": "send_sms", "channel": "sms", "message": "Thanks for calling! We're currently closed. Our hours are Mon-Fri 9am-5pm. We'll call you back on the next business day."},
+            {"type": "create_activity", "activity_type": "task", "title": "Return after-hours call on next business day"},
+            {"type": "notify_owner", "channel": "inbox", "message": "After-hours call received. SMS auto-response sent, callback task created."},
+        ],
+    },
+    # ── General Business ──
+    {
+        "seed_key": "new-contact-welcome-sequence",
+        "name": "Welcome sequence for new contacts",
+        "description": "When a new contact is added, send a welcome email and schedule a follow-up call within 48 hours.",
+        "category": "Sales",
+        "entity_type": "person",
+        "event": "created",
+        "condition_type": "and",
+        "conditions": [
+            {"field": "emails", "operator": "not_empty"},
+        ],
+        "actions": [
+            {"type": "send_email", "subject": "Welcome aboard!", "body": "Send a warm welcome with links to useful resources and next steps."},
+            {"type": "delay", "duration": "P2D"},
+            {"type": "create_activity", "activity_type": "task", "title": "Intro call with new contact"},
+        ],
+    },
+    {
+        "seed_key": "invoice-overdue-reminder",
+        "name": "Overdue invoice reminder",
+        "description": "Automatically send a polite reminder when an invoice becomes overdue, with escalating follow-ups.",
+        "category": "Finance",
+        "entity_type": "deal",
+        "event": "updated",
+        "condition_type": "and",
+        "conditions": [
+            {"field": "invoice_status", "operator": "equals", "value": "overdue"},
+        ],
+        "actions": [
+            {"type": "send_email", "subject": "Friendly reminder: Invoice past due", "body": "Send a professional reminder about the outstanding balance with payment instructions."},
+            {"type": "delay", "duration": "P7D"},
+            {"type": "send_sms", "channel": "sms", "message": "Send a follow-up SMS reminder if the invoice is still unpaid after 7 days."},
+            {"type": "create_activity", "activity_type": "task", "title": "Call about overdue invoice if still unpaid"},
+        ],
+    },
 ]
 
 

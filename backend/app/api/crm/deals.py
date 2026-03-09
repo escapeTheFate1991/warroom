@@ -1,5 +1,6 @@
 """CRM Deals API endpoints."""
 
+import json
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -12,6 +13,22 @@ from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 
 from app.api.agent_assignment_helpers import load_assignment_summaries
+
+
+def _first_contact_value(contacts_jsonb) -> str | None:
+    """Extract the first value from a JSONB array of contacts [{value: ...}]."""
+    if not contacts_jsonb:
+        return None
+    try:
+        items = contacts_jsonb if isinstance(contacts_jsonb, list) else json.loads(contacts_jsonb)
+        if items and isinstance(items, list) and len(items) > 0:
+            first = items[0]
+            if isinstance(first, dict):
+                return first.get("value") or first.get("primary") or None
+            return str(first)
+    except (json.JSONDecodeError, TypeError, IndexError):
+        pass
+    return None
 from app.db.crm_db import get_crm_db
 from app.models.crm.deal import Deal, Pipeline, PipelineStage, LeadSource, LeadType
 from app.models.crm.contact import Person, Organization
@@ -70,6 +87,8 @@ def serialize_deal(deal: Deal, agent_assignments=None) -> DealResponse:
         stage_id=deal.stage_id,
         leadgen_lead_id=deal.leadgen_lead_id,
         person_name=deal.person.name if deal.person else None,
+        person_phone=_first_contact_value(deal.person.contact_numbers if deal.person else None),
+        person_email=_first_contact_value(deal.person.emails if deal.person else None),
         organization_name=deal.organization.name if deal.organization else None,
         source_name=deal.source.name if deal.source else None,
         type_name=deal.type.name if deal.type else None,

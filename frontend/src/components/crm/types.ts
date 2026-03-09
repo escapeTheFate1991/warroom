@@ -47,6 +47,8 @@ export interface DealFull {
   closed_at: string | null;
   person_id: number | null;
   person_name: string | null;
+  person_phone: string | null;
+  person_email: string | null;
   organization_id: number | null;
   organization_name: string | null;
   source_id: number | null;
