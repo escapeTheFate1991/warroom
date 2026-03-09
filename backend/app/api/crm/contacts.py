@@ -172,9 +172,9 @@ async def _query_person_rows(
         FROM crm.persons p
         LEFT JOIN crm.organizations o ON o.id = p.organization_id
         LEFT JOIN crm.users u ON u.id = p.user_id
-        WHERE (:organization_id IS NULL OR p.organization_id = :organization_id)
-          AND (:person_id IS NULL OR p.id = :person_id)
-          AND (:search_like IS NULL OR ({search_clause}))
+        WHERE (CAST(:organization_id AS INTEGER) IS NULL OR p.organization_id = :organization_id)
+          AND (CAST(:person_id AS INTEGER) IS NULL OR p.id = :person_id)
+          AND (CAST(:search_like AS TEXT) IS NULL OR ({search_clause}))
         ORDER BY p.name
         OFFSET :offset
         LIMIT :limit
