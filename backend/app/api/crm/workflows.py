@@ -614,6 +614,27 @@ WORKFLOW_TEMPLATE_SEEDS: List[Dict[str, Any]] = [
             {"type": "create_activity", "activity_type": "task", "title": "Call about overdue invoice if still unpaid"},
         ],
     },
+    # ── Contact Form Intake Pipeline ──
+    {
+        "seed_key": "contact-form-ai-intake",
+        "name": "Contact form AI intake call",
+        "description": "When a contact form is submitted, send a confirmation SMS, then call the prospect with an AI agent that asks about their pain points, services needed, and scheduling preference. Auto-creates a calendar event.",
+        "category": "Sales • Intake",
+        "entity_type": "contact_submission",
+        "event": "created",
+        "condition_type": "and",
+        "conditions": [
+            {"field": "phone", "operator": "not_empty"},
+        ],
+        "actions": [
+            {"type": "send_email", "subject": "We received your request — here's what happens next", "body": "Auto-reply confirming receipt and letting them know a call is coming."},
+            {"type": "send_sms", "channel": "sms", "message": "Confirmation SMS: we received your inquiry and will call you in a few minutes to schedule a consultation."},
+            {"type": "delay", "duration": "PT2M"},
+            {"type": "make_call", "channel": "phone", "message": "AI intake call: ask about pain points, services interested in, and scheduling preference."},
+            {"type": "create_activity", "activity_type": "meeting", "title": "Consultation meeting — auto-scheduled from AI intake call"},
+            {"type": "notify_owner", "channel": "inbox", "message": "New lead intake completed. Call transcript and meeting details available."},
+        ],
+    },
 ]
 
 
