@@ -531,6 +531,9 @@ export default function CompetitorIntel() {
   const [loadingFollowerAnalysis, setLoadingFollowerAnalysis] = useState(false);
   const [topVideos, setTopVideos] = useState<TopVideoItem[]>([]);
   const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
+  const [expandedPostId, setExpandedPostId] = useState<number | null>(null);
+  const [expandedPostData, setExpandedPostData] = useState<any>(null);
+  const [expandedPostTab, setExpandedPostTab] = useState<"overview" | "transcript" | "audience">("overview");
   const [loadingTopVideos, setLoadingTopVideos] = useState(false);
   const [hashtags, setHashtags] = useState<HashtagItem[]>([]);
   const [loadingHashtags, setLoadingHashtags] = useState(false);
@@ -1186,50 +1189,50 @@ export default function CompetitorIntel() {
 
               {/* FOCUSED VIEW — single competitor detail */}
               {focusedCompetitor ? (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {/* Back button + competitor header */}
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button onClick={unfocusCompetitor}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-surface rounded-lg text-xs font-medium transition">
                       <ArrowLeft size={14} /> Back
                     </button>
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="w-12 h-12 rounded-full bg-warroom-accent/10 flex items-center justify-center text-xl font-bold text-warroom-accent">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-warroom-accent/10 flex items-center justify-center text-base font-bold text-warroom-accent flex-shrink-0">
                         {focusedCompetitor.handle.charAt(0).toUpperCase()}
                       </div>
-                      <div>
-                        <h3 className="text-lg font-semibold">@{focusedCompetitor.handle}</h3>
-                        <div className="flex items-center gap-2 mt-0.5">
+                      <div className="min-w-0">
+                        <h3 className="text-base font-semibold truncate">@{focusedCompetitor.handle}</h3>
+                        <div className="flex items-center gap-2">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[focusedCompetitor.platform] || "bg-gray-500/20 text-gray-400"}`}>{focusedCompetitor.platform}</span>
                           {focusedCompetitor.posting_frequency && (
-                            <span className="text-xs text-warroom-muted">{focusedCompetitor.posting_frequency}</span>
+                            <span className="text-[11px] text-warroom-muted">{focusedCompetitor.posting_frequency}</span>
                           )}
                         </div>
                       </div>
                     </div>
                     <a href={`https://instagram.com/${focusedCompetitor.handle}`} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 rounded-lg text-xs font-medium transition">
-                      <ExternalLink size={14} /> View Profile
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 rounded-lg text-[11px] font-medium transition flex-shrink-0">
+                      <ExternalLink size={12} /> Profile
                     </a>
                   </div>
 
-                  {/* Stats bar */}
-                  <div className="grid grid-cols-4 gap-3">
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-warroom-text">{formatNum(focusedCompetitor.followers)}</p>
-                      <p className="text-xs text-warroom-muted mt-1">Followers</p>
+                  {/* Stats bar — responsive grid */}
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="bg-warroom-surface border border-warroom-border rounded-lg p-2.5 text-center">
+                      <p className="text-lg sm:text-xl font-bold text-warroom-text">{formatNum(focusedCompetitor.followers)}</p>
+                      <p className="text-[10px] text-warroom-muted mt-0.5">Followers</p>
                     </div>
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-warroom-text">{formatNum(focusedCompetitor.following)}</p>
-                      <p className="text-xs text-warroom-muted mt-1">Following</p>
+                    <div className="bg-warroom-surface border border-warroom-border rounded-lg p-2.5 text-center">
+                      <p className="text-lg sm:text-xl font-bold text-warroom-text">{formatNum(focusedCompetitor.following)}</p>
+                      <p className="text-[10px] text-warroom-muted mt-0.5">Following</p>
                     </div>
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-warroom-text">{formatNum(focusedCompetitor.post_count)}</p>
-                      <p className="text-xs text-warroom-muted mt-1">Total Posts</p>
+                    <div className="bg-warroom-surface border border-warroom-border rounded-lg p-2.5 text-center">
+                      <p className="text-lg sm:text-xl font-bold text-warroom-text">{formatNum(focusedCompetitor.post_count)}</p>
+                      <p className="text-[10px] text-warroom-muted mt-0.5">Posts</p>
                     </div>
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-warroom-accent">{focusedCompetitor.avg_engagement_rate.toFixed(1)}%</p>
-                      <p className="text-xs text-warroom-muted mt-1">Engagement</p>
+                    <div className="bg-warroom-surface border border-warroom-border rounded-lg p-2.5 text-center">
+                      <p className="text-lg sm:text-xl font-bold text-warroom-accent">{focusedCompetitor.avg_engagement_rate.toFixed(1)}%</p>
+                      <p className="text-[10px] text-warroom-muted mt-0.5">Engage</p>
                     </div>
                   </div>
 
@@ -1380,62 +1383,154 @@ export default function CompetitorIntel() {
                       <div className="space-y-3">
                         {[...competitorPosts]
                           .sort((a, b) => b.engagement_score - a.engagement_score)
-                          .map((post, idx) => (
-                          <div
-                            key={idx}
-                            className="bg-warroom-surface border border-warroom-border rounded-xl p-5 hover:border-warroom-accent/20 transition cursor-pointer"
-                            onClick={() => post.id && setSelectedPostId(post.id)}
-                          >
-                            {/* Rank badge */}
-                            <div className="flex items-start gap-4">
-                              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                                idx === 0 ? "bg-yellow-500/20 text-yellow-400" :
-                                idx === 1 ? "bg-gray-400/20 text-gray-300" :
-                                idx === 2 ? "bg-orange-500/20 text-orange-400" :
-                                "bg-warroom-bg text-warroom-muted"
-                              }`}>
-                                #{idx + 1}
-                              </div>
+                          .map((post, idx) => {
+                          const isExpanded = expandedPostId === post.id;
+                          return (
+                          <div key={idx} className={`bg-warroom-surface border rounded-xl transition ${isExpanded ? "border-warroom-accent/40" : "border-warroom-border hover:border-warroom-accent/20"}`}>
+                            <div
+                              className="p-4 cursor-pointer"
+                              onClick={() => {
+                                if (isExpanded) {
+                                  setExpandedPostId(null);
+                                  setExpandedPostData(null);
+                                } else if (post.id) {
+                                  setExpandedPostId(post.id);
+                                  setExpandedPostTab("overview");
+                                  authFetch(`${API}/api/scraper/posts/${post.id}`)
+                                    .then(r => r.ok ? r.json() : null)
+                                    .then(data => { if (data) setExpandedPostData(data); })
+                                    .catch(() => {});
+                                }
+                              }}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold ${
+                                  idx === 0 ? "bg-yellow-500/20 text-yellow-400" :
+                                  idx === 1 ? "bg-gray-400/20 text-gray-300" :
+                                  idx === 2 ? "bg-orange-500/20 text-orange-400" :
+                                  "bg-warroom-bg text-warroom-muted"
+                                }`}>
+                                  #{idx + 1}
+                                </div>
 
-                              <div className="flex-1 min-w-0">
-                                {/* Hook */}
-                                {post.hook && (
-                                  <p className="text-sm font-medium text-warroom-accent mb-1">🪝 {post.hook}</p>
-                                )}
-
-                                {/* Full caption */}
-                                <p className="text-sm text-warroom-text whitespace-pre-line mb-3">{post.text}</p>
-
-                                {/* Metrics bar */}
-                                <div className="flex items-center gap-4 text-xs">
-                                  <span className="flex items-center gap-1 text-pink-400">
-                                    <Heart size={13} /> {formatNum(post.likes)}
-                                  </span>
-                                  <span className="flex items-center gap-1 text-blue-400">
-                                    <MessageCircle size={13} /> {formatNum(post.comments)}
-                                  </span>
-                                  {post.shares > 0 && (
-                                    <span className="flex items-center gap-1 text-purple-400">
-                                      <EyeIcon size={13} /> {formatNum(post.shares)} views
-                                    </span>
+                                <div className="flex-1 min-w-0">
+                                  {post.hook && (
+                                    <p className="text-sm font-medium text-warroom-accent mb-1 line-clamp-1">🪝 {post.hook}</p>
                                   )}
-                                  <span className="ml-auto text-warroom-muted">
-                                    Score: <span className="text-warroom-accent font-medium">{post.engagement_score.toFixed(0)}</span>
-                                  </span>
-                                  {post.timestamp && (
-                                    <span className="text-warroom-muted">{timeAgo(post.timestamp)}</span>
-                                  )}
-                                  {post.url && (
-                                    <a href={post.url} target="_blank" rel="noopener noreferrer"
-                                      className="text-warroom-muted hover:text-warroom-accent transition">
-                                      <ExternalLink size={13} />
-                                    </a>
-                                  )}
+                                  <p className="text-sm text-warroom-text line-clamp-2 mb-2">{post.text}</p>
+                                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                                    <span className="flex items-center gap-1 text-pink-400"><Heart size={12} /> {formatNum(post.likes)}</span>
+                                    <span className="flex items-center gap-1 text-blue-400"><MessageCircle size={12} /> {formatNum(post.comments)}</span>
+                                    <span className="text-warroom-muted">Score: <span className="text-warroom-accent font-medium">{post.engagement_score.toFixed(0)}</span></span>
+                                    {post.timestamp && <span className="text-warroom-muted">{timeAgo(post.timestamp)}</span>}
+                                    {post.url && (
+                                      <a href={post.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                        className="text-warroom-muted hover:text-warroom-accent transition">
+                                        <ExternalLink size={12} />
+                                      </a>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
+
+                            {/* Inline expanded detail */}
+                            {isExpanded && expandedPostData && (
+                              <div className="border-t border-warroom-border">
+                                <ScrollTabs
+                                  tabs={[
+                                    { id: "overview", label: "Overview" },
+                                    { id: "transcript", label: expandedPostData.content_analysis ? "Script Analysis" : "Transcript" },
+                                    { id: "audience", label: `Audience${expandedPostData.comments_data?.analyzed ? ` (${expandedPostData.comments_data.analyzed})` : ""}` },
+                                  ]}
+                                  active={expandedPostTab}
+                                  onChange={(id) => setExpandedPostTab(id as any)}
+                                  size="sm"
+                                />
+                                <div className="p-4 max-h-80 overflow-y-auto">
+                                  {expandedPostTab === "overview" && (
+                                    <div className="space-y-3">
+                                      {expandedPostData.hook && (
+                                        <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                                          <p className="text-[10px] uppercase tracking-wider text-orange-400 mb-1">Hook</p>
+                                          <p className="text-sm text-warroom-text">{expandedPostData.hook}</p>
+                                        </div>
+                                      )}
+                                      <p className="text-sm text-warroom-text whitespace-pre-line">{expandedPostData.caption || expandedPostData.text}</p>
+                                    </div>
+                                  )}
+                                  {expandedPostTab === "transcript" && (
+                                    <div>
+                                      {expandedPostData.content_analysis ? (
+                                        <div className="space-y-3">
+                                          {expandedPostData.content_analysis.hook?.text && (
+                                            <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                                              <p className="text-[10px] uppercase tracking-wider text-orange-400 mb-1">Hook ({expandedPostData.content_analysis.hook.type})</p>
+                                              <p className="text-sm">{expandedPostData.content_analysis.hook.text}</p>
+                                            </div>
+                                          )}
+                                          {expandedPostData.content_analysis.value?.text && (
+                                            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                                              <p className="text-[10px] uppercase tracking-wider text-blue-400 mb-1">Value</p>
+                                              <p className="text-sm whitespace-pre-line">{expandedPostData.content_analysis.value.text}</p>
+                                            </div>
+                                          )}
+                                          {expandedPostData.content_analysis.cta?.text && (
+                                            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                                              <p className="text-[10px] uppercase tracking-wider text-green-400 mb-1">CTA ({expandedPostData.content_analysis.cta.type})</p>
+                                              <p className="text-sm">{expandedPostData.content_analysis.cta.text}</p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : expandedPostData.transcript?.length ? (
+                                        <div className="space-y-1">
+                                          {expandedPostData.transcript.map((seg: any, i: number) => (
+                                            <div key={i} className="flex gap-2 text-sm">
+                                              <span className="text-[10px] text-warroom-muted font-mono w-10 flex-shrink-0 pt-0.5">{seg.start?.toFixed(1)}s</span>
+                                              <span className="text-warroom-text">{seg.text}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="text-sm text-warroom-muted text-center py-6">No transcript available</p>
+                                      )}
+                                    </div>
+                                  )}
+                                  {expandedPostTab === "audience" && (
+                                    <div>
+                                      {expandedPostData.comments_data?.analyzed > 0 ? (
+                                        <div className="space-y-3">
+                                          <div className="flex items-center gap-3 text-sm">
+                                            <span className="text-warroom-muted">Sentiment:</span>
+                                            <span className="font-medium capitalize">{expandedPostData.comments_data.sentiment}</span>
+                                          </div>
+                                          {expandedPostData.comments_data.questions?.length > 0 && (
+                                            <div>
+                                              <p className="text-xs text-warroom-muted mb-1">Questions Asked</p>
+                                              {expandedPostData.comments_data.questions.map((q: any, i: number) => (
+                                                <p key={i} className="text-sm text-warroom-text">• {q.question}</p>
+                                              ))}
+                                            </div>
+                                          )}
+                                          {expandedPostData.comments_data.themes?.length > 0 && (
+                                            <div className="flex flex-wrap gap-1">
+                                              {expandedPostData.comments_data.themes.map((t: string, i: number) => (
+                                                <span key={i} className="text-[10px] px-2 py-0.5 bg-warroom-accent/10 text-warroom-accent rounded-full">{t}</span>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <p className="text-sm text-warroom-muted text-center py-6">No audience intel available</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
