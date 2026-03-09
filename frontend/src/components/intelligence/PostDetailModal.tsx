@@ -7,6 +7,7 @@ import {
   Zap, Target, Megaphone, BarChart3,
 } from "lucide-react";
 import { API as _API, authFetch } from "@/lib/api";
+import ScrollTabs from "@/components/ui/ScrollTabs";
 
 // API imported from @/lib/api
 
@@ -181,26 +182,16 @@ export default function PostDetailModal({
         {!loading && post && (
           <>
             {/* Tabs */}
-            <div className="flex border-b border-warroom-border px-5">
-              {[
-                { key: "overview" as const, label: "Overview", icon: FileText },
-                { key: "transcript" as const, label: hasAnalysis ? "Script Analysis" : `Transcript${hasTranscript ? ` (${post.transcript!.length})` : ""}`, icon: hasAnalysis ? Zap : Film },
-                { key: "comments" as const, label: `Audience Intel${hasComments ? ` (${post.comments_data!.analyzed})` : ""}`, icon: MessageSquare },
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition ${
-                    activeTab === tab.key
-                      ? "border-warroom-accent text-warroom-accent"
-                      : "border-transparent text-warroom-muted hover:text-warroom-text"
-                  }`}
-                >
-                  <tab.icon size={12} />
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+            <ScrollTabs
+              tabs={[
+                { id: "overview", label: "Overview", icon: FileText },
+                { id: "transcript", label: hasAnalysis ? "Script Analysis" : `Transcript${hasTranscript ? ` (${post.transcript!.length})` : ""}`, icon: hasAnalysis ? Zap : Film },
+                { id: "comments", label: `Audience Intel${hasComments ? ` (${post.comments_data!.analyzed})` : ""}`, icon: MessageSquare },
+              ]}
+              active={activeTab}
+              onChange={(id) => setActiveTab(id as any)}
+              size="sm"
+            />
 
             {/* Tab Content */}
             <div className="flex-1 overflow-y-auto p-5">

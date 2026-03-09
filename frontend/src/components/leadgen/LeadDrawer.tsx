@@ -25,6 +25,7 @@ import {
   Rocket
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import ScrollTabs from "@/components/ui/ScrollTabs";
 
 
 export interface LeadFull {
@@ -580,29 +581,16 @@ ${lead.phone || ""}`;
           </div>
 
           {/* Tabs */}
-          <div className="flex-shrink-0 border-b border-warroom-border">
-            <div className="flex">
-              {[
-                { id: "audit", label: "Audit", icon: FileText },
-                { id: "contact", label: "Contact", icon: PhoneIcon },
-                { id: "scripts", label: "Scripts", icon: MessageSquare },
-                { id: "notes", label: "Notes", icon: StickyNote },
-              ].map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setActiveTab(id as any)}
-                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition border-b-2 ${
-                    activeTab === id
-                      ? "text-warroom-accent border-warroom-accent bg-warroom-accent/5"
-                      : "text-warroom-muted border-transparent hover:text-warroom-text"
-                  }`}
-                >
-                  <Icon size={16} />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <ScrollTabs
+            tabs={[
+              { id: "audit", label: "Audit", icon: FileText },
+              { id: "contact", label: "Contact", icon: PhoneIcon },
+              { id: "scripts", label: "Scripts", icon: MessageSquare },
+              { id: "notes", label: "Notes", icon: StickyNote },
+            ]}
+            active={activeTab}
+            onChange={(id) => setActiveTab(id as any)}
+          />
 
           {/* Tab Content */}
           <div className="flex-1 overflow-y-auto p-6">

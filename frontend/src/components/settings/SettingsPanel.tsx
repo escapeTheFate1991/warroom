@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Package, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X, RefreshCw } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import { useThemeContext } from "@/components/ui/ThemeProvider";
+import ScrollTabs from "@/components/ui/ScrollTabs";
 
 
 interface Setting {
@@ -2165,24 +2166,11 @@ export default function SettingsPanel() {
       </div>
 
       {/* Horizontal Tabs */}
-      <div className="border-b border-warroom-border bg-warroom-surface">
-        <div className="flex overflow-x-auto">
-          {SETTINGS_TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`flex items-center gap-2 px-6 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition ${
-                activeTab === id
-                  ? "text-warroom-accent border-warroom-accent bg-warroom-accent/5"
-                  : "text-warroom-muted border-transparent hover:text-warroom-text"
-              }`}
-            >
-              <Icon size={16} />
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <ScrollTabs
+        tabs={SETTINGS_TABS.map(t => ({ id: t.id, label: t.label, icon: t.icon }))}
+        active={activeTab}
+        onChange={(id) => setActiveTab(id as any)}
+      />
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-6">

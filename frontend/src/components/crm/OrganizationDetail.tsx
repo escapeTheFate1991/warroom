@@ -17,6 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import ScrollTabs from "@/components/ui/ScrollTabs";
 import EmptyState from "@/components/ui/EmptyState";
 import LoadingState from "@/components/ui/LoadingState";
 
@@ -770,28 +771,14 @@ export default function OrganizationDetail({
         </aside>
 
         <section className="flex min-h-0 flex-1 flex-col bg-warroom-bg">
-          <div className="border-b border-warroom-border bg-warroom-surface">
-            <div className="flex overflow-x-auto px-6">
-              {[
-                { id: "deals" as const, label: `Deals (${deals.length})`, icon: Building2 },
-                { id: "contacts" as const, label: `Contacts (${contacts.length})`, icon: Users },
-              ].map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setActiveTab(id)}
-                  className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-5 py-3 text-sm font-medium transition ${
-                    activeTab === id
-                      ? "border-warroom-accent bg-warroom-accent/5 text-warroom-accent"
-                      : "border-transparent text-warroom-muted hover:text-warroom-text"
-                  }`}
-                >
-                  <Icon size={16} />
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <ScrollTabs
+            tabs={[
+              { id: "deals", label: `Deals (${deals.length})`, icon: Building2 },
+              { id: "contacts", label: `Contacts (${contacts.length})`, icon: Users },
+            ]}
+            active={activeTab}
+            onChange={(id) => setActiveTab(id as any)}
+          />
 
           <div className="flex-1 overflow-y-auto p-6">
             {activeTab === "deals" ? (

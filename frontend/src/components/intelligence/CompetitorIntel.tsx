@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import PostDetailModal from "./PostDetailModal";
+import ScrollTabs from "@/components/ui/ScrollTabs";
 
 
 interface Competitor {
@@ -1100,22 +1101,11 @@ export default function CompetitorIntel() {
       </div>
 
       {/* Sub-tabs */}
-      <div className="border-b border-warroom-border bg-warroom-surface flex-shrink-0">
-        <div className="flex">
-          {TABS.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition ${
-                activeTab === tab.id
-                  ? "text-warroom-accent border-warroom-accent bg-warroom-accent/5"
-                  : "text-warroom-muted border-transparent hover:text-warroom-text"
-              }`}>
-              <tab.icon size={16} />
-              {tab.label}
-              <span className="text-xs bg-warroom-bg px-1.5 py-0.5 rounded-full">{tab.count}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <ScrollTabs
+        tabs={TABS.map(t => ({ id: t.id, label: t.label, icon: t.icon, count: t.count }))}
+        active={activeTab}
+        onChange={(id) => setActiveTab(id as typeof activeTab)}
+      />
 
       {/* Status messages */}
       {notice && (
@@ -1244,48 +1234,26 @@ export default function CompetitorIntel() {
                   </div>
 
                   {/* Competitor Detail Tabs */}
-                  <div className="flex border-b border-warroom-border">
-                    <button 
-                      onClick={() => setCompetitorDetailTab("overview")}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
-                        competitorDetailTab === "overview" 
-                          ? "border-warroom-accent text-warroom-accent" 
-                          : "border-transparent text-warroom-muted hover:text-warroom-text"
-                      }`}
-                    >
-                      Content Overview
-                    </button>
-                    <button 
-                      onClick={() => setCompetitorDetailTab("dossier")}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
-                        competitorDetailTab === "dossier" 
-                          ? "border-warroom-accent text-warroom-accent" 
-                          : "border-transparent text-warroom-muted hover:text-warroom-text"
-                      }`}
-                    >
-                      Dossier
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setCompetitorDetailTab("audience");
-                        if (!audienceIntel && focusedCompetitor) {
-                          setLoadingAudienceIntel(true);
-                          authFetch(`${API}/api/content-intel/competitors/${focusedCompetitor.id}/audience-intel`)
-                            .then(r => r.ok ? r.json() : null)
-                            .then(data => { if (data) setAudienceIntel(data); })
-                            .catch(() => {})
-                            .finally(() => setLoadingAudienceIntel(false));
-                        }
-                      }}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
-                        competitorDetailTab === "audience" 
-                          ? "border-warroom-accent text-warroom-accent" 
-                          : "border-transparent text-warroom-muted hover:text-warroom-text"
-                      }`}
-                    >
-                      Audience Intel
-                    </button>
-                  </div>
+                  <ScrollTabs
+                    tabs={[
+                      { id: "overview", label: "Content Overview" },
+                      { id: "dossier", label: "Dossier" },
+                      { id: "audience", label: "Audience Intel" },
+                    ]}
+                    active={competitorDetailTab}
+                    onChange={(id) => {
+                      setCompetitorDetailTab(id as any);
+                      if (id === "audience" && !audienceIntel && focusedCompetitor) {
+                        setLoadingAudienceIntel(true);
+                        authFetch(`${API}/api/content-intel/competitors/${focusedCompetitor.id}/audience-intel`)
+                          .then(r => r.ok ? r.json() : null)
+                          .then(data => { if (data) setAudienceIntel(data); })
+                          .catch(() => {})
+                          .finally(() => setLoadingAudienceIntel(false));
+                      }
+                    }}
+                    size="sm"
+                  />
 
                   {/* Content Overview Tab */}
                   {competitorDetailTab === "overview" && (
