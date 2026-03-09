@@ -54,6 +54,14 @@ class LeadResponse(BaseModel):
     youtube_url: str | None
     yelp_url: str | None
 
+    # Reviews
+    yelp_rating: float | None = None
+    yelp_reviews_count: int = 0
+    review_highlights: list[str] | None = None
+    review_sentiment_score: float | None = None
+    review_pain_points: list[str] | None = None
+    review_opportunity_flags: list[str] | None = None
+
     # Website audit
     has_website: bool
     website_platform: str | None
@@ -62,6 +70,28 @@ class LeadResponse(BaseModel):
     website_audit_summary: str | None
     website_audit_top_fixes: list[str] | None
     audit_lite_flags: list[str]
+
+    # BBB
+    bbb_url: str | None = None
+    bbb_rating: str | None = None
+    bbb_accredited: bool | None = None
+    bbb_complaints: int = 0
+    bbb_summary: str | None = None
+
+    # Glassdoor
+    glassdoor_url: str | None = None
+    glassdoor_rating: float | None = None
+    glassdoor_review_count: int = 0
+    glassdoor_summary: str | None = None
+
+    # Reddit mentions
+    reddit_mentions: list[dict] | None = None
+
+    # News mentions
+    news_mentions: list[dict] | None = None
+
+    # Social presence scan
+    social_scan: dict | None = None
 
     # Status
     enrichment_status: str

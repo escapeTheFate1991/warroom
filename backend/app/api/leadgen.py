@@ -35,14 +35,28 @@ _ENRICHMENT_ERROR_COL_ADDED = False
 
 
 async def _ensure_enrichment_error_column(db: AsyncSession):
-    """Add enrichment_error column to leads table if it doesn't exist."""
+    """Add enrichment columns to leads table if they don't exist."""
     global _ENRICHMENT_ERROR_COL_ADDED
     if _ENRICHMENT_ERROR_COL_ADDED:
         return
     try:
-        await db.execute(text(
-            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS enrichment_error TEXT"
-        ))
+        columns = [
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS enrichment_error TEXT",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS bbb_url TEXT",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS bbb_rating TEXT",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS bbb_accredited BOOLEAN",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS bbb_complaints INTEGER DEFAULT 0",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS bbb_summary TEXT",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS glassdoor_url TEXT",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS glassdoor_rating NUMERIC(2,1)",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS glassdoor_review_count INTEGER DEFAULT 0",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS glassdoor_summary TEXT",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS reddit_mentions JSONB DEFAULT '[]'",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS news_mentions JSONB DEFAULT '[]'",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS social_scan JSONB DEFAULT '{}'",
+        ]
+        for col_sql in columns:
+            await db.execute(text(col_sql))
         await db.commit()
         _ENRICHMENT_ERROR_COL_ADDED = True
     except Exception:

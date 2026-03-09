@@ -89,6 +89,28 @@ class Lead(Base):
     # Audit lite (quick surface-level flags from enrichment crawl)
     audit_lite_flags = Column(ARRAY(Text), default=[])
 
+    # BBB intelligence
+    bbb_url = Column(Text)
+    bbb_rating = Column(Text)  # A+ to F
+    bbb_accredited = Column(Boolean)
+    bbb_complaints = Column(Integer, default=0)
+    bbb_summary = Column(Text)
+
+    # Glassdoor intelligence
+    glassdoor_url = Column(Text)
+    glassdoor_rating = Column(Numeric(2, 1))
+    glassdoor_review_count = Column(Integer, default=0)
+    glassdoor_summary = Column(Text)
+
+    # Reddit mentions
+    reddit_mentions = Column(JSONB, default=[])  # [{title, url, subreddit, snippet, date}]
+
+    # News mentions
+    news_mentions = Column(JSONB, default=[])  # [{title, url, source, snippet, date}]
+
+    # Social presence scan
+    social_scan = Column(JSONB, default={})  # {platform: {url, exists, followers, summary}}
+
     # Source
     lead_source = Column(Text, default="google_places")
     enrichment_error = Column(Text)

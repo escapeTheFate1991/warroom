@@ -1,8 +1,19 @@
-"""Enrichment pipeline — crawl websites, score leads, update DB."""
+"""Enrichment pipeline — crawl websites, score leads, update DB.
+
+Sources:
+  1. Website crawl (emails, phones, socials, platform)
+  2. Yelp + Google reviews
+  3. BBB rating + accreditation
+  4. Glassdoor (via web search)
+  5. Reddit mentions (via Brave Search)
+  6. News mentions (via Brave Search)
+  7. Social presence scan (verify profiles, extract followers)
+  8. Website audit (SEO, mobile, SSL, contact info scoring)
+"""
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +23,10 @@ from app.services.leadgen.website_crawler import crawl_website
 from app.services.leadgen.lead_scorer import score_lead
 from app.services.leadgen.review_scraper import scrape_yelp_reviews, fetch_google_reviews
 from app.services.leadgen.review_analyzer import analyze_reviews
+from app.services.leadgen.bbb_scraper import scrape_bbb
+from app.services.leadgen.news_scraper import search_news, search_reddit, search_glassdoor
+from app.services.leadgen.social_scanner import scan_social_profiles
+from app.services.leadgen.website_auditor import audit_website
 from app.services.notify import send_notification
 
 logger = logging.getLogger(__name__)
@@ -77,7 +92,7 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
 
     # Check if audit is recent enough (within 30 days)
     if (lead.website_audit_date and 
-        datetime.now() - lead.website_audit_date < timedelta(days=30)):
+        datetime.now(timezone.utc).replace(tzinfo=None) - lead.website_audit_date.replace(tzinfo=None) < timedelta(days=30)):
         logger.debug("Lead %d has recent audit, skipping crawl", lead_id)
         lead.enrichment_status = "enriched"
         score, tier = score_lead(lead)
@@ -141,6 +156,43 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
     except Exception as exc:
         logger.warning("Review enrichment failed for lead %d: %s", lead_id, exc)
 
+    # --- BBB ---
+    try:
+        await _enrich_bbb(lead)
+    except Exception as exc:
+        logger.warning("BBB enrichment failed for lead %d: %s", lead_id, exc)
+
+    # --- Glassdoor ---
+    try:
+        await _enrich_glassdoor(lead)
+    except Exception as exc:
+        logger.warning("Glassdoor enrichment failed for lead %d: %s", lead_id, exc)
+
+    # --- Reddit mentions ---
+    try:
+        await _enrich_reddit(lead)
+    except Exception as exc:
+        logger.warning("Reddit enrichment failed for lead %d: %s", lead_id, exc)
+
+    # --- News mentions ---
+    try:
+        await _enrich_news(lead)
+    except Exception as exc:
+        logger.warning("News enrichment failed for lead %d: %s", lead_id, exc)
+
+    # --- Social presence scan ---
+    try:
+        await _enrich_social_scan(lead)
+    except Exception as exc:
+        logger.warning("Social scan failed for lead %d: %s", lead_id, exc)
+
+    # --- Website audit (deeper than audit_lite) ---
+    if lead.website and lead.has_website:
+        try:
+            await _enrich_website_audit(lead)
+        except Exception as exc:
+            logger.warning("Website audit failed for lead %d: %s", lead_id, exc)
+
     score, tier = score_lead(lead)
     lead.lead_score = score
     lead.lead_tier = tier
@@ -202,6 +254,101 @@ async def enrich_job(job_id: int, db: AsyncSession) -> None:
     )
     await db.commit()
     logger.info("Enrichment complete for job %d: %d leads", job_id, enriched)
+
+
+async def _enrich_bbb(lead: Lead) -> None:
+    """Scrape BBB for rating, accreditation, complaints."""
+    if not lead.business_name or not lead.city:
+        return
+    bbb = await scrape_bbb(lead.business_name, lead.city, lead.state or "")
+    if bbb.url:
+        lead.bbb_url = bbb.url
+    if bbb.rating:
+        lead.bbb_rating = bbb.rating
+    if bbb.accredited:
+        lead.bbb_accredited = bbb.accredited
+    if bbb.complaints:
+        lead.bbb_complaints = bbb.complaints
+    if bbb.summary:
+        lead.bbb_summary = bbb.summary
+    if not bbb.error:
+        logger.info("Lead %d: BBB — %s", lead.id, bbb.summary or "found")
+
+
+async def _enrich_glassdoor(lead: Lead) -> None:
+    """Search for Glassdoor listing via web search."""
+    if not lead.business_name:
+        return
+    gd = await search_glassdoor(lead.business_name, lead.city or "", lead.state or "")
+    if gd:
+        lead.glassdoor_url = gd.get("url")
+        if gd.get("rating"):
+            lead.glassdoor_rating = gd["rating"]
+        if gd.get("review_count"):
+            lead.glassdoor_review_count = gd["review_count"]
+        lead.glassdoor_summary = gd.get("summary")
+        logger.info("Lead %d: Glassdoor — %.1f rating", lead.id, gd.get("rating") or 0)
+
+
+async def _enrich_reddit(lead: Lead) -> None:
+    """Search Reddit for mentions of the business."""
+    if not lead.business_name:
+        return
+    mentions = await search_reddit(lead.business_name, lead.city or "", lead.state or "")
+    if mentions:
+        lead.reddit_mentions = mentions
+        logger.info("Lead %d: %d Reddit mentions found", lead.id, len(mentions))
+
+
+async def _enrich_news(lead: Lead) -> None:
+    """Search for recent news about the business or owner."""
+    if not lead.business_name:
+        return
+    result = await search_news(
+        lead.business_name,
+        lead.city or "",
+        lead.state or "",
+        lead.owner_name or "",
+    )
+    if result.mentions:
+        lead.news_mentions = [
+            {"title": m.title, "url": m.url, "source": m.source, "snippet": m.snippet, "date": m.date}
+            for m in result.mentions
+        ]
+        logger.info("Lead %d: %d news mentions found", lead.id, len(result.mentions))
+
+
+async def _enrich_social_scan(lead: Lead) -> None:
+    """Verify social profiles exist and extract basic info."""
+    if not any([lead.facebook_url, lead.instagram_url, lead.linkedin_url,
+                lead.twitter_url, lead.tiktok_url, lead.youtube_url]):
+        return
+    scan = await scan_social_profiles(
+        facebook_url=lead.facebook_url or "",
+        instagram_url=lead.instagram_url or "",
+        linkedin_url=lead.linkedin_url or "",
+        twitter_url=lead.twitter_url or "",
+        tiktok_url=lead.tiktok_url or "",
+        youtube_url=lead.youtube_url or "",
+    )
+    if scan:
+        lead.social_scan = scan
+        active = sum(1 for v in scan.values() if v.get("exists"))
+        logger.info("Lead %d: %d/%d social profiles active", lead.id, active, len(scan))
+
+
+async def _enrich_website_audit(lead: Lead) -> None:
+    """Run a deeper website audit than the lite flags."""
+    if not lead.website:
+        return
+    audit = await audit_website(lead.website)
+    if audit.score > 0:
+        lead.website_audit_score = audit.score
+        lead.website_audit_grade = audit.grade
+        lead.website_audit_summary = audit.summary
+        lead.website_audit_top_fixes = audit.top_fixes
+        lead.audit_status = "audited"
+        logger.info("Lead %d: Website audit — %s (%d/100)", lead.id, audit.grade, audit.score)
 
 
 async def _enrich_reviews(lead: Lead) -> None:

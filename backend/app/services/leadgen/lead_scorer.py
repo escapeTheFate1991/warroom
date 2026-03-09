@@ -96,6 +96,21 @@ def score_lead(lead: Lead) -> tuple[int, str]:
             if rule_name and rule_name in SCORING_RULES:
                 score += SCORING_RULES[rule_name]
 
+    # --- BBB intelligence ---
+    if hasattr(lead, 'bbb_rating') and lead.bbb_rating:
+        if lead.bbb_rating in ('F', 'D', 'D-', 'D+'):
+            score += 10  # Poor BBB = needs help with reputation
+        elif lead.bbb_rating in ('A+', 'A'):
+            score += 3  # Good business, still a prospect
+    if hasattr(lead, 'bbb_complaints') and lead.bbb_complaints and lead.bbb_complaints > 5:
+        score += 5  # Many complaints = needs help
+
+    # --- News/Reddit intelligence ---
+    if hasattr(lead, 'news_mentions') and lead.news_mentions:
+        score += 3  # Business has press coverage = established
+    if hasattr(lead, 'reddit_mentions') and lead.reddit_mentions:
+        score += 2  # People talking about them online
+
     # Determine tier
     if score >= 60:
         tier = "hot"
