@@ -1397,8 +1397,8 @@ export default function ChatPanel() {
   /* ── Render ─────────────────────────────────────────── */
 
   return (
-    <div className="flex h-full overflow-hidden">
-    <div className={`flex flex-col ${showArtifacts ? "w-1/2" : "w-full"} transition-all duration-300 h-full min-h-0 overflow-hidden`}>
+    <div className="flex h-full overflow-hidden" style={{ maxHeight: '100%' }}>
+    <div className={`flex flex-col ${showArtifacts ? "w-1/2" : "w-full"} transition-all duration-300 min-h-0`} style={{ height: '100%', maxHeight: '100%' }}>
       {/* Alert Banners */}
       {rateLimitAlert && (
         <div className="mx-4 mt-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-center gap-3 flex-shrink-0">

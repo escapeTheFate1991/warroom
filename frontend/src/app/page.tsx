@@ -198,7 +198,7 @@ function WarRoom() {
   }, [activeTab]);
 
   return (
-    <div className="flex h-screen bg-warroom-bg text-warroom-text overflow-hidden">
+    <div className="flex h-dvh bg-warroom-bg text-warroom-text overflow-hidden">
       <Sidebar
         menuSections={SECTIONS}
         activeTab={activeTab}
