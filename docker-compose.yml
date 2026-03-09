@@ -52,6 +52,7 @@ services:
       - /home/eddy/.openclaw/workspace/skills/voice-io/scripts:/voice-io-scripts:ro
       - /home/eddy/.openclaw/agents/main/sessions:/openclaw-sessions:ro
       - instagram-cookies:/data
+      - /tmp/warroom-transcribe:/tmp/warroom-transcribe
       - /home/eddy/.openclaw:/openclaw:rw
       - /home/eddy/.openclaw/workspace:/openclaw-workspace:rw
       - /home/eddy/.npm-global/lib/node_modules/openclaw/skills:/openclaw-bundled-skills:ro

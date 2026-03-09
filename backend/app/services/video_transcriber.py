@@ -25,7 +25,8 @@ WHISPER_SOCKET = "/tmp/whisper-transcribe.sock"
 WHISPER_TCP_HOST = os.getenv("WHISPER_HOST", "10.0.0.1")
 WHISPER_TCP_PORT = int(os.getenv("WHISPER_PORT", "18796"))
 COOKIE_PATH = Path(os.getenv("INSTAGRAM_COOKIE_PATH", "/data/instagram_cookies.json"))
-TEMP_DIR = Path(tempfile.gettempdir())
+# Shared dir with host — Whisper server runs on host and needs to read the files
+TEMP_DIR = Path("/tmp/warroom-transcribe")
 
 
 async def _download_video(shortcode: str, media_url: str = "") -> Optional[Path]:
@@ -135,9 +136,10 @@ async def _transcribe_audio(file_path: Path) -> Optional[List[Dict]]:
     if not file_path.exists():
         return None
     
-    # Try TCP Whisper server (compatible with containers)
+    # Try TCP Whisper server (runs on host, reads files from shared /tmp/warroom-transcribe)
     try:
-        payload = json.dumps({"path": str(file_path)}).encode()
+        # Send plain file path — Whisper server expects raw path string, not JSON
+        payload = str(file_path).encode()
         
         def _tcp_transcribe():
             import socket
