@@ -8,6 +8,42 @@ import {
   Brain, Wrench, FileText, Search, Terminal, Globe, CheckCircle2, AlertCircle, ChevronRight,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+const MARKDOWN_PROSE = [
+  "prose prose-invert prose-sm max-w-none overflow-hidden break-words",
+  // Spacing
+  "[&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>blockquote]:mb-3",
+  // Headers
+  "[&>h1]:text-lg [&>h1]:font-bold [&>h1]:mb-2 [&>h1]:mt-4",
+  "[&>h2]:text-base [&>h2]:font-semibold [&>h2]:mb-2 [&>h2]:mt-3",
+  "[&>h3]:text-sm [&>h3]:font-semibold [&>h3]:mb-1.5 [&>h3]:mt-2",
+  // Code
+  "[&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>pre]:overflow-x-auto [&>pre]:max-w-full",
+  "[&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent",
+  "[&>pre>code]:whitespace-pre [&>pre>code]:break-normal",
+  // Links
+  "[&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline",
+  // Lists
+  "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5",
+  "[&_li]:mb-1 [&_li]:leading-relaxed",
+  // Task lists (GFM)
+  "[&_li.task-list-item]:list-none [&_li.task-list-item]:ml-[-1.25rem]",
+  "[&_input[type=checkbox]]:mr-2 [&_input[type=checkbox]]:accent-warroom-accent",
+  // Tables (GFM)
+  "[&_table]:w-full [&_table]:border-collapse [&_table]:my-3 [&_table]:text-xs",
+  "[&_th]:bg-warroom-surface [&_th]:border [&_th]:border-warroom-border [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold [&_th]:text-warroom-text",
+  "[&_td]:border [&_td]:border-warroom-border/50 [&_td]:px-3 [&_td]:py-1.5 [&_td]:text-warroom-text/80",
+  "[&_tr:nth-child(even)]:bg-warroom-surface/30",
+  // Blockquotes
+  "[&_blockquote]:border-l-2 [&_blockquote]:border-warroom-accent/40 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-warroom-muted",
+  // Horizontal rules
+  "[&_hr]:border-warroom-border [&_hr]:my-4",
+  // Strikethrough
+  "[&_del]:text-warroom-muted [&_del]:line-through",
+  // Strong/em
+  "[&_strong]:text-warroom-text [&_strong]:font-semibold",
+].join(" ");
 import ArtifactPanel, { Artifact } from "./ArtifactPanel";
 import PromptImproverModal from "./PromptImproverModal";
 import type { AgentSummary } from "@/lib/agentAssignments";
@@ -1508,8 +1544,8 @@ export default function ChatPanel() {
                       segment.type === "url" ? (
                         <UrlBox key={idx} url={segment.url} />
                       ) : segment.type === "text" ? (
-                        <div key={idx} className="prose prose-invert prose-sm max-w-none overflow-hidden break-words [&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>pre]:overflow-x-auto [&>pre]:max-w-full [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&>pre>code]:whitespace-pre [&>pre>code]:break-normal [&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline">
-                          <ReactMarkdown>{segment.content}</ReactMarkdown>
+                        <div key={idx} className={MARKDOWN_PROSE}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.content}</ReactMarkdown>
                         </div>
                       ) : (
                         <div key={idx} className="my-3">
@@ -1561,8 +1597,8 @@ export default function ChatPanel() {
               <div className="max-w-[80%] space-y-2 w-full">
                 {/* Partial content from before tool calls — keeps text visible during tool execution */}
                 {!streamText && partialContent && activeTools.length > 0 && (
-                  <div className="prose prose-invert prose-sm max-w-none break-words [&>p]:mb-3 [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline opacity-70">
-                    <ReactMarkdown>{partialContent}</ReactMarkdown>
+                  <div className={`${MARKDOWN_PROSE} opacity-70`}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{partialContent}</ReactMarkdown>
                   </div>
                 )}
 
@@ -1608,8 +1644,8 @@ export default function ChatPanel() {
 
                 {/* Streaming text */}
                 {streamText && (
-                  <div className="prose prose-invert prose-sm max-w-none break-words [&>p]:mb-3 [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline">
-                    <ReactMarkdown>{streamText}</ReactMarkdown>
+                  <div className={MARKDOWN_PROSE}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamText}</ReactMarkdown>
                     <span className="inline-block w-2 h-4 bg-warroom-accent/60 animate-pulse ml-0.5" />
                   </div>
                 )}
