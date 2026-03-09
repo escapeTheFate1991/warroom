@@ -137,7 +137,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://warroom.stuffnthings.io",
+        "https://stuffnthings.io",
+        "https://www.stuffnthings.io",
         "http://localhost:3300",
+        "http://localhost:3000",
         "http://192.168.1.94:3300",
     ],
     allow_credentials=True,
