@@ -29,6 +29,20 @@ COOKIE_PATH = Path(os.getenv("INSTAGRAM_COOKIE_PATH", "/data/instagram_cookies.j
 TEMP_DIR = Path("/tmp/warroom-transcribe")
 
 
+async def _get_duration(file_path: Path) -> float:
+    """Get video duration in seconds using ffprobe."""
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(file_path)],
+            capture_output=True, text=True, timeout=10,
+        )
+        info = json.loads(result.stdout)
+        return float(info.get("format", {}).get("duration", 0))
+    except Exception:
+        return 0.0
+
+
 async def _download_video(shortcode: str, media_url: str = "") -> Optional[Path]:
     """Download an Instagram video/reel to a temp file.
     
@@ -230,18 +244,29 @@ async def transcribe_competitor_videos(
             continue
         
         try:
+            # Check video duration before transcribing
+            video_duration = await _get_duration(video_path)
+            
             # Transcribe
             segments = await _transcribe_audio(video_path)
             
             if segments:
-                # Store transcript
+                # Detect if Instagram served a clip (short preview) instead of full reel
+                transcript_duration = max(s.get("end", 0) for s in segments) if segments else 0
+                is_clip = transcript_duration < 15 and video_duration < 15  # Likely a clip preview
+                
+                # Store transcript with clip marker if needed
+                transcript_data = segments
+                if is_clip:
+                    logger.warning("⚠️ %s: Only %.1fs downloaded (Instagram clip preview, not full reel)", shortcode, transcript_duration)
+                
                 await db.execute(
                     text("UPDATE crm.competitor_posts SET transcript = :t WHERE id = :id"),
-                    {"t": json.dumps(segments), "id": post_id},
+                    {"t": json.dumps(transcript_data), "id": post_id},
                 )
                 await db.commit()
                 stats["transcribed"] += 1
-                logger.info("✅ %s: %d segments stored", shortcode, len(segments))
+                logger.info("✅ %s: %d segments (%.1fs) stored", shortcode, len(segments), transcript_duration)
             else:
                 stats["failed"] += 1
                 stats["errors"].append(f"{shortcode}: transcription failed")

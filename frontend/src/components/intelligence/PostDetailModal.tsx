@@ -31,6 +31,7 @@ interface CommentAnalysis {
 }
 
 interface ContentAnalysis {
+  is_clip?: boolean;
   hook: { text: string; start: number; end: number; type: string; strength: number };
   value: { text: string; start: number; end: number; key_points: string[] };
   cta: { text: string; start: number; end: number; type: string; phrase: string };
@@ -278,6 +279,16 @@ export default function PostDetailModal({
                             <span className={`text-sm font-bold ${scoreColor}`}>{Math.round(a.structure_score * 100)}%</span>
                           </div>
                         </div>
+
+                        {/* Clip Warning */}
+                        {a.is_clip && (
+                          <div className="flex items-center gap-2 bg-yellow-400/10 border border-yellow-400/20 rounded-xl px-4 py-2.5">
+                            <span className="text-yellow-400 text-sm">⚠️</span>
+                            <p className="text-xs text-yellow-300">
+                              <span className="font-medium">Partial transcript</span> — Instagram served a short clip preview ({formatTimestamp(a.total_duration)}) instead of the full reel. Script analysis may be incomplete.
+                            </p>
+                          </div>
+                        )}
 
                         {/* HOOK Section */}
                         <div className="border border-orange-400/20 bg-orange-400/5 rounded-xl px-4 py-3 space-y-2">

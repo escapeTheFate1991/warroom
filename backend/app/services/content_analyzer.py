@@ -94,6 +94,9 @@ def analyze_content_structure(segments: List[Dict]) -> Dict:
     
     full_script = " ".join(s.get("text", "") for s in segments).strip()
     
+    # Detect if this is a clip (< 15s) — likely Instagram preview, not full reel
+    is_clip = total_duration < 15 and len(segments) <= 2
+    
     # === HOOK (0 - 3s) ===
     hook_segments = [s for s in segments if s.get("start", 0) < HOOK_END_SEC]
     if not hook_segments:
@@ -139,6 +142,7 @@ def analyze_content_structure(segments: List[Dict]) -> Dict:
     )
     
     return {
+        "is_clip": is_clip,
         "hook": {
             "text": hook_text,
             "start": 0.0,
@@ -309,6 +313,7 @@ def _score_structure(
 
 def _empty_result() -> Dict:
     return {
+        "is_clip": False,
         "hook": {"text": "", "start": 0, "end": 0, "type": "none", "strength": 0},
         "value": {"text": "", "start": 0, "end": 0, "key_points": []},
         "cta": {"text": "", "start": 0, "end": 0, "type": "none", "phrase": ""},
