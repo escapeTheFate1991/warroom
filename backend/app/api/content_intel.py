@@ -1883,7 +1883,9 @@ async def get_aggregated_audience_intel(
             text("""
                 SELECT comments_data, content_analysis, engagement_score
                 FROM crm.competitor_posts
-                WHERE competitor_id = :cid AND comments_data IS NOT NULL
+                WHERE competitor_id = :cid 
+                  AND comments_data IS NOT NULL
+                  AND (comments_data->>'analyzed')::int > 0
                 ORDER BY engagement_score DESC
             """),
             {"cid": competitor_id},
@@ -1891,7 +1893,7 @@ async def get_aggregated_audience_intel(
         rows = result.fetchall()
         
         if not rows:
-            return {"posts_analyzed": 0, "sentiment": "neutral", "questions": [], "pain_points": [], "themes": []}
+            return {"posts_analyzed": 0, "comments_analyzed": 0, "sentiment": "neutral", "sentiment_breakdown": {}, "sentiment_percentages": {}, "questions": [], "pain_points": [], "themes": [], "product_mentions": [], "top_commenters": [], "engagement_quality": {}, "content_formats": {}}
         
         # Aggregate across all posts
         total_analyzed = 0
