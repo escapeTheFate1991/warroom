@@ -116,11 +116,13 @@ type QuickAddTab = "event" | "task" | "reminder";
 
 function QuickAddModal({
   date,
+  initialTitle,
   onClose,
   onSave,
   onMoreOptions,
 }: {
   date: string;
+  initialTitle?: string;
   onClose: () => void;
   onSave: (data: EventFormData) => void;
   onMoreOptions: (data: EventFormData) => void;
@@ -129,6 +131,7 @@ function QuickAddModal({
   const [form, setForm] = useState<EventFormData>({
     ...EMPTY_FORM,
     date,
+    title: initialTitle || "",
     type: "event",
   });
   const titleRef = useRef<HTMLInputElement>(null);
@@ -637,6 +640,7 @@ function FullEventEditorModal({
 
 export default function ActivityCalendar() {
   const [tab, setTab] = useState<TabMode>("personal");
+  const quickAddInputRef = useRef<HTMLInputElement>(null);
   const [currentDate, setCurrentDate] = useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() + 1 };
@@ -661,6 +665,7 @@ export default function ActivityCalendar() {
 
   /* Personal modals */
   const [quickAddDate, setQuickAddDate] = useState<string | null>(null);
+  const [quickAddTitle, setQuickAddTitle] = useState("");
   const [selectedEvent, setSelectedEvent] = useState<PersonalEvent | null>(null);
   const [fullEditorData, setFullEditorData] = useState<{ form: EventFormData; event?: PersonalEvent } | null>(null);
 
@@ -910,18 +915,6 @@ export default function ActivityCalendar() {
             </div>
 
             <div className="flex items-center gap-1.5 ml-auto">
-              {tab === "personal" && (
-                <button
-                  onClick={() => {
-                    const todayStr = new Date().toISOString().split("T")[0];
-                    openQuickAdd(todayStr);
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-warroom-accent text-white text-xs hover:bg-warroom-accent/80 transition"
-                >
-                  <Plus size={12} />
-                  <span className="hidden sm:inline">Add</span> Event
-                </button>
-              )}
               <button
                 onClick={() => navigateMonth(-1)}
                 className="p-1.5 rounded-lg bg-warroom-bg border border-warroom-border hover:bg-warroom-surface transition"
@@ -1123,6 +1116,7 @@ export default function ActivityCalendar() {
       {tab === "personal" && (
         <div className="flex items-center gap-2 px-3 py-2 border-t border-warroom-border bg-warroom-surface/80 flex-shrink-0">
           <input
+            ref={quickAddInputRef}
             type="text"
             placeholder="Quick add event…"
             className="flex-1 bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2 text-sm text-warroom-text placeholder:text-warroom-muted/50 focus:outline-none focus:ring-1 focus:ring-warroom-accent"
@@ -1138,7 +1132,10 @@ export default function ActivityCalendar() {
           <button
             onClick={() => {
               const today = new Date().toISOString().split("T")[0];
-              openQuickAdd(today);
+              const inputVal = quickAddInputRef.current?.value?.trim() || "";
+              setQuickAddTitle(inputVal);
+              setQuickAddDate(today);
+              if (quickAddInputRef.current) quickAddInputRef.current.value = "";
             }}
             className="w-10 h-10 rounded-full bg-warroom-muted/20 hover:bg-warroom-accent/20 flex items-center justify-center text-warroom-muted hover:text-warroom-accent transition flex-shrink-0"
           >
@@ -1151,7 +1148,8 @@ export default function ActivityCalendar() {
       {quickAddDate && (
         <QuickAddModal
           date={quickAddDate}
-          onClose={() => setQuickAddDate(null)}
+          initialTitle={quickAddTitle}
+          onClose={() => { setQuickAddDate(null); setQuickAddTitle(""); }}
           onSave={(data) => saveEvent(data)}
           onMoreOptions={(data) => openFullEditor(data)}
         />

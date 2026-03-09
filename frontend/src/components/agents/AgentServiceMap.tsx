@@ -158,8 +158,14 @@ function deriveAgents(
       .filter((k): k is string => !!k);
     const completedKeys = new Set(completedKeysArr);
 
+    // Filter active tasks — exclude completed AND stale (>2h old)
+    const STALE_MS = 2 * 60 * 60 * 1000; // 2 hours
+    const now = Date.now();
     const activeTasks = spawns.filter(
-      (s) => s.metadata?.session_key && !completedKeys.has(s.metadata.session_key)
+      (s) =>
+        s.metadata?.session_key &&
+        !completedKeys.has(s.metadata.session_key) &&
+        now - new Date(s.timestamp).getTime() < STALE_MS
     );
 
     // Build history: match complete → spawn by session_key
@@ -372,40 +378,40 @@ function DetailSidebar({
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="p-5 border-b border-warroom-border flex-shrink-0">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">{agent.emoji}</span>
-            <div>
-              <h3 className="font-semibold text-lg text-warroom-text">
+      <div className="p-3 sm:p-5 border-b border-warroom-border flex-shrink-0">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="text-2xl leading-none">{agent.emoji}</span>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-base text-warroom-text truncate">
                 {agent.name}
               </h3>
-              <p className="text-xs text-warroom-muted">{agent.role}</p>
+              <p className="text-[11px] text-warroom-muted">{agent.role}</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-warroom-muted hover:text-warroom-text transition-colors p-1 rounded-lg hover:bg-warroom-border/50"
+            className="text-warroom-muted hover:text-warroom-text transition-colors p-1.5 rounded-lg hover:bg-warroom-border/50 flex-shrink-0"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-1.5 flex-wrap">
           <StatusBadge status={agent.status} />
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-warroom-accent/10 text-warroom-accent">
-            <Cpu size={10} /> {agent.model}
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-warroom-accent/10 text-warroom-accent truncate max-w-[200px]">
+            <Cpu size={10} className="flex-shrink-0" /> {agent.model}
           </span>
         </div>
       </div>
 
       {/* Progress */}
       {agent.status === "working" && agent.currentTask && (
-        <div className="px-5 py-3 border-b border-warroom-border flex-shrink-0">
-          <p className="text-xs text-warroom-muted font-medium mb-1">
+        <div className="px-3 sm:px-5 py-3 border-b border-warroom-border flex-shrink-0">
+          <p className="text-[11px] text-warroom-muted font-medium mb-1">
             Current Task
           </p>
-          <p className="text-sm text-warroom-text mb-2">
+          <p className="text-xs text-warroom-text mb-2 leading-relaxed">
             {truncate(agent.currentTask, 120)}
           </p>
           <IndeterminateBar />
@@ -413,24 +419,24 @@ function DetailSidebar({
       )}
 
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-3 px-5 py-4 border-b border-warroom-border flex-shrink-0">
-        <div className="text-center">
-          <p className="text-lg font-bold text-warroom-text">
+      <div className="grid grid-cols-3 gap-1 px-3 sm:px-5 py-3 border-b border-warroom-border flex-shrink-0">
+        <div className="text-center min-w-0">
+          <p className="text-base font-bold text-warroom-text">
             {agent.taskCount}
           </p>
-          <p className="text-[10px] text-warroom-muted">Completed</p>
+          <p className="text-[9px] text-warroom-muted">Completed</p>
         </div>
-        <div className="text-center">
-          <p className="text-lg font-bold text-warroom-text">
+        <div className="text-center min-w-0">
+          <p className="text-base font-bold text-warroom-text truncate px-1">
             {avgDuration ?? "—"}
           </p>
-          <p className="text-[10px] text-warroom-muted">Avg Time</p>
+          <p className="text-[9px] text-warroom-muted">Avg Time</p>
         </div>
-        <div className="text-center">
-          <p className="text-lg font-bold text-warroom-text">
+        <div className="text-center min-w-0">
+          <p className="text-base font-bold text-warroom-text truncate px-1">
             {agent.lastActive ? timeAgo(agent.lastActive) : "—"}
           </p>
-          <p className="text-[10px] text-warroom-muted">Last Active</p>
+          <p className="text-[9px] text-warroom-muted">Last Active</p>
         </div>
       </div>
 
@@ -921,63 +927,64 @@ export default function AgentServiceMap() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="h-14 border-b border-warroom-border flex items-center px-6 gap-3 flex-shrink-0">
-        <Activity size={18} className="text-warroom-accent" />
-        <h2 className="text-sm font-semibold text-warroom-text">
-          Agent Dashboard
-        </h2>
-
-        {/* View toggle */}
-        <div className="ml-4 flex bg-warroom-bg rounded-lg border border-warroom-border overflow-hidden">
-          <button
-            onClick={() => setView("grid")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
-              view === "grid"
-                ? "bg-warroom-accent/15 text-warroom-accent"
-                : "text-warroom-muted hover:text-warroom-text"
-            }`}
-          >
-            <LayoutGrid size={12} /> Grid
-          </button>
-          <button
-            onClick={() => setView("map")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium transition-colors ${
-              view === "map"
-                ? "bg-warroom-accent/15 text-warroom-accent"
-                : "text-warroom-muted hover:text-warroom-text"
-            }`}
-          >
-            <Network size={12} /> Map
-          </button>
+      <div className="border-b border-warroom-border flex flex-wrap items-center gap-2 px-3 sm:px-5 py-2 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Activity size={16} className="text-warroom-accent" />
+          <h2 className="text-sm font-semibold text-warroom-text whitespace-nowrap">
+            Agent Dashboard
+          </h2>
         </div>
 
-        {/* Stats */}
-        <div className="ml-auto flex items-center gap-4 text-xs text-warroom-muted">
-          <span className="flex items-center gap-1.5">
-            <Hash size={12} /> {totalTasks} tasks
+        {/* Stats (compact) */}
+        <div className="flex items-center gap-2.5 text-[11px] text-warroom-muted">
+          <span className="flex items-center gap-1">
+            <Hash size={10} /> {totalTasks}<span className="hidden sm:inline"> tasks</span>
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="relative flex h-2 w-2">
+          <span className="flex items-center gap-1">
+            <span className="relative flex h-1.5 w-1.5">
               {workingCount > 0 && (
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
               )}
-              <span className={`relative inline-flex rounded-full h-2 w-2 ${workingCount > 0 ? "bg-green-500" : "bg-gray-500"}`} />
+              <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${workingCount > 0 ? "bg-green-500" : "bg-gray-500"}`} />
             </span>
-            {workingCount} Working
+            {workingCount}<span className="hidden sm:inline"> Working</span>
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-gray-500" />
-            {idleCount} Idle
+          <span className="flex items-center gap-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-gray-500" />
+            {idleCount}<span className="hidden sm:inline"> Idle</span>
           </span>
+        </div>
+
+        {/* View toggle + refresh */}
+        <div className="ml-auto flex items-center gap-1.5">
+          <div className="flex bg-warroom-bg rounded-lg border border-warroom-border overflow-hidden">
+            <button
+              onClick={() => setView("grid")}
+              className={`flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                view === "grid"
+                  ? "bg-warroom-accent/15 text-warroom-accent"
+                  : "text-warroom-muted hover:text-warroom-text"
+              }`}
+            >
+              <LayoutGrid size={11} /> <span className="hidden sm:inline">Grid</span>
+            </button>
+            <button
+              onClick={() => setView("map")}
+              className={`flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                view === "map"
+                  ? "bg-warroom-accent/15 text-warroom-accent"
+                  : "text-warroom-muted hover:text-warroom-text"
+              }`}
+            >
+              <Network size={11} /> <span className="hidden sm:inline">Map</span>
+            </button>
+          </div>
           <button
             onClick={() => fetchData(true)}
-            className="flex items-center gap-1 hover:text-warroom-text transition-colors"
+            className="p-1.5 text-warroom-muted hover:text-warroom-text transition-colors"
             title={lastRefresh ? `Last: ${lastRefresh.toLocaleTimeString()}` : "Refresh"}
           >
-            <RefreshCw
-              size={12}
-              className={refreshing ? "animate-spin" : ""}
-            />
+            <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
           </button>
         </div>
       </div>
@@ -998,8 +1005,8 @@ export default function AgentServiceMap() {
               />
             </div>
           ) : view === "grid" ? (
-            <div className="p-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="p-3 sm:p-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {agents.map((agent) => (
                   <AgentCard
                     key={agent.id}
@@ -1024,22 +1031,27 @@ export default function AgentServiceMap() {
           )}
         </div>
 
-        {/* Right Panel (Detail Sidebar) */}
-        <div
-          className={`border-l border-warroom-border bg-warroom-surface transition-all duration-300 overflow-hidden ${
-            selectedAgent ? "w-96" : "w-0 border-l-0"
-          }`}
-        >
-          {selectedAgent && (
-            <div className="w-96 h-full">
+        {/* Right Panel — full overlay on mobile, sidebar on lg+ */}
+        {selectedAgent && (
+          <>
+            {/* Mobile: full-screen overlay */}
+            <div className="lg:hidden fixed inset-0 z-50 bg-warroom-bg flex flex-col">
               <DetailSidebar
                 agent={selectedAgent}
                 allAgents={agents}
                 onClose={() => setSelectedId(null)}
               />
             </div>
-          )}
-        </div>
+            {/* Desktop: sidebar */}
+            <div className="hidden lg:block w-96 border-l border-warroom-border bg-warroom-surface overflow-hidden flex-shrink-0">
+              <DetailSidebar
+                agent={selectedAgent}
+                allAgents={agents}
+                onClose={() => setSelectedId(null)}
+              />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
