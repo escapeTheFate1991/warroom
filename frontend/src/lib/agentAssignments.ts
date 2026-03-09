@@ -53,6 +53,7 @@ export interface AgentSummary {
   config: Record<string, unknown>;
   status: string;
   openclaw_agent_id: string | null;
+  soul_md: string;
   active_assignments: number;
   active_tasks: number;
   created_at: string;

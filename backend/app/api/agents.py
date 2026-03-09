@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS agents (
     config JSONB DEFAULT '{}'::jsonb,
     status TEXT DEFAULT 'idle',
     openclaw_agent_id TEXT,
+    soul_md TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -122,6 +123,11 @@ WHERE NOT EXISTS (
 """
 
 
+MIGRATE_SOUL_MD = """
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS soul_md TEXT DEFAULT '';
+"""
+
+
 async def ensure_tables(db):
     await db.execute(text(CREATE_TABLE))
     await db.execute(text(CREATE_TASK_ASSIGNMENTS))
@@ -130,6 +136,7 @@ async def ensure_tables(db):
     await db.execute(text(CREATE_ASSIGNMENTS_ENTITY_INDEX))
     await db.execute(text(CREATE_ASSIGNMENTS_STATUS_INDEX))
     await db.execute(text(MIGRATE_LEGACY_TASK_ASSIGNMENTS))
+    await db.execute(text(MIGRATE_SOUL_MD))
     await db.commit()
 
 
@@ -275,6 +282,7 @@ class AgentCreate(BaseModel):
     model: str = "anthropic/claude-sonnet-4-20250514"
     skills: List[str] = Field(default_factory=list)
     config: dict = Field(default_factory=dict)
+    soul_md: str = ""
 
 
 class AgentUpdate(BaseModel):
@@ -286,6 +294,7 @@ class AgentUpdate(BaseModel):
     skills: Optional[List[str]] = None
     config: Optional[dict] = None
     status: Optional[str] = None
+    soul_md: Optional[str] = None
 
 
 class TaskAssignment(BaseModel):
@@ -407,8 +416,8 @@ async def create_agent(body: AgentCreate, db=Depends(get_crm_db)):
     slug = body.name.lower().replace(" ", "-").replace("_", "-")
 
     await db.execute(text("""
-        INSERT INTO agents (id, name, emoji, role, description, model, skills, config)
-        VALUES (:id, :name, :emoji, :role, :description, :model, :skills, :config)
+        INSERT INTO agents (id, name, emoji, role, description, model, skills, config, soul_md)
+        VALUES (:id, :name, :emoji, :role, :description, :model, :skills, :config, :soul_md)
     """), {
         "id": agent_id,
         "name": body.name,
@@ -418,6 +427,7 @@ async def create_agent(body: AgentCreate, db=Depends(get_crm_db)):
         "model": body.model,
         "skills": json.dumps(body.skills),
         "config": json.dumps(body.config),
+        "soul_md": body.soul_md,
     })
     await db.commit()
 
@@ -437,7 +447,7 @@ async def update_agent(agent_id: str, body: AgentUpdate, db=Depends(get_crm_db))
     updates = []
     params = {"id": agent_id}
 
-    for field in ["name", "emoji", "role", "description", "model", "status"]:
+    for field in ["name", "emoji", "role", "description", "model", "status", "soul_md"]:
         val = getattr(body, field, None)
         if val is not None:
             updates.append(f"{field} = :{field}")
@@ -604,3 +614,33 @@ async def remove_task_assignment(agent_id: str, assignment_id: str, db=Depends(g
     await _delete_assignment_record(db, agent_id, assignment_id, entity_type=TASK_ASSIGNMENT_ENTITY_TYPE)
 
     return {"deleted": True}
+
+
+# ── Per-Agent Soul ───────────────────────────────────────────────
+
+class AgentSoulUpdate(BaseModel):
+    soul_md: str
+
+
+@router.get("/agents/{agent_id}/soul")
+async def get_agent_soul(agent_id: str, db=Depends(get_crm_db)):
+    await ensure_tables(db)
+    result = await db.execute(text(
+        "SELECT soul_md FROM agents WHERE id = :id"
+    ), {"id": agent_id})
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return {"agent_id": agent_id, "soul_md": row["soul_md"] or ""}
+
+
+@router.put("/agents/{agent_id}/soul")
+async def update_agent_soul(agent_id: str, body: AgentSoulUpdate, db=Depends(get_crm_db)):
+    await ensure_tables(db)
+    result = await db.execute(text(
+        "UPDATE agents SET soul_md = :soul_md, updated_at = NOW() WHERE id = :id RETURNING id"
+    ), {"id": agent_id, "soul_md": body.soul_md})
+    await db.commit()
+    if not result.first():
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return {"agent_id": agent_id, "updated": True}

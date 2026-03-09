@@ -8,7 +8,7 @@ import {
   Users, BookOpen, GraduationCap, Building2,
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
-  CalendarDays, Puzzle, Heart, FileSignature, DollarSign, PhoneCall,
+  CalendarDays, FileSignature, DollarSign, PhoneCall,
   BarChart2, PieChart, TrendingUp, UserPlus,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -33,13 +33,11 @@ const ContactsManager = dynamic(() => import("@/components/crm/ContactsManager")
 const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboard"), { loading: PanelLoader });
 const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
 const EmailTemplatesPanel = dynamic(() => import("@/components/marketing/EmailTemplatesPanel"), { loading: PanelLoader });
-const AgentServiceMap = dynamic(() => import("@/components/agents/AgentServiceMap"), { loading: PanelLoader });
-const AgentManager = dynamic(() => import("@/components/agents/AgentManager"), { loading: PanelLoader });
+const AgentFeaturePage = dynamic(() => import("@/components/agents/AgentFeaturePage"), { loading: PanelLoader });
+const AgentEditPage = dynamic(() => import("@/components/agents/AgentEditPage"), { loading: PanelLoader });
 const ContentPipeline = dynamic(() => import("@/components/content/ContentPipeline"), { loading: PanelLoader });
 const CompetitorIntel = dynamic(() => import("@/components/intelligence/CompetitorIntel"), { loading: PanelLoader });
 const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter"), { loading: PanelLoader });
-const SkillsManager = dynamic(() => import("@/components/dashboard/SkillsManager"), { loading: PanelLoader });
-const SoulEditor = dynamic(() => import("@/components/dashboard/SoulEditor"), { loading: PanelLoader });
 const ActivityCalendar = dynamic(() => import("@/components/dashboard/ActivityCalendar"), { loading: PanelLoader });
 const PlatformContent = dynamic(() => import("@/components/content/PlatformContent"), { loading: PanelLoader });
 const ContentTracker = dynamic(() => import("@/components/content/ContentTracker"), { loading: PanelLoader });
@@ -121,8 +119,6 @@ const SECTIONS = [
     label: "TOOLS",
     items: [
       { id: "workflows", label: "Workflows", icon: Bot },
-      { id: "skills", label: "Skills", icon: Puzzle },
-      { id: "soul", label: "Soul", icon: Heart },
       { id: "library", label: "Library", icon: BookOpen, children: [
         { id: "library-search", label: "Search", icon: Search },
         { id: "library-educate", label: "Educate", icon: GraduationCap },
@@ -136,14 +132,13 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "calendar" | "communications" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
+  | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
   | "kanban" | "leadgen"
   | "pipeline-board" | "organizations" | "crm-contacts"
   | "library-search" | "library-educate"
   | "workflows"
   | "marketing-campaigns" | "marketing-templates"
-  | "skills" | "soul"
   | "invoices" | "contracts"
   | "reports-overview" | "reports-revenue" | "reports-sales"
   | "settings";
@@ -152,6 +147,8 @@ function normalizeTab(tab: string | null): TabId {
   if (!tab) return "dashboard";
   if (tab === "content-tracker") return "social";
   if (tab === "automation") return "workflows";
+  // Legacy redirects — skills and soul now live inside agents
+  if (tab === "skills" || tab === "soul") return "agents";
   return tab as TabId;
 }
 
@@ -161,6 +158,12 @@ const PARENT_CHILDREN: Record<string, string[]> = {
   marketing: ["marketing-campaigns", "marketing-templates"],
   finance: ["invoices", "contracts", "reports-overview", "reports-revenue", "reports-sales"],
   reports: ["reports-overview", "reports-revenue", "reports-sales"],
+};
+
+// Tabs that should highlight a specific sidebar item
+const TAB_ALIASES: Record<string, string> = {
+  "agent-create": "agents",
+  "agent-edit": "agents",
 };
 
 export default function Page() {
@@ -193,7 +196,7 @@ function WarRoom() {
       setActiveTab(nextTab);
     }
 
-    if (rawTab === "content-tracker" || rawTab === "automation") {
+    if (rawTab === "content-tracker" || rawTab === "automation" || rawTab === "skills" || rawTab === "soul") {
       router.replace(`/?tab=${nextTab}`, { scroll: false });
     }
   }, [activeTab, router, searchParams]);
@@ -207,7 +210,7 @@ function WarRoom() {
     <div className="flex h-dvh bg-warroom-bg text-warroom-text overflow-hidden">
       <Sidebar
         menuSections={SECTIONS}
-        activeTab={activeTab}
+        activeTab={TAB_ALIASES[activeTab] || activeTab}
         setActiveTab={handleTabChange}
         isChildActive={isChildActive}
         open={sidebarOpen}
@@ -224,13 +227,25 @@ function WarRoom() {
           {activeTab === "dashboard" && <CommandCenter />}
           {activeTab === "chat" && <ChatPanel />}
           {activeTab === "agents" && (
-            <div className="h-full overflow-y-auto p-6 space-y-8">
-              <AgentManager />
-              <div className="border-t border-warroom-border pt-6">
-                <h3 className="text-sm font-semibold text-warroom-muted mb-4 px-1">Live Activity</h3>
-                <AgentServiceMap />
-              </div>
-            </div>
+            <AgentFeaturePage onNavigate={(tab, params) => {
+              if (params?.id) {
+                router.push(`/?tab=${tab}&id=${params.id}`, { scroll: false });
+              }
+              handleTabChange(tab);
+            }} />
+          )}
+          {activeTab === "agent-create" && (
+            <AgentEditPage
+              mode="create"
+              onNavigate={(tab) => handleTabChange(tab)}
+            />
+          )}
+          {activeTab === "agent-edit" && (
+            <AgentEditPage
+              mode="edit"
+              agentId={searchParams.get("id") || undefined}
+              onNavigate={(tab) => handleTabChange(tab)}
+            />
           )}
 
           {activeTab === "social" && <SocialDashboard />}
@@ -254,8 +269,7 @@ function WarRoom() {
           {activeTab === "marketing-templates" && <EmailTemplatesPanel />}
           {activeTab === "email" && <EmailInbox />}
           {activeTab === "calendar" && <ActivityCalendar />}
-          {activeTab === "skills" && <SkillsManager />}
-          {activeTab === "soul" && <SoulEditor />}
+
           {activeTab === "invoices" && <InvoicingPanel />}
           {activeTab === "contracts" && <ContractsPanel />}
           {activeTab === "reports-overview" && <ReportsOverview />}
