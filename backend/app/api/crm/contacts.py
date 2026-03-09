@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.crm_db import get_crm_db
+from app.api.agent_assignment_helpers import load_assignment_summaries
 from app.models.crm.contact import Person, Organization
 from app.models.crm.deal import Deal
 from app.models.crm.audit import AuditLog
@@ -81,7 +82,7 @@ def _first_contact_value(items: Any) -> Optional[str]:
     return normalized[0]["value"]
 
 
-def _serialize_person_row(row: Any) -> Dict[str, Any]:
+def _serialize_person_row(row: Any, agent_assignments: Optional[List[Any]] = None) -> Dict[str, Any]:
     emails = _normalize_contact_items(row["emails"])
     contact_numbers = _normalize_contact_items(row["contact_numbers"])
     return {
@@ -93,12 +94,13 @@ def _serialize_person_row(row: Any) -> Dict[str, Any]:
         "organization_id": row["organization_id"],
         "organization_name": row["organization_name"],
         "user_id": row["user_id"],
+        "agent_assignments": agent_assignments or [],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
 
 
-def _serialize_crm_contact(row: Any) -> Dict[str, Any]:
+def _serialize_crm_contact(row: Any, agent_assignments: Optional[List[Any]] = None) -> Dict[str, Any]:
     assigned_to = row["assigned_to"] or row["assigned_email"]
     return {
         "id": row["id"],
@@ -108,9 +110,34 @@ def _serialize_crm_contact(row: Any) -> Dict[str, Any]:
         "company": row["organization_name"],
         "source": "crm",
         "assigned_to": assigned_to,
+        "agent_assignments": agent_assignments or [],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+
+
+async def _serialize_person_rows(db: AsyncSession, rows: List[Any]) -> List[Dict[str, Any]]:
+    assignment_map = await load_assignment_summaries(
+        db,
+        entity_type="crm_contact",
+        entity_ids=[row["id"] for row in rows],
+    )
+    return [
+        _serialize_person_row(row, assignment_map.get(str(row["id"]), []))
+        for row in rows
+    ]
+
+
+async def _serialize_crm_contacts(db: AsyncSession, rows: List[Any]) -> List[Dict[str, Any]]:
+    assignment_map = await load_assignment_summaries(
+        db,
+        entity_type="crm_contact",
+        entity_ids=[row["id"] for row in rows],
+    )
+    return [
+        _serialize_crm_contact(row, assignment_map.get(str(row["id"]), []))
+        for row in rows
+    ]
 
 
 async def _query_person_rows(
@@ -185,7 +212,7 @@ async def list_persons(
         limit=limit,
         offset=offset,
     )
-    return [_serialize_person_row(row) for row in rows]
+    return await _serialize_person_rows(db, rows)
 
 
 @router.get("/persons/{person_id}", response_model=PersonResponse)
@@ -195,7 +222,8 @@ async def get_person(person_id: int, db: AsyncSession = Depends(get_crm_db)):
     if not rows:
         raise HTTPException(status_code=404, detail="Person not found")
 
-    return _serialize_person_row(rows[0])
+    serialized_rows = await _serialize_person_rows(db, rows)
+    return serialized_rows[0]
 
 
 @router.post("/persons", response_model=PersonResponse)
@@ -293,7 +321,7 @@ async def search_persons(search_request: PersonSearchRequest, db: AsyncSession =
         search_fields=search_fields,
         limit=50,
     )
-    return [_serialize_person_row(row) for row in rows]
+    return await _serialize_person_rows(db, rows)
 
 
 @router.get("/contacts", response_model=List[CRMContactResponse])
@@ -305,7 +333,7 @@ async def list_contacts(
 ):
     """List flattened CRM contacts for the contacts manager."""
     rows = await _query_person_rows(db, search=search, limit=limit, offset=offset)
-    return [_serialize_crm_contact(row) for row in rows]
+    return await _serialize_crm_contacts(db, rows)
 
 
 @router.get("/contacts/persons", response_model=List[ContactPersonResponse])
@@ -324,7 +352,7 @@ async def list_contact_persons(
         limit=limit,
         offset=offset,
     )
-    return [_serialize_person_row(row) for row in rows]
+    return await _serialize_person_rows(db, rows)
 
 
 @router.get("/contacts/persons/search", response_model=List[ContactPersonResponse])
@@ -335,7 +363,7 @@ async def search_contact_persons(
 ):
     """Compatibility GET search endpoint for person lookups."""
     rows = await _query_person_rows(db, search=q, limit=limit)
-    return [_serialize_person_row(row) for row in rows]
+    return await _serialize_person_rows(db, rows)
 
 
 # ===== Organizations CRUD =====
@@ -464,4 +492,4 @@ async def delete_organization(org_id: int, user_id: Optional[int] = None,
 async def get_organization_persons(org_id: int, db: AsyncSession = Depends(get_crm_db)):
     """Get persons in an organization."""
     rows = await _query_person_rows(db, organization_id=org_id, limit=500)
-    return [_serialize_person_row(row) for row in rows]
+    return await _serialize_person_rows(db, rows)

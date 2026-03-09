@@ -8,7 +8,7 @@ import {
   Users, BookOpen, GraduationCap, Building2,
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
-  CalendarDays, Puzzle, Heart, FileSignature, DollarSign,
+  CalendarDays, Puzzle, Heart, FileSignature, DollarSign, PhoneCall,
   BarChart2, PieChart, TrendingUp, UserPlus,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -28,6 +28,7 @@ const LibraryPanel = dynamic(() => import("@/components/library/LibraryPanel"), 
 const EducatePanel = dynamic(() => import("@/components/library/EducatePanel"), { loading: PanelLoader });
 const LeadgenPanel = dynamic(() => import("@/components/leadgen/LeadgenPanel"), { loading: PanelLoader });
 const SettingsPanel = dynamic(() => import("@/components/settings/SettingsPanel"), { loading: PanelLoader });
+const WorkflowsPanel = dynamic(() => import("@/components/workflows/WorkflowsPanel"), { loading: PanelLoader });
 const ContactsManager = dynamic(() => import("@/components/crm/ContactsManager"), { loading: PanelLoader });
 const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboard"), { loading: PanelLoader });
 const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
@@ -49,6 +50,7 @@ const ReportsOverview = dynamic(() => import("@/components/reports/ReportsOvervi
 const ProspectsPanel = dynamic(() => import("@/components/prospects/ProspectsPanel"), { loading: PanelLoader });
 const UnifiedPipeline = dynamic(() => import("@/components/crm/UnifiedPipeline"), { loading: PanelLoader });
 const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsPanel"), { loading: PanelLoader });
+const CommunicationsConsole = dynamic(() => import("@/components/communications/CommunicationsConsole"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -69,6 +71,7 @@ const SECTIONS = [
       { id: "chat", label: "Chat", icon: MessageSquare },
       { id: "agents", label: "Agents", icon: Bot },
       { id: "calendar", label: "Calendar", icon: CalendarDays },
+      { id: "communications", label: "Comms", icon: PhoneCall },
       { id: "email", label: "Email", icon: Mail },
       { id: "kanban", label: "Tasks", icon: ClipboardList },
     ],
@@ -117,6 +120,7 @@ const SECTIONS = [
   {
     label: "TOOLS",
     items: [
+      { id: "workflows", label: "Workflows", icon: Bot },
       { id: "skills", label: "Skills", icon: Puzzle },
       { id: "soul", label: "Soul", icon: Heart },
       { id: "library", label: "Library", icon: BookOpen, children: [
@@ -132,11 +136,12 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "calendar" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
+  | "dashboard" | "chat" | "agents" | "calendar" | "communications" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
   | "kanban" | "leadgen"
   | "pipeline-board" | "organizations" | "crm-contacts"
   | "library-search" | "library-educate"
+  | "workflows"
   | "marketing-campaigns" | "marketing-templates"
   | "skills" | "soul"
   | "invoices" | "contracts"
@@ -146,6 +151,7 @@ type TabId =
 function normalizeTab(tab: string | null): TabId {
   if (!tab) return "dashboard";
   if (tab === "content-tracker") return "social";
+  if (tab === "automation") return "workflows";
   return tab as TabId;
 }
 
@@ -187,8 +193,8 @@ function WarRoom() {
       setActiveTab(nextTab);
     }
 
-    if (rawTab === "content-tracker") {
-      router.replace("/?tab=social", { scroll: false });
+    if (rawTab === "content-tracker" || rawTab === "automation") {
+      router.replace(`/?tab=${nextTab}`, { scroll: false });
     }
   }, [activeTab, router, searchParams]);
 
@@ -236,12 +242,14 @@ function WarRoom() {
           {activeTab === "intelligence" && <CompetitorIntel />}
           {activeTab === "kanban" && <KanbanPanel />}
           {activeTab === "leadgen" && <LeadgenPanel />}
+          {activeTab === "communications" && <CommunicationsConsole />}
           {activeTab === "prospects" && <ProspectsPanel />}
           {activeTab === "pipeline-board" && <UnifiedPipeline />}
           {activeTab === "organizations" && <OrganizationsPanel />}
           {activeTab === "crm-contacts" && <ContactsManager />}
           {activeTab === "library-search" && <LibraryPanel />}
           {activeTab === "library-educate" && <EducatePanel />}
+          {activeTab === "workflows" && <WorkflowsPanel />}
           {activeTab === "marketing-campaigns" && <CampaignsPanel />}
           {activeTab === "marketing-templates" && <EmailTemplatesPanel />}
           {activeTab === "email" && <EmailInbox />}

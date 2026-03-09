@@ -247,8 +247,13 @@ CREATE TABLE IF NOT EXISTS crm.email_attachments (
 CREATE TABLE IF NOT EXISTS crm.email_templates (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
+    description TEXT,
+    channel TEXT DEFAULT 'email',
     subject TEXT,
     content TEXT,
+    use_case TEXT,
+    content_blocks JSONB,
+    channel_config JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -265,16 +270,37 @@ CREATE TABLE IF NOT EXISTS crm.marketing_events (
 CREATE TABLE IF NOT EXISTS crm.marketing_campaigns (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
+    channel TEXT DEFAULT 'email',
     subject TEXT,
     status BOOLEAN DEFAULT false,
     type TEXT,  -- newsletter, event
+    use_case TEXT,
     mail_to TEXT,
     spooling TEXT,
+    audience JSONB,
+    schedule JSONB,
+    content JSONB,
+    channel_config JSONB,
     template_id INTEGER REFERENCES crm.email_templates(id) ON DELETE SET NULL,
     event_id INTEGER REFERENCES crm.marketing_events(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'email';
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS use_case TEXT;
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS content_blocks JSONB;
+ALTER TABLE crm.email_templates ADD COLUMN IF NOT EXISTS channel_config JSONB;
+UPDATE crm.email_templates SET channel = 'email' WHERE channel IS NULL;
+
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'email';
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS use_case TEXT;
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS audience JSONB;
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS schedule JSONB;
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS content JSONB;
+ALTER TABLE crm.marketing_campaigns ADD COLUMN IF NOT EXISTS channel_config JSONB;
+UPDATE crm.marketing_campaigns SET channel = 'email' WHERE channel IS NULL;
 
 -- Quotes
 CREATE TABLE IF NOT EXISTS crm.quotes (
@@ -359,6 +385,25 @@ CREATE TABLE IF NOT EXISTS crm.attribute_values (
 );
 
 -- Automation Workflows
+CREATE TABLE IF NOT EXISTS crm.workflow_templates (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    entity_type TEXT NOT NULL,
+    event TEXT NOT NULL,
+    condition_type TEXT DEFAULT 'and',
+    conditions JSONB NOT NULL,
+    actions JSONB NOT NULL,
+    is_seed BOOLEAN NOT NULL DEFAULT false,
+    seed_key TEXT UNIQUE,
+    derived_from_template_id INTEGER REFERENCES crm.workflow_templates(id) ON DELETE SET NULL,
+    root_template_id INTEGER REFERENCES crm.workflow_templates(id) ON DELETE SET NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS crm.workflows (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -369,9 +414,36 @@ CREATE TABLE IF NOT EXISTS crm.workflows (
     conditions JSONB,
     actions JSONB,
     is_active BOOLEAN DEFAULT true,
+    template_id INTEGER REFERENCES crm.workflow_templates(id) ON DELETE SET NULL,
+    derived_from_workflow_id INTEGER REFERENCES crm.workflows(id) ON DELETE SET NULL,
+    root_workflow_id INTEGER REFERENCES crm.workflows(id) ON DELETE SET NULL,
+    version INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS entity_type TEXT;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS event TEXT;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS condition_type TEXT DEFAULT 'and';
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS conditions JSONB;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS actions JSONB;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS is_seed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS seed_key TEXT;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS derived_from_template_id INTEGER REFERENCES crm.workflow_templates(id) ON DELETE SET NULL;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS root_template_id INTEGER REFERENCES crm.workflow_templates(id) ON DELETE SET NULL;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE crm.workflow_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+UPDATE crm.workflow_templates SET version = 1 WHERE version IS NULL;
+UPDATE crm.workflow_templates SET is_seed = false WHERE is_seed IS NULL;
+
+ALTER TABLE crm.workflows ADD COLUMN IF NOT EXISTS template_id INTEGER REFERENCES crm.workflow_templates(id) ON DELETE SET NULL;
+ALTER TABLE crm.workflows ADD COLUMN IF NOT EXISTS derived_from_workflow_id INTEGER REFERENCES crm.workflows(id) ON DELETE SET NULL;
+ALTER TABLE crm.workflows ADD COLUMN IF NOT EXISTS root_workflow_id INTEGER REFERENCES crm.workflows(id) ON DELETE SET NULL;
+ALTER TABLE crm.workflows ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+UPDATE crm.workflows SET version = 1 WHERE version IS NULL;
 
 CREATE TABLE IF NOT EXISTS crm.webhooks (
     id SERIAL PRIMARY KEY,
@@ -432,6 +504,9 @@ CREATE INDEX IF NOT EXISTS idx_deals_person ON crm.deals(person_id);
 CREATE INDEX IF NOT EXISTS idx_deals_org ON crm.deals(organization_id);
 CREATE INDEX IF NOT EXISTS idx_persons_org ON crm.persons(organization_id);
 CREATE INDEX IF NOT EXISTS idx_activities_type ON crm.activities(type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_templates_seed_key ON crm.workflow_templates(seed_key) WHERE seed_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_workflows_template_id ON crm.workflows(template_id);
+CREATE INDEX IF NOT EXISTS idx_workflows_root_workflow_id ON crm.workflows(root_workflow_id);
 CREATE INDEX IF NOT EXISTS idx_activities_user ON crm.activities(user_id);
 CREATE INDEX IF NOT EXISTS idx_activities_schedule ON crm.activities(schedule_from);
 CREATE INDEX IF NOT EXISTS idx_emails_deal ON crm.emails(deal_id);

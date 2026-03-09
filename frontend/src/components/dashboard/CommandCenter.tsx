@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Zap, Users, Eye, BarChart3, TrendingUp, Activity, Share2, Film,
   Target, Clock, CheckCircle2, Loader2, AlertCircle, ArrowRight, ArrowUpRight,
-  Flame, Calendar, MessageSquare, DollarSign, FileText, Mail, UserPlus,
-  AlertTriangle, X, Send,
+  Flame, Calendar, DollarSign, FileText, Mail, UserPlus,
+  AlertTriangle,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import ActiveAssignmentsList from "@/components/agents/ActiveAssignmentsList";
+import AskAIButton from "@/components/agents/AskAIButton";
 import SalesDashboard from "@/components/dashboard/SalesDashboard";
 
 type DashboardFocus = "sales" | "social" | "ai";
@@ -171,7 +173,6 @@ export default function CommandCenter() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [metrics, setMetrics] = useState<BusinessMetrics>(INITIAL_METRICS);
   const [focus, setFocus] = useState<DashboardFocus>("sales");
-  const [showAIChat, setShowAIChat] = useState(false);
   const [recentDeals, setRecentDeals] = useState<CRMDeal[]>([]);
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [upcomingActivities, setUpcomingActivities] = useState<CRMActivity[]>([]);
@@ -312,6 +313,37 @@ export default function CommandCenter() {
   ];
 
   const greeting = currentTime.getHours() < 12 ? "Good morning" : currentTime.getHours() < 18 ? "Good afternoon" : "Good evening";
+  const chatContext = focus === "sales"
+    ? {
+        surface: "sales",
+        title: "Command Center sales view",
+        summary: `${metrics.activeContracts || 0} active contracts and ${formatNum(metrics.pipelineValue || 0)} in open pipeline value.`,
+        facts: [
+          { label: "Revenue this month", value: metrics.revenueThisMonth || 0 },
+          { label: "MRR", value: metrics.mrr || 0 },
+          { label: "New leads", value: metrics.newLeads || 0 },
+        ],
+      }
+    : focus === "social"
+      ? {
+          surface: "social",
+          title: "Command Center social view",
+          summary: `${accounts.length} connected account(s) with ${formatNum(summary?.total_engagement || 0)} engagements tracked.`,
+          facts: [
+            { label: "Followers", value: summary?.total_followers || 0 },
+            { label: "Reach", value: summary?.total_reach || 0 },
+            { label: "Pipeline content", value: pipelineStats.total },
+          ],
+        }
+      : {
+          surface: "ai",
+          title: "Command Center AI operations",
+          summary: `${displayEvents.length} recent handoff or completion event(s).`,
+          facts: [
+            { label: "Agents shown", value: AGENTS.length },
+            { label: "Recent events", value: displayEvents.length },
+          ],
+        };
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -349,16 +381,13 @@ export default function CommandCenter() {
         )}
       </div>
 
-      {/* AI Chat overlay button */}
-      <button
-        onClick={() => setShowAIChat(!showAIChat)}
-        className="fixed bottom-6 right-6 w-12 h-12 bg-warroom-accent rounded-full shadow-lg flex items-center justify-center hover:opacity-90 transition z-40"
-      >
-        <MessageSquare size={20} className="text-white" />
-      </button>
-
-      {/* AI Chat panel */}
-      {showAIChat && <AIChatOverlay onClose={() => setShowAIChat(false)} />}
+      <AskAIButton
+        context={chatContext}
+        buttonLabel={`Ask AI about ${focus}`}
+        emptyHint="Ask for a diagnosis, next action, or summary of this dashboard view..."
+        className="fixed bottom-6 right-6 z-40"
+        buttonClassName="h-12 rounded-full px-5 shadow-lg"
+      />
     </div>
   );
 }
@@ -524,6 +553,8 @@ function AIFocus({ agents, events }: {
         })}
       </div>
 
+      <ActiveAssignmentsList />
+
       {/* Event Feed Timeline */}
       <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
         <h3 className="text-sm font-semibold flex items-center gap-2 mb-4">
@@ -551,100 +582,5 @@ function AIFocus({ agents, events }: {
         </div>
       </div>
     </div>
-  );
-}
-
-// ── AI Chat Overlay ──────────────────────────────────────
-function AIChatOverlay({ onClose }: { onClose: () => void }) {
-  const [messages, setMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
-
-  const sendMessage = async () => {
-    const text = input.trim();
-    if (!text || loading) return;
-    setInput("");
-    setMessages(prev => [...prev, { role: "user", text }]);
-    setLoading(true);
-    try {
-      const resp = await authFetch(`${API}/api/chat/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        setMessages(prev => [...prev, { role: "assistant", text: data.response || data.message || "No response" }]);
-      } else {
-        setMessages(prev => [...prev, { role: "assistant", text: "Error: Could not get a response." }]);
-      }
-    } catch {
-      setMessages(prev => [...prev, { role: "assistant", text: "Error: Connection failed." }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
-      {/* Panel */}
-      <div className="fixed bottom-20 right-6 w-[400px] h-[500px] bg-warroom-surface border border-warroom-border rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="h-12 border-b border-warroom-border flex items-center justify-between px-4 flex-shrink-0">
-          <h3 className="text-sm font-bold flex items-center gap-2">
-            <MessageSquare size={14} className="text-warroom-accent" /> AI Assistant
-          </h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-warroom-bg transition">
-            <X size={14} className="text-warroom-muted" />
-          </button>
-        </div>
-        {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-auto p-4 space-y-3">
-          {messages.length === 0 && (
-            <p className="text-xs text-warroom-muted text-center pt-8">Ask me anything about your business...</p>
-          )}
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[80%] px-3 py-2 rounded-xl text-xs ${
-                msg.role === "user"
-                  ? "bg-warroom-accent text-white"
-                  : "bg-warroom-bg border border-warroom-border text-warroom-text"
-              }`}>
-                {msg.text}
-              </div>
-            </div>
-          ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2">
-                <Loader2 size={14} className="animate-spin text-warroom-muted" />
-              </div>
-            </div>
-          )}
-        </div>
-        {/* Input */}
-        <div className="border-t border-warroom-border p-3 flex gap-2 flex-shrink-0">
-          <input
-            type="text"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") sendMessage(); }}
-            placeholder="Type a message..."
-            className="flex-1 bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-warroom-accent"
-          />
-          <button onClick={sendMessage} disabled={!input.trim() || loading}
-            className="p-2 bg-warroom-accent rounded-lg hover:opacity-90 transition disabled:opacity-30">
-            <Send size={14} className="text-white" />
-          </button>
-        </div>
-      </div>
-    </>
   );
 }

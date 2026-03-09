@@ -20,6 +20,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import CallEvidence, { getCallEvidence } from "./CallEvidence";
 import EmptyState from "@/components/ui/EmptyState";
 
 
@@ -371,6 +372,7 @@ export default function ActivitiesPanel() {
               const Icon = ACTIVITY_ICONS[activity.type] || Calendar;
               const colorClass = ACTIVITY_COLORS[activity.type] || "text-gray-400 bg-gray-400/10";
               const overdue = isOverdue(activity);
+              const evidence = activity.type === "call" ? getCallEvidence(activity) : null;
 
               return (
                 <div
@@ -416,6 +418,9 @@ export default function ActivitiesPanel() {
 
                       {activity.comment && (
                         <p className="text-xs text-warroom-muted mt-0.5 line-clamp-2">{activity.comment}</p>
+                      )}
+                      {evidence && (
+                        <CallEvidence recordingUrl={evidence.recordingUrl} transcript={evidence.transcript} className="mt-2" />
                       )}
 
                       <div className="flex items-center gap-3 mt-1">

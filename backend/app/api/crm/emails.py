@@ -1,21 +1,159 @@
 """CRM Emails API endpoints."""
 
+from copy import deepcopy
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
 from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.agent_contract import load_agent_assignment_map
 from app.db.crm_db import get_crm_db
 from app.models.crm.email import Email, EmailAttachment, EmailTemplate
 from app.models.crm.audit import AuditLog
-from .schemas import EmailResponse, EmailCreate
+from .schemas import EmailResponse, EmailCreate, EmailTemplateCreate, EmailTemplateResponse, EmailTemplateUpdate
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+TEMPLATE_CHANNEL_DEFAULTS: Dict[str, Dict[str, Dict[str, Any]]] = {
+    "email": {
+        "content_blocks": {"body": None, "stages": []},
+        "channel_config": {"editor": "html", "sender_profile": None},
+    },
+    "sms": {
+        "content_blocks": {"message": None, "stages": []},
+        "channel_config": {"sender_number": None, "compliance_profile": None},
+    },
+    "voice": {
+        "content_blocks": {"script": None, "stages": []},
+        "channel_config": {"caller_id": None, "voice_profile": None},
+    },
+    "social": {
+        "content_blocks": {"posts": [], "stages": []},
+        "channel_config": {"platforms": [], "profile_id": None},
+    },
+}
+
+
+def _normalize_template_channel(channel: Optional[str]) -> str:
+    return channel if channel in TEMPLATE_CHANNEL_DEFAULTS else "email"
+
+
+def _build_template_defaults(channel: str, content: Optional[str]):
+    channel_defaults = TEMPLATE_CHANNEL_DEFAULTS[channel]
+    content_blocks = deepcopy(channel_defaults["content_blocks"])
+    channel_config = deepcopy(channel_defaults["channel_config"])
+
+    if channel == "email":
+        content_blocks["body"] = content
+    elif channel == "sms":
+        content_blocks["message"] = content
+    elif channel == "voice":
+        content_blocks["script"] = content
+    elif channel == "social" and content:
+        content_blocks["posts"] = [{"body": content}]
+
+    return content_blocks, channel_config
+
+
+def _normalize_template_payload(template_data, existing: Optional[EmailTemplate] = None) -> Dict[str, Any]:
+    data = template_data.model_dump(exclude_unset=True)
+    channel = _normalize_template_channel(data.get("channel") or getattr(existing, "channel", None))
+    content_value = data.get("content", getattr(existing, "content", None))
+    content_blocks, channel_config = _build_template_defaults(channel, content_value)
+    existing_channel = _normalize_template_channel(getattr(existing, "channel", None)) if existing else None
+
+    if existing and existing_channel == channel and getattr(existing, "content_blocks", None):
+        content_blocks.update(existing.content_blocks)
+    if existing and existing_channel == channel and getattr(existing, "channel_config", None):
+        channel_config.update(existing.channel_config)
+
+    if data.get("content_blocks"):
+        content_blocks.update(data["content_blocks"])
+    if data.get("channel_config"):
+        channel_config.update(data["channel_config"])
+
+    if channel == "email" and content_value and not content_blocks.get("body"):
+        content_blocks["body"] = content_value
+    if channel == "sms" and content_value and not content_blocks.get("message"):
+        content_blocks["message"] = content_value
+    if channel == "voice" and content_value and not content_blocks.get("script"):
+        content_blocks["script"] = content_value
+    if channel == "social" and content_value and not content_blocks.get("posts"):
+        content_blocks["posts"] = [{"body": content_value}]
+
+    data["channel"] = channel
+    if existing is None or {"channel", "content", "content_blocks"} & set(data.keys()):
+        data["content_blocks"] = content_blocks
+    if existing is None or {"channel", "channel_config"} & set(data.keys()):
+        data["channel_config"] = channel_config
+
+    return data
+
+
+def _serialize_template(template: EmailTemplate) -> EmailTemplateResponse:
+    channel = _normalize_template_channel(getattr(template, "channel", None))
+    content_blocks, channel_config = _build_template_defaults(channel, template.content)
+
+    if getattr(template, "content_blocks", None):
+        content_blocks.update(template.content_blocks)
+    if getattr(template, "channel_config", None):
+        channel_config.update(template.channel_config)
+
+    if channel == "email" and template.content and not content_blocks.get("body"):
+        content_blocks["body"] = template.content
+    if channel == "sms" and template.content and not content_blocks.get("message"):
+        content_blocks["message"] = template.content
+    if channel == "voice" and template.content and not content_blocks.get("script"):
+        content_blocks["script"] = template.content
+    if channel == "social" and template.content and not content_blocks.get("posts"):
+        content_blocks["posts"] = [{"body": template.content}]
+
+    return EmailTemplateResponse.model_validate(
+        {
+            "id": template.id,
+            "name": template.name,
+            "description": getattr(template, "description", None),
+            "channel": channel,
+            "subject": template.subject,
+            "content": template.content,
+            "use_case": getattr(template, "use_case", None),
+            "content_blocks": content_blocks,
+            "channel_config": channel_config,
+            "created_at": template.created_at,
+            "updated_at": template.updated_at,
+        }
+    )
+
+
+async def _with_template_assignments(db: AsyncSession, templates: list[EmailTemplate]) -> list[EmailTemplateResponse]:
+    serialized_templates = [_serialize_template(template) for template in templates]
+    assignment_map = await load_agent_assignment_map(
+        db,
+        entity_type="marketing_template",
+        entity_ids=[str(template.id) for template in templates],
+    )
+    return [
+        response.model_copy(update={"agent_assignments": assignment_map.get(str(template.id), [])})
+        for template, response in zip(templates, serialized_templates)
+    ]
+
+
+async def _with_email_assignments(db: AsyncSession, emails: list[Email]) -> list[EmailResponse]:
+    assignment_map = await load_agent_assignment_map(
+        db,
+        entity_type="crm_email",
+        entity_ids=[str(email.id) for email in emails],
+    )
+    return [
+        EmailResponse.model_validate(email).model_copy(
+            update={"agent_assignments": assignment_map.get(str(email.id), [])}
+        )
+        for email in emails
+    ]
 
 
 async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: str, 
@@ -62,7 +200,8 @@ async def list_emails(
     query = query.order_by(Email.created_at.desc()).offset(offset).limit(limit)
     
     result = await db.execute(query)
-    return result.scalars().all()
+    emails = result.scalars().all()
+    return await _with_email_assignments(db, emails)
 
 
 @router.get("/emails/{email_id}", response_model=EmailResponse)
@@ -90,7 +229,7 @@ async def get_email(email_id: int, mark_read: bool = Query(default=True),
         email.is_read = True
         await db.commit()
     
-    return email
+    return (await _with_email_assignments(db, [email]))[0]
 
 
 @router.post("/emails", response_model=EmailResponse)
@@ -219,8 +358,8 @@ async def get_email_thread(email_id: int, db: AsyncSession = Depends(get_crm_db)
         .where(thread_condition)
         .order_by(Email.created_at)
     )
-    
-    return result.scalars().all()
+
+    return await _with_email_assignments(db, result.scalars().all())
 
 
 @router.get("/emails/unread-count")
@@ -244,18 +383,18 @@ async def get_unread_count(person_id: Optional[int] = None, deal_id: Optional[in
 
 # ===== Email Templates =====
 
-@router.get("/email-templates")
+@router.get("/email-templates", response_model=List[EmailTemplateResponse])
 async def list_email_templates(db: AsyncSession = Depends(get_crm_db)):
-    """List email templates."""
+    """List channel-aware templates on the existing email template path."""
     result = await db.execute(
         select(EmailTemplate).order_by(EmailTemplate.name)
     )
-    return result.scalars().all()
+    return await _with_template_assignments(db, result.scalars().all())
 
 
-@router.get("/email-templates/{template_id}")
+@router.get("/email-templates/{template_id}", response_model=EmailTemplateResponse)
 async def get_email_template(template_id: int, db: AsyncSession = Depends(get_crm_db)):
-    """Get email template."""
+    """Get channel-aware template details."""
     result = await db.execute(
         select(EmailTemplate).where(EmailTemplate.id == template_id)
     )
@@ -264,45 +403,34 @@ async def get_email_template(template_id: int, db: AsyncSession = Depends(get_cr
     if not template:
         raise HTTPException(status_code=404, detail="Email template not found")
     
-    return template
+    return (await _with_template_assignments(db, [template]))[0]
 
 
-class EmailTemplateCreate(BaseModel):
-    name: str
-    subject: Optional[str] = None
-    content: Optional[str] = None
-
-
-class EmailTemplateUpdate(BaseModel):
-    name: Optional[str] = None
-    subject: Optional[str] = None
-    content: Optional[str] = None
-
-
-@router.post("/email-templates")
+@router.post("/email-templates", response_model=EmailTemplateResponse)
 async def create_email_template(data: EmailTemplateCreate, db: AsyncSession = Depends(get_crm_db)):
-    """Create a new email template."""
-    template = EmailTemplate(name=data.name, subject=data.subject, content=data.content)
+    """Create a new channel-aware template."""
+    payload = _normalize_template_payload(data)
+    template = EmailTemplate(**payload)
     db.add(template)
     await db.commit()
     await db.refresh(template)
-    return template
+    return (await _with_template_assignments(db, [template]))[0]
 
 
-@router.put("/email-templates/{template_id}")
+@router.put("/email-templates/{template_id}", response_model=EmailTemplateResponse)
 async def update_email_template(template_id: int, data: EmailTemplateUpdate, db: AsyncSession = Depends(get_crm_db)):
-    """Update an email template."""
+    """Update a channel-aware template."""
     result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Email template not found")
     
-    for field, value in data.model_dump(exclude_unset=True).items():
+    for field, value in _normalize_template_payload(data, existing=template).items():
         setattr(template, field, value)
     
     await db.commit()
     await db.refresh(template)
-    return template
+    return (await _with_template_assignments(db, [template]))[0]
 
 
 @router.delete("/email-templates/{template_id}")

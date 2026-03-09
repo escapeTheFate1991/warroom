@@ -1,5 +1,7 @@
 // Shared types for CRM components
 
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
+
 export interface Pipeline {
   id: number;
   name: string;
@@ -31,6 +33,7 @@ export interface Deal {
   updated_at: string;
   days_in_stage: number;
   is_rotten: boolean;
+  agent_assignments?: AgentAssignmentSummary[];
 }
 
 export interface DealFull {
@@ -61,6 +64,7 @@ export interface DealFull {
   updated_at: string;
   days_in_stage: number;
   is_rotten: boolean;
+  agent_assignments?: AgentAssignmentSummary[];
 }
 
 export interface Person {
@@ -69,6 +73,7 @@ export interface Person {
   emails: any[];
   organization_id: number | null;
   organization_name?: string;
+  agent_assignments?: AgentAssignmentSummary[];
 }
 
 export interface Organization {
@@ -91,11 +96,15 @@ export interface Activity {
   title: string;
   type: string;
   comment: string | null;
+  additional?: Record<string, unknown> | null;
+  location?: string | null;
   schedule_from: string | null;
   schedule_to: string | null;
   is_done: boolean;
+  user_id?: number | null;
   user_name: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface Product {
@@ -113,6 +122,7 @@ export interface Email {
   from_addr: any;
   is_read: boolean;
   created_at: string;
+  agent_assignments?: AgentAssignmentSummary[];
 }
 
 // Form-specific type for creating/editing deals

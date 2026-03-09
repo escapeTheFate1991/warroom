@@ -4,10 +4,11 @@ from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict
 
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.agent_contract import AgentAssignmentSummary, load_agent_assignment_map
 from app.db.crm_db import get_crm_db
 from app.models.crm.social import SocialAccount, SocialAnalytics
 
@@ -39,6 +40,7 @@ class SocialAccountResponse(BaseModel):
     connected_at: datetime
     last_synced: Optional[datetime]
     status: str
+    agent_assignments: list[AgentAssignmentSummary] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -139,7 +141,17 @@ async def get_social_accounts(db: AsyncSession = Depends(get_crm_db)):
             select(SocialAccount).where(SocialAccount.status == "connected")
         )
         accounts = result.scalars().all()
-        return [SocialAccountResponse.model_validate(account) for account in accounts]
+        assignment_map = await load_agent_assignment_map(
+            db,
+            entity_type="social_account",
+            entity_ids=[str(account.id) for account in accounts],
+        )
+        return [
+            SocialAccountResponse.model_validate(account).model_copy(
+                update={"agent_assignments": assignment_map.get(str(account.id), [])}
+            )
+            for account in accounts
+        ]
     except Exception as e:
         logger.error("Failed to fetch social accounts: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch social accounts")

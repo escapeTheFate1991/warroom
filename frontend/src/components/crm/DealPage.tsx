@@ -27,8 +27,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
+import EntityAssignmentControl from "@/components/agents/EntityAssignmentControl";
+import CallEvidence, { getCallEvidence } from "./CallEvidence";
 import EmptyState from "@/components/ui/EmptyState";
 import LoadingState from "@/components/ui/LoadingState";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { Activity, DealFull, Email, PipelineStage } from "./types";
 import ScrollTabs from "@/components/ui/ScrollTabs";
 
@@ -130,6 +134,7 @@ const ACTIVITY_ICONS: Record<string, LucideIcon> = {
 
 const sectionClassName = "rounded-xl border border-warroom-border bg-warroom-surface";
 const inputClassName = "w-full rounded-lg border border-warroom-border bg-warroom-bg px-3 py-2 text-sm text-warroom-text placeholder:text-warroom-muted/60 focus:border-warroom-accent/60 focus:outline-none";
+const EMPTY_EMAIL_ASSIGNMENTS: AgentAssignmentSummary[] = [];
 
 function normalizeAddress(address: unknown): OrganizationAddress {
   if (!address || typeof address !== "object" || Array.isArray(address)) {
@@ -354,6 +359,12 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
       setLoadingEmails(false);
     }
   }, [dealId]);
+
+  const handleEmailAssignmentsChange = useCallback((emailId: number, assignments: AgentAssignmentSummary[]) => {
+    setEmails((current) => current.map((email) => (
+      email.id === emailId ? { ...email, agent_assignments: assignments } : email
+    )));
+  }, []);
 
   const loadSmsMessages = useCallback(async () => {
     setLoadingSms(true);
@@ -796,6 +807,7 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
                           .sort((left, right) => new Date(getOccurredAt(right)).getTime() - new Date(getOccurredAt(left)).getTime())
                           .map((activity, index) => {
                             const Icon = ACTIVITY_ICONS[activity.type] || FileText;
+                            const evidence = activity.type === "call" ? getCallEvidence(activity) : null;
                             return (
                               <div key={activity.id} className="relative pl-10">
                                 {index < activities.length - 1 && (
@@ -820,6 +832,9 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
                                     <span className="text-xs text-warroom-muted">{formatDate(getOccurredAt(activity), true)}</span>
                                   </div>
                                   <p className="mt-3 text-sm leading-6 text-warroom-text/90">{activity.comment || "No additional notes."}</p>
+                                  {evidence && (
+                                    <CallEvidence recordingUrl={evidence.recordingUrl} transcript={evidence.transcript} />
+                                  )}
                                 </div>
                               </div>
                             );
@@ -845,17 +860,33 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
                 ) : (
                   <div className="divide-y divide-warroom-border">
                     {emails.map((email) => (
-                      <div key={email.id} className="flex items-start justify-between gap-4 px-5 py-4">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="truncate text-sm font-medium text-warroom-text">{email.subject || "(No subject)"}</h4>
-                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${email.is_read ? "border-green-500/20 bg-green-500/15 text-green-400" : "border-yellow-500/20 bg-yellow-500/15 text-yellow-400"}`}>
-                              {email.is_read ? "Read" : "Unread"}
-                            </span>
+                      <div key={email.id} className="px-5 py-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="truncate text-sm font-medium text-warroom-text">{email.subject || "(No subject)"}</h4>
+                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${email.is_read ? "border-green-500/20 bg-green-500/15 text-green-400" : "border-yellow-500/20 bg-yellow-500/15 text-yellow-400"}`}>
+                                {email.is_read ? "Read" : "Unread"}
+                              </span>
+                              {(email.agent_assignments ?? EMPTY_EMAIL_ASSIGNMENTS).length > 0 && (
+                                <span className="inline-flex rounded-full border border-warroom-accent/30 bg-warroom-accent/15 px-2 py-0.5 text-[11px] font-medium text-warroom-accent">
+                                  {(email.agent_assignments ?? EMPTY_EMAIL_ASSIGNMENTS).length} AI assigned
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 text-sm text-warroom-muted">{formatFromAddress(email.from_addr)}</p>
                           </div>
-                          <p className="mt-1 text-sm text-warroom-muted">{formatFromAddress(email.from_addr)}</p>
+                          <span className="whitespace-nowrap text-xs text-warroom-muted">{formatDate(email.created_at, true)}</span>
                         </div>
-                        <span className="whitespace-nowrap text-xs text-warroom-muted">{formatDate(email.created_at, true)}</span>
+                        <EntityAssignmentControl
+                          entityType="crm_email"
+                          entityId={email.id}
+                          title={email.subject || `CRM email ${email.id}`}
+                          initialAssignments={email.agent_assignments ?? EMPTY_EMAIL_ASSIGNMENTS}
+                          onAssignmentsChange={(assignments) => handleEmailAssignmentsChange(email.id, assignments)}
+                          emptyLabel="No AI agents assigned to this CRM email yet."
+                          className="mt-3"
+                        />
                       </div>
                     ))}
                   </div>
@@ -910,6 +941,7 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
                       if (item.kind === "call") {
                         const phoneNumber = getAdditionalString(item.activity, "phone_number", "to_number", "from_number") || item.activity.location || "Unknown number";
                         const duration = getAdditionalString(item.activity, "duration", "duration_seconds");
+                        const evidence = getCallEvidence(item.activity);
                         return (
                           <div key={item.id} className="px-5 py-4">
                             <div className="flex items-start gap-3">
@@ -926,6 +958,7 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
                                   <span>{duration ? `${duration} sec` : "Duration unavailable"}</span>
                                 </div>
                                 <p className="mt-2 text-sm text-warroom-text/90">{item.activity.comment || "No call notes provided."}</p>
+                                <CallEvidence recordingUrl={evidence.recordingUrl} transcript={evidence.transcript} />
                               </div>
                             </div>
                           </div>
@@ -1043,6 +1076,13 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
                 </div>
               </div>
             </div>
+
+            <AgentAssignmentCard
+              entityType="crm_deal"
+              entityId={deal.id}
+              initialAssignments={deal.agent_assignments}
+              title={`Work deal: ${deal.title}`}
+            />
 
             <div className={sectionClassName}>
               <div className="border-b border-warroom-border px-5 py-4">

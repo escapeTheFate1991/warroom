@@ -8,8 +8,11 @@ import {
   AlertTriangle, TrendingUp, FileText, Eye, Save, X,
 } from "lucide-react";
 import { authFetch } from "@/lib/api";
+import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
+import CallEvidence from "@/components/crm/CallEvidence";
 import LoadingState from "@/components/ui/LoadingState";
 import EmptyState from "@/components/ui/EmptyState";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -36,9 +39,32 @@ interface Prospect {
   contact_notes: string | null;
   contact_history: Array<{ date: string; by: string; notes: string; outcome: string }>;
   lead_tier: string | null;
+  agent_assignments?: AgentAssignmentSummary[];
   created_at: string | null;
   last_activity: string | null;
   original_message: string | null;
+}
+
+interface ProspectContactHistoryEntry {
+  date: string;
+  by: string;
+  notes: string;
+  outcome: string;
+}
+
+interface ProspectCommunicationHistoryItem {
+  entry_id: string;
+  source: string;
+  channel: string;
+  occurred_at: string | null;
+  created_at: string;
+  title?: string | null;
+  content?: string | null;
+  direction?: string | null;
+  from_number?: string | null;
+  to_number?: string | null;
+  recording_url?: string | null;
+  transcript?: string | null;
 }
 
 type ProspectStage = "new" | "contacted" | "meeting_scheduled" | "proposal_sent" | "won" | "lost";
@@ -95,6 +121,30 @@ function sentimentDot(score: number | null): string {
   if (score >= 0.3) return "bg-green-400";
   if (score >= -0.1) return "bg-yellow-400";
   return "bg-red-400";
+}
+
+function supportsProspectCommunicationHistory(prospect: Prospect) {
+  return prospect.source === "leadgen" && /^(lead|leadgen)-[0-9]+$/.test(prospect.id);
+}
+
+function formatCommunicationLabel(item: ProspectCommunicationHistoryItem) {
+  if (item.title?.trim()) return item.title.trim();
+  if (item.channel === "call") return "Call recording";
+  if (item.channel === "sms") return "SMS message";
+  if (item.channel === "email") return "Email";
+  return "Communication";
+}
+
+function getCommunicationCounterpart(item: ProspectCommunicationHistoryItem) {
+  if (item.direction === "outbound") return item.to_number || item.from_number;
+  return item.from_number || item.to_number;
+}
+
+function getCommunicationIcon(channel: string) {
+  if (channel === "call") return Phone;
+  if (channel === "sms") return MessageSquare;
+  if (channel === "email") return Mail;
+  return FileText;
 }
 
 /* ── Main Component ────────────────────────────────────────── */
@@ -370,6 +420,56 @@ function ProspectDetail({
   const [meetingTime, setMeetingTime] = useState("10:00");
   const [meetingNotes, setMeetingNotes] = useState("");
   const [schedulingMeeting, setSchedulingMeeting] = useState(false);
+  const [communicationHistory, setCommunicationHistory] = useState<ProspectCommunicationHistoryItem[]>([]);
+  const [loadingCommunicationHistory, setLoadingCommunicationHistory] = useState(false);
+  const [communicationHistoryError, setCommunicationHistoryError] = useState("");
+
+  useEffect(() => {
+    if (!supportsProspectCommunicationHistory(prospect)) {
+      setCommunicationHistory([]);
+      setCommunicationHistoryError("");
+      setLoadingCommunicationHistory(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadCommunicationHistory = async () => {
+      setLoadingCommunicationHistory(true);
+      setCommunicationHistoryError("");
+      try {
+        const res = await authFetch(`/api/crm/communications/history?prospect_id=${encodeURIComponent(prospect.id)}`);
+        if (!res.ok) {
+          throw new Error(`Failed to load communication history (${res.status})`);
+        }
+
+        const data: unknown = await res.json();
+        const items = typeof data === "object" && data !== null && "items" in data && Array.isArray(data.items)
+          ? (data.items as ProspectCommunicationHistoryItem[])
+          : [];
+
+        if (!cancelled) {
+          setCommunicationHistory(items);
+        }
+      } catch (err) {
+        console.error("Failed to load prospect communication history:", err);
+        if (!cancelled) {
+          setCommunicationHistory([]);
+          setCommunicationHistoryError("Failed to load prospect communication history.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingCommunicationHistory(false);
+        }
+      }
+    };
+
+    void loadCommunicationHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [prospect.id, prospect.source]);
 
   const updateStage = async (newStage: ProspectStage) => {
     try {
@@ -592,29 +692,88 @@ function ProspectDetail({
 
             {/* Activity Timeline */}
             <Section title="Activity Timeline">
-              {prospect.contact_history.length === 0 ? (
+              {loadingCommunicationHistory ? (
+                <div className="py-2">
+                  <LoadingState message="Loading communications..." />
+                </div>
+              ) : communicationHistory.length === 0 && prospect.contact_history.length === 0 && !communicationHistoryError ? (
                 <p className="text-sm text-warroom-muted/60">No activity recorded yet</p>
               ) : (
                 <div className="space-y-3">
-                  {prospect.contact_history.map((entry, i) => (
-                    <div key={i} className="flex gap-3">
-                      <div className="w-2 h-2 rounded-full bg-warroom-accent mt-2 flex-shrink-0" />
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-warroom-text">{entry.by}</span>
-                          <span className="text-[10px] text-warroom-muted">{timeAgo(entry.date)}</span>
-                          {entry.outcome && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-warroom-border/50 text-warroom-muted">
-                              {entry.outcome}
+                  {communicationHistoryError && (
+                    <p className="text-sm text-red-300">{communicationHistoryError}</p>
+                  )}
+
+                  {communicationHistory.map((item) => {
+                    const Icon = getCommunicationIcon(item.channel);
+                    const occurredAt = item.occurred_at || item.created_at;
+                    const counterpart = getCommunicationCounterpart(item);
+                    const details = [
+                      counterpart,
+                      item.source === "crm_activity" ? "CRM" : item.source,
+                    ].filter(Boolean);
+
+                    return (
+                      <div key={item.entry_id} className="flex gap-3">
+                        <div className="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border border-warroom-border bg-warroom-bg text-warroom-muted">
+                          <Icon size={12} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-warroom-text">{formatCommunicationLabel(item)}</span>
+                            <span className="text-[10px] text-warroom-muted">{timeAgo(occurredAt)}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-warroom-border/50 text-warroom-muted uppercase">
+                              {item.channel}
                             </span>
+                          </div>
+                          {details.length > 0 && (
+                            <p className="mt-0.5 text-[10px] text-warroom-muted">{details.join(" • ")}</p>
+                          )}
+                          {item.content && (
+                            <p className="mt-1 text-xs text-warroom-muted">{item.content}</p>
+                          )}
+                          {item.channel === "call" && (
+                            <CallEvidence
+                              recordingUrl={item.recording_url}
+                              transcript={item.transcript}
+                              className="mt-2"
+                            />
                           )}
                         </div>
-                        {entry.notes && (
-                          <p className="text-xs text-warroom-muted mt-0.5">{entry.notes}</p>
-                        )}
+                      </div>
+                    );
+                  })}
+
+                  {prospect.contact_history.length > 0 && (
+                    <div className={communicationHistory.length > 0 ? "border-t border-warroom-border/60 pt-3" : ""}>
+                      {communicationHistory.length > 0 && (
+                        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-warroom-muted">
+                          Contact log
+                        </p>
+                      )}
+                      <div className="space-y-3">
+                        {(prospect.contact_history as ProspectContactHistoryEntry[]).map((entry, i) => (
+                          <div key={`${entry.date}-${i}`} className="flex gap-3">
+                            <div className="w-2 h-2 rounded-full bg-warroom-accent mt-2 flex-shrink-0" />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-warroom-text">{entry.by}</span>
+                                <span className="text-[10px] text-warroom-muted">{timeAgo(entry.date)}</span>
+                                {entry.outcome && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-warroom-border/50 text-warroom-muted">
+                                    {entry.outcome}
+                                  </span>
+                                )}
+                              </div>
+                              {entry.notes && (
+                                <p className="text-xs text-warroom-muted mt-0.5">{entry.notes}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </Section>
@@ -634,6 +793,13 @@ function ProspectDetail({
                 ))}
               </select>
             </Section>
+
+            <AgentAssignmentCard
+              entityType="prospect_workflow"
+              entityId={prospect.id}
+              initialAssignments={prospect.agent_assignments}
+              title={`Work prospect: ${prospect.business_name || prospect.name}`}
+            />
 
             {/* Notes */}
             <Section title="Notes">

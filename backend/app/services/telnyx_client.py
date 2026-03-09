@@ -111,6 +111,24 @@ async def make_call(phone_number: str) -> dict:
     return await _post("/calls", payload, config.api_key)
 
 
+async def answer_call(call_control_id: str) -> dict:
+    """Answer an incoming Telnyx call."""
+    if not call_control_id or not call_control_id.strip():
+        raise ValueError("call_control_id is required")
+
+    config = await get_telnyx_config()
+    return await _post(f"/calls/{call_control_id}/actions/answer", {}, config.api_key)
+
+
+async def reject_call(call_control_id: str) -> dict:
+    """Reject an incoming Telnyx call."""
+    if not call_control_id or not call_control_id.strip():
+        raise ValueError("call_control_id is required")
+
+    config = await get_telnyx_config()
+    return await _post(f"/calls/{call_control_id}/actions/reject", {}, config.api_key)
+
+
 async def send_sms(to: str, body: str) -> dict:
     """Send an SMS through Telnyx."""
     if not to or not to.strip():

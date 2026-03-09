@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx
-from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board
+from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine
 from app.models.lead import Base
@@ -139,6 +139,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(kanban.router, prefix="/api/kanban", tags=["kanban"])
 app.include_router(team.router, prefix="/api/team", tags=["team"])
+app.include_router(agents.router, prefix="/api", tags=["agents"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(leadgen.router, prefix="/api/leadgen", tags=["leadgen"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
@@ -162,7 +163,6 @@ app.include_router(ai_planning.router, prefix="/api", tags=["ai-planning"])
 app.include_router(task_deps.router, prefix="/api", tags=["task-dependencies"])
 app.include_router(task_execution.router, prefix="/api", tags=["task-execution"])
 app.include_router(blackboard.router, prefix="/api", tags=["blackboard"])
-app.include_router(agents.router, prefix="/api", tags=["agents"])
 app.include_router(contact_webhook.router, prefix="/api", tags=["contact-webhook"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
 app.include_router(cold_email.router, prefix="/api", tags=["cold-email"])
@@ -188,3 +188,4 @@ app.include_router(acl.router, prefix="/api/crm", tags=["crm-acl"])
 app.include_router(data.router, prefix="/api/crm", tags=["crm-data"])
 app.include_router(audit.router, prefix="/api/crm", tags=["crm-audit"])
 app.include_router(pipeline_board.router, prefix="/api/crm", tags=["crm-pipeline-board"])
+app.include_router(workflows.router, prefix="/api/crm", tags=["crm-workflows"])

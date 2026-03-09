@@ -2,8 +2,10 @@
 
 from datetime import datetime, date
 from decimal import Decimal
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, ConfigDict
+
+from app.api.agent_contract import AgentAssignmentSummary
 
 
 # Base configuration for ORM mode
@@ -69,6 +71,7 @@ class PersonResponse(BaseSchema):
     job_title: Optional[str] = None
     organization_id: Optional[int] = None
     user_id: Optional[int] = None
+    agent_assignments: List[AgentAssignmentSummary] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -85,6 +88,7 @@ class CRMContactResponse(BaseSchema):
     company: Optional[str] = None
     source: str = "crm"
     assigned_to: Optional[str] = None
+    agent_assignments: List[AgentAssignmentSummary] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -197,6 +201,7 @@ class DealResponse(BaseSchema):
     stage_name: Optional[str] = None
     stage_probability: int = 0
     user_name: Optional[str] = None
+    agent_assignments: List[AgentAssignmentSummary] = Field(default_factory=list)
     days_in_stage: int = 0
     is_rotten: bool = False
     created_at: datetime
@@ -294,6 +299,142 @@ class ActivityUpdate(BaseModel):
     user_id: Optional[int] = None
 
 
+class CommunicationHistoryTarget(BaseModel):
+    person_id: Optional[int] = None
+    deal_id: Optional[int] = None
+    prospect_id: Optional[str] = None
+
+
+class CommunicationHistoryScope(BaseModel):
+    person_ids: List[int] = Field(default_factory=list)
+    deal_ids: List[int] = Field(default_factory=list)
+    leadgen_lead_id: Optional[int] = None
+
+
+class CommunicationHistoryItem(BaseModel):
+    entry_id: str
+    source: str
+    channel: str
+    occurred_at: Optional[datetime] = None
+    created_at: datetime
+    title: Optional[str] = None
+    content: Optional[str] = None
+    linked_person_ids: List[int] = Field(default_factory=list)
+    linked_deal_ids: List[int] = Field(default_factory=list)
+    participant_person_ids: List[int] = Field(default_factory=list)
+    direction: Optional[str] = None
+    status: Optional[str] = None
+    from_number: Optional[str] = None
+    to_number: Optional[str] = None
+    recording_url: Optional[str] = None
+    transcript: Optional[str] = None
+    addresses: Optional[Dict[str, Any]] = None
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class CommunicationHistoryResponse(BaseModel):
+    target: CommunicationHistoryTarget
+    resolved_scope: CommunicationHistoryScope
+    items: List[CommunicationHistoryItem] = Field(default_factory=list)
+
+
+# ===== Workflow Schemas =====
+
+class WorkflowTemplateProvenance(BaseModel):
+    kind: Literal["seed", "custom"] = "seed"
+    seed_key: Optional[str] = None
+    derived_from_template_id: Optional[int] = None
+    root_template_id: Optional[int] = None
+    version: int = 1
+
+
+class WorkflowTemplateResponse(BaseSchema):
+    id: int
+    name: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    entity_type: Optional[str] = None
+    event: Optional[str] = None
+    condition_type: str = "and"
+    conditions: Any = Field(default_factory=list)
+    actions: Any = Field(default_factory=list)
+    is_seed: bool = False
+    seed_key: Optional[str] = None
+    version: int = 1
+    provenance: WorkflowTemplateProvenance
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowProvenance(BaseModel):
+    template_id: Optional[int] = None
+    template_name: Optional[str] = None
+    template_seed_key: Optional[str] = None
+    derived_from_workflow_id: Optional[int] = None
+    derived_from_workflow_name: Optional[str] = None
+    root_workflow_id: Optional[int] = None
+    root_workflow_name: Optional[str] = None
+    version: int = 1
+
+
+class WorkflowResponse(BaseSchema):
+    id: int
+    name: str
+    description: Optional[str] = None
+    entity_type: Optional[str] = None
+    event: Optional[str] = None
+    condition_type: str = "and"
+    conditions: Any = Field(default_factory=list)
+    actions: Any = Field(default_factory=list)
+    is_active: bool = True
+    template_id: Optional[int] = None
+    derived_from_workflow_id: Optional[int] = None
+    root_workflow_id: Optional[int] = None
+    version: int = 1
+    provenance: WorkflowProvenance
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowCloneRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    entity_type: Optional[str] = None
+    event: Optional[str] = None
+    condition_type: Optional[str] = None
+    conditions: Optional[Any] = None
+    actions: Optional[Any] = None
+    is_active: Optional[bool] = None
+
+
+WorkflowEntityType = Literal["deal", "person", "activity", "email"]
+WorkflowEventType = Literal["created", "updated", "deleted", "stage_changed"]
+WorkflowConditionType = Literal["and", "or"]
+
+
+class WorkflowCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    entity_type: WorkflowEntityType
+    event: WorkflowEventType
+    condition_type: WorkflowConditionType = "and"
+    conditions: Optional[List[Dict[str, Any]]] = None
+    actions: Optional[List[Dict[str, Any]]] = None
+    is_active: bool = True
+
+
+class WorkflowUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    entity_type: Optional[WorkflowEntityType] = None
+    event: Optional[WorkflowEventType] = None
+    condition_type: Optional[WorkflowConditionType] = None
+    conditions: Optional[List[Dict[str, Any]]] = None
+    actions: Optional[List[Dict[str, Any]]] = None
+    is_active: Optional[bool] = None
+
+
 # ===== Product Schemas =====
 
 class ProductResponse(BaseSchema):
@@ -342,6 +483,7 @@ class EmailResponse(BaseSchema):
     person_id: Optional[int] = None
     deal_id: Optional[int] = None
     parent_id: Optional[int] = None
+    agent_assignments: List[AgentAssignmentSummary] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -361,11 +503,14 @@ class EmailCreate(BaseModel):
 
 # ===== Marketing Schemas =====
 
+MarketingChannel = Literal["email", "sms", "voice", "social"]
+
 class MarketingEventResponse(BaseSchema):
     id: int
     name: str
     description: Optional[str] = None
     date: Optional[date] = None
+    agent_assignments: List[AgentAssignmentSummary] = Field(default_factory=list)
     created_at: datetime
 
 class MarketingEventCreate(BaseModel):
@@ -381,33 +526,89 @@ class MarketingEventUpdate(BaseModel):
 class MarketingCampaignResponse(BaseSchema):
     id: int
     name: str
+    channel: MarketingChannel = "email"
     subject: Optional[str] = None
     status: bool = False
     type: Optional[str] = None
+    use_case: Optional[str] = None
     mail_to: Optional[str] = None
     spooling: Optional[str] = None
+    audience: Dict[str, Any] = Field(default_factory=dict)
+    schedule: Dict[str, Any] = Field(default_factory=dict)
+    content: Dict[str, Any] = Field(default_factory=dict)
+    channel_config: Dict[str, Any] = Field(default_factory=dict)
     template_id: Optional[int] = None
     event_id: Optional[int] = None
+    agent_assignments: List[AgentAssignmentSummary] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
 class MarketingCampaignCreate(BaseModel):
     name: str
+    channel: MarketingChannel = "email"
     subject: Optional[str] = None
     type: Optional[str] = None
+    use_case: Optional[str] = None
     mail_to: Optional[str] = None
+    audience: Optional[Dict[str, Any]] = None
+    schedule: Optional[Dict[str, Any]] = None
+    content: Optional[Dict[str, Any]] = None
+    channel_config: Optional[Dict[str, Any]] = None
     template_id: Optional[int] = None
     event_id: Optional[int] = None
 
 class MarketingCampaignUpdate(BaseModel):
     name: Optional[str] = None
+    channel: Optional[MarketingChannel] = None
     subject: Optional[str] = None
     status: Optional[bool] = None
     type: Optional[str] = None
+    use_case: Optional[str] = None
     mail_to: Optional[str] = None
     spooling: Optional[str] = None
+    audience: Optional[Dict[str, Any]] = None
+    schedule: Optional[Dict[str, Any]] = None
+    content: Optional[Dict[str, Any]] = None
+    channel_config: Optional[Dict[str, Any]] = None
     template_id: Optional[int] = None
     event_id: Optional[int] = None
+
+
+class EmailTemplateResponse(BaseSchema):
+    id: int
+    name: str
+    description: Optional[str] = None
+    channel: MarketingChannel = "email"
+    subject: Optional[str] = None
+    content: Optional[str] = None
+    use_case: Optional[str] = None
+    content_blocks: Dict[str, Any] = Field(default_factory=dict)
+    channel_config: Dict[str, Any] = Field(default_factory=dict)
+    agent_assignments: List[AgentAssignmentSummary] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class EmailTemplateCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    channel: MarketingChannel = "email"
+    subject: Optional[str] = None
+    content: Optional[str] = None
+    use_case: Optional[str] = None
+    content_blocks: Optional[Dict[str, Any]] = None
+    channel_config: Optional[Dict[str, Any]] = None
+
+
+class EmailTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    channel: Optional[MarketingChannel] = None
+    subject: Optional[str] = None
+    content: Optional[str] = None
+    use_case: Optional[str] = None
+    content_blocks: Optional[Dict[str, Any]] = None
+    channel_config: Optional[Dict[str, Any]] = None
 
 
 # ===== Attribute Schemas =====

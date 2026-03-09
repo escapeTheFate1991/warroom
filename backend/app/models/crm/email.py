@@ -59,14 +59,19 @@ class EmailAttachment(CrmBase):
 
 
 class EmailTemplate(CrmBase):
-    """Email templates."""
+    """Channel-aware marketing templates on the legacy email template path."""
     __tablename__ = "email_templates"
     __table_args__ = {"schema": "crm"}
 
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
+    description = Column(Text)
+    channel = Column(Text, nullable=False, default="email", server_default="email")
     subject = Column(Text)
     content = Column(Text)
+    use_case = Column(Text)
+    content_blocks = Column(JSONB)
+    channel_config = Column(JSONB)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 

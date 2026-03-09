@@ -20,7 +20,10 @@ import {
   Youtube,
   Zap,
 } from "lucide-react";
+import AskAIButton from "@/components/agents/AskAIButton";
+import EntityAssignmentControl from "@/components/agents/EntityAssignmentControl";
 import { API, authFetch } from "@/lib/api";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import LoadingState from "@/components/ui/LoadingState";
 
 interface SocialAccount {
@@ -34,6 +37,7 @@ interface SocialAccount {
   connected_at: string;
   last_synced: string | null;
   status: string;
+  agent_assignments: AgentAssignmentSummary[];
 }
 
 interface SocialSummary {
@@ -270,6 +274,14 @@ function formatRecordedDate(value: string): string {
   return date.toLocaleDateString();
 }
 
+function summarizeAssignedAgents(assignments: AgentAssignmentSummary[] = []) {
+  if (assignments.length === 0) return "No shared AI agents assigned yet.";
+  return assignments
+    .slice(0, 2)
+    .map((assignment) => `${assignment.agent_emoji || "🤖"} ${assignment.agent_name || assignment.agent_id}`)
+    .join(" · ");
+}
+
 function PlatformIcon({ platform, size = 20 }: { platform: string; size?: number }) {
   const item = PLATFORMS.find((entry) => entry.id === platform);
   const Icon = item?.icon;
@@ -498,6 +510,9 @@ export default function SocialDashboard() {
 
   const getAccount = (platformId: string) => accounts.find((account) => account.platform === platformId);
   const getSparklineData = (platformId: string) => sparklineData[platformId] || Array(7).fill(0);
+  const scopedAccounts = selectedPlatform === "all"
+    ? accounts
+    : accounts.filter((account) => account.platform === selectedPlatform);
 
   const filteredPublishedContent = useMemo(() => {
     return publishedContent
@@ -571,6 +586,22 @@ export default function SocialDashboard() {
               {syncing ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />}
               {syncing ? "Syncing..." : "Sync now"}
             </button>
+
+            <AskAIButton
+              context={{
+                surface: "social",
+                title: `${selectedPlatformLabel} social coverage`,
+                summary: `${scopedAccounts.length} connected account(s) in view with ${formatNum(summary.total_engagement)} engagements tracked.`,
+                facts: [
+                  { label: "Accounts in view", value: scopedAccounts.length },
+                  { label: "Followers", value: summary.total_followers },
+                  { label: "Engagement rate", value: formatPercent(summary.engagement_rate) },
+                  { label: "Reach", value: summary.total_reach },
+                ],
+              }}
+              buttonLabel="Ask AI about social"
+              emptyHint="Ask for a channel diagnosis, content angle, or next experiment..."
+            />
           </div>
         </div>
       </div>
@@ -809,6 +840,8 @@ export default function SocialDashboard() {
                           </p>
                         )}
 
+                        <p className="mb-3 text-xs text-warroom-muted">{summarizeAssignedAgents(account.agent_assignments)}</p>
+
                         <div className="flex items-center justify-between pt-3 border-t border-warroom-border/50">
                           {account.profile_url ? (
                             <a
@@ -830,6 +863,15 @@ export default function SocialDashboard() {
                             Disconnect
                           </button>
                         </div>
+
+                        <EntityAssignmentControl
+                          className="mt-4 border-0 bg-transparent p-0"
+                          entityType="social_account"
+                          entityId={account.id}
+                          title={`Own ${platform.name} account: @${account.username || platform.name}`}
+                          initialAssignments={account.agent_assignments || []}
+                          emptyLabel={`No AI agents assigned to this ${platform.name} account yet.`}
+                        />
                       </>
                     ) : (
                       <div className="rounded-xl border border-dashed border-warroom-border bg-warroom-bg/40 px-4 py-6 text-center">

@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from app.api.agent_assignment_helpers import load_assignment_summaries
 from app.db.leadgen_db import leadgen_engine, leadgen_session
 from app.services.notify import send_notification
 
@@ -254,6 +255,18 @@ async def list_prospects(req: ProspectListRequest):
 
     total = len(prospects)
     prospects = prospects[req.offset: req.offset + req.limit]
+
+    async with _session() as db:
+        assignment_map = await load_assignment_summaries(
+            db,
+            entity_type="prospect_workflow",
+            entity_ids=[prospect["id"] for prospect in prospects],
+        )
+        for prospect in prospects:
+            prospect["agent_assignments"] = [
+                assignment.model_dump(mode="json")
+                for assignment in assignment_map.get(prospect["id"], [])
+            ]
 
     # Stats
     now = datetime.now(timezone.utc)

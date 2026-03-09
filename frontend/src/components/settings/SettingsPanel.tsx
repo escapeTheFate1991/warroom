@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Package, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X, RefreshCw } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
@@ -176,16 +177,6 @@ interface User {
   status: boolean;
 }
 
-interface Workflow {
-  id: number;
-  name: string;
-  entity_type: string;
-  event: string;
-  conditions: any;
-  actions: any;
-  is_active: boolean;
-}
-
 interface Product {
   id: number;
   name: string;
@@ -207,6 +198,7 @@ interface ProductFormData {
 
 export default function SettingsPanel() {
   const { theme, toggleTheme } = useThemeContext();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [settings, setSettings] = useState<Setting[]>([]);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
@@ -308,10 +300,6 @@ export default function SettingsPanel() {
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [showAddRole, setShowAddRole] = useState(false);
   const [showAddUser, setShowAddUser] = useState(false);
-  
-  // Workflows state
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [showWorkflowForm, setShowWorkflowForm] = useState(false);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -379,18 +367,6 @@ export default function SettingsPanel() {
       }
     } catch (error) {
       console.error("Failed to load users");
-    }
-  };
-
-  const loadWorkflows = async () => {
-    try {
-      const resp = await authFetch(`${API}/api/crm/workflows`);
-      if (resp.ok) {
-        const data = await resp.json();
-        setWorkflows(data);
-      }
-    } catch (error) {
-      console.error("Failed to load workflows");
     }
   };
 
@@ -608,7 +584,6 @@ export default function SettingsPanel() {
     loadScoringSettings();
     loadRoles();
     loadUsers();
-    loadWorkflows();
     loadGoogleCalStatus();
     loadEmailAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1942,96 +1917,40 @@ export default function SettingsPanel() {
   const renderAutomationTab = () => {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-warroom-text">Automation Workflows</h3>
-          <button
-            onClick={() => setShowWorkflowForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition"
-          >
-            <Plus size={16} />
-            Create Workflow
-          </button>
-        </div>
-
-        {workflows.length === 0 ? (
-          <div className="text-center py-12 text-warroom-muted">
-            <Bot size={32} className="mx-auto mb-4 opacity-50" />
-            <p className="text-sm">No workflows configured yet</p>
-            <p className="text-xs mt-1">Create your first automation workflow to get started</p>
+        <div className="rounded-2xl border border-warroom-border bg-warroom-surface p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-warroom-text">
+                <Bot size={16} className="text-warroom-accent" />
+                Workflow platform
+              </div>
+              <p className="mt-2 max-w-2xl text-sm text-warroom-muted">
+                Workflow automation now lives in its own product area so internal CRM triggers stay separate from Marketing campaigns and reusable templates.
+              </p>
+            </div>
+            <button
+              onClick={() => router.push("/?tab=workflows", { scroll: false })}
+              className="inline-flex items-center gap-2 rounded-lg bg-warroom-accent px-4 py-2 text-sm font-medium transition hover:bg-warroom-accent/80"
+            >
+              Open Workflows
+            </button>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {workflows.map((workflow) => (
-              <div key={workflow.id} className="bg-warroom-surface border border-warroom-border rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-medium text-warroom-text">{workflow.name}</h4>
-                    <p className="text-xs text-warroom-muted mt-1">
-                      {workflow.entity_type} • {workflow.event} • {workflow.is_active ? 'Active' : 'Inactive'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button className="p-1 hover:bg-warroom-bg rounded">
-                      <Edit size={14} className="text-warroom-muted" />
-                    </button>
-                    <button className="p-1 hover:bg-warroom-bg rounded">
-                      <Trash2 size={14} className="text-red-400" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
 
-        {showWorkflowForm && (
-          <div className="bg-warroom-surface border border-warroom-border rounded-lg p-6">
-            <h4 className="text-sm font-semibold text-warroom-text mb-4">Create New Workflow</h4>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-warroom-text block mb-2">Workflow Name</label>
-                <input
-                  type="text"
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                  placeholder="Enter workflow name"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm text-warroom-text block mb-2">Entity Type</label>
-                  <select className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm">
-                    <option value="">Select entity type</option>
-                    <option value="deal">Deal</option>
-                    <option value="person">Person</option>
-                    <option value="activity">Activity</option>
-                    <option value="email">Email</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm text-warroom-text block mb-2">Trigger Event</label>
-                  <select className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm">
-                    <option value="">Select event</option>
-                    <option value="created">Created</option>
-                    <option value="updated">Updated</option>
-                    <option value="deleted">Deleted</option>
-                    <option value="stage_changed">Stage Changed</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowWorkflowForm(false)}
-                  className="px-4 py-2 bg-warroom-bg hover:bg-warroom-surface border border-warroom-border rounded-lg text-sm font-medium transition"
-                >
-                  Cancel
-                </button>
-                <button className="px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition">
-                  Create Workflow
-                </button>
-              </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-warroom-border bg-warroom-bg/60 p-4">
+              <h4 className="text-sm font-medium text-warroom-text">Workflows</h4>
+              <p className="mt-2 text-xs leading-5 text-warroom-muted">
+                Use Workflows for CRM events, branching conditions, and internal actions tied to deals, contacts, activities, or email triggers.
+              </p>
+            </div>
+            <div className="rounded-xl border border-warroom-border bg-warroom-bg/60 p-4">
+              <h4 className="text-sm font-medium text-warroom-text">Marketing</h4>
+              <p className="mt-2 text-xs leading-5 text-warroom-muted">
+                Use Marketing for campaign planning, channel-specific templates, and outbound content operations. Existing marketing functionality remains unchanged.
+              </p>
             </div>
           </div>
-        )}
+        </div>
       </div>
     );
   };

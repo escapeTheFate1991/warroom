@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { DealFull, Activity, Product, Email } from "./types";
 import { API, authFetch } from "@/lib/api";
+import CallEvidence, { getCallEvidence } from "./CallEvidence";
 
 
 interface DealDrawerProps {
@@ -554,6 +555,7 @@ export default function DealDrawer({ deal, isOpen, onClose, onUpdate, onEdit }: 
                     <div className="space-y-3">
                       {activities.map((activity) => {
                         const ActivityIcon = ACTIVITY_TYPES.find(t => t.value === activity.type)?.icon || FileText;
+                        const evidence = activity.type === "call" ? getCallEvidence(activity) : null;
                         return (
                           <div
                             key={activity.id}
@@ -577,6 +579,9 @@ export default function DealDrawer({ deal, isOpen, onClose, onUpdate, onEdit }: 
                                   </div>
                                   {activity.comment && (
                                     <p className="text-xs text-warroom-muted mb-2">{activity.comment}</p>
+                                  )}
+                                  {evidence && (
+                                    <CallEvidence recordingUrl={evidence.recordingUrl} transcript={evidence.transcript} className="mb-2" />
                                   )}
                                   <div className="flex items-center gap-3 text-xs text-warroom-muted">
                                     <span>{activity.user_name}</span>

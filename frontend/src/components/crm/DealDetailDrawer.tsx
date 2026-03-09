@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import { Deal, DealFull, Activity, PipelineStage } from "./types";
 import { API, authFetch } from "@/lib/api";
+import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
+import CallEvidence, { getCallEvidence } from "./CallEvidence";
 
 interface DealDetailDrawerProps {
   deal: Deal;
@@ -152,6 +154,15 @@ export default function DealDetailDrawer({ deal, stages, onClose, onAdvance }: D
             </div>
           </div>
 
+          <div className="p-5 border-b border-warroom-border">
+            <AgentAssignmentCard
+              entityType="crm_deal"
+              entityId={deal.id}
+              initialAssignments={d?.agent_assignments || deal.agent_assignments}
+              title={`Work deal: ${deal.title}`}
+            />
+          </div>
+
           {/* Stage Timeline */}
           <div className="p-5 border-b border-warroom-border">
             <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Stage Progress</h3>
@@ -197,6 +208,7 @@ export default function DealDetailDrawer({ deal, stages, onClose, onAdvance }: D
               <div className="space-y-2">
                 {activities.map((act) => {
                   const Icon = ACTIVITY_ICONS[act.type] || FileText;
+                  const evidence = act.type === "call" ? getCallEvidence(act) : null;
                   return (
                     <div key={act.id} className={`p-3 rounded-lg border ${act.is_done ? "bg-green-500/5 border-green-500/20" : "bg-warroom-bg border-warroom-border"}`}>
                       <div className="flex items-start gap-2">
@@ -207,6 +219,7 @@ export default function DealDetailDrawer({ deal, stages, onClose, onAdvance }: D
                             <span className="text-[10px] px-1.5 py-0.5 bg-warroom-border/50 rounded-full text-warroom-muted flex-shrink-0">{act.type}</span>
                           </div>
                           {act.comment && <p className="text-xs text-warroom-muted mt-0.5 line-clamp-2">{act.comment}</p>}
+                          {evidence && <CallEvidence recordingUrl={evidence.recordingUrl} transcript={evidence.transcript} className="mt-2" />}
                           <span className="text-[10px] text-warroom-muted mt-1 block">{fmtDate(act.created_at)}</span>
                         </div>
                       </div>

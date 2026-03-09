@@ -1,11 +1,19 @@
 """Activity Calendar — monthly view from memory files + personal Google Calendar."""
 import logging
-import os
 import json
 from datetime import datetime, date
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
 from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.agent_contract import (
+    PersonalCalendarEventEnvelope,
+    PersonalCalendarResponse,
+    load_agent_assignment_map,
+)
+from app.db.crm_db import get_crm_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -13,6 +21,20 @@ router = APIRouter()
 MEMORY_DIR = Path("/openclaw-workspace/memory")
 PERSONAL_EVENTS_FILE = Path("/openclaw-workspace/memory/personal-events.json")
 from app.services.token_store import load_tokens as _load_tokens
+
+
+async def _attach_event_assignments(db: AsyncSession, events: list[dict]) -> list[dict]:
+    if not events:
+        return events
+
+    assignment_map = await load_agent_assignment_map(
+        db,
+        entity_type="calendar_event",
+        entity_ids=[str(event.get("id")) for event in events if event.get("id")],
+    )
+    for event in events:
+        event["agent_assignments"] = assignment_map.get(str(event.get("id")), [])
+    return events
 
 # ── Activity Calendar (agent memory files) ──────────────────
 
@@ -72,8 +94,8 @@ async def personal_calendar_status():
     return {"connected": False, "provider": "google", "message": "Google Calendar not connected."}
 
 
-@router.get("/calendar/personal")
-async def get_personal_calendar(month: Optional[str] = None):
+@router.get("/calendar/personal", response_model=PersonalCalendarResponse)
+async def get_personal_calendar(month: Optional[str] = None, db: AsyncSession = Depends(get_crm_db)):
     """Get personal calendar events for a month. Returns local events + Google Calendar events when connected."""
     if month:
         try:
@@ -159,11 +181,12 @@ async def get_personal_calendar(month: Optional[str] = None):
         except Exception as exc:
             logger.warning("Failed to fetch Google Calendar events: %s", exc)
 
+    await _attach_event_assignments(db, events)
     return {"year": year, "month": mon, "events": events, "google_connected": google_connected}
 
 
-@router.post("/calendar/personal/events")
-async def create_personal_event(event: dict):
+@router.post("/calendar/personal/events", response_model=PersonalCalendarEventEnvelope)
+async def create_personal_event(event: dict, db: AsyncSession = Depends(get_crm_db)):
     """Create a local personal calendar event."""
     required = ["title", "date"]
     for field in required:
@@ -186,11 +209,12 @@ async def create_personal_event(event: dict):
     all_events.append(event)
     PERSONAL_EVENTS_FILE.write_text(json.dumps(all_events, indent=2))
 
+    await _attach_event_assignments(db, [event])
     return {"ok": True, "event": event}
 
 
-@router.patch("/calendar/personal/events/{event_id}")
-async def update_personal_event(event_id: str, updates: dict):
+@router.patch("/calendar/personal/events/{event_id}", response_model=PersonalCalendarEventEnvelope)
+async def update_personal_event(event_id: str, updates: dict, db: AsyncSession = Depends(get_crm_db)):
     """Partially update a local personal calendar event."""
     if not PERSONAL_EVENTS_FILE.exists():
         raise HTTPException(status_code=404, detail="Event not found")
@@ -212,6 +236,7 @@ async def update_personal_event(event_id: str, updates: dict):
         raise HTTPException(status_code=404, detail="Event not found")
 
     PERSONAL_EVENTS_FILE.write_text(json.dumps(all_events, indent=2))
+    await _attach_event_assignments(db, [all_events[i]])
     return {"ok": True, "event": all_events[i]}
 
 

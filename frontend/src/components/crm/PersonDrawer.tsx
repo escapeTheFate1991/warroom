@@ -3,6 +3,9 @@
 import { useState, useEffect } from "react";
 import { X, Mail, Phone, Building2, User, Clock, Plus, CheckCircle2, Circle } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
+import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
+import CallEvidence, { getCallEvidence } from "./CallEvidence";
 
 
 interface Person {
@@ -14,6 +17,7 @@ interface Person {
   organization_id: number | null;
   organization?: Organization;
   notes?: string;
+  agent_assignments?: AgentAssignmentSummary[];
   created_at: string;
 }
 
@@ -36,6 +40,8 @@ interface Activity {
   title: string;
   type: string;
   comment: string | null;
+  additional?: Record<string, unknown> | null;
+  location?: string | null;
   schedule_from: string | null;
   schedule_to: string | null;
   is_done: boolean;
@@ -270,6 +276,15 @@ export default function PersonDrawer({ person, isOpen, onClose, onUpdate }: Pers
 
           {/* Tab Content */}
           <div className="flex-1 overflow-y-auto p-6">
+            <div className="mb-6">
+              <AgentAssignmentCard
+                entityType="crm_contact"
+                entityId={person.id}
+                initialAssignments={person.agent_assignments}
+                title={`Work contact: ${person.name}`}
+              />
+            </div>
+
             {activeTab === "deals" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -434,6 +449,10 @@ export default function PersonDrawer({ person, isOpen, onClose, onUpdate }: Pers
                             {activity.comment && (
                               <p className="text-sm text-gray-300 mb-2">{activity.comment}</p>
                             )}
+                            {activity.type === "call" && (() => {
+                              const evidence = getCallEvidence(activity);
+                              return <CallEvidence recordingUrl={evidence.recordingUrl} transcript={evidence.transcript} className="mb-2" />;
+                            })()}
                             
                             <div className="flex items-center justify-between text-xs text-gray-400">
                               <div>
