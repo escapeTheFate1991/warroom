@@ -2040,9 +2040,10 @@ async def _run_sync_all():
                 synced_ids = [c.id for c in competitors]
                 
                 # Run transcription and comment analysis in parallel
+                # Transcribe up to 10 videos per competitor, analyze up to 15 comment threads
                 results = await asyncio.gather(
-                    _safe_enrich(transcribe_competitor_videos_batch, db, synced_ids, "transcription"),
-                    _safe_enrich(analyze_competitor_comments_batch, db, synced_ids, "comments"),
+                    _safe_enrich(lambda db, ids: transcribe_competitor_videos_batch(db, ids, limit_per_competitor=10), db, synced_ids, "transcription"),
+                    _safe_enrich(lambda db, ids: analyze_competitor_comments_batch(db, ids, top_n_per_competitor=15), db, synced_ids, "comments"),
                     return_exceptions=True,
                 )
                 
