@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine, crm_session
@@ -190,6 +190,7 @@ app.include_router(content_ai.router, prefix="/api/content", tags=["content-ai"]
 app.include_router(telnyx.router, prefix="/api", tags=["telnyx"])
 app.include_router(twilio.router, prefix="/api", tags=["twilio"])
 app.include_router(twilio_voice.router, prefix="/api/twilio", tags=["twilio-voice"])
+app.include_router(comms.router, prefix="/api/comms", tags=["communications"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])
