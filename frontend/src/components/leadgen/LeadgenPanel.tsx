@@ -248,6 +248,16 @@ export default function LeadgenPanel() {
 
   // Active polling interval ref (for cleanup)
   const enrichmentPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const searchPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const cancelSearch = () => {
+    if (searchPollRef.current) {
+      clearInterval(searchPollRef.current);
+      searchPollRef.current = null;
+    }
+    setSearching(false);
+    setSearchStatus("");
+  };
 
   const dismissError = useCallback(() => setErrorMessage(null), []);
 
@@ -496,6 +506,7 @@ export default function LeadgenPanel() {
 
   // Start polling for search job completion
   const startSearchPolling = (jobId: number, searchQuery: string, searchLocation: string) => {
+    if (searchPollRef.current) clearInterval(searchPollRef.current);
     const poll = setInterval(async () => {
       try {
         const statusResp = await authFetch(`${API}/api/leadgen/search/${jobId}/status`);
@@ -539,6 +550,7 @@ export default function LeadgenPanel() {
         setSearchStatus("");
       }
     }, 2000);
+    searchPollRef.current = poll;
   };
 
   const searchBusinesses = async () => {
@@ -620,27 +632,25 @@ export default function LeadgenPanel() {
             <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
           </div>
 
-          {/* City dropdown */}
+          {/* City input (free-text with suggestions) */}
           <div className="relative flex-1">
-            <select
+            <input
+              type="text"
+              list="city-suggestions"
               value={selectedCity}
               onChange={(e) => setSelectedCity(e.target.value)}
               disabled={!selectedState}
-              className="w-full bg-warroom-surface border border-warroom-border rounded-lg px-4 pr-8 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              placeholder={selectedState ? "Type city or town..." : "Select state first..."}
+              className="w-full bg-warroom-surface border border-warroom-border rounded-lg px-4 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ colorScheme: "dark" }}
-            >
-              {selectedState ? (
-                <>
-                  <option value="" disabled>Select city...</option>
-                  {(US_CITIES[selectedState] ?? []).map((city) => (
-                    <option key={city} value={city}>{city}</option>
-                  ))}
-                </>
-              ) : (
-                <option value="" disabled>Select state first...</option>
-              )}
-            </select>
-            <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
+            />
+            {selectedState && (
+              <datalist id="city-suggestions">
+                {(US_CITIES[selectedState] ?? []).map((city) => (
+                  <option key={city} value={city} />
+                ))}
+              </datalist>
+            )}
           </div>
 
           {/* Business type dropdown */}
@@ -660,15 +670,25 @@ export default function LeadgenPanel() {
             <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
           </div>
 
-          {/* Search button */}
-          <button
-            onClick={searchBusinesses}
-            disabled={searching || !selectedState || !selectedCity || !query.trim()}
-            className="px-6 py-2.5 bg-warroom-accent rounded-lg text-sm font-medium hover:bg-warroom-accent/80 disabled:opacity-50 transition flex items-center gap-2"
-          >
-            {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-            Search
-          </button>
+          {/* Search / Cancel button */}
+          {searching ? (
+            <button
+              onClick={cancelSearch}
+              className="px-6 py-2.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition flex items-center gap-2 text-white"
+            >
+              <X size={16} />
+              Cancel
+            </button>
+          ) : (
+            <button
+              onClick={searchBusinesses}
+              disabled={!selectedState || !selectedCity || !query.trim()}
+              className="px-6 py-2.5 bg-warroom-accent rounded-lg text-sm font-medium hover:bg-warroom-accent/80 disabled:opacity-50 transition flex items-center gap-2"
+            >
+              <Search size={16} />
+              Search
+            </button>
+          )}
         </div>
 
         {/* Radius selector */}
