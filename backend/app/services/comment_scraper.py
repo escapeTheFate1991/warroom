@@ -91,38 +91,31 @@ async def scrape_post_comments(
             
             await page.goto(post_url, wait_until="domcontentloaded", timeout=20000)
             
-            # Wait for comments to load
-            try:
-                await page.wait_for_selector(
-                    'ul[class*="comment"], div[class*="comment"], span[class*="comment"]',
-                    timeout=10000,
-                )
-            except Exception:
-                logger.debug("No comment selector found, trying scroll...")
+            # Wait for page to render comments
+            await asyncio.sleep(4)
             
-            # Scroll to load more comments (Instagram lazy-loads them)
+            # Scroll to load more comments
             for _ in range(3):
                 await page.evaluate("window.scrollBy(0, 500)")
-                await asyncio.sleep(1)
-                
-                # Click "View more comments" if present
-                try:
-                    more_btn = await page.query_selector(
-                        'button:has-text("View all"), button:has-text("more comments"), '
-                        'span:has-text("View all"), a:has-text("View all")'
-                    )
-                    if more_btn:
-                        await more_btn.click()
-                        await asyncio.sleep(2)
-                except Exception:
-                    pass
+                await asyncio.sleep(1.5)
             
-            # Give time for API responses
-            await asyncio.sleep(2)
+            # Try clicking "View all X comments" to expand
+            try:
+                view_all = await page.query_selector('text=/View all.*comment/i')
+                if view_all:
+                    await view_all.click()
+                    await asyncio.sleep(3)
+                    # Scroll more in expanded view
+                    for _ in range(3):
+                        await page.evaluate("window.scrollBy(0, 600)")
+                        await asyncio.sleep(1.5)
+            except Exception:
+                pass
             
-            # If no comments captured via API interception, try DOM extraction
-            if not captured_comments:
-                captured_comments.extend(await _extract_comments_from_dom(page))
+            # Primary extraction: DOM (Instagram 2026 format)
+            # Comments are rendered in div containers with Reply text nodes
+            captured_comments.extend(await _extract_comments_from_dom(page))
+            logger.info("DOM extraction: %d comments from %s", len(captured_comments), shortcode)
             
             await browser.close()
     
@@ -194,36 +187,91 @@ def _extract_comments_from_v1(data: dict, out: list):
 
 
 async def _extract_comments_from_dom(page) -> list:
-    """Fallback: extract visible comments from DOM."""
+    """Extract comments from Instagram DOM (2026 format).
+    
+    Instagram renders comments in div containers with 'Reply' text nodes.
+    Each comment container has: username, timestamp, comment text, like count.
+    """
     try:
         return await page.evaluate("""() => {
             const comments = [];
+            const seen = new Set();
             
-            // Find comment containers
-            const commentEls = document.querySelectorAll(
-                'ul li[role="menuitem"], div[class*="comment"] > div, ul > div > li'
+            // Find all 'Reply' text nodes — each marks a comment
+            const walker = document.createTreeWalker(
+                document.body, NodeFilter.SHOW_TEXT, null
             );
-            
-            for (const el of commentEls) {
-                const usernameEl = el.querySelector('a[href*="/"] span, h3 a, a[role="link"]');
-                const textEl = el.querySelector('span:not(:first-child), div > span');
-                const likeEl = el.querySelector('button[class*="like"] span, span[class*="like"]');
-                
-                if (usernameEl && textEl) {
-                    const username = usernameEl.textContent?.trim() || '';
-                    const text = textEl.textContent?.trim() || '';
-                    
-                    // Skip if it looks like a username repeat or empty
-                    if (text && text !== username && text.length > 1) {
-                        comments.push({
-                            username: username.replace('@', ''),
-                            text: text,
-                            likes: parseInt(likeEl?.textContent?.replace(/[^0-9]/g, '') || '0') || 0,
-                            timestamp: null,
-                            is_reply: false
-                        });
+            const replyParents = [];
+            while (walker.nextNode()) {
+                if (walker.currentNode.textContent.trim() === 'Reply') {
+                    // Walk up 3-6 levels to find the comment container div
+                    let el = walker.currentNode.parentElement;
+                    for (let i = 0; i < 5; i++) {
+                        if (!el) break;
+                        el = el.parentElement;
                     }
+                    if (el) replyParents.push(el);
                 }
+            }
+            
+            for (const container of replyParents) {
+                const text = container.innerText || '';
+                const lines = text.split('\\n').map(l => l.trim()).filter(l => l.length > 0);
+                
+                if (lines.length < 3) continue;
+                
+                // Parse structure: username, timestamp, comment text, [likes], Reply
+                let username = '';
+                let commentText = '';
+                let likes = 0;
+                let timestamp = '';
+                let isReply = false;
+                
+                // First non-empty line is usually the username
+                username = lines[0].replace(/Verified$/, '').trim();
+                
+                // Skip if username looks wrong
+                if (!username || username.length > 40 || username.includes(' ')) continue;
+                
+                // Second line is usually timestamp (e.g., "39w", "5d", "3h")
+                const timePattern = /^\\d+[wdhms]$/;
+                let textStartIdx = 1;
+                if (lines.length > 1 && timePattern.test(lines[1])) {
+                    timestamp = lines[1];
+                    textStartIdx = 2;
+                }
+                
+                // Collect text until we hit 'Reply', 'Like', or a like count
+                const textParts = [];
+                for (let i = textStartIdx; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line === 'Reply' || line === 'Like') break;
+                    if (/^\\d[\\d,]* likes?$/i.test(line)) {
+                        likes = parseInt(line.replace(/[^0-9]/g, '')) || 0;
+                        break;
+                    }
+                    if (/^View all \\d+ replies?$/i.test(line)) {
+                        isReply = false;
+                        break;
+                    }
+                    textParts.push(line);
+                }
+                
+                commentText = textParts.join(' ').trim();
+                
+                // Skip empty, too short, or duplicate
+                if (!commentText || commentText.length < 2) continue;
+                const key = username + ':' + commentText.substring(0, 40);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                
+                comments.push({
+                    username: username,
+                    text: commentText,
+                    likes: likes,
+                    timestamp: timestamp || null,
+                    is_reply: isReply
+                });
             }
             
             return comments;
