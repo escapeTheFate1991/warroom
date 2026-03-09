@@ -2052,6 +2052,19 @@ async def _run_sync_all():
                         enriched["comments_analyzed"] += r.get("analyzed", 0)
                 
                 await db.commit()
+                
+                # Phase 3: Content structure analysis (Hook/Value/CTA) on transcribed posts
+                enriched["content_analyzed"] = 0
+                try:
+                    from app.services.content_analyzer import analyze_competitor_content_batch
+                    print(f"[SYNC-ALL] Analyzing content structure (Hook/Value/CTA)...", flush=True)
+                    ca_result = await _safe_enrich(analyze_competitor_content_batch, db, synced_ids, "content_analysis")
+                    if isinstance(ca_result, dict):
+                        enriched["content_analyzed"] = ca_result.get("analyzed", 0)
+                    await db.commit()
+                except Exception as ca_err:
+                    print(f"[SYNC-ALL] Content analysis error (non-fatal): {ca_err}", flush=True)
+                
                 print(f"[SYNC-ALL] Enrichment done — {enriched}", flush=True)
             except Exception as enrich_err:
                 print(f"[SYNC-ALL] Enrichment error (non-fatal): {enrich_err}", flush=True)
@@ -2059,6 +2072,8 @@ async def _run_sync_all():
             summary = f"Done: {batch_result.success}/{len(competitors)} synced, {batch_result.posts_saved} new posts"
             if enriched["transcribed"]:
                 summary += f", {enriched['transcribed']} transcribed"
+            if enriched.get("content_analyzed"):
+                summary += f", {enriched['content_analyzed']} scripts analyzed"
             if enriched["comments_analyzed"]:
                 summary += f", {enriched['comments_analyzed']} comments analyzed"
             

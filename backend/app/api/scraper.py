@@ -797,37 +797,7 @@ async def get_post_detail(
     if not row:
         raise HTTPException(status_code=404, detail="Post not found")
     
-    row_dict = dict(row._mapping)
-    
-    # Parse JSONB fields
-    transcript = row_dict.get("transcript")
-    if isinstance(transcript, str):
-        transcript = json.loads(transcript)
-    
-    comments_data = row_dict.get("comments_data")
-    if isinstance(comments_data, str):
-        comments_data = json.loads(comments_data)
-    
-    return {
-        "id": row_dict["id"],
-        "competitor_id": row_dict["competitor_id"],
-        "handle": row_dict["handle"],
-        "shortcode": row_dict.get("shortcode"),
-        "platform": row_dict.get("platform"),
-        "post_text": row_dict.get("post_text", ""),
-        "hook": row_dict.get("hook", ""),
-        "likes": row_dict.get("likes", 0),
-        "comments": row_dict.get("comments", 0),
-        "shares": row_dict.get("shares", 0),
-        "engagement_score": float(row_dict.get("engagement_score", 0)),
-        "media_type": row_dict.get("media_type", "image"),
-        "media_url": row_dict.get("media_url"),
-        "thumbnail_url": row_dict.get("thumbnail_url"),
-        "post_url": row_dict.get("post_url"),
-        "posted_at": row_dict.get("posted_at"),
-        "transcript": transcript,
-        "comments_data": comments_data,
-    }
+    return _build_post_detail(row)
 
 
 @router.get("/scraper/posts/by-shortcode/{shortcode}")
@@ -850,13 +820,21 @@ async def get_post_by_shortcode(
     if not row:
         raise HTTPException(status_code=404, detail="Post not found")
     
+    return _build_post_detail(row)
+
+
+def _build_post_detail(row) -> dict:
+    """Build post detail response from DB row."""
     row_dict = dict(row._mapping)
-    transcript = row_dict.get("transcript")
-    if isinstance(transcript, str):
-        transcript = json.loads(transcript)
-    comments_data = row_dict.get("comments_data")
-    if isinstance(comments_data, str):
-        comments_data = json.loads(comments_data)
+    
+    def _parse_jsonb(val):
+        if isinstance(val, str):
+            return json.loads(val)
+        return val
+    
+    transcript = _parse_jsonb(row_dict.get("transcript"))
+    comments_data = _parse_jsonb(row_dict.get("comments_data"))
+    content_analysis = _parse_jsonb(row_dict.get("content_analysis"))
     
     return {
         "id": row_dict["id"],
@@ -877,4 +855,5 @@ async def get_post_by_shortcode(
         "posted_at": row_dict.get("posted_at"),
         "transcript": transcript,
         "comments_data": comments_data,
+        "content_analysis": content_analysis,
     }

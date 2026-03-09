@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   X, ExternalLink, Heart, MessageCircle, Eye, Clock,
   Film, Image, Layers, Loader2, FileText, MessageSquare,
+  Zap, Target, Megaphone, BarChart3,
 } from "lucide-react";
 import { API as _API, authFetch } from "@/lib/api";
 
@@ -29,6 +30,15 @@ interface CommentAnalysis {
   engagement_quality: string;
 }
 
+interface ContentAnalysis {
+  hook: { text: string; start: number; end: number; type: string; strength: number };
+  value: { text: string; start: number; end: number; key_points: string[] };
+  cta: { text: string; start: number; end: number; type: string; phrase: string };
+  total_duration: number;
+  structure_score: number;
+  full_script: string;
+}
+
 interface PostDetail {
   id: number;
   competitor_id: number;
@@ -48,6 +58,7 @@ interface PostDetail {
   posted_at: string | null;
   transcript: TranscriptSegment[] | null;
   comments_data: CommentAnalysis | null;
+  content_analysis: ContentAnalysis | null;
 }
 
 function formatTimestamp(seconds: number): string {
@@ -120,6 +131,7 @@ export default function PostDetailModal({
 
   const hasTranscript = post?.transcript && post.transcript.length > 0;
   const hasComments = post?.comments_data && post.comments_data.analyzed > 0;
+  const hasAnalysis = post?.content_analysis && post.content_analysis.structure_score > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -171,7 +183,7 @@ export default function PostDetailModal({
             <div className="flex border-b border-warroom-border px-5">
               {[
                 { key: "overview" as const, label: "Overview", icon: FileText },
-                { key: "transcript" as const, label: `Transcript${hasTranscript ? ` (${post.transcript!.length})` : ""}`, icon: Film },
+                { key: "transcript" as const, label: hasAnalysis ? "Script Analysis" : `Transcript${hasTranscript ? ` (${post.transcript!.length})` : ""}`, icon: hasAnalysis ? Zap : Film },
                 { key: "comments" as const, label: `Audience Intel${hasComments ? ` (${post.comments_data!.analyzed})` : ""}`, icon: MessageSquare },
               ].map((tab) => (
                 <button
@@ -228,10 +240,143 @@ export default function PostDetailModal({
                 </div>
               )}
 
-              {/* Transcript Tab */}
+              {/* Transcript / Script Analysis Tab */}
               {activeTab === "transcript" && (
                 <div>
-                  {hasTranscript ? (
+                  {hasAnalysis ? (() => {
+                    const a = post.content_analysis!;
+                    const scoreColor = a.structure_score >= 0.7 ? "text-green-400" : a.structure_score >= 0.4 ? "text-yellow-400" : "text-red-400";
+                    const hookTypeColors: Record<string, string> = {
+                      question: "bg-blue-400/10 text-blue-400",
+                      curiosity_gap: "bg-purple-400/10 text-purple-400",
+                      bold_claim: "bg-orange-400/10 text-orange-400",
+                      shock_stat: "bg-red-400/10 text-red-400",
+                      story: "bg-green-400/10 text-green-400",
+                      direct_address: "bg-yellow-400/10 text-yellow-400",
+                      controversy: "bg-pink-400/10 text-pink-400",
+                      statement: "bg-warroom-border/30 text-warroom-muted",
+                    };
+                    const ctaTypeColors: Record<string, string> = {
+                      engagement: "text-blue-400",
+                      conversion: "text-green-400",
+                      growth: "text-purple-400",
+                      amplification: "text-orange-400",
+                      none: "text-warroom-muted",
+                    };
+                    return (
+                      <div className="space-y-4">
+                        {/* Score bar */}
+                        <div className="flex items-center justify-between bg-warroom-bg rounded-xl px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <BarChart3 size={14} className="text-warroom-muted" />
+                            <span className="text-xs text-warroom-muted">Script Structure Score</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 h-2 bg-warroom-border rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${a.structure_score >= 0.7 ? "bg-green-400" : a.structure_score >= 0.4 ? "bg-yellow-400" : "bg-red-400"}`} style={{ width: `${a.structure_score * 100}%` }} />
+                            </div>
+                            <span className={`text-sm font-bold ${scoreColor}`}>{Math.round(a.structure_score * 100)}%</span>
+                          </div>
+                        </div>
+
+                        {/* HOOK Section */}
+                        <div className="border border-orange-400/20 bg-orange-400/5 rounded-xl px-4 py-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Zap size={14} className="text-orange-400" />
+                              <span className="text-[10px] uppercase tracking-widest text-orange-400 font-bold">Hook</span>
+                              <span className="text-[10px] text-warroom-muted">{formatTimestamp(a.hook.start)} – {formatTimestamp(a.hook.end)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${hookTypeColors[a.hook.type] || hookTypeColors.statement}`}>
+                                {a.hook.type.replace("_", " ")}
+                              </span>
+                              <span className="text-[10px] text-warroom-muted">{Math.round(a.hook.strength * 100)}% str</span>
+                            </div>
+                          </div>
+                          <p className="text-sm text-warroom-text font-medium leading-relaxed">"{a.hook.text}"</p>
+                        </div>
+
+                        {/* VALUE Section */}
+                        <div className="border border-blue-400/20 bg-blue-400/5 rounded-xl px-4 py-3 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Target size={14} className="text-blue-400" />
+                            <span className="text-[10px] uppercase tracking-widest text-blue-400 font-bold">Value / Message</span>
+                            <span className="text-[10px] text-warroom-muted">{formatTimestamp(a.value.start)} – {formatTimestamp(a.value.end)}</span>
+                          </div>
+                          <p className="text-sm text-warroom-text leading-relaxed">{a.value.text}</p>
+                          {a.value.key_points.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-blue-400/10">
+                              <p className="text-[10px] uppercase text-blue-400/70 mb-1">Key Points</p>
+                              <ul className="space-y-1">
+                                {a.value.key_points.map((kp, i) => (
+                                  <li key={i} className="text-xs text-warroom-text flex items-start gap-2">
+                                    <span className="text-blue-400 mt-0.5">•</span>
+                                    <span>{kp}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* CTA Section */}
+                        <div className={`border rounded-xl px-4 py-3 space-y-2 ${a.cta.type !== "none" ? "border-green-400/20 bg-green-400/5" : "border-warroom-border/30 bg-warroom-bg/50"}`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Megaphone size={14} className={a.cta.type !== "none" ? "text-green-400" : "text-warroom-muted"} />
+                              <span className={`text-[10px] uppercase tracking-widest font-bold ${a.cta.type !== "none" ? "text-green-400" : "text-warroom-muted"}`}>
+                                Call to Action
+                              </span>
+                              <span className="text-[10px] text-warroom-muted">{formatTimestamp(a.cta.start)} – {formatTimestamp(a.cta.end)}</span>
+                            </div>
+                            <span className={`text-[10px] capitalize ${ctaTypeColors[a.cta.type] || "text-warroom-muted"}`}>
+                              {a.cta.type}
+                            </span>
+                          </div>
+                          {a.cta.text ? (
+                            <p className="text-sm text-warroom-text leading-relaxed">"{a.cta.text}"</p>
+                          ) : (
+                            <p className="text-xs text-warroom-muted italic">No clear CTA detected</p>
+                          )}
+                          {a.cta.phrase && (
+                            <p className="text-[10px] text-green-400/70 italic">Trigger: "{a.cta.phrase}"</p>
+                          )}
+                        </div>
+
+                        {/* Duration + raw transcript toggle */}
+                        <div className="flex items-center justify-between text-[10px] text-warroom-muted pt-1">
+                          <span>Duration: {formatTimestamp(a.total_duration)}</span>
+                          {hasTranscript && (
+                            <button
+                              onClick={() => {
+                                const el = document.getElementById("raw-transcript");
+                                if (el) el.classList.toggle("hidden");
+                              }}
+                              className="text-warroom-accent hover:underline"
+                            >
+                              Toggle raw transcript
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Raw transcript (hidden by default) */}
+                        {hasTranscript && (
+                          <div id="raw-transcript" className="hidden space-y-1 pt-2 border-t border-warroom-border">
+                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Raw Transcript</p>
+                            {post.transcript!.map((seg, i) => (
+                              <div key={i} className="flex gap-3 py-1 px-3 rounded-lg hover:bg-warroom-bg/50 transition">
+                                <span className="text-[10px] font-mono text-warroom-accent w-12 flex-shrink-0 pt-0.5">
+                                  {formatTimestamp(seg.start)}
+                                </span>
+                                <p className="text-xs text-warroom-text leading-relaxed">{seg.text}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })() : hasTranscript ? (
                     <div className="space-y-1">
                       {post.transcript!.map((seg, i) => (
                         <div
