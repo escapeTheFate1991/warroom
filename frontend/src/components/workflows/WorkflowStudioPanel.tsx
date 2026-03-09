@@ -1,651 +1,438 @@
 "use client";
 
-import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, GitBranch, History, Plus, RefreshCcw, Save, ShieldCheck, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Plus, Zap, Play, Pause, Copy, Trash2, Loader2, ChevronRight,
+  GitBranch, Bot, Search, LayoutGrid, Sparkles, ArrowLeft,
+} from "lucide-react";
 import { API, authFetch } from "@/lib/api";
-import WorkflowStudio, { buildWorkflowStudioDraft, serializeWorkflowStudioDraft, type WorkflowStudioDraft } from "@/components/workflows/WorkflowStudio";
+import dynamic from "next/dynamic";
 
-const ENTITY_OPTIONS = ["deal", "person", "activity", "email"] as const;
-const EVENT_OPTIONS = ["created", "updated", "deleted", "stage_changed"] as const;
+const WorkflowCanvas = dynamic(() => import("./WorkflowCanvas"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-full">
+      <Loader2 className="animate-spin text-warroom-accent" size={24} />
+    </div>
+  ),
+});
 
-type WorkflowTemplate = {
+/* ── Types ─────────────────────────────────────────────── */
+
+interface WorkflowTemplate {
   id: number;
   name: string;
   description: string | null;
   category: string | null;
-  entity_type: string | null;
-  event: string | null;
+  entity_type: string;
+  event: string;
   condition_type: string;
-  conditions: unknown;
-  actions: unknown;
+  conditions: any[];
+  actions: any[];
   is_seed: boolean;
-  seed_key: string | null;
-  version: number;
-  provenance: {
-    kind: "seed" | "custom";
-    seed_key: string | null;
-    derived_from_template_id: number | null;
-    root_template_id: number | null;
-    version: number;
-  };
-  created_at: string;
-  updated_at: string;
-};
+}
 
-type WorkflowRecord = {
+interface WorkflowRecord {
   id: number;
   name: string;
   description: string | null;
   entity_type: string | null;
   event: string | null;
   condition_type: string;
-  conditions: unknown;
-  actions: unknown;
+  conditions: any;
+  actions: any;
   is_active: boolean;
   template_id: number | null;
-  derived_from_workflow_id: number | null;
-  root_workflow_id: number | null;
   version: number;
-  provenance: {
-    template_id: number | null;
-    template_name: string | null;
-    template_seed_key: string | null;
-    derived_from_workflow_id: number | null;
-    derived_from_workflow_name: string | null;
-    root_workflow_id: number | null;
-    root_workflow_name: string | null;
-    version: number;
-  };
   created_at: string;
   updated_at: string;
+}
+
+type ViewMode = "list" | "canvas" | "template-gallery";
+
+/* ── Humanize helpers ──────────────────────────────────── */
+
+const ENTITY_LABELS: Record<string, string> = {
+  deal: "Deal", person: "Contact", activity: "Activity", email: "Email",
+};
+const EVENT_LABELS: Record<string, string> = {
+  created: "is created", updated: "is updated", deleted: "is deleted", stage_changed: "changes stage",
+};
+const CATEGORY_LABELS: Record<string, string> = {
+  sales: "Sales", pipeline: "Pipeline", "Home services • Appointment reminders": "Appointments",
+  "Home services • Estimates": "Estimates", "Home services • Dispatch": "Dispatch",
+  "Real estate • Lead nurture": "Lead Nurture", "Real estate • Transaction lifecycle": "Transactions",
 };
 
-type EditorSource = { kind: "blank" } | { kind: "template" | "workflow"; id: number } | null;
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleString();
+function humanizeName(name: string): string {
+  return name
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function normalizeOption<T extends readonly string[]>(value: string | null | undefined, options: T) {
-  return value && options.includes(value as T[number]) ? value : options[0];
+function humanizeCategory(cat: string | null): string {
+  if (!cat) return "General";
+  return CATEGORY_LABELS[cat] || cat.split("•").pop()?.trim() || cat;
 }
 
-function EmptyState({ message }: { message: string }) {
-  return <div className="rounded-xl border border-dashed border-warroom-border p-8 text-sm text-warroom-muted">{message}</div>;
+function triggerSummary(entityType: string, event: string): string {
+  return `When a ${ENTITY_LABELS[entityType] || entityType} ${EVENT_LABELS[event] || event}`;
 }
+
+function actionCount(actions: any[]): string {
+  const n = actions?.length || 0;
+  return n === 1 ? "1 action" : `${n} actions`;
+}
+
+/* ── Component ─────────────────────────────────────────── */
 
 export default function WorkflowStudioPanel() {
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<number | null>(null);
-  const [editorSource, setEditorSource] = useState<EditorSource>(null);
-  const [editorError, setEditorError] = useState<string | null>(null);
-  const [formName, setFormName] = useState("");
-  const [formDescription, setFormDescription] = useState("");
-  const [formEntityType, setFormEntityType] = useState<string>(ENTITY_OPTIONS[0]);
-  const [formEvent, setFormEvent] = useState<string>(EVENT_OPTIONS[0]);
-  const [formConditionType, setFormConditionType] = useState("and");
-  const [studioDraft, setStudioDraft] = useState<WorkflowStudioDraft>(() => buildWorkflowStudioDraft([], []));
-  const [formIsActive, setFormIsActive] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [view, setView] = useState<ViewMode>("list");
+  const [search, setSearch] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<WorkflowTemplate | null>(null);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<WorkflowRecord | null>(null);
+  const [cloning, setCloning] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [templateRes, workflowRes] = await Promise.all([
+      const [tRes, wRes] = await Promise.all([
         authFetch(`${API}/api/crm/workflow-templates`),
         authFetch(`${API}/api/crm/workflows`),
       ]);
-
-      if (!templateRes.ok || !workflowRes.ok) {
-        throw new Error("Failed to load workflow studio data");
-      }
-
-      const [templateData, workflowData] = await Promise.all([
-        templateRes.json() as Promise<WorkflowTemplate[]>,
-        workflowRes.json() as Promise<WorkflowRecord[]>,
-      ]);
-
-      setTemplates(templateData);
-      setWorkflows(workflowData);
-      if (templateData.length > 0) {
-        setSelectedTemplateId((current) => current ?? templateData[0].id);
-      }
+      if (!tRes.ok || !wRes.ok) throw new Error("Failed to load workflows");
+      setTemplates(await tRes.json());
+      setWorkflows(await wRes.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load workflow studio data");
+      setError(err instanceof Error ? err.message : "Failed to load workflows");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  const selectedTemplate = useMemo(
-    () => templates.find((template) => template.id === selectedTemplateId) ?? null,
-    [templates, selectedTemplateId],
-  );
-
-  const selectedWorkflow = useMemo(
-    () => workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null,
-    [workflows, selectedWorkflowId],
-  );
-
-  const visibleWorkflows = useMemo(() => {
-    if (selectedTemplateId == null) return workflows;
-    return workflows.filter((workflow) => workflow.template_id === selectedTemplateId);
-  }, [workflows, selectedTemplateId]);
-
-  const selectedTemplateDraft = useMemo(
-    () => buildWorkflowStudioDraft(selectedTemplate?.conditions, selectedTemplate?.actions),
-    [selectedTemplate],
-  );
-
-  const selectedWorkflowDraft = useMemo(
-    () => buildWorkflowStudioDraft(selectedWorkflow?.conditions, selectedWorkflow?.actions),
-    [selectedWorkflow],
-  );
-
-  function hydrateEditor(options: {
-    source: Exclude<EditorSource, null>;
-    name: string;
-    description: string | null;
-    entityType: string | null;
-    event: string | null;
-    conditionType: string | null;
-    conditions: unknown;
-    actions: unknown;
-    isActive: boolean;
-  }) {
-    setEditorSource(options.source);
-    setEditorError(null);
-    setFormName(options.name);
-    setFormDescription(options.description || "");
-    setFormEntityType(normalizeOption(options.entityType, ENTITY_OPTIONS));
-    setFormEvent(normalizeOption(options.event, EVENT_OPTIONS));
-    setFormConditionType(options.conditionType === "or" ? "or" : "and");
-    setStudioDraft(buildWorkflowStudioDraft(options.conditions, options.actions));
-    setFormIsActive(options.isActive);
-  }
-
-  function resetEditor() {
-    setEditorSource(null);
-    setEditorError(null);
-    setSaving(false);
-  }
-
-  function startFromTemplate(template: WorkflowTemplate) {
-    setSelectedTemplateId(template.id);
-    setSelectedWorkflowId(null);
-    hydrateEditor({
-      source: { kind: "template", id: template.id },
-      name: `${template.name} — custom`,
-      description: template.description,
-      entityType: template.entity_type,
-      event: template.event,
-      conditionType: template.condition_type,
-      conditions: template.conditions,
-      actions: template.actions,
-      isActive: false,
-    });
-  }
-
-  function startBlankWorkflow() {
-    setSelectedWorkflowId(null);
-    hydrateEditor({
-      source: { kind: "blank" },
-      name: "",
-      description: "",
-      entityType: ENTITY_OPTIONS[0],
-      event: EVENT_OPTIONS[0],
-      conditionType: "and",
-      conditions: [],
-      actions: [],
-      isActive: true,
-    });
-  }
-
-  function startFromWorkflow(workflow: WorkflowRecord) {
-    setSelectedWorkflowId(workflow.id);
-    setSelectedTemplateId(workflow.template_id);
-    hydrateEditor({
-      source: { kind: "workflow", id: workflow.id },
-      name: `${workflow.name} v${workflow.version + 1}`,
-      description: workflow.description,
-      entityType: workflow.entity_type,
-      event: workflow.event,
-      conditionType: workflow.condition_type,
-      conditions: workflow.conditions,
-      actions: workflow.actions,
-      isActive: workflow.is_active,
-    });
-  }
-
-  function importSelectedTemplateIntoStudio() {
-    if (!editorSource || !selectedTemplate) return;
-    setEditorError(null);
-    setFormEntityType(normalizeOption(selectedTemplate.entity_type, ENTITY_OPTIONS));
-    setFormEvent(normalizeOption(selectedTemplate.event, EVENT_OPTIONS));
-    setFormConditionType(selectedTemplate.condition_type === "or" ? "or" : "and");
-    setStudioDraft(buildWorkflowStudioDraft(selectedTemplate.conditions, selectedTemplate.actions));
-    if (!formName.trim()) setFormName(`${selectedTemplate.name} — custom`);
-    if (!formDescription.trim()) setFormDescription(selectedTemplate.description || "");
-  }
-
-  async function handleSaveAsNew(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editorSource || !formName.trim()) return;
-
-    const { conditions, actions } = serializeWorkflowStudioDraft(studioDraft);
-
-    setSaving(true);
+  const handleCloneTemplate = async (template: WorkflowTemplate) => {
+    setCloning(true);
     try {
-      const response = await authFetch(
-        editorSource.kind === "blank"
-          ? `${API}/api/crm/workflows`
-          : editorSource.kind === "template"
-            ? `${API}/api/crm/workflow-templates/${editorSource.id}/clone`
-            : `${API}/api/crm/workflows/${editorSource.id}/clone`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: formName.trim(),
-            description: formDescription || null,
-            entity_type: formEntityType,
-            event: formEvent,
-            condition_type: formConditionType,
-            conditions,
-            actions,
-            is_active: formIsActive,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to save workflow version");
+      const res = await authFetch(`${API}/api/crm/workflow-templates/${template.id}/clone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: `${humanizeName(template.name)}` }),
+      });
+      if (res.ok) {
+        const workflow = await res.json();
+        await loadData();
+        setSelectedWorkflow(workflow);
+        setSelectedTemplate(null);
+        setView("canvas");
       }
-
-      const createdWorkflow = (await response.json()) as WorkflowRecord;
-      await loadData();
-      setSelectedTemplateId(createdWorkflow.template_id);
-      setSelectedWorkflowId(createdWorkflow.id);
-      resetEditor();
-    } catch (err) {
-      setEditorError(err instanceof Error ? err.message : "Failed to save workflow version");
-    } finally {
-      setSaving(false);
+    } catch {} finally {
+      setCloning(false);
     }
+  };
+
+  const handleToggleActive = async (workflow: WorkflowRecord) => {
+    try {
+      await authFetch(`${API}/api/crm/workflows/${workflow.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: !workflow.is_active }),
+      });
+      loadData();
+    } catch {}
+  };
+
+  const handleDelete = async (workflow: WorkflowRecord) => {
+    try {
+      await authFetch(`${API}/api/crm/workflows/${workflow.id}`, { method: "DELETE" });
+      if (selectedWorkflow?.id === workflow.id) {
+        setSelectedWorkflow(null);
+        setView("list");
+      }
+      loadData();
+    } catch {}
+  };
+
+  const filteredTemplates = templates.filter(t =>
+    !search || t.name.toLowerCase().includes(search.toLowerCase()) ||
+    (t.description || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  const groupedTemplates = filteredTemplates.reduce<Record<string, WorkflowTemplate[]>>((acc, t) => {
+    const cat = humanizeCategory(t.category);
+    (acc[cat] = acc[cat] || []).push(t);
+    return acc;
+  }, {});
+
+  // Active canvas data
+  const canvasData = selectedWorkflow
+    ? {
+        entity_type: selectedWorkflow.entity_type || "deal",
+        event: selectedWorkflow.event || "created",
+        condition_type: selectedWorkflow.condition_type || "and",
+        conditions: selectedWorkflow.conditions || [],
+        actions: selectedWorkflow.actions || [],
+      }
+    : selectedTemplate
+      ? {
+          entity_type: selectedTemplate.entity_type,
+          event: selectedTemplate.event,
+          condition_type: selectedTemplate.condition_type,
+          conditions: selectedTemplate.conditions,
+          actions: selectedTemplate.actions,
+        }
+      : null;
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="animate-spin text-warroom-accent" size={32} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-400 text-sm mb-2">{error}</p>
+          <button onClick={loadData} className="text-xs text-warroom-accent hover:underline">Retry</button>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="border-b border-warroom-border px-6 py-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-warroom-text">
-              <GitBranch size={16} />
-              Workflow Studio
-            </h2>
-            <p className="mt-1 text-xs text-warroom-muted">
-              Open starter templates, drag/reorder nodes, edit edges and step metadata, then save versioned custom workflows.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="h-14 border-b border-warroom-border flex items-center px-6 justify-between flex-shrink-0">
+        <div className="flex items-center gap-3">
+          {(view === "canvas" || view === "template-gallery") && (
             <button
-              type="button"
-              onClick={startBlankWorkflow}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-warroom-accent px-3 py-1.5 text-xs font-medium text-white transition hover:bg-warroom-accent/80"
+              onClick={() => { setView("list"); setSelectedTemplate(null); setSelectedWorkflow(null); }}
+              className="p-1.5 rounded-lg hover:bg-warroom-bg text-warroom-muted hover:text-warroom-text transition"
             >
-              <Plus size={13} />
-              New workflow
+              <ArrowLeft size={16} />
             </button>
-            <button
-              type="button"
-              onClick={() => void loadData()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-warroom-border px-3 py-1.5 text-xs text-warroom-muted transition hover:text-warroom-text"
-            >
-              <RefreshCcw size={13} />
-              Refresh
-            </button>
-          </div>
+          )}
+          <GitBranch size={18} className="text-warroom-accent" />
+          <h2 className="text-lg font-bold text-warroom-text">
+            {view === "canvas"
+              ? (selectedWorkflow?.name || selectedTemplate?.name || "Workflow Editor")
+              : view === "template-gallery"
+                ? "Start from a Template"
+                : "Workflows"
+            }
+          </h2>
+        </div>
+        <div className="flex items-center gap-2">
+          {view === "list" && (
+            <>
+              <button
+                onClick={() => setView("template-gallery")}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-warroom-border rounded-xl text-warroom-muted hover:text-warroom-text hover:border-warroom-accent/30 transition"
+              >
+                <Sparkles size={12} />
+                Templates
+              </button>
+              <button
+                onClick={() => setView("template-gallery")}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent text-white rounded-xl text-xs font-medium hover:bg-warroom-accent/80 transition"
+              >
+                <Plus size={14} />
+                New Workflow
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)] overflow-hidden">
-        <aside className="min-h-0 overflow-y-auto border-r border-warroom-border bg-warroom-surface/40">
-          <div className="border-b border-warroom-border px-4 py-4">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-warroom-muted">
-              <Sparkles size={12} className="text-warroom-accent" />
-              Starter gallery
-            </div>
-            <div className="mt-3 space-y-2">
-              {templates.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedTemplateId(template.id);
-                    setSelectedWorkflowId(null);
-                    resetEditor();
-                  }}
-                  className={`w-full rounded-xl border px-3 py-3 text-left transition ${
-                    selectedTemplateId === template.id && !selectedWorkflowId
-                      ? "border-warroom-accent bg-warroom-accent/10"
-                      : "border-warroom-border bg-warroom-bg/60 hover:bg-warroom-surface"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-warroom-text">{template.name}</span>
-                    <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] uppercase text-emerald-300">
-                      {template.is_seed ? "seed" : "template"}
-                    </span>
-                  </div>
-                  {template.category && <p className="mt-1 text-[11px] text-warroom-muted">{template.category}</p>}
-                  <p className="mt-2 line-clamp-2 text-xs text-warroom-muted">{template.description || "No description yet."}</p>
-                  <p className="mt-2 text-[10px] text-warroom-muted">
-                    {template.entity_type} • {template.event}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
 
-          <div className="px-4 py-4">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-warroom-muted">
-              <History size={12} className="text-warroom-accent" />
-              Saved workflow versions
-            </div>
-            <div className="mt-3 space-y-2">
-              {visibleWorkflows.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-warroom-border px-3 py-4 text-xs text-warroom-muted">
-                  No workflow versions saved for this template yet.
-                </div>
-              ) : (
-                visibleWorkflows.map((workflow) => (
-                  <button
-                    key={workflow.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedWorkflowId(workflow.id);
-                      setSelectedTemplateId(workflow.template_id);
-                      resetEditor();
-                    }}
-                    className={`w-full rounded-xl border px-3 py-3 text-left transition ${
-                      selectedWorkflowId === workflow.id
-                        ? "border-warroom-accent bg-warroom-accent/10"
-                        : "border-warroom-border bg-warroom-bg/60 hover:bg-warroom-surface"
-                    }`}
+        {/* ── List View ── */}
+        {view === "list" && (
+          <div className="h-full overflow-y-auto p-6">
+            {workflows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <GitBranch size={48} className="text-warroom-muted/20 mb-4" />
+                <h3 className="text-lg font-semibold text-warroom-text mb-1">No workflows yet</h3>
+                <p className="text-sm text-warroom-muted mb-4 text-center max-w-md">
+                  Workflows automate repetitive tasks — follow up with leads, notify your team,
+                  create tasks, and more. Start from a template or build your own.
+                </p>
+                <button
+                  onClick={() => setView("template-gallery")}
+                  className="flex items-center gap-2 px-4 py-2 bg-warroom-accent text-white rounded-xl text-sm font-medium hover:bg-warroom-accent/80 transition"
+                >
+                  <Sparkles size={16} />
+                  Browse Templates
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {workflows.map(wf => (
+                  <div
+                    key={wf.id}
+                    onClick={() => { setSelectedWorkflow(wf); setView("canvas"); }}
+                    className="bg-warroom-surface border border-warroom-border rounded-2xl p-4 cursor-pointer hover:border-warroom-accent/30 transition group"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-warroom-text">{workflow.name}</span>
-                      <span className="rounded border border-warroom-accent/30 bg-warroom-accent/10 px-1.5 py-0.5 text-[10px] uppercase text-warroom-accent">
-                        v{workflow.version}
-                      </span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                          wf.is_active ? "bg-emerald-500/20" : "bg-warroom-bg"
+                        }`}>
+                          <Zap size={18} className={wf.is_active ? "text-emerald-400" : "text-warroom-muted"} />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-semibold text-warroom-text truncate">
+                            {humanizeName(wf.name)}
+                          </h4>
+                          <p className="text-xs text-warroom-muted">
+                            {triggerSummary(wf.entity_type || "deal", wf.event || "created")} · {actionCount(wf.actions)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleToggleActive(wf)}
+                          className={`p-1.5 rounded-lg transition ${
+                            wf.is_active ? "text-emerald-400 hover:bg-emerald-500/10" : "text-warroom-muted hover:bg-warroom-bg"
+                          }`}
+                          title={wf.is_active ? "Pause" : "Activate"}
+                        >
+                          {wf.is_active ? <Pause size={14} /> : <Play size={14} />}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(wf)}
+                          className="p-1.5 rounded-lg text-warroom-muted hover:text-red-400 hover:bg-red-500/10 transition"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                        <ChevronRight size={14} className="text-warroom-muted" />
+                      </div>
                     </div>
-                    <p className="mt-1 text-[11px] text-warroom-muted">{workflow.provenance.template_name || "No template"}</p>
-                    <p className="mt-2 text-[10px] text-warroom-muted">
-                      {workflow.is_active ? "Active" : "Draft"} • Updated {formatDate(workflow.updated_at)}
-                    </p>
+                    {wf.description && (
+                      <p className="text-xs text-warroom-muted mt-2 pl-[52px] line-clamp-1">{wf.description}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Template Gallery ── */}
+        {view === "template-gallery" && (
+          <div className="h-full overflow-y-auto p-6 space-y-6">
+            {/* Search */}
+            <div className="relative max-w-md">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search templates..."
+                className="w-full bg-warroom-bg border border-warroom-border rounded-xl pl-9 pr-3 py-2 text-xs text-warroom-text placeholder-warroom-muted/50 focus:outline-none focus:border-warroom-accent/50"
+              />
+            </div>
+
+            {/* Grouped Templates */}
+            {Object.entries(groupedTemplates).map(([category, catTemplates]) => (
+              <div key={category}>
+                <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">{category}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {catTemplates.map(template => (
+                    <div
+                      key={template.id}
+                      className="bg-warroom-surface border border-warroom-border rounded-2xl p-4 hover:border-warroom-accent/30 transition group"
+                    >
+                      <div className="flex items-start gap-3 mb-3">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+                          <Zap size={16} className="text-emerald-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-semibold text-warroom-text">
+                            {humanizeName(template.name)}
+                          </h4>
+                          <p className="text-[10px] text-warroom-muted">
+                            {triggerSummary(template.entity_type, template.event)} · {actionCount(template.actions)}
+                          </p>
+                        </div>
+                      </div>
+                      {template.description && (
+                        <p className="text-xs text-warroom-muted leading-relaxed line-clamp-2 mb-3">
+                          {template.description}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => { setSelectedTemplate(template); setView("canvas"); }}
+                          className="flex-1 text-xs text-warroom-muted hover:text-warroom-text text-center py-1.5 rounded-lg border border-warroom-border hover:border-warroom-accent/30 transition"
+                        >
+                          Preview
+                        </button>
+                        <button
+                          onClick={() => handleCloneTemplate(template)}
+                          disabled={cloning}
+                          className="flex-1 flex items-center justify-center gap-1 text-xs bg-warroom-accent text-white py-1.5 rounded-lg hover:bg-warroom-accent/80 transition disabled:opacity-40"
+                        >
+                          {cloning ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
+                          Use Template
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {filteredTemplates.length === 0 && (
+              <p className="text-sm text-warroom-muted text-center py-8">
+                No templates found{search && ` matching "${search}"`}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ── Canvas View ── */}
+        {view === "canvas" && canvasData && (
+          <div className="h-full flex flex-col">
+            {/* Canvas toolbar */}
+            <div className="px-6 py-2 border-b border-warroom-border flex items-center gap-4 text-xs text-warroom-muted flex-shrink-0">
+              <span className="flex items-center gap-1">
+                <Zap size={11} className="text-emerald-400" />
+                {triggerSummary(canvasData.entity_type, canvasData.event)}
+              </span>
+              <span>·</span>
+              <span>{canvasData.conditions?.length || 0} conditions</span>
+              <span>·</span>
+              <span>{canvasData.actions?.length || 0} actions</span>
+              {selectedTemplate && !selectedWorkflow && (
+                <>
+                  <span className="ml-auto" />
+                  <button
+                    onClick={() => handleCloneTemplate(selectedTemplate)}
+                    disabled={cloning}
+                    className="flex items-center gap-1 px-3 py-1 bg-warroom-accent text-white rounded-lg hover:bg-warroom-accent/80 transition disabled:opacity-40"
+                  >
+                    {cloning ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
+                    Use This Template
                   </button>
-                ))
+                </>
               )}
             </div>
+            {/* React Flow Canvas */}
+            <div className="flex-1">
+              <WorkflowCanvas workflow={canvasData} readOnly={!!selectedTemplate && !selectedWorkflow} />
+            </div>
           </div>
-        </aside>
-
-        <section className="min-h-0 overflow-y-auto p-6">
-          {loading ? (
-            <div className="flex h-48 items-center justify-center">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-warroom-accent border-t-transparent" />
-            </div>
-          ) : error ? (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>
-          ) : editorSource ? (
-            <form onSubmit={handleSaveAsNew} className="space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-warroom-text">
-                    {editorSource.kind === "blank"
-                      ? "Create workflow from scratch"
-                      : editorSource.kind === "template"
-                        ? "Customize starter as new workflow"
-                        : "Create a new workflow version"}
-                  </h3>
-                  <p className="mt-1 text-sm text-warroom-muted">
-                    {editorSource.kind === "blank"
-                      ? "Use the blank canvas when none of the starters fit and build the flow visually."
-                      : "Studio edits preserve the source record and save a versioned custom workflow."}
-                  </p>
-                </div>
-                <button type="button" onClick={resetEditor} className="text-sm text-warroom-muted transition hover:text-warroom-text">
-                  Cancel
-                </button>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-                <input
-                  value={formName}
-                  onChange={(event) => setFormName(event.target.value)}
-                  placeholder="Workflow name"
-                  className="rounded-xl border border-warroom-border bg-warroom-bg px-3 py-2 text-sm text-warroom-text outline-none focus:border-warroom-accent"
-                  required
-                />
-                <div className="rounded-xl border border-warroom-border bg-warroom-surface/40 px-3 py-2 text-sm text-warroom-muted">
-                  <div className="text-[11px] uppercase tracking-wide">Import into canvas</div>
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <div className="min-w-0 text-warroom-text">{selectedTemplate?.name || "Select a starter from the gallery"}</div>
-                    <button
-                      type="button"
-                      onClick={importSelectedTemplateIntoStudio}
-                      disabled={!selectedTemplate}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-warroom-border px-2.5 py-1.5 text-xs text-warroom-text transition hover:border-warroom-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Copy size={12} />
-                      Import starter
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <textarea
-                value={formDescription}
-                onChange={(event) => setFormDescription(event.target.value)}
-                placeholder="Describe what this workflow should do"
-                rows={3}
-                className="w-full rounded-xl border border-warroom-border bg-warroom-bg px-3 py-2 text-sm text-warroom-text outline-none focus:border-warroom-accent"
-              />
-
-              <WorkflowStudio
-                draft={studioDraft}
-                entityType={formEntityType}
-                event={formEvent}
-                conditionType={formConditionType}
-                entityOptions={ENTITY_OPTIONS}
-                eventOptions={EVENT_OPTIONS}
-                onDraftChange={setStudioDraft}
-                onEntityTypeChange={setFormEntityType}
-                onEventChange={setFormEvent}
-                onConditionTypeChange={setFormConditionType}
-              />
-
-              <label className="inline-flex items-center gap-2 text-sm text-warroom-muted">
-                <input type="checkbox" checked={formIsActive} onChange={(event) => setFormIsActive(event.target.checked)} />
-                Mark this saved version as active
-              </label>
-
-              {editorError && <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">{editorError}</div>}
-
-              <div className="flex justify-end gap-3">
-                <button type="button" onClick={resetEditor} className="px-3 py-2 text-sm text-warroom-muted transition hover:text-warroom-text">
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="inline-flex items-center gap-2 rounded-xl bg-warroom-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-warroom-accent/80 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Save size={14} />
-                  {saving ? "Saving…" : editorSource.kind === "blank" ? "Create workflow" : "Save as new"}
-                </button>
-              </div>
-            </form>
-          ) : selectedWorkflow ? (
-            <div className="space-y-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xl font-semibold text-warroom-text">{selectedWorkflow.name}</h3>
-                    <span className="rounded border border-warroom-accent/30 bg-warroom-accent/10 px-2 py-0.5 text-xs uppercase text-warroom-accent">
-                      v{selectedWorkflow.version}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-warroom-muted">{selectedWorkflow.description || "No description provided."}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => startFromWorkflow(selectedWorkflow)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-warroom-border px-3 py-2 text-sm text-warroom-text transition hover:border-warroom-accent"
-                >
-                  <Copy size={14} />
-                  Open in studio
-                </button>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-xl border border-warroom-border bg-warroom-surface/40 p-4 text-sm text-warroom-muted">
-                  <div className="text-xs uppercase tracking-wide">Template</div>
-                  <div className="mt-2 text-warroom-text">{selectedWorkflow.provenance.template_name || "Unlinked"}</div>
-                </div>
-                <div className="rounded-xl border border-warroom-border bg-warroom-surface/40 p-4 text-sm text-warroom-muted">
-                  <div className="text-xs uppercase tracking-wide">Derived from</div>
-                  <div className="mt-2 text-warroom-text">{selectedWorkflow.provenance.derived_from_workflow_name || "Template clone"}</div>
-                </div>
-                <div className="rounded-xl border border-warroom-border bg-warroom-surface/40 p-4 text-sm text-warroom-muted">
-                  <div className="text-xs uppercase tracking-wide">Root lineage</div>
-                  <div className="mt-2 text-warroom-text">{selectedWorkflow.provenance.root_workflow_name || selectedWorkflow.name}</div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-warroom-border bg-warroom-surface/40 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-warroom-text">
-                  <ShieldCheck size={16} className="text-warroom-accent" />
-                  Provenance
-                </div>
-                <dl className="mt-3 grid gap-3 text-sm md:grid-cols-2">
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-warroom-muted">Seed key</dt>
-                    <dd className="mt-1 text-warroom-text">{selectedWorkflow.provenance.template_seed_key || "Custom"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-warroom-muted">Status</dt>
-                    <dd className="mt-1 text-warroom-text">{selectedWorkflow.is_active ? "Active" : "Draft"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-warroom-muted">Entity / event</dt>
-                    <dd className="mt-1 text-warroom-text">
-                      {selectedWorkflow.entity_type} • {selectedWorkflow.event}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-warroom-muted">Saved</dt>
-                    <dd className="mt-1 text-warroom-text">{formatDate(selectedWorkflow.updated_at)}</dd>
-                  </div>
-                </dl>
-              </div>
-
-              <WorkflowStudio
-                draft={selectedWorkflowDraft}
-                entityType={selectedWorkflow.entity_type || ""}
-                event={selectedWorkflow.event || ""}
-                conditionType={selectedWorkflow.condition_type || "and"}
-                entityOptions={ENTITY_OPTIONS}
-                eventOptions={EVENT_OPTIONS}
-                readOnly
-              />
-            </div>
-          ) : selectedTemplate ? (
-            <div className="space-y-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xl font-semibold text-warroom-text">{selectedTemplate.name}</h3>
-                    <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs uppercase text-emerald-300">
-                      immutable seed
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-warroom-muted">{selectedTemplate.description || "No description provided."}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => startFromTemplate(selectedTemplate)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-warroom-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-warroom-accent/80"
-                >
-                  <Copy size={14} />
-                  Open in studio
-                </button>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="rounded-xl border border-warroom-border bg-warroom-surface/40 p-4 text-sm text-warroom-muted">
-                  <div className="text-xs uppercase tracking-wide">Category</div>
-                  <div className="mt-2 text-warroom-text">{selectedTemplate.category || "General"}</div>
-                </div>
-                <div className="rounded-xl border border-warroom-border bg-warroom-surface/40 p-4 text-sm text-warroom-muted">
-                  <div className="text-xs uppercase tracking-wide">Entity type</div>
-                  <div className="mt-2 text-warroom-text">{selectedTemplate.entity_type}</div>
-                </div>
-                <div className="rounded-xl border border-warroom-border bg-warroom-surface/40 p-4 text-sm text-warroom-muted">
-                  <div className="text-xs uppercase tracking-wide">Trigger event</div>
-                  <div className="mt-2 text-warroom-text">{selectedTemplate.event}</div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-warroom-border bg-warroom-surface/40 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-warroom-text">
-                  <ShieldCheck size={16} className="text-warroom-accent" />
-                  Seed provenance
-                </div>
-                <dl className="mt-3 grid gap-3 text-sm md:grid-cols-2">
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-warroom-muted">Seed key</dt>
-                    <dd className="mt-1 text-warroom-text">{selectedTemplate.seed_key || "Not assigned"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-warroom-muted">Template version</dt>
-                    <dd className="mt-1 text-warroom-text">v{selectedTemplate.version}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-warroom-muted">Immutability</dt>
-                    <dd className="mt-1 text-warroom-text">Starter seeds can only be cloned, never edited in place.</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-warroom-muted">Updated</dt>
-                    <dd className="mt-1 text-warroom-text">{formatDate(selectedTemplate.updated_at)}</dd>
-                  </div>
-                </dl>
-              </div>
-
-              <WorkflowStudio
-                draft={selectedTemplateDraft}
-                entityType={selectedTemplate.entity_type || ""}
-                event={selectedTemplate.event || ""}
-                conditionType={selectedTemplate.condition_type || "and"}
-                entityOptions={ENTITY_OPTIONS}
-                eventOptions={EVENT_OPTIONS}
-                readOnly
-              />
-            </div>
-          ) : (
-            <EmptyState message="Select a workflow starter from the gallery to preview or open it in Workflow Studio." />
-          )}
-        </section>
+        )}
       </div>
     </div>
   );
