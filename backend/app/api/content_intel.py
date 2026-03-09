@@ -69,6 +69,7 @@ def _get_competitor_sync_lock(competitor_id: int) -> asyncio.Lock:
 # Enhanced Pydantic models
 class CompetitorPost(BaseModel):
     """Individual competitor post data."""
+    id: Optional[int] = None
     text: str
     likes: int = 0
     comments: int = 0
@@ -77,6 +78,9 @@ class CompetitorPost(BaseModel):
     url: str
     engagement_score: float = 0.0
     hook: Optional[str] = None
+    media_type: Optional[str] = None
+    has_transcript: bool = False
+    has_comments: bool = False
 
 
 class CompetitorContentResponse(BaseModel):
@@ -781,6 +785,7 @@ def _cached_rows_to_posts(cached_posts: List[Dict[str, Any]]) -> List[Competitor
 
     for cached_post in cached_posts:
         posts.append(CompetitorPost(
+            id=cached_post.get("id"),
             text=cached_post.get("post_text", ""),
             likes=cached_post.get("likes", 0),
             comments=cached_post.get("comments", 0),
@@ -794,6 +799,9 @@ def _cached_rows_to_posts(cached_posts: List[Dict[str, Any]]) -> List[Competitor
                 platform=cached_post.get("platform"),
             ),
             hook=cached_post.get("hook", ""),
+            media_type=cached_post.get("media_type"),
+            has_transcript=bool(cached_post.get("transcript")),
+            has_comments=bool(cached_post.get("comments_data")),
         ))
 
     return posts
@@ -1654,6 +1662,7 @@ async def delete_script(
 
 class TopVideoItem(BaseModel):
     """Top-performing video/post for a competitor."""
+    id: Optional[int] = None
     post_url: Optional[str] = None
     title: str
     likes: int = 0
@@ -1662,6 +1671,9 @@ class TopVideoItem(BaseModel):
     engagement_score: float = 0.0
     posted_at: Optional[datetime] = None
     hook: Optional[str] = None
+    media_type: Optional[str] = None
+    has_transcript: bool = False
+    has_comments: bool = False
 
 
 class FollowerAnalysisResponse(BaseModel):
@@ -1695,6 +1707,7 @@ async def get_competitor_top_videos(
 
         return [
             TopVideoItem(
+                id=post.get("id"),
                 post_url=post.get("post_url", ""),
                 title=(post.get("post_text") or "")[:100],
                 likes=post.get("likes", 0) or 0,
@@ -1708,6 +1721,9 @@ async def get_competitor_top_videos(
                 ),
                 posted_at=post.get("posted_at"),
                 hook=post.get("hook"),
+                media_type=post.get("media_type"),
+                has_transcript=bool(post.get("transcript")),
+                has_comments=bool(post.get("comments_data")),
             )
             for post in cached_posts[:limit]
         ]
@@ -1846,28 +1862,224 @@ async def get_competitor_hashtags(
         raise HTTPException(status_code=500, detail="Failed to get hashtags")
 
 
+@router.get("/competitors/{competitor_id}/audience-intel")
+async def get_aggregated_audience_intel(
+    competitor_id: int,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Aggregate audience intelligence across ALL posts for a competitor.
+    
+    Combines individual post comment analyses into a unified view:
+    - Overall sentiment distribution
+    - Top questions audiences are asking
+    - Top pain points across all posts
+    - Common themes
+    - Product/tool mentions
+    - Most engaged commenters
+    - Content format breakdown
+    """
+    try:
+        result = await db.execute(
+            text("""
+                SELECT comments_data, content_analysis, engagement_score
+                FROM crm.competitor_posts
+                WHERE competitor_id = :cid 
+                  AND comments_data IS NOT NULL
+                  AND (comments_data->>'analyzed')::int > 0
+                ORDER BY engagement_score DESC
+            """),
+            {"cid": competitor_id},
+        )
+        rows = result.fetchall()
+        
+        if not rows:
+            return {"posts_analyzed": 0, "comments_analyzed": 0, "sentiment": "neutral", "sentiment_breakdown": {}, "sentiment_percentages": {}, "questions": [], "pain_points": [], "themes": [], "product_mentions": [], "top_commenters": [], "engagement_quality": {}, "content_formats": {}}
+        
+        # Aggregate across all posts
+        total_analyzed = 0
+        sentiment_totals = {"positive": 0, "negative": 0, "neutral": 0}
+        all_questions: list = []
+        all_pain_points: list = []
+        all_themes: Counter = Counter()
+        all_products: Counter = Counter()
+        all_commenters: Counter = Counter()
+        total_engagement_quality = {"high": 0, "moderate": 0, "low": 0}
+        format_counts: Counter = Counter()
+        
+        for row in rows:
+            data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+            if not data:
+                continue
+            
+            total_analyzed += data.get("analyzed", 0)
+            
+            # Sentiment
+            sb = data.get("sentiment_breakdown", {})
+            sentiment_totals["positive"] += sb.get("positive", 0)
+            sentiment_totals["negative"] += sb.get("negative", 0)
+            sentiment_totals["neutral"] += sb.get("neutral", 0)
+            
+            # Questions — weight by post engagement
+            eng_score = float(row[2] or 0)
+            for q in data.get("questions", []):
+                all_questions.append({
+                    "question": q["question"],
+                    "likes": q.get("likes", 0),
+                    "weight": eng_score,
+                })
+            
+            # Pain points
+            for p in data.get("pain_points", []):
+                all_pain_points.append({
+                    "pain": p["pain"],
+                    "likes": p.get("likes", 0),
+                    "weight": eng_score,
+                })
+            
+            # Themes
+            for t in data.get("themes", []):
+                all_themes[t["theme"]] += t["count"]
+            
+            # Products
+            for p in data.get("product_mentions", []):
+                all_products[p["product"]] += p["count"]
+            
+            # Top commenters
+            for c in data.get("top_commenters", []):
+                all_commenters[c["username"]] += c["count"]
+            
+            # Engagement quality
+            eq = data.get("engagement_quality", "moderate")
+            total_engagement_quality[eq] = total_engagement_quality.get(eq, 0) + 1
+            
+            # Content format from analysis
+            ca = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+            if ca:
+                fmt = ca.get("content_format", "unknown")
+                format_counts[fmt] += 1
+        
+        # Deduplicate questions by text similarity
+        seen_q = set()
+        unique_questions = []
+        for q in sorted(all_questions, key=lambda x: x["weight"] + x["likes"], reverse=True):
+            q_key = q["question"][:50].lower()
+            if q_key not in seen_q:
+                seen_q.add(q_key)
+                unique_questions.append({"question": q["question"], "likes": q["likes"]})
+        
+        # Deduplicate pain points
+        seen_p = set()
+        unique_pain_points = []
+        for p in sorted(all_pain_points, key=lambda x: x["weight"] + x["likes"], reverse=True):
+            p_key = p["pain"][:50].lower()
+            if p_key not in seen_p:
+                seen_p.add(p_key)
+                unique_pain_points.append({"pain": p["pain"], "likes": p["likes"]})
+        
+        # Overall sentiment
+        total_sent = sum(sentiment_totals.values()) or 1
+        pos_pct = sentiment_totals["positive"] / total_sent
+        neg_pct = sentiment_totals["negative"] / total_sent
+        if pos_pct > 0.6:
+            overall_sentiment = "very_positive"
+        elif pos_pct > 0.4:
+            overall_sentiment = "positive"
+        elif neg_pct > 0.4:
+            overall_sentiment = "negative"
+        elif neg_pct > 0.6:
+            overall_sentiment = "very_negative"
+        else:
+            overall_sentiment = "neutral"
+        
+        return {
+            "posts_analyzed": len(rows),
+            "comments_analyzed": total_analyzed,
+            "sentiment": overall_sentiment,
+            "sentiment_breakdown": sentiment_totals,
+            "sentiment_percentages": {
+                "positive": round(pos_pct * 100, 1),
+                "negative": round(neg_pct * 100, 1),
+                "neutral": round((1 - pos_pct - neg_pct) * 100, 1),
+            },
+            "questions": unique_questions[:15],
+            "pain_points": unique_pain_points[:15],
+            "themes": [{"theme": t, "count": c} for t, c in all_themes.most_common(20)],
+            "product_mentions": [{"product": p, "count": c} for p, c in all_products.most_common(15)],
+            "top_commenters": [{"username": u, "count": c} for u, c in all_commenters.most_common(15)],
+            "engagement_quality": total_engagement_quality,
+            "content_formats": dict(format_counts),
+        }
+    
+    except Exception as e:
+        logger.error("Failed to aggregate audience intel for competitor %s: %s", competitor_id, e)
+        raise HTTPException(status_code=500, detail="Failed to aggregate audience intelligence")
+
+
+@router.post("/index-content")
+async def index_content_for_recommendations(
+    body: dict = {},
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Index top competitor content into Qdrant for the recommendation engine.
+    
+    Call after syncing competitors or transcribing videos to update the index.
+    Only indexes top 20% by engagement — the content worth learning from.
+    """
+    from app.services.content_embedder import index_top_content
+    
+    days = body.get("days", 90)
+    limit = body.get("limit", 200)
+    
+    stats = await index_top_content(db, days=days, limit=limit)
+    return stats
+
+
+@router.get("/recommendation-status")
+async def get_recommendation_status():
+    """Get the current state of the content recommendation index."""
+    from app.services.content_embedder import get_index_status
+    return await get_index_status()
+
+
 @router.post("/recommend")
 async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_db)):
-    """One-button recommendation engine: analyze all competitors' top content and generate script ideas.
-
-    Pulls top-performing content across ALL competitors, identifies winning patterns,
-    and generates script ideas aligned with the business settings.
+    """Embedding-based recommendation engine.
+    
+    Analyzes competitors' top content semantically and generates
+    hooks, hashtags, and script recommendations aligned to our business.
+    
+    Uses Qdrant vector search for content-based filtering.
+    Falls back to v1 rule-based engine if index is empty.
     """
-    count = body.get("count", 3)
-    topic_override = body.get("topic", None)
-
+    from app.services.recommendation_engine import recommend_content_v2
+    from app.services.content_embedder import get_index_status
+    
+    count = body.get("count", 5)
+    topic = body.get("topic", None)
+    platform = body.get("platform", "instagram")
+    
+    # Check if we have indexed content
+    status = await get_index_status()
+    
+    if status.get("points_count", 0) > 0:
+        # v2: embedding-based recommendations
+        return await recommend_content_v2(
+            db=db,
+            topic=topic,
+            platform=platform,
+            count=count,
+        )
+    
+    # Fallback: v1 rule-based (for when index hasn't been built yet)
     try:
-        # Load all active competitors
         result = await db.execute(
-            select(Competitor)
-            .where(Competitor.platform == "instagram")
+            select(Competitor).where(Competitor.platform == "instagram")
         )
         competitors = result.scalars().all()
 
         if not competitors:
-            return {"scripts": [], "message": "No competitors found. Add competitors first."}
+            return {"recommendations": [], "message": "No competitors found. Add competitors first."}
 
-        # Gather cached posts from all competitors
         all_posts = []
         for comp in competitors:
             posts = await load_cached_posts(db, comp.id, limit=20)
@@ -1877,34 +2089,30 @@ async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_
             all_posts.extend(posts)
 
         if not all_posts:
-            return {"scripts": [], "message": "No competitor content cached. Sync competitors first."}
+            return {"recommendations": [], "message": "No competitor content cached. Sync competitors first."}
 
-        # Rank by virality
         ranked = _sorted_posts_for_analysis(all_posts)[:30]
-
-        # Collect trending topics
-        candidate_topics = _collect_candidate_topics(ranked, topic_override)
-
-        # Get business settings for alignment
+        candidate_topics = _collect_candidate_topics(ranked, topic)
         business = await _get_business_settings(db)
 
-        # Generate scripts
         scripts = []
         for i, post in enumerate(ranked[:count]):
-            topic = candidate_topics[i % len(candidate_topics)] if candidate_topics else _derive_topic_label(post)
+            t = candidate_topics[i % len(candidate_topics)] if candidate_topics else _derive_topic_label(post)
             script = generate_script_content(
                 post=post,
-                topic=topic,
+                topic=t,
                 business_settings=business,
                 all_posts=ranked,
             )
             scripts.append(script)
 
         return {
-            "scripts": scripts,
+            "recommendations": scripts,
             "competitors_analyzed": len(competitors),
             "posts_analyzed": len(all_posts),
             "top_topics": candidate_topics[:5],
+            "engine": "v1_fallback",
+            "message": "Using rule-based engine. Run POST /index-content to enable v2 embedding-based recommendations.",
         }
 
     except Exception as e:
@@ -1912,77 +2120,193 @@ async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_
         raise HTTPException(status_code=500, detail="Recommendation engine failed")
 
 
-@router.post("/sync-all")
-async def sync_all_competitors(db: AsyncSession = Depends(get_crm_db)):
-    """Sync all active competitors via batch Instagram scraping. Called by cron."""
-    try:
-        # Load all active Instagram competitors
-        result = await db.execute(
-            select(Competitor)
-            .where(Competitor.platform == "instagram")
-            .where(Competitor.auto_sync_enabled == True)
-        )
-        competitors = result.scalars().all()
-        
-        if not competitors:
-            return {
-                "message": "No active Instagram competitors found to sync",
-                "total": 0,
-                "success": 0,
-                "failed": 0
-            }
-        
-        # Run batch sync
-        batch_result = await sync_instagram_competitor_batch(db, competitors)
-        await db.commit()
-        
-        # Re-run audience analysis for synced competitors
-        audience_refreshed = 0
-        for comp in competitors:
-            try:
-                posts = await load_cached_posts(db, comp.id, limit=50)
-                if posts:
-                    analysis = analyze_trending_topics(posts)
-                    # Store updated analysis back to competitor record
-                    await db.execute(
-                        text(
-                            "UPDATE crm.competitors SET audience_analysis = :analysis, updated_at = NOW() "
-                            "WHERE id = :cid"
-                        ),
-                        {"cid": comp.id, "analysis": json.dumps({
-                            "themes": analysis.themes if hasattr(analysis, 'themes') else [],
-                            "audience_type": analysis.audience_type if hasattr(analysis, 'audience_type') else "Unknown",
-                            "engagement_style": analysis.engagement_style if hasattr(analysis, 'engagement_style') else "Unknown",
-                            "key_interests": analysis.key_interests if hasattr(analysis, 'key_interests') else [],
-                            "refreshed_at": datetime.now(timezone.utc).isoformat(),
-                        })},
-                    )
-                    audience_refreshed += 1
-            except Exception as e:
-                logger.warning("Audience refresh failed for competitor %s: %s", comp.handle, e)
-        await db.commit()
+_sync_all_task: Optional[asyncio.Task] = None
+_sync_all_status: Dict[str, Any] = {"running": False}
 
-        return {
-            "message": f"Sync completed: {batch_result.success} succeeded, {batch_result.failed} failed",
-            "total": len(competitors),
-            "success": batch_result.success,
-            "failed": batch_result.failed,
-            "posts_saved": batch_result.posts_saved,
-            "audience_refreshed": audience_refreshed,
-            "details": [
-                {
-                    "handle": profile.handle,
-                    "status": "failed" if profile.error else "success",
-                    "error": profile.error
-                }
-                for profile in batch_result.profiles
-            ]
-        }
-        
+
+async def _run_sync_all():
+    """Background task: sync all competitors."""
+    global _sync_all_status
+    _sync_all_status = {"running": True, "started_at": datetime.now(timezone.utc).isoformat(), "message": "Syncing..."}
+    print("[SYNC-ALL] Background task started", flush=True)
+    
+    try:
+        from app.db.crm_db import crm_session
+        from sqlalchemy import text as sa_text
+        async with crm_session() as db:
+            await db.execute(sa_text("SET search_path TO crm, public"))
+            print("[SYNC-ALL] DB session open, search_path set", flush=True)
+            result = await db.execute(
+                select(Competitor)
+                .where(Competitor.platform == "instagram")
+                .where(Competitor.auto_sync_enabled == True)
+            )
+            competitors = result.scalars().all()
+            
+            if not competitors:
+                _sync_all_status = {"running": False, "message": "No active competitors", "total": 0}
+                return
+            
+            _sync_all_status["total"] = len(competitors)
+            _sync_all_status["message"] = f"Scraping {len(competitors)} competitors..."
+            print(f"[SYNC-ALL] Found {len(competitors)} competitors, starting batch scrape", flush=True)
+            
+            batch_result = await sync_instagram_competitor_batch(db, competitors)
+            print(f"[SYNC-ALL] Batch complete — success={batch_result.success} failed={batch_result.failed} posts={batch_result.posts_saved}", flush=True)
+            await db.commit()
+            
+            # Audience analysis
+            audience_refreshed = 0
+            for comp in competitors:
+                try:
+                    posts = await load_cached_posts(db, comp.id)
+                    if posts:
+                        topics = await analyze_trending_topics(posts)
+                        await db.execute(
+                            text(
+                                "UPDATE crm.competitors SET audience_analysis = :analysis, updated_at = NOW() "
+                                "WHERE id = :cid"
+                            ),
+                            {"cid": comp.id, "analysis": json.dumps({
+                                "themes": [t.topic for t in topics[:5]] if topics else [],
+                                "audience_type": "Engaged" if len(posts) > 5 else "Unknown",
+                                "engagement_style": "Active" if sum(p.get("engagement_score", 0) for p in posts) / max(len(posts), 1) > 100 else "Moderate",
+                                "key_interests": [t.topic for t in topics[:3]] if topics else [],
+                                "refreshed_at": datetime.now(timezone.utc).isoformat(),
+                            })},
+                        )
+                        audience_refreshed += 1
+                except Exception as e:
+                    logger.warning("Audience refresh failed for %s: %s", comp.handle, e)
+            await db.commit()
+            
+            # Phase 2: Transcription + Comment analysis (parallel, non-blocking)
+            _sync_all_status["message"] = f"Synced {batch_result.success}/{len(competitors)}. Enriching content..."
+            print(f"[SYNC-ALL] Starting parallel enrichment (transcription + comments)", flush=True)
+            
+            enriched = {"transcribed": 0, "comments_analyzed": 0}
+            try:
+                from app.services.video_transcriber import transcribe_competitor_videos_batch
+                from app.services.comment_scraper import analyze_competitor_comments_batch
+                
+                # Get competitor IDs that synced successfully
+                synced_ids = [c.id for c in competitors]
+                
+                # Run transcription and comment analysis in parallel
+                # Transcribe up to 10 videos per competitor, analyze up to 15 comment threads
+                results = await asyncio.gather(
+                    _safe_enrich(lambda db, ids: transcribe_competitor_videos_batch(db, ids, limit_per_competitor=10), db, synced_ids, "transcription"),
+                    _safe_enrich(lambda db, ids: analyze_competitor_comments_batch(db, ids, top_n_per_competitor=15), db, synced_ids, "comments"),
+                    return_exceptions=True,
+                )
+                
+                for r in results:
+                    if isinstance(r, dict):
+                        enriched["transcribed"] += r.get("transcribed", 0)
+                        enriched["comments_analyzed"] += r.get("analyzed", 0)
+                
+                await db.commit()
+                
+                # Phase 3: Content structure analysis (Hook/Value/CTA) on transcribed posts
+                enriched["content_analyzed"] = 0
+                try:
+                    from app.services.content_analyzer import analyze_competitor_content_batch
+                    print(f"[SYNC-ALL] Analyzing content structure (Hook/Value/CTA)...", flush=True)
+                    ca_result = await _safe_enrich(analyze_competitor_content_batch, db, synced_ids, "content_analysis")
+                    if isinstance(ca_result, dict):
+                        enriched["content_analyzed"] = ca_result.get("analyzed", 0)
+                    await db.commit()
+                except Exception as ca_err:
+                    print(f"[SYNC-ALL] Content analysis error (non-fatal): {ca_err}", flush=True)
+                
+                print(f"[SYNC-ALL] Enrichment done — {enriched}", flush=True)
+            except Exception as enrich_err:
+                print(f"[SYNC-ALL] Enrichment error (non-fatal): {enrich_err}", flush=True)
+            
+            summary = f"Done: {batch_result.success}/{len(competitors)} synced, {batch_result.posts_saved} new posts"
+            if enriched["transcribed"]:
+                summary += f", {enriched['transcribed']} transcribed"
+            if enriched.get("content_analyzed"):
+                summary += f", {enriched['content_analyzed']} scripts analyzed"
+            if enriched["comments_analyzed"]:
+                summary += f", {enriched['comments_analyzed']} comments analyzed"
+            
+            _sync_all_status = {
+                "running": False,
+                "message": summary,
+                "total": len(competitors),
+                "success": batch_result.success,
+                "failed": batch_result.failed,
+                "posts_saved": batch_result.posts_saved,
+                "audience_refreshed": audience_refreshed,
+                "enriched": enriched,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }
+            
+            # Create notification
+            await _create_sync_notification(summary, batch_result, enriched)
+            
     except Exception as e:
-        await db.rollback()
-        logger.error("Failed to sync all competitors: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to sync all competitors")
+        import traceback
+        print(f"[SYNC-ALL] FAILED: {e}\n{traceback.format_exc()}", flush=True)
+        _sync_all_status = {"running": False, "message": f"Failed: {str(e)[:100]}", "error": True}
+        await _create_sync_notification(f"Sync failed: {str(e)[:80]}", None, None, is_error=True)
+
+
+async def _create_sync_notification(message: str, batch_result=None, enriched=None, is_error=False):
+    """Create a notification for sync completion/failure."""
+    try:
+        from app.db.leadgen_db import leadgen_session
+        async with leadgen_session() as ndb:
+            data = {}
+            if batch_result:
+                data = {"success": batch_result.success, "failed": batch_result.failed, "posts": batch_result.posts_saved}
+            if enriched:
+                data["enriched"] = enriched
+            
+            await ndb.execute(
+                text("""
+                    INSERT INTO public.notifications (user_id, type, title, message, data)
+                    VALUES (1, :type, :title, :message, CAST(:data AS jsonb))
+                """),
+                {
+                    "type": "alert" if is_error else "success",
+                    "title": "❌ Competitor Sync Failed" if is_error else "✅ Competitor Sync Complete",
+                    "message": message,
+                    "data": json.dumps(data),
+                },
+            )
+            await ndb.commit()
+            print(f"[SYNC-ALL] Notification created: {message}", flush=True)
+    except Exception as e:
+        print(f"[SYNC-ALL] Failed to create notification: {e}", flush=True)
+
+
+async def _safe_enrich(fn, db, competitor_ids, label):
+    """Run an enrichment function safely, catching errors."""
+    try:
+        return await fn(db, competitor_ids)
+    except Exception as e:
+        print(f"[SYNC-ALL] {label} enrichment failed: {e}", flush=True)
+        return {}
+
+
+@router.post("/sync-all")
+async def sync_all_competitors():
+    """Kick off a background sync of all competitors. Returns immediately."""
+    global _sync_all_task
+    
+    if _sync_all_status.get("running"):
+        return {"accepted": True, "message": "Sync already running", **_sync_all_status}
+    
+    _sync_all_task = asyncio.create_task(_run_sync_all())
+    return {"accepted": True, "message": "Sync started in background", "total": 0, "success": 0}
+
+
+@router.get("/sync-all/status")
+async def get_sync_all_status():
+    """Check the status of the background sync."""
+    return _sync_all_status
 
 
 # ── Linked Account Detection + Dossier ───────────────────────────
@@ -2039,11 +2363,31 @@ async def get_competitor_dossier(
 ):
     """Get comprehensive dossier for a competitor: bio, links, products, network."""
     competitor = await _get_competitor_or_404(db, competitor_id)
-    posts = await load_cached_posts(db, competitor_id, limit=50)
+    posts = await load_cached_posts(db, competitor_id)
 
     # Extract social links from bio and captions
     captions = [p.get("caption", "") or p.get("text", "") for p in posts if p.get("caption") or p.get("text")]
     social_data = _extract_social_links(competitor.bio or "", captions)
+    
+    # Merge stored dossier_data (bio_links, threads, business intel from scraper)
+    dossier_data = {}
+    if hasattr(competitor, 'dossier_data') and competitor.dossier_data:
+        dossier_data = competitor.dossier_data if isinstance(competitor.dossier_data, dict) else {}
+    
+    # Add bio_links from stored dossier data
+    stored_bio_links = dossier_data.get("bio_links", [])
+    for link in stored_bio_links:
+        url = link.get("url", "") if isinstance(link, dict) else str(link)
+        if url and url not in social_data["links"]:
+            social_data["links"].append(url)
+    
+    # Add threads handle as linked account
+    threads_handle = dossier_data.get("threads_handle", "")
+    if threads_handle and f"@{threads_handle}" not in social_data["handles"]:
+        social_data["handles"].append(f"threads:@{threads_handle}")
+    
+    # Business intel from bio parsing
+    business_intel = dossier_data.get("business_intel", {})
 
     # Audience analysis (stored or computed)
     audience = None
@@ -2059,25 +2403,39 @@ async def get_competitor_dossier(
         pass
 
     if not audience and posts:
-        analysis = analyze_trending_topics(posts)
-        audience = {
-            "themes": analysis.themes if hasattr(analysis, 'themes') else [],
-            "audience_type": analysis.audience_type if hasattr(analysis, 'audience_type') else "Unknown",
-            "engagement_style": analysis.engagement_style if hasattr(analysis, 'engagement_style') else "Unknown",
-            "key_interests": analysis.key_interests if hasattr(analysis, 'key_interests') else [],
-        }
+        try:
+            topics = await analyze_trending_topics(posts)
+            # analyze_trending_topics returns a list of TrendingTopic, extract audience info
+            audience = {
+                "themes": [t.topic for t in topics[:5]] if topics else [],
+                "audience_type": "Engaged" if len(posts) > 5 else "Unknown",
+                "engagement_style": "Active" if sum(p.get("engagement_score", 0) for p in posts) / max(len(posts), 1) > 100 else "Moderate",
+                "key_interests": [t.topic for t in topics[:3]] if topics else [],
+            }
+        except Exception:
+            audience = {
+                "themes": [],
+                "audience_type": "Unknown",
+                "engagement_style": "Unknown",
+                "key_interests": [],
+            }
 
     return {
         "competitor_id": competitor_id,
         "handle": competitor.handle,
         "bio": competitor.bio or "",
+        "full_name": dossier_data.get("full_name", ""),
+        "is_verified": dossier_data.get("is_verified", False),
+        "category": dossier_data.get("category", ""),
         "followers": competitor.followers or 0,
         "following": getattr(competitor, 'following', 0) or 0,
         "post_count": len(posts),
         "linked_handles": social_data["handles"],
         "links": social_data["links"],
+        "bio_links": stored_bio_links,
         "affiliate_links": social_data["affiliate_links"],
         "product_mentions": social_data["products"],
+        "business_intel": business_intel,
         "audience": audience,
         "content_summary": {
             "total_posts": len(posts),

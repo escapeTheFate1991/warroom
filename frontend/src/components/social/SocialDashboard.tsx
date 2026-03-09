@@ -51,6 +51,10 @@ interface SocialSummary {
   total_shares: number;
   total_saves: number;
   total_video_views: number;
+  total_views: number;
+  total_interactions: number;
+  avg_watch_time_ms: number;
+  total_watch_time_ms: number;
 }
 
 interface SocialAnalyticsSeriesPoint {
@@ -110,6 +114,10 @@ const EMPTY_SUMMARY: SocialSummary = {
   total_shares: 0,
   total_saves: 0,
   total_video_views: 0,
+  total_views: 0,
+  total_interactions: 0,
+  avg_watch_time_ms: 0,
+  total_watch_time_ms: 0,
 };
 
 const PLATFORMS: PlatformConfig[] = [
@@ -302,6 +310,7 @@ export default function SocialDashboard() {
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [velocityData, setVelocityData] = useState<any[]>([]);
   const [showManualModal, setShowManualModal] = useState(false);
   const [connectPlatform, setConnectPlatform] = useState("");
   const [connectForm, setConnectForm] = useState<ConnectAccountData>({
@@ -339,13 +348,14 @@ export default function SocialDashboard() {
         timeSeriesParams.set("granularity", granularity);
       }
 
-      const [accResp, sumResp, sparkResp, seriesResp] = await Promise.all([
+      const [accResp, sumResp, sparkResp, seriesResp, velocityResp] = await Promise.all([
         authFetch(`${API}/api/social/accounts`).catch(() => null),
         authFetch(`${API}/api/social/analytics${summaryParams.toString() ? `?${summaryParams.toString()}` : ""}`).catch(() => null),
         authFetch(`${API}/api/social/analytics/sparkline`).catch(() => null),
         granularity === "hourly"
           ? Promise.resolve(null)
           : authFetch(`${API}/api/social/analytics/timeseries?${timeSeriesParams.toString()}`).catch(() => null),
+        authFetch(`${API}/api/social/analytics/engagement-velocity`).catch(() => null),
       ]);
 
       if (accResp?.ok) {
@@ -370,6 +380,13 @@ export default function SocialDashboard() {
         setTimeSeries(await seriesResp.json());
       } else {
         setTimeSeries([]);
+      }
+
+      if (velocityResp?.ok) {
+        const vData = await velocityResp.json();
+        setVelocityData(vData.points || []);
+      } else {
+        setVelocityData([]);
       }
     } catch (error) {
       console.error("Failed to fetch social dashboard data:", error);
@@ -503,12 +520,11 @@ export default function SocialDashboard() {
       .slice(0, 8);
   }, [publishedContent, selectedPlatform]);
 
-  const clickThroughRate =
-    summary.total_impressions > 0
-      ? (summary.total_link_clicks / summary.total_impressions) * 100
-      : 0;
-
   const savesAndShares = summary.total_saves + summary.total_shares;
+  const avgWatchSec = summary.avg_watch_time_ms > 0 ? (summary.avg_watch_time_ms / 1000).toFixed(1) + "s" : "—";
+  const totalWatchMin = summary.total_watch_time_ms > 0
+    ? Math.floor(summary.total_watch_time_ms / 60000) + "m " + Math.floor((summary.total_watch_time_ms % 60000) / 1000) + "s"
+    : "—";
   const chartMax = Math.max(...timeSeries.map((point) => point.engagement), 1);
   const chartPeak = timeSeries.reduce<SocialAnalyticsSeriesPoint | null>((current, point) => {
     if (!current || point.engagement > current.engagement) return point;
@@ -518,14 +534,13 @@ export default function SocialDashboard() {
 
   const metricCards = [
     { label: "Followers", value: formatNum(summary.total_followers), icon: Users, tone: "text-blue-400" },
-    { label: "Total Engagement", value: formatNum(summary.total_engagement), icon: Zap, tone: "text-green-400" },
-    { label: "Engagement Rate", value: formatPercent(summary.engagement_rate), icon: TrendingUp, tone: "text-emerald-400" },
-    { label: "Impressions", value: formatNum(summary.total_impressions), icon: Eye, tone: "text-purple-400" },
+    { label: "Views", value: formatNum(summary.total_views || summary.total_video_views), icon: Eye, tone: "text-purple-400" },
     { label: "Reach", value: formatNum(summary.total_reach), icon: BarChart3, tone: "text-indigo-400" },
-    { label: "CTR", value: formatPercent(clickThroughRate), icon: TrendingUp, tone: "text-cyan-400" },
+    { label: "Interactions", value: formatNum(summary.total_interactions || summary.total_engagement), icon: Zap, tone: "text-green-400" },
+    { label: "Avg Watch Time", value: avgWatchSec, icon: Film, tone: "text-rose-400" },
+    { label: "Total Watch Time", value: totalWatchMin, icon: Film, tone: "text-pink-400" },
     { label: "Saves + Shares", value: formatNum(savesAndShares), icon: Share2, tone: "text-orange-400" },
-    { label: "Video Views", value: formatNum(summary.total_video_views), icon: Film, tone: "text-rose-400" },
-    { label: "Accounts Connected", value: formatNum(summary.accounts_connected), icon: Users, tone: "text-yellow-400" },
+    { label: "Engagement Rate", value: formatPercent(summary.engagement_rate), icon: TrendingUp, tone: "text-emerald-400" },
   ];
 
   if (loading) {
@@ -690,6 +705,55 @@ export default function SocialDashboard() {
               </>
             )}
           </div>
+
+          {/* Engagement Velocity Chart */}
+          {velocityData.length > 1 && (
+            <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <TrendingUp size={16} className="text-warroom-accent" />
+                    Engagement Velocity
+                  </h3>
+                  <p className="text-xs text-warroom-muted mt-0.5">How engagement grows over time — helps find best posting times</p>
+                </div>
+              </div>
+              <div className="h-48 flex items-end gap-px">
+                {(() => {
+                  const maxViews = Math.max(...velocityData.map(p => p.views || 0), 1);
+                  const maxLikes = Math.max(...velocityData.map(p => p.likes || 0), 1);
+                  return velocityData.map((point, i) => {
+                    const viewH = Math.max(((point.views || 0) / maxViews) * 100, 2);
+                    const likeH = Math.max(((point.likes || 0) / maxLikes) * 100, 2);
+                    const time = new Date(point.time);
+                    const label = `${time.getMonth()+1}/${time.getDate()} ${time.getHours()}:${String(time.getMinutes()).padStart(2,'0')}`;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group relative min-w-0">
+                        <div className="w-full flex gap-px items-end" style={{ height: '160px' }}>
+                          <div className="flex-1 rounded-t bg-purple-500/60 transition-all" style={{ height: `${viewH}%` }} title={`Views: ${point.views}`} />
+                          <div className="flex-1 rounded-t bg-pink-500/60 transition-all" style={{ height: `${likeH}%` }} title={`Likes: ${point.likes}`} />
+                        </div>
+                        {(i === 0 || i === velocityData.length - 1 || i % Math.max(1, Math.floor(velocityData.length / 6)) === 0) && (
+                          <span className="text-[8px] text-warroom-muted truncate max-w-full">{label}</span>
+                        )}
+                        <div className="absolute bottom-full mb-2 hidden group-hover:block bg-warroom-bg border border-warroom-border rounded-lg px-2.5 py-1.5 text-[10px] z-10 whitespace-nowrap shadow-lg">
+                          <p className="text-warroom-text font-medium">{label}</p>
+                          <p className="text-purple-400">Views: {(point.views || 0).toLocaleString()}</p>
+                          <p className="text-pink-400">Likes: {point.likes || 0}</p>
+                          <p className="text-blue-400">Reach: {(point.reach || 0).toLocaleString()}</p>
+                          <p className="text-green-400">Interactions: {point.interactions || 0}</p>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+              <div className="flex items-center gap-4 mt-3 text-[10px] text-warroom-muted">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500/60" /> Views</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-500/60" /> Likes</span>
+              </div>
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-3">

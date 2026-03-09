@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Lock page — no document-level scroll, ever */
+html, body { height: 100%; overflow: hidden; position: fixed; width: 100%; }
+
 :root {
   /* Dark theme (default) */
   --warroom-bg: #0a0a0f;
@@ -42,3 +45,14 @@ body {
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
 .chat-input:focus { outline: none; box-shadow: 0 0 0 2px var(--warroom-accent); }
+
+/* Sidebar slide-in animation */
+@keyframes slideInFromLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+.sidebar-slide-in { animation: slideInFromLeft 0.2s ease-out; }
+
+/* Hide scrollbar for horizontal nav */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }

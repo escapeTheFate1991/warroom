@@ -14,6 +14,7 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/navigation/Sidebar";
 import TopBar from "@/components/navigation/TopBar";
+// MobileNav available for per-feature horizontal navs (not global layout)
 
 const PanelLoader = () => (
   <div className="flex items-center justify-center h-64">
@@ -176,6 +177,7 @@ function WarRoom() {
   const searchParams = useSearchParams();
   const initialTab = normalizeTab(searchParams.get("tab"));
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleTabChange = useCallback((tab: string) => {
     const nextTab = normalizeTab(tab);
@@ -202,10 +204,22 @@ function WarRoom() {
   }, [activeTab]);
 
   return (
-    <div className="flex h-screen bg-warroom-bg text-warroom-text overflow-hidden">
-      <Sidebar menuSections={SECTIONS} activeTab={activeTab} setActiveTab={handleTabChange} isChildActive={isChildActive} />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar activeTab={activeTab} userName={user?.name || user?.email} onLogout={logout} />
+    <div className="flex h-dvh bg-warroom-bg text-warroom-text overflow-hidden">
+      <Sidebar
+        menuSections={SECTIONS}
+        activeTab={activeTab}
+        setActiveTab={handleTabChange}
+        isChildActive={isChildActive}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <TopBar
+          activeTab={activeTab}
+          userName={user?.name || user?.email}
+          onLogout={logout}
+          onMenuToggle={() => setSidebarOpen(true)}
+        />
         <main className="flex-1 overflow-hidden relative">
           {activeTab === "dashboard" && <CommandCenter />}
           {activeTab === "chat" && <ChatPanel />}

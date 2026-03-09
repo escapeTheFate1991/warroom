@@ -263,12 +263,12 @@ export default function EmailInbox() {
   return (
     <div className="flex flex-col h-full bg-warroom-bg">
       {/* ── Top Bar ── */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-warroom-border bg-warroom-surface/50">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-warroom-border bg-warroom-surface/50 flex-shrink-0">
         {/* Account selector */}
         <select
           value={selectedAccountId}
           onChange={(e) => { setSelectedAccountId(e.target.value); setPage(1); setSelectedId(null); setDetail(null); }}
-          className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-1.5 text-sm text-warroom-text focus:outline-none focus:ring-1 focus:ring-warroom-accent"
+          className="bg-warroom-bg border border-warroom-border rounded-lg px-2 py-1.5 text-xs text-warroom-text focus:outline-none focus:ring-1 focus:ring-warroom-accent min-w-0 flex-1 sm:flex-none sm:max-w-[220px]"
         >
           {accounts.length === 0 && <option value="">No accounts</option>}
           {accounts.map((a) => (
@@ -277,56 +277,58 @@ export default function EmailInbox() {
         </select>
 
         {/* Search */}
-        <div className="relative flex-1 max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
+        <div className="relative flex-1 min-w-[120px]">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-warroom-muted" />
           <input
             type="text"
-            placeholder="Search emails…"
+            placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-warroom-bg border border-warroom-border rounded-lg pl-9 pr-3 py-1.5 text-sm text-warroom-text placeholder:text-warroom-muted focus:outline-none focus:ring-1 focus:ring-warroom-accent"
+            className="w-full bg-warroom-bg border border-warroom-border rounded-lg pl-8 pr-2 py-1.5 text-xs text-warroom-text placeholder:text-warroom-muted focus:outline-none focus:ring-1 focus:ring-warroom-accent"
           />
         </div>
 
-        {/* Unread filter */}
-        <button
-          onClick={() => { setUnreadOnly((p) => !p); setPage(1); }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-            unreadOnly
-              ? "bg-warroom-accent/15 text-warroom-accent border border-warroom-accent/30"
-              : "bg-warroom-bg border border-warroom-border text-warroom-muted hover:text-warroom-text"
-          }`}
-        >
-          <Filter size={14} />
-          Unread
-        </button>
-
-        {/* Bulk actions */}
-        {checkedIds.size > 0 && (
+        {/* Action buttons */}
+        <div className="flex items-center gap-1.5">
           <button
-            onClick={bulkMarkRead}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-warroom-accent/15 text-warroom-accent border border-warroom-accent/30 hover:bg-warroom-accent/25 transition-colors"
+            onClick={() => { setUnreadOnly((p) => !p); setPage(1); }}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors ${
+              unreadOnly
+                ? "bg-warroom-accent/15 text-warroom-accent border border-warroom-accent/30"
+                : "bg-warroom-bg border border-warroom-border text-warroom-muted hover:text-warroom-text"
+            }`}
           >
-            <Check size={14} />
-            Mark {checkedIds.size} read
+            <Filter size={12} />
+            <span className="hidden sm:inline">Unread</span>
           </button>
-        )}
 
-        {/* Sync */}
-        <button
-          onClick={syncAccount}
-          disabled={syncing || !selectedAccountId}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-warroom-bg border border-warroom-border text-warroom-muted hover:text-warroom-text disabled:opacity-40 transition-colors"
-        >
-          <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
-          Sync
-        </button>
+          {checkedIds.size > 0 && (
+            <button
+              onClick={bulkMarkRead}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs bg-warroom-accent/15 text-warroom-accent border border-warroom-accent/30"
+            >
+              <Check size={12} />
+              {checkedIds.size}
+            </button>
+          )}
+
+          <button
+            onClick={syncAccount}
+            disabled={syncing || !selectedAccountId}
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs bg-warroom-bg border border-warroom-border text-warroom-muted hover:text-warroom-text disabled:opacity-40"
+          >
+            <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+            <span className="hidden sm:inline">Sync</span>
+          </button>
+        </div>
       </div>
 
-      {/* ── Two-pane body ── */}
+      {/* ── Body: single pane on mobile, split on lg+ ── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left: Message list */}
-        <div className="w-[40%] border-r border-warroom-border flex flex-col overflow-hidden">
+        {/* Left: Message list — hidden on mobile when viewing detail */}
+        <div className={`lg:w-[40%] lg:border-r border-warroom-border flex flex-col overflow-hidden ${
+          detail ? "hidden lg:flex" : "w-full"
+        }`}>
           <div className="flex-1 overflow-y-auto">
             {loading ? (
               Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} />)
@@ -421,8 +423,10 @@ export default function EmailInbox() {
           )}
         </div>
 
-        {/* Right: Message detail */}
-        <div className="w-[60%] flex flex-col overflow-hidden">
+        {/* Right: Message detail — full width on mobile when active */}
+        <div className={`lg:w-[60%] flex flex-col overflow-hidden ${
+          detail ? "w-full" : "hidden lg:flex"
+        }`}>
           {!detail ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-6">
               <Mail size={48} className="text-warroom-muted/30 mb-4" />
@@ -443,9 +447,16 @@ export default function EmailInbox() {
           ) : (
             <>
               {/* Detail header */}
-              <div className="px-6 py-4 border-b border-warroom-border space-y-2">
-                <div className="flex items-start justify-between gap-4">
-                  <h2 className="text-lg font-semibold text-warroom-text leading-tight">
+              <div className="px-4 sm:px-6 py-3 border-b border-warroom-border space-y-2">
+                {/* Back button (mobile only) */}
+                <button
+                  onClick={() => { setSelectedId(null); setDetail(null); }}
+                  className="flex items-center gap-1.5 text-xs text-warroom-muted hover:text-warroom-text mb-1 lg:hidden"
+                >
+                  <ChevronLeft size={14} /> Back to inbox
+                </button>
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="text-base sm:text-lg font-semibold text-warroom-text leading-tight">
                     {detail.subject || "(no subject)"}
                   </h2>
                   {!detail.is_read && (

@@ -34,6 +34,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import LoadingState from "@/components/ui/LoadingState";
 import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { Activity, DealFull, Email, PipelineStage } from "./types";
+import ScrollTabs from "@/components/ui/ScrollTabs";
 
 type DealTab = "activity" | "emails" | "comments" | "calls" | "tasks" | "notes" | "attachments";
 
@@ -715,24 +716,11 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
 
       <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
         <section className="flex min-h-0 flex-1 flex-col bg-warroom-bg xl:w-[65%]">
-          <div className="border-b border-warroom-border bg-warroom-surface">
-            <div className="flex overflow-x-auto px-6">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`whitespace-nowrap border-b-2 px-5 py-3 text-sm font-medium transition ${
-                    activeTab === tab.id
-                      ? "border-warroom-accent bg-warroom-accent/5 text-warroom-accent"
-                      : "border-transparent text-warroom-muted hover:text-warroom-text"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <ScrollTabs
+            tabs={TABS.map(t => ({ id: t.id, label: t.label }))}
+            active={activeTab}
+            onChange={(id) => setActiveTab(id as DealTab)}
+          />
 
           <div className="flex-1 overflow-y-auto p-6">
             {activeTab === "activity" && (

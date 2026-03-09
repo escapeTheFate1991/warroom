@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Users, Phone, Search, Filter, X, Loader2, UserPlus, Mail } from "lucide-react";
 import LeadDrawer, { LeadFull } from "../leadgen/LeadDrawer";
 import PersonDrawer from "./PersonDrawer";
+import ScrollTabs from "@/components/ui/ScrollTabs";
 import { API, authFetch } from "@/lib/api";
 import CallEvidence, { getCallEvidence } from "./CallEvidence";
 import LoadingState from "@/components/ui/LoadingState";
@@ -182,28 +183,15 @@ export default function ContactsManager() {
       </div>
 
       {/* Tabs */}
-      <div className="flex-shrink-0 border-b border-warroom-border">
-        <div className="flex px-6">
-          {[
-            { id: "crm", label: "CRM Contacts", icon: Users },
-            { id: "activity", label: "Activity", icon: Mail },
-            { id: "history", label: "Contact History", icon: Phone },
-          ].map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id as any)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition border-b-2 ${
-                activeTab === id
-                  ? "text-warroom-accent border-warroom-accent bg-warroom-accent/5"
-                  : "text-warroom-muted border-transparent hover:text-warroom-text"
-              }`}
-            >
-              <Icon size={16} />
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <ScrollTabs
+        tabs={[
+          { id: "crm", label: "CRM Contacts", icon: Users },
+          { id: "activity", label: "Activity", icon: Mail },
+          { id: "history", label: "Contact History", icon: Phone },
+        ]}
+        active={activeTab}
+        onChange={(id) => setActiveTab(id as any)}
+      />
 
       <div className="flex-1 overflow-y-auto p-6">
         {/* CRM Contacts Tab */}

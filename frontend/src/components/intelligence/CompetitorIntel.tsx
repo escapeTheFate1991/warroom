@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import PostDetailModal from "./PostDetailModal";
+import ScrollTabs from "@/components/ui/ScrollTabs";
 
 
 interface Competitor {
@@ -27,6 +29,7 @@ interface Competitor {
 }
 
 interface CompetitorPost {
+  id?: number;
   text: string;
   likes: number;
   comments: number;
@@ -35,6 +38,9 @@ interface CompetitorPost {
   timestamp: string;
   url?: string;
   hook?: string;
+  media_type?: string;
+  has_transcript?: boolean;
+  has_comments?: boolean;
 }
 
 interface TopContentPost {
@@ -101,6 +107,7 @@ interface Script {
 }
 
 interface TopVideoItem {
+  id?: number;
   post_url?: string;
   title: string;
   likes: number;
@@ -109,6 +116,9 @@ interface TopVideoItem {
   engagement_score: number;
   posted_at?: string;
   hook?: string;
+  media_type?: string;
+  has_transcript?: boolean;
+  has_comments?: boolean;
 }
 
 interface FollowerAnalysis {
@@ -183,13 +193,25 @@ function timeAgo(dateString: string): string {
 
 interface DossierData {
   bio: string;
+  full_name: string;
+  is_verified: boolean;
+  category: string;
   followers: number;
   following: number;
   post_count: number;
   linked_handles: string[];
   links: string[];
+  bio_links: { url: string; title: string }[];
   affiliate_links: string[];
   product_mentions: string[];
+  business_intel: {
+    positions?: { title: string; company: string }[];
+    roles?: string[];
+    experience?: string;
+    offering?: string;
+    accepts_inquiries?: boolean;
+    full_name?: string;
+  };
   audience: {
     themes: string[];
     audience_type: string;
@@ -237,6 +259,13 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
           <User size={16} className="text-warroom-accent" />
           <h4 className="text-sm font-semibold">Bio Information</h4>
         </div>
+        {(dossier.full_name || dossier.is_verified || dossier.category) && (
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            {dossier.full_name && <span className="text-sm font-semibold text-warroom-text">{dossier.full_name}</span>}
+            {dossier.is_verified && <span className="text-blue-400 text-xs">✓ Verified</span>}
+            {dossier.category && <span className="text-xs text-warroom-muted bg-warroom-bg px-2 py-0.5 rounded-full">{dossier.category}</span>}
+          </div>
+        )}
         {dossier.bio ? (
           <p className="text-sm text-warroom-text whitespace-pre-line">{dossier.bio}</p>
         ) : (
@@ -298,20 +327,61 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
         </div>
       )}
 
-      {/* Product Mentions */}
+      {/* Products & Business */}
       <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
         <div className="flex items-center gap-2 mb-3">
           <ShoppingBag size={16} className="text-warroom-accent" />
           <h4 className="text-sm font-semibold">Products & Business</h4>
         </div>
-        {dossier.product_mentions.length > 0 ? (
-          <div className="space-y-2">
-            {dossier.product_mentions.map((p, i) => (
-              <div key={i} className="bg-warroom-bg rounded-lg px-3 py-2 text-xs text-warroom-text">{p}</div>
-            ))}
+        {(dossier.business_intel && Object.keys(dossier.business_intel).length > 0) || dossier.product_mentions.length > 0 ? (
+          <div className="space-y-3">
+            {/* Positions / Roles */}
+            {dossier.business_intel?.positions && dossier.business_intel.positions.length > 0 && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Background</p>
+                <div className="space-y-1">
+                  {dossier.business_intel.positions.map((p, i) => (
+                    <div key={i} className="bg-warroom-bg rounded-lg px-3 py-2 text-xs text-warroom-text">
+                      <span className="font-medium">{p.title}</span>
+                      {p.company && <span className="text-warroom-muted"> at {p.company}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Experience */}
+            {dossier.business_intel?.experience && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Experience</p>
+                <p className="text-sm text-warroom-text">{dossier.business_intel.experience}</p>
+              </div>
+            )}
+            {/* What they offer */}
+            {dossier.business_intel?.offering && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Offering</p>
+                <p className="text-sm text-warroom-text">{dossier.business_intel.offering}</p>
+              </div>
+            )}
+            {/* Accepts inquiries */}
+            {dossier.business_intel?.accepts_inquiries && (
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-green-400"></span>
+                <span className="text-xs text-green-400">Open to inquiries / bookings</span>
+              </div>
+            )}
+            {/* Product mentions from captions */}
+            {dossier.product_mentions.length > 0 && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Product Mentions</p>
+                {dossier.product_mentions.map((p, i) => (
+                  <div key={i} className="bg-warroom-bg rounded-lg px-3 py-2 text-xs text-warroom-text">{p}</div>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
-          <p className="text-sm text-warroom-muted italic">No product mentions detected</p>
+          <p className="text-sm text-warroom-muted italic">No business intel detected</p>
         )}
       </div>
 
@@ -322,9 +392,24 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
           <h4 className="text-sm font-semibold">Links & References</h4>
         </div>
         <div className="space-y-3">
+          {/* Profile bio links (from Instagram multi-link feature) */}
+          {dossier.bio_links && dossier.bio_links.length > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Profile Links ({dossier.bio_links.length})</p>
+              <div className="space-y-1">
+                {dossier.bio_links.map((l, i) => (
+                  <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 bg-warroom-bg rounded-lg px-3 py-2 text-xs text-warroom-accent hover:border-warroom-accent/50 border border-warroom-border transition">
+                    <ExternalLink size={10} className="flex-shrink-0" />
+                    <span className="truncate">{l.title || l.url}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Links found in captions */}
           {dossier.links.length > 0 && (
             <div>
-              <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Links ({dossier.links.length})</p>
+              <p className="text-xs uppercase tracking-wide text-warroom-muted mb-1">Links in Content ({dossier.links.length})</p>
               <div className="space-y-1">
                 {dossier.links.slice(0, 10).map((l, i) => (
                   <a key={i} href={l} target="_blank" rel="noopener noreferrer" className="block text-xs text-warroom-accent hover:underline truncate">{l}</a>
@@ -342,7 +427,7 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
               </div>
             </div>
           )}
-          {dossier.links.length === 0 && dossier.affiliate_links.length === 0 && (
+          {(!dossier.bio_links || dossier.bio_links.length === 0) && dossier.links.length === 0 && dossier.affiliate_links.length === 0 && (
             <p className="text-sm text-warroom-muted italic">No links found in content</p>
           )}
         </div>
@@ -356,20 +441,29 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
         </div>
         {dossier.linked_handles.length > 0 ? (
           <div>
-            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-2">Mentioned Accounts ({dossier.linked_handles.length})</p>
+            <p className="text-xs uppercase tracking-wide text-warroom-muted mb-2">Linked Accounts ({dossier.linked_handles.length})</p>
             <div className="flex flex-wrap gap-2">
-              {dossier.linked_handles.map((h, i) => (
-                <a
-                  key={i}
-                  href={`https://instagram.com/${h}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 px-2.5 py-1 bg-warroom-bg border border-warroom-border rounded-lg text-xs text-warroom-text hover:border-warroom-accent/50 transition"
-                >
-                  @{h}
-                  <ExternalLink size={10} className="text-warroom-muted" />
-                </a>
-              ))}
+              {dossier.linked_handles.map((h, i) => {
+                const isThreads = h.startsWith('threads:');
+                const displayHandle = isThreads ? h.replace('threads:', '') : `@${h}`;
+                const href = isThreads
+                  ? `https://threads.net/${h.replace('threads:@', '')}`
+                  : `https://instagram.com/${h}`;
+                const platform = isThreads ? '🧵' : '📷';
+                return (
+                  <a
+                    key={i}
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 px-2.5 py-1 bg-warroom-bg border border-warroom-border rounded-lg text-xs text-warroom-text hover:border-warroom-accent/50 transition"
+                  >
+                    <span>{platform}</span>
+                    {displayHandle}
+                    <ExternalLink size={10} className="text-warroom-muted" />
+                  </a>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -404,7 +498,9 @@ export default function CompetitorIntel() {
   const [expandedCompetitor, setExpandedCompetitor] = useState<number | null>(null);
   const [focusedCompetitor, setFocusedCompetitor] = useState<Competitor | null>(null);
   const [competitorPosts, setCompetitorPosts] = useState<CompetitorPost[]>([]);
-  const [competitorDetailTab, setCompetitorDetailTab] = useState<"overview" | "dossier">("overview");
+  const [competitorDetailTab, setCompetitorDetailTab] = useState<"overview" | "dossier" | "audience">("overview");
+  const [audienceIntel, setAudienceIntel] = useState<any>(null);
+  const [loadingAudienceIntel, setLoadingAudienceIntel] = useState(false);
   
   const [showAddCompetitor, setShowAddCompetitor] = useState(false);
   const [showGenerateScript, setShowGenerateScript] = useState(false);
@@ -413,6 +509,9 @@ export default function CompetitorIntel() {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
   const [loadingPosts, setLoadingPosts] = useState(false);
   
   const [newComp, setNewComp] = useState({ handle: "", platform: "instagram" });
@@ -431,6 +530,10 @@ export default function CompetitorIntel() {
   const [followerAnalysis, setFollowerAnalysis] = useState<FollowerAnalysis | null>(null);
   const [loadingFollowerAnalysis, setLoadingFollowerAnalysis] = useState(false);
   const [topVideos, setTopVideos] = useState<TopVideoItem[]>([]);
+  const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
+  const [expandedPostId, setExpandedPostId] = useState<number | null>(null);
+  const [expandedPostData, setExpandedPostData] = useState<any>(null);
+  const [expandedPostTab, setExpandedPostTab] = useState<"overview" | "transcript" | "audience">("overview");
   const [loadingTopVideos, setLoadingTopVideos] = useState(false);
   const [hashtags, setHashtags] = useState<HashtagItem[]>([]);
   const [loadingHashtags, setLoadingHashtags] = useState(false);
@@ -969,6 +1072,7 @@ export default function CompetitorIntel() {
     setCompetitorPosts([]);
     setTopVideos([]);
     setHashtags([]);
+    setAudienceIntel(null);
     fetchCompetitorPosts(comp.id);
     fetchTopVideos(comp.id);
     fetchHashtags(comp.id);
@@ -1000,22 +1104,11 @@ export default function CompetitorIntel() {
       </div>
 
       {/* Sub-tabs */}
-      <div className="border-b border-warroom-border bg-warroom-surface flex-shrink-0">
-        <div className="flex">
-          {TABS.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition ${
-                activeTab === tab.id
-                  ? "text-warroom-accent border-warroom-accent bg-warroom-accent/5"
-                  : "text-warroom-muted border-transparent hover:text-warroom-text"
-              }`}>
-              <tab.icon size={16} />
-              {tab.label}
-              <span className="text-xs bg-warroom-bg px-1.5 py-0.5 rounded-full">{tab.count}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <ScrollTabs
+        tabs={TABS.map(t => ({ id: t.id, label: t.label, icon: t.icon, count: t.count }))}
+        active={activeTab}
+        onChange={(id) => setActiveTab(id as typeof activeTab)}
+      />
 
       {/* Status messages */}
       {notice && (
@@ -1096,76 +1189,74 @@ export default function CompetitorIntel() {
 
               {/* FOCUSED VIEW — single competitor detail */}
               {focusedCompetitor ? (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {/* Back button + competitor header */}
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button onClick={unfocusCompetitor}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-surface rounded-lg text-xs font-medium transition">
                       <ArrowLeft size={14} /> Back
                     </button>
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="w-12 h-12 rounded-full bg-warroom-accent/10 flex items-center justify-center text-xl font-bold text-warroom-accent">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-warroom-accent/10 flex items-center justify-center text-base font-bold text-warroom-accent flex-shrink-0">
                         {focusedCompetitor.handle.charAt(0).toUpperCase()}
                       </div>
-                      <div>
-                        <h3 className="text-lg font-semibold">@{focusedCompetitor.handle}</h3>
-                        <div className="flex items-center gap-2 mt-0.5">
+                      <div className="min-w-0">
+                        <h3 className="text-base font-semibold truncate">@{focusedCompetitor.handle}</h3>
+                        <div className="flex items-center gap-2">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[focusedCompetitor.platform] || "bg-gray-500/20 text-gray-400"}`}>{focusedCompetitor.platform}</span>
                           {focusedCompetitor.posting_frequency && (
-                            <span className="text-xs text-warroom-muted">{focusedCompetitor.posting_frequency}</span>
+                            <span className="text-[11px] text-warroom-muted">{focusedCompetitor.posting_frequency}</span>
                           )}
                         </div>
                       </div>
                     </div>
                     <a href={`https://instagram.com/${focusedCompetitor.handle}`} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 rounded-lg text-xs font-medium transition">
-                      <ExternalLink size={14} /> View Profile
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 rounded-lg text-[11px] font-medium transition flex-shrink-0">
+                      <ExternalLink size={12} /> Profile
                     </a>
                   </div>
 
-                  {/* Stats bar */}
-                  <div className="grid grid-cols-4 gap-3">
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-warroom-text">{formatNum(focusedCompetitor.followers)}</p>
-                      <p className="text-xs text-warroom-muted mt-1">Followers</p>
+                  {/* Stats bar — responsive grid */}
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="bg-warroom-surface border border-warroom-border rounded-lg p-2.5 text-center">
+                      <p className="text-lg sm:text-xl font-bold text-warroom-text">{formatNum(focusedCompetitor.followers)}</p>
+                      <p className="text-[10px] text-warroom-muted mt-0.5">Followers</p>
                     </div>
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-warroom-text">{formatNum(focusedCompetitor.following)}</p>
-                      <p className="text-xs text-warroom-muted mt-1">Following</p>
+                    <div className="bg-warroom-surface border border-warroom-border rounded-lg p-2.5 text-center">
+                      <p className="text-lg sm:text-xl font-bold text-warroom-text">{formatNum(focusedCompetitor.following)}</p>
+                      <p className="text-[10px] text-warroom-muted mt-0.5">Following</p>
                     </div>
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-warroom-text">{formatNum(focusedCompetitor.post_count)}</p>
-                      <p className="text-xs text-warroom-muted mt-1">Total Posts</p>
+                    <div className="bg-warroom-surface border border-warroom-border rounded-lg p-2.5 text-center">
+                      <p className="text-lg sm:text-xl font-bold text-warroom-text">{formatNum(focusedCompetitor.post_count)}</p>
+                      <p className="text-[10px] text-warroom-muted mt-0.5">Posts</p>
                     </div>
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 text-center">
-                      <p className="text-2xl font-bold text-warroom-accent">{focusedCompetitor.avg_engagement_rate.toFixed(1)}%</p>
-                      <p className="text-xs text-warroom-muted mt-1">Engagement</p>
+                    <div className="bg-warroom-surface border border-warroom-border rounded-lg p-2.5 text-center">
+                      <p className="text-lg sm:text-xl font-bold text-warroom-accent">{focusedCompetitor.avg_engagement_rate.toFixed(1)}%</p>
+                      <p className="text-[10px] text-warroom-muted mt-0.5">Engage</p>
                     </div>
                   </div>
 
                   {/* Competitor Detail Tabs */}
-                  <div className="flex border-b border-warroom-border">
-                    <button 
-                      onClick={() => setCompetitorDetailTab("overview")}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
-                        competitorDetailTab === "overview" 
-                          ? "border-warroom-accent text-warroom-accent" 
-                          : "border-transparent text-warroom-muted hover:text-warroom-text"
-                      }`}
-                    >
-                      Content Overview
-                    </button>
-                    <button 
-                      onClick={() => setCompetitorDetailTab("dossier")}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
-                        competitorDetailTab === "dossier" 
-                          ? "border-warroom-accent text-warroom-accent" 
-                          : "border-transparent text-warroom-muted hover:text-warroom-text"
-                      }`}
-                    >
-                      Dossier
-                    </button>
-                  </div>
+                  <ScrollTabs
+                    tabs={[
+                      { id: "overview", label: "Content Overview" },
+                      { id: "dossier", label: "Dossier" },
+                      { id: "audience", label: "Audience Intel" },
+                    ]}
+                    active={competitorDetailTab}
+                    onChange={(id) => {
+                      setCompetitorDetailTab(id as any);
+                      if (id === "audience" && !audienceIntel && focusedCompetitor) {
+                        setLoadingAudienceIntel(true);
+                        authFetch(`${API}/api/content-intel/competitors/${focusedCompetitor.id}/audience-intel`)
+                          .then(r => r.ok ? r.json() : null)
+                          .then(data => { if (data) setAudienceIntel(data); })
+                          .catch(() => {})
+                          .finally(() => setLoadingAudienceIntel(false));
+                      }
+                    }}
+                    size="sm"
+                  />
 
                   {/* Content Overview Tab */}
                   {competitorDetailTab === "overview" && (
@@ -1186,8 +1277,18 @@ export default function CompetitorIntel() {
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         {topVideos.map((vid, idx) => (
-                          <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition">
-                            <p className="text-sm text-warroom-text font-medium line-clamp-2 mb-2">{vid.title || "Untitled"}</p>
+                          <div
+                            key={idx}
+                            className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
+                            onClick={() => vid.id && setSelectedPostId(vid.id)}
+                          >
+                            <div className="flex items-center gap-2 mb-2">
+                              <p className="text-sm text-warroom-text font-medium line-clamp-2 flex-1">{vid.title || "Untitled"}</p>
+                              {vid.media_type && (vid.media_type === "reel" || vid.media_type === "video") && (
+                                <Film size={12} className="text-pink-400 flex-shrink-0" />
+                              )}
+                              {vid.has_transcript && <span title="Has transcript"><FileText size={10} className="text-green-400 flex-shrink-0" /></span>}
+                            </div>
                             {vid.hook && (
                               <p className="text-xs text-warroom-accent mb-2 line-clamp-1">🪝 {vid.hook}</p>
                             )}
@@ -1282,58 +1383,154 @@ export default function CompetitorIntel() {
                       <div className="space-y-3">
                         {[...competitorPosts]
                           .sort((a, b) => b.engagement_score - a.engagement_score)
-                          .map((post, idx) => (
-                          <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-5 hover:border-warroom-accent/20 transition">
-                            {/* Rank badge */}
-                            <div className="flex items-start gap-4">
-                              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                                idx === 0 ? "bg-yellow-500/20 text-yellow-400" :
-                                idx === 1 ? "bg-gray-400/20 text-gray-300" :
-                                idx === 2 ? "bg-orange-500/20 text-orange-400" :
-                                "bg-warroom-bg text-warroom-muted"
-                              }`}>
-                                #{idx + 1}
-                              </div>
+                          .map((post, idx) => {
+                          const isExpanded = expandedPostId === post.id;
+                          return (
+                          <div key={idx} className={`bg-warroom-surface border rounded-xl transition ${isExpanded ? "border-warroom-accent/40" : "border-warroom-border hover:border-warroom-accent/20"}`}>
+                            <div
+                              className="p-4 cursor-pointer"
+                              onClick={() => {
+                                if (isExpanded) {
+                                  setExpandedPostId(null);
+                                  setExpandedPostData(null);
+                                } else if (post.id) {
+                                  setExpandedPostId(post.id);
+                                  setExpandedPostTab("overview");
+                                  authFetch(`${API}/api/scraper/posts/${post.id}`)
+                                    .then(r => r.ok ? r.json() : null)
+                                    .then(data => { if (data) setExpandedPostData(data); })
+                                    .catch(() => {});
+                                }
+                              }}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold ${
+                                  idx === 0 ? "bg-yellow-500/20 text-yellow-400" :
+                                  idx === 1 ? "bg-gray-400/20 text-gray-300" :
+                                  idx === 2 ? "bg-orange-500/20 text-orange-400" :
+                                  "bg-warroom-bg text-warroom-muted"
+                                }`}>
+                                  #{idx + 1}
+                                </div>
 
-                              <div className="flex-1 min-w-0">
-                                {/* Hook */}
-                                {post.hook && (
-                                  <p className="text-sm font-medium text-warroom-accent mb-1">🪝 {post.hook}</p>
-                                )}
-
-                                {/* Full caption */}
-                                <p className="text-sm text-warroom-text whitespace-pre-line mb-3">{post.text}</p>
-
-                                {/* Metrics bar */}
-                                <div className="flex items-center gap-4 text-xs">
-                                  <span className="flex items-center gap-1 text-pink-400">
-                                    <Heart size={13} /> {formatNum(post.likes)}
-                                  </span>
-                                  <span className="flex items-center gap-1 text-blue-400">
-                                    <MessageCircle size={13} /> {formatNum(post.comments)}
-                                  </span>
-                                  {post.shares > 0 && (
-                                    <span className="flex items-center gap-1 text-purple-400">
-                                      <EyeIcon size={13} /> {formatNum(post.shares)} views
-                                    </span>
+                                <div className="flex-1 min-w-0">
+                                  {post.hook && (
+                                    <p className="text-sm font-medium text-warroom-accent mb-1 line-clamp-1">🪝 {post.hook}</p>
                                   )}
-                                  <span className="ml-auto text-warroom-muted">
-                                    Score: <span className="text-warroom-accent font-medium">{post.engagement_score.toFixed(0)}</span>
-                                  </span>
-                                  {post.timestamp && (
-                                    <span className="text-warroom-muted">{timeAgo(post.timestamp)}</span>
-                                  )}
-                                  {post.url && (
-                                    <a href={post.url} target="_blank" rel="noopener noreferrer"
-                                      className="text-warroom-muted hover:text-warroom-accent transition">
-                                      <ExternalLink size={13} />
-                                    </a>
-                                  )}
+                                  <p className="text-sm text-warroom-text line-clamp-2 mb-2">{post.text}</p>
+                                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                                    <span className="flex items-center gap-1 text-pink-400"><Heart size={12} /> {formatNum(post.likes)}</span>
+                                    <span className="flex items-center gap-1 text-blue-400"><MessageCircle size={12} /> {formatNum(post.comments)}</span>
+                                    <span className="text-warroom-muted">Score: <span className="text-warroom-accent font-medium">{post.engagement_score.toFixed(0)}</span></span>
+                                    {post.timestamp && <span className="text-warroom-muted">{timeAgo(post.timestamp)}</span>}
+                                    {post.url && (
+                                      <a href={post.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                        className="text-warroom-muted hover:text-warroom-accent transition">
+                                        <ExternalLink size={12} />
+                                      </a>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
+
+                            {/* Inline expanded detail */}
+                            {isExpanded && expandedPostData && (
+                              <div className="border-t border-warroom-border">
+                                <ScrollTabs
+                                  tabs={[
+                                    { id: "overview", label: "Overview" },
+                                    { id: "transcript", label: expandedPostData.content_analysis ? "Script Analysis" : "Transcript" },
+                                    { id: "audience", label: `Audience${expandedPostData.comments_data?.analyzed ? ` (${expandedPostData.comments_data.analyzed})` : ""}` },
+                                  ]}
+                                  active={expandedPostTab}
+                                  onChange={(id) => setExpandedPostTab(id as any)}
+                                  size="sm"
+                                />
+                                <div className="p-4 max-h-80 overflow-y-auto">
+                                  {expandedPostTab === "overview" && (
+                                    <div className="space-y-3">
+                                      {expandedPostData.hook && (
+                                        <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                                          <p className="text-[10px] uppercase tracking-wider text-orange-400 mb-1">Hook</p>
+                                          <p className="text-sm text-warroom-text">{expandedPostData.hook}</p>
+                                        </div>
+                                      )}
+                                      <p className="text-sm text-warroom-text whitespace-pre-line">{expandedPostData.caption || expandedPostData.text}</p>
+                                    </div>
+                                  )}
+                                  {expandedPostTab === "transcript" && (
+                                    <div>
+                                      {expandedPostData.content_analysis ? (
+                                        <div className="space-y-3">
+                                          {expandedPostData.content_analysis.hook?.text && (
+                                            <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                                              <p className="text-[10px] uppercase tracking-wider text-orange-400 mb-1">Hook ({expandedPostData.content_analysis.hook.type})</p>
+                                              <p className="text-sm">{expandedPostData.content_analysis.hook.text}</p>
+                                            </div>
+                                          )}
+                                          {expandedPostData.content_analysis.value?.text && (
+                                            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                                              <p className="text-[10px] uppercase tracking-wider text-blue-400 mb-1">Value</p>
+                                              <p className="text-sm whitespace-pre-line">{expandedPostData.content_analysis.value.text}</p>
+                                            </div>
+                                          )}
+                                          {expandedPostData.content_analysis.cta?.text && (
+                                            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                                              <p className="text-[10px] uppercase tracking-wider text-green-400 mb-1">CTA ({expandedPostData.content_analysis.cta.type})</p>
+                                              <p className="text-sm">{expandedPostData.content_analysis.cta.text}</p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : expandedPostData.transcript?.length ? (
+                                        <div className="space-y-1">
+                                          {expandedPostData.transcript.map((seg: any, i: number) => (
+                                            <div key={i} className="flex gap-2 text-sm">
+                                              <span className="text-[10px] text-warroom-muted font-mono w-10 flex-shrink-0 pt-0.5">{seg.start?.toFixed(1)}s</span>
+                                              <span className="text-warroom-text">{seg.text}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="text-sm text-warroom-muted text-center py-6">No transcript available</p>
+                                      )}
+                                    </div>
+                                  )}
+                                  {expandedPostTab === "audience" && (
+                                    <div>
+                                      {expandedPostData.comments_data?.analyzed > 0 ? (
+                                        <div className="space-y-3">
+                                          <div className="flex items-center gap-3 text-sm">
+                                            <span className="text-warroom-muted">Sentiment:</span>
+                                            <span className="font-medium capitalize">{expandedPostData.comments_data.sentiment}</span>
+                                          </div>
+                                          {expandedPostData.comments_data.questions?.length > 0 && (
+                                            <div>
+                                              <p className="text-xs text-warroom-muted mb-1">Questions Asked</p>
+                                              {expandedPostData.comments_data.questions.map((q: any, i: number) => (
+                                                <p key={i} className="text-sm text-warroom-text">• {q.question}</p>
+                                              ))}
+                                            </div>
+                                          )}
+                                          {expandedPostData.comments_data.themes?.length > 0 && (
+                                            <div className="flex flex-wrap gap-1">
+                                              {expandedPostData.comments_data.themes.map((t: string, i: number) => (
+                                                <span key={i} className="text-[10px] px-2 py-0.5 bg-warroom-accent/10 text-warroom-accent rounded-full">{t}</span>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <p className="text-sm text-warroom-muted text-center py-6">No audience intel available</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1345,20 +1542,229 @@ export default function CompetitorIntel() {
                     <DossierPanel competitorId={focusedCompetitor.id} bio={focusedCompetitor.bio} />
                   )}
 
+                  {/* Audience Intelligence Tab */}
+                  {competitorDetailTab === "audience" && (
+                    <div className="space-y-5 py-2">
+                      {loadingAudienceIntel ? (
+                        <div className="flex items-center gap-2 text-sm text-warroom-muted py-8 justify-center">
+                          <Loader2 size={16} className="animate-spin" /> Loading audience intelligence…
+                        </div>
+                      ) : audienceIntel ? (() => {
+                        const ai = audienceIntel;
+                        const sentimentColors: Record<string, string> = {
+                          very_positive: "text-green-400", positive: "text-green-300",
+                          neutral: "text-warroom-muted", negative: "text-orange-400", very_negative: "text-red-400",
+                        };
+                        return (
+                          <>
+                            {/* Summary Stats */}
+                            <div className="grid grid-cols-4 gap-3">
+                              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-3 text-center">
+                                <p className="text-lg font-bold text-warroom-text">{ai.posts_analyzed}</p>
+                                <p className="text-[10px] text-warroom-muted uppercase">Posts Analyzed</p>
+                              </div>
+                              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-3 text-center">
+                                <p className="text-lg font-bold text-warroom-text">{ai.comments_analyzed?.toLocaleString()}</p>
+                                <p className="text-[10px] text-warroom-muted uppercase">Comments</p>
+                              </div>
+                              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-3 text-center">
+                                <p className={`text-lg font-bold capitalize ${sentimentColors[ai.sentiment] || "text-warroom-text"}`}>
+                                  {ai.sentiment?.replace("_", " ")}
+                                </p>
+                                <p className="text-[10px] text-warroom-muted uppercase">Sentiment</p>
+                              </div>
+                              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-3 text-center">
+                                <p className="text-lg font-bold text-warroom-accent">
+                                  {ai.sentiment_percentages?.positive || 0}%
+                                </p>
+                                <p className="text-[10px] text-warroom-muted uppercase">Positive</p>
+                              </div>
+                            </div>
+
+                            {/* Sentiment Bar */}
+                            {ai.sentiment_breakdown && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1.5">Sentiment Distribution</p>
+                                <div className="flex h-3 rounded-full overflow-hidden bg-warroom-bg">
+                                  {ai.sentiment_breakdown.positive > 0 && (
+                                    <div className="bg-green-400" style={{ width: `${ai.sentiment_percentages?.positive || 0}%` }} />
+                                  )}
+                                  {ai.sentiment_breakdown.neutral > 0 && (
+                                    <div className="bg-warroom-border" style={{ width: `${ai.sentiment_percentages?.neutral || 0}%` }} />
+                                  )}
+                                  {ai.sentiment_breakdown.negative > 0 && (
+                                    <div className="bg-red-400" style={{ width: `${ai.sentiment_percentages?.negative || 0}%` }} />
+                                  )}
+                                </div>
+                                <div className="flex justify-between text-[10px] text-warroom-muted mt-1">
+                                  <span className="text-green-400">👍 {ai.sentiment_breakdown.positive}</span>
+                                  <span>😐 {ai.sentiment_breakdown.neutral}</span>
+                                  <span className="text-red-400">👎 {ai.sentiment_breakdown.negative}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Content Formats */}
+                            {ai.content_formats && Object.keys(ai.content_formats).length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Content Format Breakdown</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {Object.entries(ai.content_formats).map(([fmt, count]) => (
+                                    <span key={fmt} className="px-2.5 py-1 bg-warroom-surface border border-warroom-border rounded-full text-[11px] text-warroom-text">
+                                      {fmt === "text_overlay" ? "📝 Text/Tip" : fmt === "short_form" ? "⚡ Short-form" : fmt === "mid_form" ? "📹 Mid-form" : fmt === "long_form" ? "🎬 Long-form" : fmt}
+                                      <span className="ml-1 text-warroom-muted">({String(count)})</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Questions */}
+                            {ai.questions?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🔍 Top Questions from Audience</p>
+                                <div className="space-y-1.5">
+                                  {ai.questions.slice(0, 10).map((q: any, i: number) => (
+                                    <div key={i} className="flex items-start gap-2 bg-blue-400/5 border border-blue-400/10 rounded-lg px-3 py-2">
+                                      <span className="text-blue-400 text-xs mt-0.5">❓</span>
+                                      <p className="text-xs text-warroom-text flex-1">{q.question}</p>
+                                      {q.likes > 0 && <span className="text-[10px] text-warroom-muted">👍 {q.likes}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Pain Points */}
+                            {ai.pain_points?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🎯 Audience Pain Points</p>
+                                <div className="space-y-1.5">
+                                  {ai.pain_points.slice(0, 10).map((p: any, i: number) => (
+                                    <div key={i} className="flex items-start gap-2 bg-red-400/5 border border-red-400/10 rounded-lg px-3 py-2">
+                                      <span className="text-red-400 text-xs mt-0.5">💢</span>
+                                      <p className="text-xs text-warroom-text flex-1">{p.pain}</p>
+                                      {p.likes > 0 && <span className="text-[10px] text-warroom-muted">👍 {p.likes}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Themes */}
+                            {ai.themes?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">💬 Discussion Themes</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {ai.themes.slice(0, 20).map((t: any, i: number) => (
+                                    <span key={i} className="px-2 py-0.5 bg-warroom-accent/10 text-warroom-accent rounded-full text-[10px]">
+                                      {t.theme} ({t.count})
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Product Mentions */}
+                            {ai.product_mentions?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🔧 Tools & Products Mentioned</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {ai.product_mentions.map((p: any, i: number) => (
+                                    <span key={i} className="px-2.5 py-1 bg-purple-400/10 text-purple-400 rounded-full text-[10px]">
+                                      {p.product} ({p.count})
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Top Commenters */}
+                            {ai.top_commenters?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">👥 Most Active Commenters</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {ai.top_commenters.slice(0, 10).map((c: any, i: number) => (
+                                    <a key={i} href={`https://instagram.com/${c.username}`} target="_blank" rel="noopener noreferrer"
+                                      className="px-2.5 py-1 bg-warroom-bg border border-warroom-border rounded-full text-[10px] text-warroom-text hover:border-warroom-accent/50 transition">
+                                      @{c.username} ({c.count})
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })() : (
+                        <div className="text-center py-12">
+                          <p className="text-sm text-warroom-muted">No audience intelligence data yet. Run a sync to populate.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               ) : (
                 /* GRID VIEW — all competitors */
                 <>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-warroom-muted">Click a competitor to see their top content.</p>
-                    <div className="flex gap-2">
-                      <button onClick={refreshAllCompetitors} disabled={loading || refreshing}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-surface rounded-lg text-xs font-medium transition disabled:opacity-50">
-                        <RefreshCw size={14} className={loading || refreshing ? "animate-spin" : ""} /> Refresh All
+                  {/* Sync Status Bar */}
+                  <div className="flex items-center justify-between bg-warroom-surface border border-warroom-border rounded-xl px-4 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${syncing ? "bg-warroom-accent animate-pulse" : "bg-emerald-500"}`} />
+                      <div>
+                        <p className="text-xs text-warroom-text font-medium">
+                          {syncing ? "Syncing competitors..." : "Competitor Intelligence"}
+                        </p>
+                        <p className="text-[10px] text-warroom-muted">
+                          {syncResult ? syncResult : lastSyncTime ? `Last synced: ${lastSyncTime}` : "Not synced yet"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          setSyncing(true);
+                          setSyncResult(null);
+                          try {
+                            const resp = await authFetch(`${API}/api/content-intel/sync-all`, { method: "POST" });
+                            if (resp.ok) {
+                              setSyncResult("Sync started...");
+                              // Poll for completion
+                              const pollInterval = setInterval(async () => {
+                                try {
+                                  const statusResp = await authFetch(`${API}/api/content-intel/sync-all/status`);
+                                  if (statusResp.ok) {
+                                    const status = await statusResp.json();
+                                    setSyncResult(status.message || "Syncing...");
+                                    if (!status.running) {
+                                      clearInterval(pollInterval);
+                                      setSyncing(false);
+                                      setLastSyncTime(new Date().toLocaleTimeString());
+                                      await refreshIntelligenceViews();
+                                    }
+                                  }
+                                } catch { /* ignore poll errors */ }
+                              }, 3000);
+                              // Safety timeout: stop polling after 5 minutes
+                              setTimeout(() => { clearInterval(pollInterval); setSyncing(false); }, 300000);
+                            } else {
+                              setSyncResult("Sync failed to start");
+                              setSyncing(false);
+                            }
+                          } catch {
+                            setSyncResult("Sync error");
+                            setSyncing(false);
+                          }
+                        }}
+                        disabled={syncing}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-border/50 rounded-lg text-xs font-medium transition disabled:opacity-50"
+                      >
+                        <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+                        Sync All
                       </button>
                       <button onClick={() => setShowAddCompetitor(true)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition">
-                        <Plus size={14} /> Add Competitor
+                        <Plus size={14} /> Add
                       </button>
                     </div>
                   </div>
@@ -1376,7 +1782,7 @@ export default function CompetitorIntel() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {competitors.map(comp => (
+                      {[...competitors].sort((a, b) => (b.avg_engagement_rate || 0) - (a.avg_engagement_rate || 0)).map(comp => (
                         <div key={comp.id}
                           className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/30 hover:shadow-lg hover:shadow-warroom-accent/5 transition cursor-pointer flex flex-col group"
                           onClick={() => focusOnCompetitor(comp)}
@@ -1398,8 +1804,25 @@ export default function CompetitorIntel() {
                                 </div>
                               </div>
                             </div>
+                            <button onClick={async (e) => {
+                                e.stopPropagation();
+                                const btn = e.currentTarget;
+                                btn.classList.add("animate-spin");
+                                try {
+                                  const resp = await authFetch(`${API}/api/scraper/instagram/${comp.handle}`, { method: "POST" });
+                                  if (resp.ok) {
+                                    await fetchCompetitors();
+                                  }
+                                } catch { /* ignore */ } finally {
+                                  btn.classList.remove("animate-spin");
+                                }
+                              }}
+                              className="text-warroom-muted hover:text-warroom-accent transition"
+                              title="Sync this competitor">
+                              <RefreshCw size={14} />
+                            </button>
                             <button onClick={(e) => { e.stopPropagation(); deleteCompetitor(comp.id); }}
-                              className="text-warroom-muted hover:text-red-400 transition opacity-0 group-hover:opacity-100">
+                              className="text-warroom-muted hover:text-red-400 transition">
                               <Trash2 size={14} />
                             </button>
                           </div>
@@ -1909,6 +2332,14 @@ export default function CompetitorIntel() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Post Detail Modal */}
+      {selectedPostId && (
+        <PostDetailModal
+          postId={selectedPostId}
+          onClose={() => setSelectedPostId(null)}
+        />
       )}
     </div>
   );

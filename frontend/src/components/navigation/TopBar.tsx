@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Search, Sun, Moon, User, LogOut, ChevronDown } from "lucide-react";
+import { Search, Sun, Moon, User, LogOut, ChevronDown, Menu } from "lucide-react";
 import NotificationBell from "@/components/notifications/NotificationBell";
 import { useThemeContext } from "@/components/ui/ThemeProvider";
 
@@ -17,27 +17,29 @@ const SEARCH_SCOPES: Record<string, { label: string; placeholder: string }> = {
   email: { label: "Email", placeholder: "Search emails..." },
   pipeline: { label: "Content", placeholder: "Search content..." },
   social: { label: "Social", placeholder: "Search social accounts..." },
+  workflows: { label: "Workflows", placeholder: "Search workflow names, triggers, or actions..." },
+  "marketing-campaigns": { label: "Marketing Campaigns", placeholder: "Search campaigns, audiences, or channels..." },
+  "marketing-templates": { label: "Marketing Templates", placeholder: "Search template names or use cases..." },
   settings: { label: "Settings", placeholder: "Search settings..." },
 };
 
-const DEFAULT_SCOPE = { label: "This Panel", placeholder: "Search..." };
+const DEFAULT_SCOPE = { label: "Search", placeholder: "Search..." };
 
 interface TopBarProps {
   activeTab: string;
   userName?: string;
   onLogout: () => void;
   onSearch?: (query: string, scope: string) => void;
+  onMenuToggle?: () => void; // hamburger for mobile sidebar
 }
 
-export default function TopBar({ activeTab, userName, onLogout, onSearch }: TopBarProps) {
+export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenuToggle }: TopBarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const scope = SEARCH_SCOPES[activeTab] || DEFAULT_SCOPE;
-
   const { theme, toggleTheme } = useThemeContext();
 
-  // Close user menu on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -55,37 +57,46 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch }: TopB
   };
 
   return (
-    <div className="bg-warroom-surface border-b border-warroom-border px-4 py-3 flex-shrink-0">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:order-1 sm:max-w-xl sm:flex-1">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
+    <div className="bg-warroom-surface border-b border-warroom-border px-3 py-2.5 flex-shrink-0">
+      <div className="flex items-center gap-2">
+        {/* Hamburger (mobile only) */}
+        {onMenuToggle && (
+          <button
+            onClick={onMenuToggle}
+            className="p-2 rounded-lg hover:bg-warroom-bg transition-colors text-warroom-muted hover:text-warroom-text lg:hidden flex-shrink-0"
+            title="Menu"
+          >
+            <Menu size={20} />
+          </button>
+        )}
+
+        {/* Search */}
+        <div className="relative flex-1 max-w-xl">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={handleSearchKeyDown}
             placeholder={scope.placeholder}
-            className="w-full pl-9 pr-24 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm text-warroom-text placeholder:text-warroom-muted/50 focus:outline-none focus:border-warroom-accent/50"
+            className="w-full pl-9 pr-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm text-warroom-text placeholder:text-warroom-muted/50 focus:outline-none focus:border-warroom-accent/50"
           />
-          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 max-w-[40%] truncate text-[10px] font-medium text-warroom-muted bg-warroom-border/50 px-2 py-0.5 rounded">
-            {scope.label}
-          </span>
         </div>
 
-        <div className="flex items-center justify-between gap-2 sm:order-2 sm:flex-shrink-0 sm:justify-end">
+        {/* Right actions */}
+        <div className="flex items-center gap-1 flex-shrink-0">
           <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-warroom-bg transition-colors text-warroom-muted hover:text-warroom-text" title="Toggle theme">
-            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
           </button>
 
           <NotificationBell />
 
           <div className="relative" ref={menuRef}>
-            <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center gap-2 rounded-lg p-1.5 hover:bg-warroom-bg transition-colors max-w-[12rem]">
+            <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center gap-1.5 rounded-lg p-1.5 hover:bg-warroom-bg transition-colors">
               <div className="w-7 h-7 rounded-full bg-warroom-accent/20 flex items-center justify-center flex-shrink-0">
                 <User size={14} className="text-warroom-accent" />
               </div>
-              {userName && <span className="hidden md:block truncate text-sm text-warroom-text">{userName}</span>}
-              <ChevronDown size={14} className="text-warroom-muted hidden sm:block" />
+              <ChevronDown size={13} className="text-warroom-muted hidden sm:block" />
             </button>
             {showUserMenu && (
               <div className="absolute right-0 top-full mt-1 w-48 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl py-1 z-50">
@@ -101,4 +112,3 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch }: TopB
     </div>
   );
 }
-

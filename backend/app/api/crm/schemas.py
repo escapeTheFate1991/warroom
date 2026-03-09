@@ -339,6 +339,102 @@ class CommunicationHistoryResponse(BaseModel):
     items: List[CommunicationHistoryItem] = Field(default_factory=list)
 
 
+# ===== Workflow Schemas =====
+
+class WorkflowTemplateProvenance(BaseModel):
+    kind: Literal["seed", "custom"] = "seed"
+    seed_key: Optional[str] = None
+    derived_from_template_id: Optional[int] = None
+    root_template_id: Optional[int] = None
+    version: int = 1
+
+
+class WorkflowTemplateResponse(BaseSchema):
+    id: int
+    name: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    entity_type: Optional[str] = None
+    event: Optional[str] = None
+    condition_type: str = "and"
+    conditions: Any = Field(default_factory=list)
+    actions: Any = Field(default_factory=list)
+    is_seed: bool = False
+    seed_key: Optional[str] = None
+    version: int = 1
+    provenance: WorkflowTemplateProvenance
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowProvenance(BaseModel):
+    template_id: Optional[int] = None
+    template_name: Optional[str] = None
+    template_seed_key: Optional[str] = None
+    derived_from_workflow_id: Optional[int] = None
+    derived_from_workflow_name: Optional[str] = None
+    root_workflow_id: Optional[int] = None
+    root_workflow_name: Optional[str] = None
+    version: int = 1
+
+
+class WorkflowResponse(BaseSchema):
+    id: int
+    name: str
+    description: Optional[str] = None
+    entity_type: Optional[str] = None
+    event: Optional[str] = None
+    condition_type: str = "and"
+    conditions: Any = Field(default_factory=list)
+    actions: Any = Field(default_factory=list)
+    is_active: bool = True
+    template_id: Optional[int] = None
+    derived_from_workflow_id: Optional[int] = None
+    root_workflow_id: Optional[int] = None
+    version: int = 1
+    provenance: WorkflowProvenance
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowCloneRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    entity_type: Optional[str] = None
+    event: Optional[str] = None
+    condition_type: Optional[str] = None
+    conditions: Optional[Any] = None
+    actions: Optional[Any] = None
+    is_active: Optional[bool] = None
+
+
+WorkflowEntityType = Literal["deal", "person", "activity", "email"]
+WorkflowEventType = Literal["created", "updated", "deleted", "stage_changed"]
+WorkflowConditionType = Literal["and", "or"]
+
+
+class WorkflowCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    entity_type: WorkflowEntityType
+    event: WorkflowEventType
+    condition_type: WorkflowConditionType = "and"
+    conditions: Optional[List[Dict[str, Any]]] = None
+    actions: Optional[List[Dict[str, Any]]] = None
+    is_active: bool = True
+
+
+class WorkflowUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    entity_type: Optional[WorkflowEntityType] = None
+    event: Optional[WorkflowEventType] = None
+    condition_type: Optional[WorkflowConditionType] = None
+    conditions: Optional[List[Dict[str, Any]]] = None
+    actions: Optional[List[Dict[str, Any]]] = None
+    is_active: Optional[bool] = None
+
+
 # ===== Product Schemas =====
 
 class ProductResponse(BaseSchema):

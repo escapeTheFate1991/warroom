@@ -1,4 +1,4 @@
 "use client";
 
-export { default } from "@/components/crm/WorkflowTemplatesPanel";
+export { default } from "@/components/workflows/WorkflowStudioPanel";
 

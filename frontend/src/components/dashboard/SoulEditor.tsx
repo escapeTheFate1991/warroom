@@ -231,7 +231,7 @@ export default function SoulEditor() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-warroom-border overflow-x-auto">
+      <div className="flex border-b border-warroom-border overflow-x-auto scrollbar-none flex-shrink-0">
         {SOUL_FILES.map((file) => {
           const IconComponent = file.icon;
           const isActive = activeTab === file.key;

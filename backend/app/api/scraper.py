@@ -12,6 +12,7 @@ Endpoints:
 
 import asyncio
 import logging
+import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -151,6 +152,77 @@ def _normalize_handle(handle: str) -> str:
     return handle.strip().lstrip("@").lower()
 
 
+def _extract_business_intel(bio: str, full_name: str) -> dict:
+    """Extract structured business intelligence from bio text.
+    
+    Parses job titles, companies, expertise areas, and business signals
+    from Instagram bio descriptions.
+    """
+    intel = {}
+    if not bio:
+        return intel
+    
+    # Job titles / roles
+    role_patterns = [
+        r"(?:^|\W)(CEO|CTO|COO|CFO|CMO|VP|Director|Manager|Founder|Co-Founder|"
+        r"Engineer|Developer|Designer|Consultant|Coach|Mentor|Creator|Strategist|"
+        r"Entrepreneur|Author|Speaker|Advisor|Partner|Freelancer|Artist|Photographer|"
+        r"Producer|Editor|Analyst|Architect|Instructor|Teacher|Professor|Doctor|"
+        r"Therapist|Attorney|Lawyer|Realtor|Agent|Broker|Trainer|Chef|Stylist)(?:\W|$)",
+    ]
+    roles = set()
+    for pattern in role_patterns:
+        matches = re.findall(pattern, bio, re.IGNORECASE)
+        roles.update(m.strip() for m in matches)
+    
+    # "Ex [Role] at [Company]" or "[Role] at [Company]" patterns
+    title_at_company = re.findall(
+        r"(?:ex |former )?([\w\s]+?)\s+(?:at|@)\s+([\w\s&.]+?)(?:[,.|•\n]|$)",
+        bio, re.IGNORECASE
+    )
+    
+    positions = []
+    for title, company in title_at_company:
+        title = title.strip()
+        company = company.strip()
+        if len(title) < 50 and len(company) < 50:
+            positions.append({"title": title, "company": company})
+    
+    # "Ex [Something]" pattern (like "Ex Founding Engineer, Ex Startup CTO")
+    ex_roles = re.findall(r"[Ee]x\s+([\w\s]+?)(?:[,.|•\n]|$)", bio)
+    for role in ex_roles:
+        role = role.strip()
+        if len(role) < 50 and role not in [p.get("title") for p in positions]:
+            positions.append({"title": f"Ex {role}", "company": ""})
+    
+    if positions:
+        intel["positions"] = positions
+    if roles:
+        intel["roles"] = sorted(roles)
+    
+    # Years of experience
+    exp_match = re.search(r"(\d+)\+?\s*(?:years?|yrs?)\s+(?:of\s+)?(\w+)", bio, re.IGNORECASE)
+    if exp_match:
+        intel["experience"] = f"{exp_match.group(1)}+ years of {exp_match.group(2)}"
+    
+    # What they do / offer (helping, teaching, building patterns)
+    offering_match = re.search(
+        r"(?:helping|teaching|coaching|building|creating|making|growing|scaling)\s+(.+?)(?:[.|•\n]|$)",
+        bio, re.IGNORECASE
+    )
+    if offering_match:
+        intel["offering"] = offering_match.group(1).strip()[:200]
+    
+    # DM/booking signals
+    if re.search(r"(?:DM|book|schedule|consult|hire me|work with me|inquir)", bio, re.IGNORECASE):
+        intel["accepts_inquiries"] = True
+    
+    if full_name:
+        intel["full_name"] = full_name
+    
+    return intel
+
+
 async def _save_profile_to_competitor(
     db: AsyncSession, competitor: Competitor, profile: ScrapedProfile
 ) -> None:
@@ -158,11 +230,43 @@ async def _save_profile_to_competitor(
     if profile.error or profile.is_private:
         return
     
-    competitor.followers = profile.followers
-    competitor.following = profile.following
-    competitor.post_count = profile.post_count
-    competitor.bio = profile.bio
-    competitor.profile_image_url = profile.profile_pic_url
+    # Only update fields if we got real data (Instagram login wall returns
+    # profile stats via GraphQL but zero posts — don't regress stored values)
+    if profile.followers:
+        competitor.followers = profile.followers
+    if profile.following:
+        competitor.following = profile.following
+    if profile.post_count:
+        competitor.post_count = profile.post_count
+    if profile.bio:
+        competitor.bio = profile.bio
+    if profile.profile_pic_url:
+        competitor.profile_image_url = profile.profile_pic_url
+    
+    # Dossier enrichment — only on every 5th sync or first sync (dossier rarely changes)
+    sync_count = (competitor.dossier_data or {}).get("_sync_count", 0) + 1
+    dossier = competitor.dossier_data or {}
+    dossier["_sync_count"] = sync_count
+    
+    if sync_count == 1 or sync_count % 5 == 0:
+        if profile.bio_links:
+            dossier["bio_links"] = profile.bio_links
+        if profile.threads_handle:
+            dossier["threads_handle"] = profile.threads_handle
+        if profile.external_url:
+            dossier["external_url"] = profile.external_url
+        if profile.full_name:
+            dossier["full_name"] = profile.full_name
+        if profile.is_verified:
+            dossier["is_verified"] = True
+        if profile.category:
+            dossier["category"] = profile.category
+        bio_intel = _extract_business_intel(profile.bio or "", profile.full_name or "")
+        if bio_intel:
+            dossier["business_intel"] = bio_intel
+    
+    competitor.dossier_data = dossier
+    
     competitor.is_auto_populated = True
     competitor.last_auto_sync = datetime.now()
     competitor.updated_at = datetime.now()
@@ -194,35 +298,82 @@ async def _save_profile_to_competitor(
         else:
             competitor.avg_engagement_rate = 0.0
     else:
-        competitor.avg_engagement_rate = 0.0
+        # Don't zero out engagement rate if we simply couldn't scrape posts
+        # (e.g. Instagram login wall). Keep the previously stored value.
+        pass
 
 
 async def _save_posts_to_cache(
     db: AsyncSession, competitor_id: int, platform: str, posts: List[ScrapedPost]
 ) -> int:
-    """Save scraped posts to competitor_posts cache table. Returns count saved."""
+    """Save scraped posts to competitor_posts cache table using UPSERT.
+    
+    Preserves transcript and comments_data on existing posts.
+    Only inserts new posts or updates engagement metrics on existing ones.
+    """
     if not posts:
         return 0
 
     try:
-        async with db.begin_nested():
-            await db.execute(
-                text(
-                    "DELETE FROM crm.competitor_posts "
-                    "WHERE competitor_id = :cid AND platform = :platform"
-                ),
-                {"cid": competitor_id, "platform": platform},
+        saved = 0
+        for post in posts:
+            score = calculate_competitor_engagement_score(
+                post.likes, post.comments, post.views, platform=platform,
             )
+            # UPSERT: insert if new shortcode, update metrics if exists
+            # Never touch transcript or comments_data — those are enriched separately
+            if post.shortcode:
+                upsert_key = "shortcode"
+                upsert_val = post.shortcode
+            else:
+                upsert_key = "post_url"
+                upsert_val = post.post_url
 
-            saved = 0
-            for post in posts:
+            # Check if post exists
+            existing = await db.execute(
+                text(f"SELECT id FROM crm.competitor_posts WHERE competitor_id = :cid AND {upsert_key} = :key LIMIT 1"),
+                {"cid": competitor_id, "key": upsert_val},
+            )
+            row = existing.fetchone()
+
+            if row:
+                # Update engagement metrics only
+                await db.execute(
+                    text("""
+                        UPDATE crm.competitor_posts SET
+                            likes = :likes, comments = :comments, shares = :shares,
+                            engagement_score = :score, post_text = :text, hook = :hook,
+                            media_type = :media_type, media_url = COALESCE(NULLIF(:media_url, ''), media_url),
+                            thumbnail_url = COALESCE(NULLIF(:thumbnail_url, ''), thumbnail_url),
+                            shortcode = COALESCE(NULLIF(:shortcode, ''), shortcode),
+                            fetched_at = NOW()
+                        WHERE id = :id
+                    """),
+                    {
+                        "id": row[0],
+                        "likes": post.likes,
+                        "comments": post.comments,
+                        "shares": post.views,
+                        "score": score,
+                        "text": post.caption,
+                        "hook": post.hook,
+                        "media_type": post.media_type,
+                        "media_url": post.media_url,
+                        "thumbnail_url": post.thumbnail_url,
+                        "shortcode": post.shortcode,
+                    },
+                )
+            else:
+                # New post — insert
                 await db.execute(
                     text("""
                         INSERT INTO crm.competitor_posts 
                         (competitor_id, platform, post_text, likes, comments, shares,
-                         engagement_score, hook, post_url, posted_at, fetched_at)
+                         engagement_score, hook, post_url, posted_at, fetched_at,
+                         media_type, media_url, thumbnail_url, shortcode)
                         VALUES (:cid, :platform, :text, :likes, :comments, :shares,
-                                :score, :hook, :url, :posted_at, NOW())
+                                :score, :hook, :url, :posted_at, NOW(),
+                                :media_type, :media_url, :thumbnail_url, :shortcode)
                     """),
                     {
                         "cid": competitor_id,
@@ -230,13 +381,12 @@ async def _save_posts_to_cache(
                         "text": post.caption,
                         "likes": post.likes,
                         "comments": post.comments,
-                        "shares": post.views,  # Use views as "shares" for video reach
-                        "score": calculate_competitor_engagement_score(
-                            post.likes,
-                            post.comments,
-                            post.views,
-                            platform=platform,
-                        ),
+                        "shares": post.views,
+                        "media_type": post.media_type,
+                        "media_url": post.media_url,
+                        "thumbnail_url": post.thumbnail_url,
+                        "shortcode": post.shortcode,
+                        "score": score,
                         "hook": post.hook,
                         "url": post.post_url,
                         "posted_at": post.posted_at,
@@ -248,9 +398,7 @@ async def _save_posts_to_cache(
     except SQLAlchemyError as exc:
         logger.warning(
             "Failed to cache posts for competitor %s on %s: %s",
-            competitor_id,
-            platform,
-            exc,
+            competitor_id, platform, exc,
         )
         return 0
 
@@ -573,3 +721,139 @@ async def scrape_instagram_profile(handle: str):
     """Scrape a single public Instagram profile. No auth needed."""
     profile = await scrape_profile(handle)
     return _profile_to_response(profile)
+
+
+# ── Deep Intelligence Endpoints ──────────────────────────────────
+
+@router.post("/scraper/transcribe/{competitor_id}")
+async def transcribe_competitor_videos_endpoint(
+    competitor_id: int,
+    limit: int = 10,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Download, transcribe, and delete video/reel posts for a competitor.
+    
+    Only processes posts with media_type in (video, reel) that don't have transcripts yet.
+    Videos are deleted immediately after transcription.
+    """
+    from app.services.video_transcriber import transcribe_competitor_videos
+    
+    # Verify competitor exists
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
+    competitor = result.scalar_one_or_none()
+    if not competitor:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    
+    stats = await transcribe_competitor_videos(db, competitor_id, limit=limit)
+    return {
+        "competitor_id": competitor_id,
+        "handle": competitor.handle,
+        **stats,
+    }
+
+
+@router.post("/scraper/comments/{competitor_id}")
+async def scrape_competitor_comments_endpoint(
+    competitor_id: int,
+    top_n: int = 10,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Scrape comments from a competitor's top posts.
+    
+    Uses authenticated Playwright to access post pages and extract comments.
+    Only processes posts that don't have comments scraped yet.
+    """
+    from app.services.comment_scraper import scrape_competitor_comments
+    
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
+    competitor = result.scalar_one_or_none()
+    if not competitor:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    
+    stats = await scrape_competitor_comments(db, competitor_id, top_n=top_n)
+    return {
+        "competitor_id": competitor_id,
+        "handle": competitor.handle,
+        **stats,
+    }
+
+
+@router.get("/scraper/posts/{post_id}")
+async def get_post_detail(
+    post_id: int,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Get full post detail including transcript and comments."""
+    result = await db.execute(
+        text("""
+            SELECT cp.*, c.handle
+            FROM crm.competitor_posts cp
+            JOIN crm.competitors c ON c.id = cp.competitor_id
+            WHERE cp.id = :pid
+        """),
+        {"pid": post_id},
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    return _build_post_detail(row)
+
+
+@router.get("/scraper/posts/by-shortcode/{shortcode}")
+async def get_post_by_shortcode(
+    shortcode: str,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Get post detail by Instagram shortcode."""
+    result = await db.execute(
+        text("""
+            SELECT cp.*, c.handle
+            FROM crm.competitor_posts cp
+            JOIN crm.competitors c ON c.id = cp.competitor_id
+            WHERE cp.shortcode = :sc
+            LIMIT 1
+        """),
+        {"sc": shortcode},
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    return _build_post_detail(row)
+
+
+def _build_post_detail(row) -> dict:
+    """Build post detail response from DB row."""
+    row_dict = dict(row._mapping)
+    
+    def _parse_jsonb(val):
+        if isinstance(val, str):
+            return json.loads(val)
+        return val
+    
+    transcript = _parse_jsonb(row_dict.get("transcript"))
+    comments_data = _parse_jsonb(row_dict.get("comments_data"))
+    content_analysis = _parse_jsonb(row_dict.get("content_analysis"))
+    
+    return {
+        "id": row_dict["id"],
+        "competitor_id": row_dict["competitor_id"],
+        "handle": row_dict["handle"],
+        "shortcode": row_dict.get("shortcode"),
+        "platform": row_dict.get("platform"),
+        "post_text": row_dict.get("post_text", ""),
+        "hook": row_dict.get("hook", ""),
+        "likes": row_dict.get("likes", 0),
+        "comments": row_dict.get("comments", 0),
+        "shares": row_dict.get("shares", 0),
+        "engagement_score": float(row_dict.get("engagement_score", 0)),
+        "media_type": row_dict.get("media_type", "image"),
+        "media_url": row_dict.get("media_url"),
+        "thumbnail_url": row_dict.get("thumbnail_url"),
+        "post_url": row_dict.get("post_url"),
+        "posted_at": row_dict.get("posted_at"),
+        "transcript": transcript,
+        "comments_data": comments_data,
+        "content_analysis": content_analysis,
+    }
