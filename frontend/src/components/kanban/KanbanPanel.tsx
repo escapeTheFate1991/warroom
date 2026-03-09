@@ -357,28 +357,26 @@ export default function KanbanPanel() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="h-14 border-b border-warroom-border flex items-center px-6 justify-between">
-        <h2 className="text-sm font-semibold">Task Board</h2>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowExecution(true)}
-            className="flex items-center gap-1.5 text-xs bg-green-500/20 text-green-400 px-3 py-1.5 rounded-lg hover:bg-green-500/30 transition"
-          >
-            <Play size={14} /> Execute
-          </button>
-          <button
-            onClick={() => setShowAIPlanning(true)}
-            className="flex items-center gap-1.5 text-xs bg-purple-500/20 text-purple-400 px-3 py-1.5 rounded-lg hover:bg-purple-500/30 transition"
-          >
-            <Brain size={14} /> AI Plan
-          </button>
-          <button
-            onClick={() => setShowNewTask(true)}
-            className="flex items-center gap-1.5 text-xs bg-warroom-accent/20 text-warroom-accent px-3 py-1.5 rounded-lg hover:bg-warroom-accent/30 transition"
-          >
-            <Plus size={14} /> New Task
-          </button>
-        </div>
+      <div className="border-b border-warroom-border flex flex-wrap items-center gap-2 px-3 sm:px-6 py-2 flex-shrink-0">
+        <h2 className="text-sm font-semibold mr-auto">Task Board</h2>
+        <button
+          onClick={() => setShowExecution(true)}
+          className="flex items-center gap-1 text-[11px] bg-green-500/20 text-green-400 px-2.5 py-1.5 rounded-lg hover:bg-green-500/30 transition"
+        >
+          <Play size={12} /> Execute
+        </button>
+        <button
+          onClick={() => setShowAIPlanning(true)}
+          className="flex items-center gap-1 text-[11px] bg-purple-500/20 text-purple-400 px-2.5 py-1.5 rounded-lg hover:bg-purple-500/30 transition"
+        >
+          <Brain size={12} /> AI Plan
+        </button>
+        <button
+          onClick={() => setShowNewTask(true)}
+          className="flex items-center gap-1 text-[11px] bg-warroom-accent/20 text-warroom-accent px-2.5 py-1.5 rounded-lg hover:bg-warroom-accent/30 transition"
+        >
+          <Plus size={12} /> New
+        </button>
       </div>
 
       <div className="flex-1 overflow-x-auto p-4">

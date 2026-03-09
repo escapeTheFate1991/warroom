@@ -882,71 +882,71 @@ export default function ActivityCalendar() {
     <div className="h-full flex flex-col p-4 gap-4 overflow-auto">
       <div className="bg-warroom-surface border border-warroom-border rounded-2xl overflow-hidden flex-1 flex flex-col">
         {/* Header with Tabs */}
-        <div className="border-b border-warroom-border p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-1 bg-warroom-bg rounded-xl p-1">
+        <div className="border-b border-warroom-border p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 bg-warroom-bg rounded-xl p-0.5">
               <button
                 onClick={() => setTab("activities")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                   tab === "activities"
                     ? "bg-warroom-accent text-white shadow-sm"
                     : "text-warroom-muted hover:text-warroom-text hover:bg-warroom-surface"
                 }`}
               >
-                <Activity size={15} />
+                <Activity size={13} />
                 Activities
               </button>
               <button
                 onClick={() => setTab("personal")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                   tab === "personal"
                     ? "bg-warroom-accent text-white shadow-sm"
                     : "text-warroom-muted hover:text-warroom-text hover:bg-warroom-surface"
                 }`}
               >
-                <CalendarDays size={15} />
+                <CalendarDays size={13} />
                 Personal
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 ml-auto">
               {tab === "personal" && (
                 <button
                   onClick={() => {
                     const todayStr = new Date().toISOString().split("T")[0];
                     openQuickAdd(todayStr);
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warroom-accent text-white text-sm hover:bg-warroom-accent/80 transition"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-warroom-accent text-white text-xs hover:bg-warroom-accent/80 transition"
                 >
-                  <Plus size={14} />
-                  Add Event
+                  <Plus size={12} />
+                  <span className="hidden sm:inline">Add</span> Event
                 </button>
               )}
               <button
                 onClick={() => navigateMonth(-1)}
-                className="p-2 rounded-lg bg-warroom-bg border border-warroom-border hover:bg-warroom-surface transition"
+                className="p-1.5 rounded-lg bg-warroom-bg border border-warroom-border hover:bg-warroom-surface transition"
               >
-                <ChevronLeft size={16} />
+                <ChevronLeft size={14} />
               </button>
-              <div className="text-center min-w-[160px]">
-                <h3 className="font-semibold text-warroom-text">
+              <div className="text-center min-w-[120px]">
+                <h3 className="text-sm font-semibold text-warroom-text">
                   {MONTH_NAMES[currentDate.month - 1]} {currentDate.year}
                 </h3>
               </div>
               <button
                 onClick={() => navigateMonth(1)}
-                className="p-2 rounded-lg bg-warroom-bg border border-warroom-border hover:bg-warroom-surface transition"
+                className="p-1.5 rounded-lg bg-warroom-bg border border-warroom-border hover:bg-warroom-surface transition"
               >
-                <ChevronRight size={16} />
+                <ChevronRight size={14} />
               </button>
             </div>
           </div>
 
           {tab === "activities" && (
-            <p className="text-xs text-warroom-muted">Daily memory files and agent activity tracking</p>
+            <p className="text-[11px] text-warroom-muted mt-1">Daily memory files and agent activity tracking</p>
           )}
           {tab === "personal" && (
-            <div className="flex items-center gap-2 text-xs bg-warroom-bg rounded-lg px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] bg-warroom-bg rounded-lg px-2.5 py-1.5 mt-1">
               {googleStatus?.connected ? (
                 <>
                   <div className="w-2 h-2 rounded-full bg-green-400" />
