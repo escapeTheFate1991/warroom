@@ -1130,7 +1130,7 @@ export default function ActivityCalendar() {
               if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
                 const today = new Date().toISOString().split("T")[0];
                 const val = (e.target as HTMLInputElement).value.trim();
-                saveEvent({ title: val, date: today, type: "event" });
+                saveEvent({ ...EMPTY_FORM, title: val, date: today });
                 (e.target as HTMLInputElement).value = "";
               }
             }}
