@@ -80,13 +80,14 @@ async def voice_welcome(request: Request):
     to = form.get("To", "")
     from_num = form.get("From", "")
 
-    # Look up the contact's name from submission
+    # Look up the contact's name and email from submission
     contact_name = "there"
+    contact_email = None
     submission_id = None
     async with leadgen_session() as db:
         result = await db.execute(
             text("""
-                SELECT id, name FROM public.contact_submissions
+                SELECT id, name, email FROM public.contact_submissions
                 WHERE phone LIKE :phone
                 ORDER BY submitted_at DESC LIMIT 1
             """),
@@ -96,17 +97,18 @@ async def voice_welcome(request: Request):
         if row:
             submission_id = row[0]
             contact_name = row[1].split()[0]  # First name
+            contact_email = row[2]
 
     # Create intake record
     await _ensure_table()
     async with leadgen_session() as db:
         await db.execute(
             text("""
-                INSERT INTO public.call_intakes (submission_id, call_sid, contact_name, contact_phone)
-                VALUES (:sid, :call_sid, :name, :phone)
-                ON CONFLICT (call_sid) DO NOTHING
+                INSERT INTO public.call_intakes (submission_id, call_sid, contact_name, contact_phone, contact_email)
+                VALUES (:sid, :call_sid, :name, :phone, :email)
+                ON CONFLICT (call_sid) DO UPDATE SET contact_email = COALESCE(EXCLUDED.contact_email, call_intakes.contact_email)
             """),
-            {"sid": submission_id, "call_sid": call_sid, "name": contact_name, "phone": to},
+            {"sid": submission_id, "call_sid": call_sid, "name": contact_name, "phone": to, "email": contact_email},
         )
         await db.commit()
 

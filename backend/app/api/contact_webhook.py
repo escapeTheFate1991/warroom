@@ -214,7 +214,21 @@ async def _send_confirmation_sms_and_call(submission_id: int, name: str, phone: 
         except Exception as exc:
             logger.error("SMS send failed for submission #%d: %s", submission_id, exc)
 
-        # 2. Wait 2 minutes then make the AI intake call
+        # 2. Pre-store email in intake record so calendar event has it
+        from app.api.twilio_voice import _ensure_table as _ensure_intake_table
+        await _ensure_intake_table()
+        async with leadgen_session() as db:
+            # Upsert: set email on existing row or it'll be set when call creates the row
+            await db.execute(
+                text("""
+                    UPDATE public.call_intakes SET contact_email = :email
+                    WHERE submission_id = :sid
+                """),
+                {"email": email, "sid": submission_id},
+            )
+            await db.commit()
+
+        # 3. Wait 2 minutes then make the AI intake call
         await asyncio.sleep(120)
 
         try:
@@ -225,17 +239,6 @@ async def _send_confirmation_sms_and_call(submission_id: int, name: str, phone: 
                 url=f"{webhook_base}/voice/welcome",
             )
             logger.info("AI intake call initiated to %s for submission #%d", phone, submission_id)
-
-            # Store email in intake for calendar event creation
-            async with leadgen_session() as db:
-                await db.execute(
-                    text("""
-                        UPDATE public.call_intakes SET contact_email = :email
-                        WHERE submission_id = :sid
-                    """),
-                    {"email": email, "sid": submission_id},
-                )
-                await db.commit()
 
         except TwilioConfigError as exc:
             logger.warning("Call not placed (config missing): %s", exc)
@@ -309,8 +312,11 @@ async def submit_contact(body: ContactSubmission, request: Request):
 
     # Send confirmation SMS + trigger AI call (best-effort)
     if body.phone:
+        clean_phone = re.sub(r"[^\d+]", "", body.phone)
+        if not clean_phone.startswith("+"):
+            clean_phone = "+1" + clean_phone  # Default to US
         asyncio.create_task(
-            _send_confirmation_sms_and_call(submission_id, body.name.strip(), body.phone, body.email.lower().strip())
+            _send_confirmation_sms_and_call(submission_id, body.name.strip(), clean_phone, body.email.lower().strip())
         )
 
     # Notification: new contact form submission
