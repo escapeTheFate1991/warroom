@@ -245,6 +245,22 @@ async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
                                 totals["total_watch_time_ms"] += val
 
                     post_insights_list.append(post_data)
+
+                    # Snapshot for engagement velocity tracking
+                    await db.execute(text(
+                        "INSERT INTO social_snapshots (account_id, media_ig_id, views, likes, comments, shares, saves, reach, total_interactions, avg_watch_time_ms) "
+                        "VALUES (:aid, :mid, :views, :likes, :comments, :shares, :saves, :reach, :interactions, :awt)"
+                    ), {
+                        "aid": acc["id"], "mid": mid,
+                        "views": post_data.get("views", 0),
+                        "likes": post_data.get("likes", 0),
+                        "comments": post_data.get("comments", 0),
+                        "shares": post_data.get("shares", 0),
+                        "saves": post_data.get("saved", 0),
+                        "reach": post_data.get("reach", 0),
+                        "interactions": post_data.get("total_interactions", 0),
+                        "awt": post_data.get("ig_reels_avg_watch_time", 0),
+                    })
                 except Exception as e:
                     logger.debug("Insights failed for %s: %s", mid, e)
 

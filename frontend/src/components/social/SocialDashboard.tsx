@@ -298,6 +298,7 @@ export default function SocialDashboard() {
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [velocityData, setVelocityData] = useState<any[]>([]);
   const [showManualModal, setShowManualModal] = useState(false);
   const [connectPlatform, setConnectPlatform] = useState("");
   const [connectForm, setConnectForm] = useState<ConnectAccountData>({
@@ -335,13 +336,14 @@ export default function SocialDashboard() {
         timeSeriesParams.set("granularity", granularity);
       }
 
-      const [accResp, sumResp, sparkResp, seriesResp] = await Promise.all([
+      const [accResp, sumResp, sparkResp, seriesResp, velocityResp] = await Promise.all([
         authFetch(`${API}/api/social/accounts`).catch(() => null),
         authFetch(`${API}/api/social/analytics${summaryParams.toString() ? `?${summaryParams.toString()}` : ""}`).catch(() => null),
         authFetch(`${API}/api/social/analytics/sparkline`).catch(() => null),
         granularity === "hourly"
           ? Promise.resolve(null)
           : authFetch(`${API}/api/social/analytics/timeseries?${timeSeriesParams.toString()}`).catch(() => null),
+        authFetch(`${API}/api/social/analytics/engagement-velocity`).catch(() => null),
       ]);
 
       if (accResp?.ok) {
@@ -366,6 +368,13 @@ export default function SocialDashboard() {
         setTimeSeries(await seriesResp.json());
       } else {
         setTimeSeries([]);
+      }
+
+      if (velocityResp?.ok) {
+        const vData = await velocityResp.json();
+        setVelocityData(vData.points || []);
+      } else {
+        setVelocityData([]);
       }
     } catch (error) {
       console.error("Failed to fetch social dashboard data:", error);
@@ -665,6 +674,55 @@ export default function SocialDashboard() {
               </>
             )}
           </div>
+
+          {/* Engagement Velocity Chart */}
+          {velocityData.length > 1 && (
+            <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <TrendingUp size={16} className="text-warroom-accent" />
+                    Engagement Velocity
+                  </h3>
+                  <p className="text-xs text-warroom-muted mt-0.5">How engagement grows over time — helps find best posting times</p>
+                </div>
+              </div>
+              <div className="h-48 flex items-end gap-px">
+                {(() => {
+                  const maxViews = Math.max(...velocityData.map(p => p.views || 0), 1);
+                  const maxLikes = Math.max(...velocityData.map(p => p.likes || 0), 1);
+                  return velocityData.map((point, i) => {
+                    const viewH = Math.max(((point.views || 0) / maxViews) * 100, 2);
+                    const likeH = Math.max(((point.likes || 0) / maxLikes) * 100, 2);
+                    const time = new Date(point.time);
+                    const label = `${time.getMonth()+1}/${time.getDate()} ${time.getHours()}:${String(time.getMinutes()).padStart(2,'0')}`;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group relative min-w-0">
+                        <div className="w-full flex gap-px items-end" style={{ height: '160px' }}>
+                          <div className="flex-1 rounded-t bg-purple-500/60 transition-all" style={{ height: `${viewH}%` }} title={`Views: ${point.views}`} />
+                          <div className="flex-1 rounded-t bg-pink-500/60 transition-all" style={{ height: `${likeH}%` }} title={`Likes: ${point.likes}`} />
+                        </div>
+                        {(i === 0 || i === velocityData.length - 1 || i % Math.max(1, Math.floor(velocityData.length / 6)) === 0) && (
+                          <span className="text-[8px] text-warroom-muted truncate max-w-full">{label}</span>
+                        )}
+                        <div className="absolute bottom-full mb-2 hidden group-hover:block bg-warroom-bg border border-warroom-border rounded-lg px-2.5 py-1.5 text-[10px] z-10 whitespace-nowrap shadow-lg">
+                          <p className="text-warroom-text font-medium">{label}</p>
+                          <p className="text-purple-400">Views: {(point.views || 0).toLocaleString()}</p>
+                          <p className="text-pink-400">Likes: {point.likes || 0}</p>
+                          <p className="text-blue-400">Reach: {(point.reach || 0).toLocaleString()}</p>
+                          <p className="text-green-400">Interactions: {point.interactions || 0}</p>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+              <div className="flex items-center gap-4 mt-3 text-[10px] text-warroom-muted">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500/60" /> Views</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-pink-500/60" /> Likes</span>
+              </div>
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-3">

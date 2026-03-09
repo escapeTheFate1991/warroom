@@ -571,26 +571,101 @@ async def get_platform_analytics(
         raise HTTPException(status_code=500, detail="Failed to fetch platform analytics")
 
 
+@router.get("/analytics/engagement-velocity")
+async def get_engagement_velocity(
+    media_id: Optional[str] = None,
+    platform: str = "instagram",
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Get engagement velocity over time — snapshots of metrics at each sync.
+    Shows how likes/views/reach grow over time for a post or aggregate.
+    Used for 'When people engage' line chart."""
+    try:
+        if media_id:
+            # Per-post velocity
+            r = await db.execute(text("""
+                SELECT captured_at, views, likes, comments, shares, saves, reach, total_interactions
+                FROM social_snapshots
+                WHERE media_ig_id = :mid
+                ORDER BY captured_at ASC
+            """), {"mid": media_id})
+        else:
+            # Aggregate velocity — sum across all media per snapshot time
+            r = await db.execute(text("""
+                SELECT captured_at,
+                    sum(views) as views, sum(likes) as likes, sum(comments) as comments,
+                    sum(shares) as shares, sum(saves) as saves, sum(reach) as reach,
+                    sum(total_interactions) as total_interactions
+                FROM social_snapshots s
+                JOIN social_accounts a ON a.id = s.account_id
+                WHERE a.platform = :p AND a.status = 'connected'
+                GROUP BY captured_at
+                ORDER BY captured_at ASC
+            """), {"p": platform})
+
+        rows = r.fetchall()
+        points = []
+        prev = None
+        for row in rows:
+            point = {
+                "time": row[0].isoformat(),
+                "views": row[1],
+                "likes": row[2],
+                "comments": row[3],
+                "shares": row[4],
+                "saves": row[5],
+                "reach": row[6],
+                "interactions": row[7],
+            }
+            # Calculate deltas (velocity = change since last snapshot)
+            if prev:
+                point["delta_views"] = max(0, row[1] - prev[1])
+                point["delta_likes"] = max(0, row[2] - prev[2])
+                point["delta_reach"] = max(0, row[6] - prev[6])
+            else:
+                point["delta_views"] = row[1]
+                point["delta_likes"] = row[2]
+                point["delta_reach"] = row[6]
+            prev = row
+            points.append(point)
+
+        return {"points": points, "total_snapshots": len(points)}
+    except Exception as e:
+        logger.error("Failed to fetch engagement velocity: %s", e)
+        raise HTTPException(500, "Failed to fetch engagement velocity")
+
+
 @router.post("/sync")
 async def sync_social_data(db: AsyncSession = Depends(get_crm_db)):
-    """Trigger sync of all connected social media accounts."""
+    """Trigger real sync of all connected social media accounts (calls platform APIs)."""
     try:
-        # Get all connected accounts
-        result = await db.execute(select(SocialAccount).where(SocialAccount.status == "connected"))
-        accounts = result.scalars().all()
-        
+        from app.api.social_sync import _get_accounts, SYNC_MAP, _try_refresh_token
+
+        accounts = await _get_accounts(db)
         if not accounts:
             return {"message": "No connected accounts to sync", "synced_accounts": 0}
-        
-        # Update last_synced timestamp for all accounts
-        for account in accounts:
-            account.last_synced = datetime.utcnow()
-        
+
+        results = []
+        for acc in accounts:
+            syncer = SYNC_MAP.get(acc["platform"])
+            if syncer:
+                try:
+                    r = await syncer(db, acc)
+                    if r.get("status") == "error":
+                        new_token = await _try_refresh_token(db, acc)
+                        if new_token:
+                            acc["token"] = new_token
+                            r = await syncer(db, acc)
+                            r["token_refreshed"] = True
+                    results.append(r)
+                except Exception as e:
+                    results.append({"platform": acc["platform"], "status": "error", "error": str(e)[:200]})
+
         await db.commit()
-        
         return {
-            "message": f"Successfully triggered sync for {len(accounts)} accounts",
-            "synced_accounts": len(accounts)
+            "message": f"Synced {len(results)} accounts",
+            "synced_accounts": len(results),
+            "results": results,
         }
     except Exception as e:
         logger.error("Failed to sync social data: %s", e)
