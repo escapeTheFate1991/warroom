@@ -2,6 +2,8 @@
 Social media data sync — pulls real metrics from platform APIs into SocialAnalytics.
 POST /api/social/sync       — sync all connected accounts
 POST /api/social/sync/{platform} — sync specific platform
+
+Auto-refreshes expired OAuth tokens on 401 and retries once.
 """
 import logging
 from datetime import datetime, date
@@ -66,6 +68,88 @@ async def _update_account_stats(db: AsyncSession, account_id: int, **stats):
     await db.execute(text(
         f"UPDATE crm.social_accounts SET {sets} WHERE id = :id"
     ), {**fields, "id": account_id})
+
+
+# ── Token Refresh ────────────────────────────────────────────────────
+
+async def _try_refresh_token(db: AsyncSession, acc: dict) -> Optional[str]:
+    """Attempt to refresh an expired token using raw SQL + platform-specific refresh. Returns new token or None."""
+    if not acc.get("refresh"):
+        return None
+
+    platform = acc["platform"]
+    account_id = acc["id"]
+    refresh_token = acc["refresh"]
+
+    async def _get_setting(key: str) -> Optional[str]:
+        r = await db.execute(text("SELECT value FROM public.settings WHERE key = :k"), {"k": key})
+        row = r.fetchone()
+        return row[0] if row else None
+
+    try:
+        new_token = None
+
+        if platform == "youtube":
+            client_id = await _get_setting("google_oauth_client_id")
+            client_secret = await _get_setting("google_oauth_client_secret")
+            if not client_id or not client_secret:
+                return None
+            async with httpx.AsyncClient() as client:
+                resp = await client.post("https://oauth2.googleapis.com/token", data={
+                    "client_id": client_id, "client_secret": client_secret,
+                    "grant_type": "refresh_token", "refresh_token": refresh_token,
+                })
+                resp.raise_for_status()
+                new_token = resp.json()["access_token"]
+
+        elif platform == "x":
+            client_id = await _get_setting("x_client_id")
+            client_secret = await _get_setting("x_client_secret")
+            if not client_id or not client_secret:
+                return None
+            async with httpx.AsyncClient() as client:
+                resp = await client.post("https://api.x.com/2/oauth2/token", data={
+                    "grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": client_id,
+                }, auth=(client_id, client_secret))
+                resp.raise_for_status()
+                data = resp.json()
+                new_token = data["access_token"]
+                # X rotates refresh tokens
+                if data.get("refresh_token"):
+                    await db.execute(text("UPDATE crm.social_accounts SET refresh_token = :rt WHERE id = :id"),
+                                     {"rt": data["refresh_token"], "id": account_id})
+
+        elif platform in ("facebook", "instagram"):
+            app_id = await _get_setting("meta_app_id")
+            app_secret = await _get_setting("meta_app_secret")
+            if not app_id or not app_secret:
+                return None
+            async with httpx.AsyncClient() as client:
+                resp = await client.get("https://graph.facebook.com/v21.0/oauth/access_token", params={
+                    "grant_type": "fb_exchange_token", "client_id": app_id,
+                    "client_secret": app_secret, "fb_exchange_token": acc["token"],
+                })
+                resp.raise_for_status()
+                new_token = resp.json()["access_token"]
+        else:
+            return None
+
+        if new_token:
+            await db.execute(text("UPDATE crm.social_accounts SET access_token = :t, status = 'connected' WHERE id = :id"),
+                             {"t": new_token, "id": account_id})
+            logger.info("Token refreshed for %s/@%s", platform, acc["username"])
+            return new_token
+
+    except Exception as e:
+        logger.warning("Token refresh failed for %s/@%s: %s", platform, acc["username"], e)
+        try:
+            await db.rollback()
+            await db.execute(text("SET search_path TO crm, public"))
+            await db.execute(text("UPDATE social_accounts SET status = 'expired' WHERE id = :id"), {"id": account_id})
+            await db.commit()
+        except Exception:
+            pass
+        return None
 
 
 # ── Platform Sync Functions ──────────────────────────────────────────
@@ -343,6 +427,14 @@ async def sync_all(db: AsyncSession = Depends(get_crm_db)):
         if syncer:
             try:
                 r = await syncer(db, acc)
+                # If sync got errors (likely 401), try refreshing token and retry
+                if r.get("status") == "error":
+                    new_token = await _try_refresh_token(db, acc)
+                    if new_token:
+                        acc["token"] = new_token
+                        r = await syncer(db, acc)
+                        if r.get("status") != "error":
+                            r["token_refreshed"] = True
                 results.append(r)
             except Exception as e:
                 logger.error("Sync failed for %s/@%s: %s", acc['platform'], acc['username'], e)
@@ -367,6 +459,13 @@ async def sync_platform(platform: str, db: AsyncSession = Depends(get_crm_db)):
     for acc in accounts:
         try:
             r = await syncer(db, acc)
+            if r.get("status") == "error":
+                new_token = await _try_refresh_token(db, acc)
+                if new_token:
+                    acc["token"] = new_token
+                    r = await syncer(db, acc)
+                    if r.get("status") != "error":
+                        r["token_refreshed"] = True
             results.append(r)
         except Exception as e:
             logger.error("Sync failed for %s/@%s: %s", platform, acc['username'], e)
