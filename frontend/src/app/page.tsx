@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense, useCallback, useMemo } from "react";
+import { useState, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
@@ -14,7 +14,7 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/navigation/Sidebar";
 import TopBar from "@/components/navigation/TopBar";
-import MobileNav from "@/components/navigation/MobileNav";
+// MobileNav available for per-feature horizontal navs (not global layout)
 
 const PanelLoader = () => (
   <div className="flex items-center justify-center h-64">
@@ -165,24 +165,6 @@ export default function Page() {
   );
 }
 
-// Flatten sections into a single array for mobile horizontal nav
-function flattenSections(sections: typeof SECTIONS): { id: string; label: string; icon: any }[] {
-  const flat: { id: string; label: string; icon: any }[] = [];
-  for (const section of sections) {
-    for (const item of section.items) {
-      const anyItem = item as any;
-      if (anyItem.children && anyItem.children.length > 0) {
-        for (const child of anyItem.children) {
-          flat.push({ id: child.id, label: child.label, icon: child.icon });
-        }
-      } else {
-        flat.push({ id: item.id, label: item.label, icon: item.icon });
-      }
-    }
-  }
-  return flat;
-}
-
 function WarRoom() {
   const { user, logout } = useAuth();
   const router = useRouter();
@@ -190,8 +172,6 @@ function WarRoom() {
   const initialTab = normalizeTab(searchParams.get("tab"));
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const flatItems = useMemo(() => flattenSections(SECTIONS), []);
 
   const handleTabChange = useCallback((tab: string) => {
     const nextTab = normalizeTab(tab);
@@ -234,10 +214,6 @@ function WarRoom() {
           onLogout={logout}
           onMenuToggle={() => setSidebarOpen(true)}
         />
-        {/* Mobile horizontal tab nav */}
-        <div className="lg:hidden">
-          <MobileNav items={flatItems} activeTab={activeTab} onSelect={handleTabChange} />
-        </div>
         <main className="flex-1 overflow-hidden relative">
           {activeTab === "dashboard" && <CommandCenter />}
           {activeTab === "chat" && <ChatPanel />}

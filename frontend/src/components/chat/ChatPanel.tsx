@@ -1397,11 +1397,11 @@ export default function ChatPanel() {
   /* ── Render ─────────────────────────────────────────── */
 
   return (
-    <div className="flex h-full">
-    <div className={`flex flex-col ${showArtifacts ? "w-1/2" : "w-full"} transition-all duration-300 h-full`}>
+    <div className="flex h-full overflow-hidden">
+    <div className={`flex flex-col ${showArtifacts ? "w-1/2" : "w-full"} transition-all duration-300 h-full min-h-0 overflow-hidden`}>
       {/* Alert Banners */}
       {rateLimitAlert && (
-        <div className="mx-4 mt-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-center gap-3 animate-in slide-in-from-top">
+        <div className="mx-4 mt-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-center gap-3 flex-shrink-0">
           <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-red-400">API Rate Limit</p>
@@ -1413,7 +1413,7 @@ export default function ChatPanel() {
         </div>
       )}
       {compactionAlert && (
-        <div className="mx-4 mt-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-center gap-3 animate-in slide-in-from-top">
+        <div className="mx-4 mt-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-center gap-3 flex-shrink-0">
           <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
           <div className="flex-1">
             <p className="text-sm font-medium text-amber-400">Context Compressed</p>
@@ -1426,7 +1426,7 @@ export default function ChatPanel() {
       )}
 
       {/* Messages area */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto min-h-0">
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
           {messages.length === 0 && !streamText && (
             <div className="flex flex-col items-center justify-center pt-[20vh] text-warroom-muted">
@@ -1686,7 +1686,7 @@ export default function ChatPanel() {
       )}
 
       {/* Input area */}
-      <div className="pb-4 pt-2 px-4">
+      <div className="pb-4 pt-2 px-4 flex-shrink-0">
         <div className="max-w-4xl mx-auto">
           <div
             className={`bg-warroom-surface border rounded-3xl shadow-lg transition-colors ${wsConnected ? "border-warroom-border" : "border-warroom-danger/30"}`}
