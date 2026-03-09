@@ -43,10 +43,21 @@ async def get_setting_value(key: str) -> str | None:
 
 
 async def get_twilio_config() -> TwilioConfig:
-    """Load Twilio configuration from settings DB."""
-    account_sid = await get_setting_value("twilio_account_sid")
-    auth_token = await get_setting_value("twilio_auth_token")
-    phone_number = await get_setting_value("twilio_phone_number")
+    """Load Twilio configuration from settings DB.
+
+    Respects the twilio_mode toggle: when set to 'test', uses test credentials.
+    """
+    mode = await get_setting_value("twilio_mode") or "live"
+
+    if mode == "test":
+        account_sid = await get_setting_value("twilio_test_account_sid")
+        auth_token = await get_setting_value("twilio_test_auth_token")
+        phone_number = await get_setting_value("twilio_phone_number")  # same number for both
+        logger.info("Twilio running in TEST mode")
+    else:
+        account_sid = await get_setting_value("twilio_account_sid")
+        auth_token = await get_setting_value("twilio_auth_token")
+        phone_number = await get_setting_value("twilio_phone_number")
 
     if not account_sid:
         raise TwilioConfigError("Missing required setting: twilio_account_sid")

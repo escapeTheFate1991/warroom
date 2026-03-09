@@ -1736,18 +1736,55 @@ export default function SettingsPanel() {
 
         {/* Twilio */}
         <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <PhoneCall size={20} className="text-green-400" />
-            <div>
-              <h3 className="text-base font-semibold text-warroom-text">Twilio Voice & SMS</h3>
-              <p className="text-xs text-warroom-muted">Primary integration for calls, SMS, and IVR</p>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <PhoneCall size={20} className="text-green-400" />
+              <div>
+                <h3 className="text-base font-semibold text-warroom-text">Twilio Voice & SMS</h3>
+                <p className="text-xs text-warroom-muted">Primary integration for calls, SMS, and IVR</p>
+              </div>
+            </div>
+            {/* Live / Test toggle */}
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-medium ${editValues["twilio_mode"] === "test" ? "text-warroom-muted" : "text-green-400"}`}>Live</span>
+              <button
+                onClick={async () => {
+                  const newMode = editValues["twilio_mode"] === "test" ? "live" : "test";
+                  setEditValues(prev => ({ ...prev, twilio_mode: newMode }));
+                  try {
+                    await authFetch(`${API}/api/settings`, {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ key: "twilio_mode", value: newMode, category: "communications" }),
+                    });
+                    loadSettings();
+                  } catch {}
+                }}
+                className={`relative w-10 h-5 rounded-full transition-colors ${
+                  editValues["twilio_mode"] === "test" ? "bg-yellow-500" : "bg-green-500"
+                }`}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                  editValues["twilio_mode"] === "test" ? "translate-x-5" : "translate-x-0.5"
+                }`} />
+              </button>
+              <span className={`text-xs font-medium ${editValues["twilio_mode"] === "test" ? "text-yellow-400" : "text-warroom-muted"}`}>Test</span>
             </div>
           </div>
+
+          {editValues["twilio_mode"] === "test" && (
+            <div className="mb-4 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+              <p className="text-xs text-yellow-400">⚠️ Test mode — calls and SMS use test credentials. No charges.</p>
+            </div>
+          )}
+
+          {/* Live credentials */}
           <div className="space-y-4">
+            <h4 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider">Live Credentials</h4>
             {[
               { key: "twilio_account_sid", label: "Account SID", placeholder: "AC...", secret: false },
               { key: "twilio_auth_token", label: "Auth Token", placeholder: "Your auth token", secret: true },
-              { key: "twilio_phone_number", label: "Phone Number", placeholder: "+1234567890" },
+              { key: "twilio_phone_number", label: "Phone Number", placeholder: "+15017462573" },
             ].map(({ key, label, placeholder, secret }) => {
               const currentValue = editValues[key] || "";
               const hasValue = settings.some(s => s.key === key && s.value);
@@ -1776,7 +1813,7 @@ export default function SettingsPanel() {
                           await authFetch(`${API}/api/settings`, {
                             method: "PUT",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ key, value: currentValue, category: "communications" }),
+                            body: JSON.stringify({ key, value: currentValue, category: "communications", is_secret: secret ? 1 : 0 }),
                           });
                           loadSettings();
                         } catch {}
@@ -1786,9 +1823,58 @@ export default function SettingsPanel() {
                       <Save size={12} />
                     </button>
                   </div>
-                  {hasValue && (
-                    <p className="text-[10px] text-green-400/60 mt-1">✓ Configured</p>
-                  )}
+                  {hasValue && <p className="text-[10px] text-green-400/60 mt-1">✓ Configured</p>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Test credentials */}
+          <div className="space-y-4 mt-6 pt-6 border-t border-warroom-border/50">
+            <h4 className="text-xs font-semibold text-yellow-400/80 uppercase tracking-wider">Test Credentials</h4>
+            <p className="text-[10px] text-warroom-muted">Use Twilio test credentials to validate workflows without spending money.</p>
+            {[
+              { key: "twilio_test_account_sid", label: "Test Account SID", placeholder: "AC...", secret: false },
+              { key: "twilio_test_auth_token", label: "Test Auth Token", placeholder: "Test auth token", secret: true },
+            ].map(({ key, label, placeholder, secret }) => {
+              const currentValue = editValues[key] || "";
+              const hasValue = settings.some(s => s.key === key && s.value);
+              return (
+                <div key={key}>
+                  <label className="text-xs text-warroom-muted mb-1 block">{label}</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type={secret && !revealed[key] ? "password" : "text"}
+                      value={currentValue}
+                      onChange={(e) => setEditValues(prev => ({ ...prev, [key]: e.target.value }))}
+                      placeholder={placeholder}
+                      className="flex-1 bg-warroom-bg border border-yellow-500/30 rounded-xl px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/40 focus:outline-none focus:border-yellow-500/50"
+                    />
+                    {secret && (
+                      <button
+                        onClick={() => setRevealed(prev => ({ ...prev, [key]: !prev[key] }))}
+                        className="p-2 text-warroom-muted hover:text-warroom-text"
+                      >
+                        {revealed[key] ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    )}
+                    <button
+                      onClick={async () => {
+                        try {
+                          await authFetch(`${API}/api/settings`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ key, value: currentValue, category: "communications", is_secret: secret ? 1 : 0 }),
+                          });
+                          loadSettings();
+                        } catch {}
+                      }}
+                      className="px-3 py-2 bg-yellow-500/80 text-white rounded-xl text-xs hover:bg-yellow-500/60 transition"
+                    >
+                      <Save size={12} />
+                    </button>
+                  </div>
+                  {hasValue && <p className="text-[10px] text-yellow-400/60 mt-1">✓ Configured</p>}
                 </div>
               );
             })}
