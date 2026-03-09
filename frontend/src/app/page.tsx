@@ -27,6 +27,7 @@ const LibraryPanel = dynamic(() => import("@/components/library/LibraryPanel"), 
 const EducatePanel = dynamic(() => import("@/components/library/EducatePanel"), { loading: PanelLoader });
 const LeadgenPanel = dynamic(() => import("@/components/leadgen/LeadgenPanel"), { loading: PanelLoader });
 const SettingsPanel = dynamic(() => import("@/components/settings/SettingsPanel"), { loading: PanelLoader });
+const WorkflowsPanel = dynamic(() => import("@/components/workflows/WorkflowsPanel"), { loading: PanelLoader });
 const ContactsManager = dynamic(() => import("@/components/crm/ContactsManager"), { loading: PanelLoader });
 const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboard"), { loading: PanelLoader });
 const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
@@ -118,6 +119,7 @@ const SECTIONS = [
   {
     label: "TOOLS",
     items: [
+      { id: "workflows", label: "Workflows", icon: Bot },
       { id: "skills", label: "Skills", icon: Puzzle },
       { id: "soul", label: "Soul", icon: Heart },
       { id: "library", label: "Library", icon: BookOpen, children: [
@@ -138,6 +140,7 @@ type TabId =
   | "kanban" | "leadgen"
   | "pipeline-board" | "organizations" | "crm-contacts"
   | "library-search" | "library-educate"
+  | "workflows"
   | "marketing-campaigns" | "marketing-templates"
   | "skills" | "soul"
   | "invoices" | "contracts"
@@ -147,6 +150,7 @@ type TabId =
 function normalizeTab(tab: string | null): TabId {
   if (!tab) return "dashboard";
   if (tab === "content-tracker") return "social";
+  if (tab === "automation") return "workflows";
   return tab as TabId;
 }
 
@@ -187,8 +191,8 @@ function WarRoom() {
       setActiveTab(nextTab);
     }
 
-    if (rawTab === "content-tracker") {
-      router.replace("/?tab=social", { scroll: false });
+    if (rawTab === "content-tracker" || rawTab === "automation") {
+      router.replace(`/?tab=${nextTab}`, { scroll: false });
     }
   }, [activeTab, router, searchParams]);
 
@@ -231,6 +235,7 @@ function WarRoom() {
           {activeTab === "crm-contacts" && <ContactsManager />}
           {activeTab === "library-search" && <LibraryPanel />}
           {activeTab === "library-educate" && <EducatePanel />}
+          {activeTab === "workflows" && <WorkflowsPanel />}
           {activeTab === "marketing-campaigns" && <CampaignsPanel />}
           {activeTab === "marketing-templates" && <EmailTemplatesPanel />}
           {activeTab === "email" && <EmailInbox />}
