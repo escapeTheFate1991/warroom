@@ -150,7 +150,7 @@ async def _get_call_records(
                 employee=None,
                 agent="AI Intake",
                 subject=f"AI Intake Call — {r.get('contact_name') or 'Unknown'}",
-                summary=r.get("pain_points", "")[:100] if r.get("pain_points") else r.get("submission_message", "")[:100],
+                summary=(r.get("pain_points") or "")[:100] or (r.get("submission_message") or "")[:100] or None,
                 transcript="\n".join(transcript_parts) if transcript_parts else None,
                 pain_points=r.get("pain_points"),
                 services=r.get("services"),
