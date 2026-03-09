@@ -1,0 +1,18 @@
+# CPU-only fallback for testing without nvidia-container-toolkit
+# Usage: docker compose -f docker-compose.cpu.yml up --build
+services:
+  voice-server:
+    build: .
+    container_name: warroom-voice
+    ports:
+      - "8400:8400"
+    volumes:
+      - ./voices:/app/voices
+      - voice-cache:/root/.cache
+    environment:
+      - VOICES_DIR=/app/voices
+      - CUDA_VISIBLE_DEVICES=""  # Force CPU mode
+    restart: unless-stopped
+
+volumes:
+  voice-cache:

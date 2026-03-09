@@ -1,0 +1,26 @@
+services:
+  # GPU mode — requires nvidia-container-toolkit
+  # Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+  # sudo apt-get install -y nvidia-container-toolkit && sudo systemctl restart docker
+  voice-server:
+    build: .
+    container_name: warroom-voice
+    ports:
+      - "8400:8400"
+    volumes:
+      - ./voices:/app/voices
+      - voice-cache:/root/.cache  # HuggingFace model cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - VOICES_DIR=/app/voices
+      - NVIDIA_VISIBLE_DEVICES=all
+    restart: unless-stopped
+
+volumes:
+  voice-cache:
