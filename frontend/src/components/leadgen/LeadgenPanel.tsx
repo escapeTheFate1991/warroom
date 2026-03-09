@@ -6,7 +6,8 @@ import LeadDrawer, { LeadFull } from "./LeadDrawer";
 import { API, authFetch } from "@/lib/api";
 import LoadingState from "@/components/ui/LoadingState";
 import EmptyState from "@/components/ui/EmptyState";
-import { US_STATES, US_CITIES } from "@/data/us-cities";
+import { US_STATES } from "@/data/us-cities";
+import CityAutocomplete from "@/components/ui/CityAutocomplete";
 
 const PAGE_SIZE = 10;
 
@@ -413,6 +414,25 @@ export default function LeadgenPanel() {
         notes: null,
         tags: [],
         website_platform: null,
+        // Intel fields
+        yelp_rating: null,
+        yelp_reviews_count: 0,
+        review_highlights: null,
+        review_sentiment_score: null,
+        review_pain_points: null,
+        review_opportunity_flags: null,
+        bbb_url: null,
+        bbb_rating: null,
+        bbb_accredited: null,
+        bbb_complaints: 0,
+        bbb_summary: null,
+        glassdoor_url: null,
+        glassdoor_rating: null,
+        glassdoor_review_count: 0,
+        glassdoor_summary: null,
+        reddit_mentions: null,
+        news_mentions: null,
+        social_scan: null,
       };
       setSelectedLead(partialLead);
       setIsDrawerOpen(true);
@@ -632,26 +652,12 @@ export default function LeadgenPanel() {
             <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
           </div>
 
-          {/* City input (free-text with suggestions) */}
-          <div className="relative flex-1">
-            <input
-              type="text"
-              list="city-suggestions"
-              value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)}
-              disabled={!selectedState}
-              placeholder={selectedState ? "Type city or town..." : "Select state first..."}
-              className="w-full bg-warroom-surface border border-warroom-border rounded-lg px-4 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ colorScheme: "dark" }}
-            />
-            {selectedState && (
-              <datalist id="city-suggestions">
-                {(US_CITIES[selectedState] ?? []).map((city) => (
-                  <option key={city} value={city} />
-                ))}
-              </datalist>
-            )}
-          </div>
+          {/* City autocomplete (29k+ US cities/towns) */}
+          <CityAutocomplete
+            state={selectedState}
+            value={selectedCity}
+            onChange={setSelectedCity}
+          />
 
           {/* Business type dropdown */}
           <div className="relative flex-1">

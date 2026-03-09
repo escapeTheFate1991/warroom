@@ -390,6 +390,7 @@ class WorkflowResponse(BaseSchema):
     conditions: Any = Field(default_factory=list)
     actions: Any = Field(default_factory=list)
     is_active: bool = True
+    assigned_agent_id: Optional[int] = None
     template_id: Optional[int] = None
     derived_from_workflow_id: Optional[int] = None
     root_workflow_id: Optional[int] = None
@@ -424,6 +425,7 @@ class WorkflowCreate(BaseModel):
     conditions: Optional[List[Dict[str, Any]]] = None
     actions: Optional[List[Dict[str, Any]]] = None
     is_active: bool = True
+    assigned_agent_id: Optional[int] = None
 
 
 class WorkflowUpdate(BaseModel):
@@ -435,6 +437,7 @@ class WorkflowUpdate(BaseModel):
     conditions: Optional[List[Dict[str, Any]]] = None
     actions: Optional[List[Dict[str, Any]]] = None
     is_active: Optional[bool] = None
+    assigned_agent_id: Optional[int] = None
 
 
 # ===== Product Schemas =====

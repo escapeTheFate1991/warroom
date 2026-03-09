@@ -32,6 +32,8 @@ interface WorkflowTemplate {
   is_seed: boolean;
 }
 
+interface AgentOption { id: number; name: string; emoji: string }
+
 interface WorkflowRecord {
   id: number;
   name: string;
@@ -42,6 +44,7 @@ interface WorkflowRecord {
   conditions: any;
   actions: any;
   is_active: boolean;
+  assigned_agent_id: number | null;
   template_id: number | null;
   version: number;
   created_at: string;
@@ -96,6 +99,33 @@ export default function WorkflowStudioPanel() {
   const [selectedTemplate, setSelectedTemplate] = useState<WorkflowTemplate | null>(null);
   const [selectedWorkflow, setSelectedWorkflow] = useState<WorkflowRecord | null>(null);
   const [cloning, setCloning] = useState(false);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+
+  // Load agents for assignment dropdown
+  useEffect(() => {
+    authFetch(`${API}/api/agents`).then(async (res) => {
+      if (res.ok) {
+        const data = await res.json();
+        setAgents(data.map((a: any) => ({ id: a.id, name: a.name, emoji: a.emoji || "🤖" })));
+      }
+    }).catch(() => {});
+  }, []);
+
+  const assignAgent = async (workflowId: number, agentId: number | null) => {
+    try {
+      const res = await authFetch(`${API}/api/crm/workflows/${workflowId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assigned_agent_id: agentId }),
+      });
+      if (res.ok) {
+        setWorkflows((prev) => prev.map((w) => w.id === workflowId ? { ...w, assigned_agent_id: agentId } : w));
+        if (selectedWorkflow?.id === workflowId) {
+          setSelectedWorkflow((sw) => sw ? { ...sw, assigned_agent_id: agentId } : sw);
+        }
+      }
+    } catch { /* silent */ }
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -413,18 +443,35 @@ export default function WorkflowStudioPanel() {
               <span>{canvasData.conditions?.length || 0} conditions</span>
               <span>·</span>
               <span>{canvasData.actions?.length || 0} actions</span>
-              {selectedTemplate && !selectedWorkflow && (
-                <>
-                  <span className="ml-auto" />
-                  <button
-                    onClick={() => handleCloneTemplate(selectedTemplate)}
-                    disabled={cloning}
-                    className="flex items-center gap-1 px-3 py-1 bg-warroom-accent text-white rounded-lg hover:bg-warroom-accent/80 transition disabled:opacity-40"
+              <span className="ml-auto" />
+
+              {/* Agent assignment (only for saved workflows) */}
+              {selectedWorkflow && (
+                <div className="flex items-center gap-1.5">
+                  <Bot size={12} className="text-warroom-muted" />
+                  <select
+                    value={selectedWorkflow.assigned_agent_id ?? ""}
+                    onChange={(e) => assignAgent(selectedWorkflow.id, e.target.value ? Number(e.target.value) : null)}
+                    className="bg-warroom-surface border border-warroom-border rounded-lg px-2 py-1 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent"
+                    style={{ colorScheme: "dark" }}
                   >
-                    {cloning ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
-                    Use This Template
-                  </button>
-                </>
+                    <option value="">No agent</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>{a.emoji} {a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {selectedTemplate && !selectedWorkflow && (
+                <button
+                  onClick={() => handleCloneTemplate(selectedTemplate)}
+                  disabled={cloning}
+                  className="flex items-center gap-1 px-3 py-1 bg-warroom-accent text-white rounded-lg hover:bg-warroom-accent/80 transition disabled:opacity-40"
+                >
+                  {cloning ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
+                  Use This Template
+                </button>
               )}
             </div>
             {/* React Flow Canvas */}

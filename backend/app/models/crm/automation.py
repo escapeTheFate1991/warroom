@@ -47,6 +47,7 @@ class Workflow(CrmBase):
     template_id = Column(Integer, ForeignKey("crm.workflow_templates.id", ondelete="SET NULL"))
     derived_from_workflow_id = Column(Integer, ForeignKey("crm.workflows.id", ondelete="SET NULL"))
     root_workflow_id = Column(Integer, ForeignKey("crm.workflows.id", ondelete="SET NULL"))
+    assigned_agent_id = Column(Integer)  # Agent responsible for executing this workflow
     version = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())

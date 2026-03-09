@@ -49,8 +49,8 @@ function buildNodesAndEdges(workflow: WorkflowData): { nodes: Node[]; edges: Edg
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   let y = 0;
-  const X_CENTER = 300;
-  const Y_GAP = 140;
+  const X_CENTER = 400;
+  const Y_GAP = 200;
 
   // 1. Trigger node
   const triggerId = "trigger-1";
@@ -86,7 +86,8 @@ function buildNodesAndEdges(workflow: WorkflowData): { nodes: Node[]; edges: Edg
 
   // 3. Action nodes
   const actionCount = workflow.actions?.length || 0;
-  const totalWidth = actionCount * 260;
+  const NODE_H_GAP = 320; // horizontal gap between action nodes
+  const totalWidth = actionCount * NODE_H_GAP;
   const startX = X_CENTER - totalWidth / 2;
 
   workflow.actions?.forEach((action: any, i: number) => {
@@ -94,7 +95,7 @@ function buildNodesAndEdges(workflow: WorkflowData): { nodes: Node[]; edges: Edg
     nodes.push({
       id: actionId,
       type: "action",
-      position: { x: startX + i * 260, y },
+      position: { x: startX + i * NODE_H_GAP, y },
       data: {
         actionType: action.type,
         title: action.title || action.subject || action.goal || "",

@@ -228,21 +228,34 @@ export default function CommandCenter() {
       try { return await resp.json(); } catch { return null; }
     };
 
-    const [invoicesResp, contractsResp, allContractsResp, coldEmailsResp, leadsResp, overdueResp] = await Promise.all([
+    const [invoicesResp, contractsResp, allContractsResp, coldEmailsResp, leadsResp, overdueResp, leadgenResp] = await Promise.all([
       authFetch(`${API}/api/invoices`).catch(() => null),
       authFetch(`${API}/api/contracts?status=active`).catch(() => null),
       authFetch(`${API}/api/contracts`).catch(() => null),
       authFetch(`${API}/api/cold-emails/drafts?status=sent`).catch(() => null),
       authFetch(`${API}/api/contact-submissions`).catch(() => null),
       authFetch(`${API}/api/invoices?status=overdue`).catch(() => null),
+      authFetch(`${API}/api/leadgen/leads?limit=200`).catch(() => null),
     ]);
 
-    const invoices: any[] = (await safeJson(invoicesResp)) || [];
-    const activeContracts: any[] = (await safeJson(contractsResp)) || [];
-    const allContracts: any[] = (await safeJson(allContractsResp)) || [];
-    const coldEmails: any[] = (await safeJson(coldEmailsResp)) || [];
-    const leads: any[] = (await safeJson(leadsResp)) || [];
-    const overdueInvoices: any[] = (await safeJson(overdueResp)) || [];
+    // Handle both array and paginated {items: [...]} / {invoices: [...]} responses
+    const extractList = (data: any): any[] => {
+      if (Array.isArray(data)) return data;
+      if (!data) return [];
+      // Try common pagination keys
+      for (const key of ["items", "invoices", "contracts", "drafts", "results"]) {
+        if (Array.isArray(data[key])) return data[key];
+      }
+      return [];
+    };
+
+    const invoices = extractList(await safeJson(invoicesResp));
+    const activeContracts = extractList(await safeJson(contractsResp));
+    const allContracts = extractList(await safeJson(allContractsResp));
+    const coldEmails = extractList(await safeJson(coldEmailsResp));
+    const leads = extractList(await safeJson(leadsResp));
+    const overdueInvoices = extractList(await safeJson(overdueResp));
+    const leadgenLeads = extractList(await safeJson(leadgenResp));
 
     // Revenue this month: sum of paid invoices in current month
     const paidThisMonth = invoices
@@ -259,10 +272,14 @@ export default function CommandCenter() {
       (e: any) => e.sent_at && isCurrentWeek(e.sent_at)
     ).length || coldEmails.length;
 
-    // New leads this week
-    const leadsThisWeek = leads.filter(
+    // New leads this week (contact submissions + leadgen)
+    const submissionsThisWeek = leads.filter(
       (l: any) => l.created_at && isCurrentWeek(l.created_at)
-    ).length || leads.length;
+    ).length;
+    const leadgenThisWeek = leadgenLeads.filter(
+      (l: any) => l.created_at && isCurrentWeek(l.created_at)
+    ).length;
+    const leadsThisWeek = submissionsThisWeek + leadgenThisWeek || leads.length + leadgenLeads.length;
 
     // Average close time: days from created to signed for signed contracts
     const signedContracts = allContracts.filter((c: any) => c.status === "signed" && c.created_at && c.signed_at);

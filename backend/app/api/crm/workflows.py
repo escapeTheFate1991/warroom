@@ -766,6 +766,14 @@ async def _with_workflow_provenance(db: AsyncSession, workflows: list[Workflow])
 
 
 async def _ensure_seed_templates(db: AsyncSession) -> None:
+    # Idempotent column migration
+    from sqlalchemy import text
+    try:
+        await db.execute(text("ALTER TABLE crm.workflows ADD COLUMN IF NOT EXISTS assigned_agent_id INTEGER"))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
     existing_result = await db.execute(select(WorkflowTemplate.seed_key).where(WorkflowTemplate.seed_key.is_not(None)))
     existing_seed_keys = set(existing_result.scalars().all())
     created = False

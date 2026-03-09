@@ -71,6 +71,36 @@ export interface LeadFull {
   tags: string[];
   website_platform: string | null;
   agent_assignments?: AgentAssignmentSummary[];
+
+  // Reviews
+  yelp_rating: number | null;
+  yelp_reviews_count: number;
+  review_highlights: string[] | null;
+  review_sentiment_score: number | null;
+  review_pain_points: string[] | null;
+  review_opportunity_flags: string[] | null;
+
+  // BBB
+  bbb_url: string | null;
+  bbb_rating: string | null;
+  bbb_accredited: boolean | null;
+  bbb_complaints: number;
+  bbb_summary: string | null;
+
+  // Glassdoor
+  glassdoor_url: string | null;
+  glassdoor_rating: number | null;
+  glassdoor_review_count: number;
+  glassdoor_summary: string | null;
+
+  // Reddit
+  reddit_mentions: Array<{ title: string; url: string; subreddit: string; snippet: string; date: string }> | null;
+
+  // News
+  news_mentions: Array<{ title: string; url: string; source: string; snippet: string; date: string }> | null;
+
+  // Social scan
+  social_scan: Record<string, { url: string; exists: boolean | null; title: string; description: string; followers: number | null }> | null;
 }
 
 interface LeadDrawerProps {
@@ -232,8 +262,19 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
   );
 }
 
+function IntelSection({ title, emoji, children }: { title: string; emoji: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+      <h4 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider flex items-center gap-2 mb-3">
+        <span>{emoji}</span> {title}
+      </h4>
+      {children}
+    </div>
+  );
+}
+
 export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDrawerProps) {
-  const [activeTab, setActiveTab] = useState<"audit" | "contact" | "scripts" | "notes">("contact");
+  const [activeTab, setActiveTab] = useState<"audit" | "intel" | "contact" | "scripts" | "notes">("contact");
   const [contactForm, setContactForm] = useState({
     contacted_by: "",
     who_answered: "",
@@ -613,6 +654,7 @@ ${lead.phone || ""}`;
           <ScrollTabs
             tabs={[
               { id: "audit", label: "Audit", icon: FileText },
+              { id: "intel", label: "Intel", icon: Globe },
               { id: "contact", label: "Contact", icon: PhoneIcon },
               { id: "scripts", label: "Scripts", icon: MessageSquare },
               { id: "notes", label: "Notes", icon: StickyNote },
@@ -673,6 +715,153 @@ ${lead.phone || ""}`;
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === "intel" && (
+              <div className="space-y-5">
+                {/* BBB */}
+                <IntelSection title="Better Business Bureau" emoji="🏛️">
+                  {lead.bbb_url ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        {lead.bbb_rating && (
+                          <span className={`text-lg font-bold ${lead.bbb_rating.startsWith('A') ? 'text-green-400' : lead.bbb_rating.startsWith('B') ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {lead.bbb_rating}
+                          </span>
+                        )}
+                        {lead.bbb_accredited && (
+                          <span className="text-[10px] px-2 py-0.5 bg-green-500/15 text-green-400 rounded-full font-medium">Accredited</span>
+                        )}
+                        {lead.bbb_complaints > 0 && (
+                          <span className="text-[10px] px-2 py-0.5 bg-red-500/15 text-red-400 rounded-full">{lead.bbb_complaints} complaints</span>
+                        )}
+                      </div>
+                      <a href={lead.bbb_url} target="_blank" rel="noopener" className="text-xs text-warroom-accent hover:underline block truncate">{lead.bbb_url}</a>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-warroom-muted">No BBB profile found</p>
+                  )}
+                </IntelSection>
+
+                {/* Glassdoor */}
+                <IntelSection title="Glassdoor" emoji="🏢">
+                  {lead.glassdoor_url ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        {lead.glassdoor_rating != null && (
+                          <span className="text-lg font-bold text-warroom-text">{lead.glassdoor_rating}/5</span>
+                        )}
+                        {lead.glassdoor_review_count > 0 && (
+                          <span className="text-xs text-warroom-muted">{lead.glassdoor_review_count} reviews</span>
+                        )}
+                      </div>
+                      {lead.glassdoor_summary && <p className="text-xs text-warroom-muted">{lead.glassdoor_summary}</p>}
+                      <a href={lead.glassdoor_url} target="_blank" rel="noopener" className="text-xs text-warroom-accent hover:underline block truncate">{lead.glassdoor_url}</a>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-warroom-muted">No Glassdoor listing found</p>
+                  )}
+                </IntelSection>
+
+                {/* Yelp */}
+                <IntelSection title="Yelp Reviews" emoji="⭐">
+                  {lead.yelp_rating != null || lead.yelp_reviews_count > 0 ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        {lead.yelp_rating != null && <span className="text-lg font-bold text-warroom-text">{lead.yelp_rating}/5</span>}
+                        <span className="text-xs text-warroom-muted">{lead.yelp_reviews_count} reviews</span>
+                      </div>
+                      {lead.review_sentiment_score != null && (
+                        <div className="text-xs text-warroom-muted">
+                          Sentiment: <span className={lead.review_sentiment_score >= 0 ? "text-green-400" : "text-red-400"}>
+                            {lead.review_sentiment_score > 0 ? "+" : ""}{(lead.review_sentiment_score * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      )}
+                      {lead.review_pain_points && lead.review_pain_points.length > 0 && (
+                        <div>
+                          <p className="text-[10px] text-warroom-muted uppercase mb-1">Pain Points</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {lead.review_pain_points.map((p, i) => (
+                              <span key={i} className="text-[10px] px-2 py-0.5 bg-red-500/15 text-red-400 rounded-full">{p}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {lead.review_opportunity_flags && lead.review_opportunity_flags.length > 0 && (
+                        <div>
+                          <p className="text-[10px] text-warroom-muted uppercase mb-1">Opportunity Flags</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {lead.review_opportunity_flags.map((f, i) => (
+                              <span key={i} className="text-[10px] px-2 py-0.5 bg-orange-500/15 text-orange-400 rounded-full">{f}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-warroom-muted">No Yelp data</p>
+                  )}
+                </IntelSection>
+
+                {/* Social Presence */}
+                <IntelSection title="Social Presence" emoji="📱">
+                  {lead.social_scan && Object.keys(lead.social_scan).length > 0 ? (
+                    <div className="space-y-2">
+                      {Object.entries(lead.social_scan).map(([platform, info]) => (
+                        <div key={platform} className="flex items-center justify-between py-1.5 border-b border-warroom-border/30 last:border-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${info.exists ? "bg-green-400" : info.exists === false ? "bg-red-400" : "bg-gray-400"}`} />
+                            <span className="text-xs text-warroom-text capitalize">{platform}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {info.followers != null && (
+                              <span className="text-[10px] text-warroom-muted">{info.followers.toLocaleString()} followers</span>
+                            )}
+                            <a href={info.url} target="_blank" rel="noopener" className="text-[10px] text-warroom-accent hover:underline">View</a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-warroom-muted">No social profiles found</p>
+                  )}
+                </IntelSection>
+
+                {/* Reddit Mentions */}
+                <IntelSection title="Reddit Mentions" emoji="🗣️">
+                  {lead.reddit_mentions && lead.reddit_mentions.length > 0 ? (
+                    <div className="space-y-2">
+                      {lead.reddit_mentions.map((m, i) => (
+                        <a key={i} href={m.url} target="_blank" rel="noopener" className="block p-2 bg-warroom-bg rounded-lg hover:bg-warroom-surface transition">
+                          <p className="text-xs text-warroom-text font-medium">{m.title}</p>
+                          <p className="text-[10px] text-warroom-muted mt-0.5">r/{m.subreddit} · {m.date || "unknown date"}</p>
+                          {m.snippet && <p className="text-[10px] text-warroom-muted mt-1 line-clamp-2">{m.snippet}</p>}
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-warroom-muted">No Reddit mentions found</p>
+                  )}
+                </IntelSection>
+
+                {/* News Mentions */}
+                <IntelSection title="News & Press" emoji="📰">
+                  {lead.news_mentions && lead.news_mentions.length > 0 ? (
+                    <div className="space-y-2">
+                      {lead.news_mentions.map((m, i) => (
+                        <a key={i} href={m.url} target="_blank" rel="noopener" className="block p-2 bg-warroom-bg rounded-lg hover:bg-warroom-surface transition">
+                          <p className="text-xs text-warroom-text font-medium">{m.title}</p>
+                          <p className="text-[10px] text-warroom-muted mt-0.5">{m.source} · {m.date || ""}</p>
+                          {m.snippet && <p className="text-[10px] text-warroom-muted mt-1 line-clamp-2">{m.snippet}</p>}
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-warroom-muted">No news coverage found</p>
+                  )}
+                </IntelSection>
               </div>
             )}
 
