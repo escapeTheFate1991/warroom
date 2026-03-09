@@ -47,6 +47,10 @@ interface SocialSummary {
   total_shares: number;
   total_saves: number;
   total_video_views: number;
+  total_views: number;
+  total_interactions: number;
+  avg_watch_time_ms: number;
+  total_watch_time_ms: number;
 }
 
 interface SocialAnalyticsSeriesPoint {
@@ -106,6 +110,10 @@ const EMPTY_SUMMARY: SocialSummary = {
   total_shares: 0,
   total_saves: 0,
   total_video_views: 0,
+  total_views: 0,
+  total_interactions: 0,
+  avg_watch_time_ms: 0,
+  total_watch_time_ms: 0,
 };
 
 const PLATFORMS: PlatformConfig[] = [
@@ -488,12 +496,11 @@ export default function SocialDashboard() {
       .slice(0, 8);
   }, [publishedContent, selectedPlatform]);
 
-  const clickThroughRate =
-    summary.total_impressions > 0
-      ? (summary.total_link_clicks / summary.total_impressions) * 100
-      : 0;
-
   const savesAndShares = summary.total_saves + summary.total_shares;
+  const avgWatchSec = summary.avg_watch_time_ms > 0 ? (summary.avg_watch_time_ms / 1000).toFixed(1) + "s" : "—";
+  const totalWatchMin = summary.total_watch_time_ms > 0
+    ? Math.floor(summary.total_watch_time_ms / 60000) + "m " + Math.floor((summary.total_watch_time_ms % 60000) / 1000) + "s"
+    : "—";
   const chartMax = Math.max(...timeSeries.map((point) => point.engagement), 1);
   const chartPeak = timeSeries.reduce<SocialAnalyticsSeriesPoint | null>((current, point) => {
     if (!current || point.engagement > current.engagement) return point;
@@ -503,14 +510,13 @@ export default function SocialDashboard() {
 
   const metricCards = [
     { label: "Followers", value: formatNum(summary.total_followers), icon: Users, tone: "text-blue-400" },
-    { label: "Total Engagement", value: formatNum(summary.total_engagement), icon: Zap, tone: "text-green-400" },
-    { label: "Engagement Rate", value: formatPercent(summary.engagement_rate), icon: TrendingUp, tone: "text-emerald-400" },
-    { label: "Impressions", value: formatNum(summary.total_impressions), icon: Eye, tone: "text-purple-400" },
+    { label: "Views", value: formatNum(summary.total_views || summary.total_video_views), icon: Eye, tone: "text-purple-400" },
     { label: "Reach", value: formatNum(summary.total_reach), icon: BarChart3, tone: "text-indigo-400" },
-    { label: "CTR", value: formatPercent(clickThroughRate), icon: TrendingUp, tone: "text-cyan-400" },
+    { label: "Interactions", value: formatNum(summary.total_interactions || summary.total_engagement), icon: Zap, tone: "text-green-400" },
+    { label: "Avg Watch Time", value: avgWatchSec, icon: Film, tone: "text-rose-400" },
+    { label: "Total Watch Time", value: totalWatchMin, icon: Film, tone: "text-pink-400" },
     { label: "Saves + Shares", value: formatNum(savesAndShares), icon: Share2, tone: "text-orange-400" },
-    { label: "Video Views", value: formatNum(summary.total_video_views), icon: Film, tone: "text-rose-400" },
-    { label: "Accounts Connected", value: formatNum(summary.accounts_connected), icon: Users, tone: "text-yellow-400" },
+    { label: "Engagement Rate", value: formatPercent(summary.engagement_rate), icon: TrendingUp, tone: "text-emerald-400" },
   ];
 
   if (loading) {

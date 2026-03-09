@@ -75,6 +75,10 @@ class SocialSummaryResponse(BaseModel):
     total_shares: int = 0
     total_saves: int = 0
     total_video_views: int = 0
+    total_views: int = 0
+    total_interactions: int = 0
+    avg_watch_time_ms: int = 0
+    total_watch_time_ms: int = 0
 
 
 class SocialAnalyticsSeriesPoint(BaseModel):
@@ -201,71 +205,87 @@ async def get_social_analytics(
     platform: Optional[str] = None,
     db: AsyncSession = Depends(get_crm_db)
 ):
-    """Get aggregated social media analytics."""
+    """Get aggregated social media analytics (raw SQL — includes all Reel metrics)."""
     try:
-        # Base query
-        query = select(SocialAccount).where(SocialAccount.status == "connected")
+        # Count connected accounts + total followers
+        acct_q = "SELECT count(*), coalesce(sum(follower_count), 0) FROM social_accounts WHERE status = 'connected'"
+        acct_params: dict = {}
         if platform:
-            query = query.where(SocialAccount.platform == platform)
-        
-        result = await db.execute(query)
-        accounts = result.scalars().all()
-        
-        if not accounts:
-            # Return empty data if no accounts exist
+            acct_q += " AND platform = :p"
+            acct_params["p"] = platform
+        r = await db.execute(text(acct_q), acct_params)
+        acct_row = r.fetchone()
+        accounts_connected = acct_row[0] if acct_row else 0
+        total_followers = acct_row[1] if acct_row else 0
+
+        if accounts_connected == 0:
             return SocialSummaryResponse(
-                total_followers=0,
-                total_engagement=0,
-                total_impressions=0,
-                total_reach=0,
-                engagement_rate=0.0,
-                accounts_connected=0,
-                total_link_clicks=0,
-                total_shares=0,
-                total_saves=0,
-                total_video_views=0,
+                total_followers=0, total_engagement=0, total_impressions=0,
+                total_reach=0, engagement_rate=0.0, accounts_connected=0,
             )
-        
-        # Get recent analytics (last 30 days)
-        end_date = date.today()
-        start_date = end_date - timedelta(days=30)
-        
-        analytics_query = select(SocialAnalytics).join(SocialAccount).where(
-            SocialAccount.status == "connected",
-            SocialAnalytics.metric_date >= start_date,
-            SocialAnalytics.metric_date <= end_date
-        )
-        
+
+        # Aggregate analytics (last 30 days)
+        analytics_q = """
+            SELECT
+                coalesce(sum(a.engagement), 0),
+                coalesce(sum(a.impressions), 0),
+                coalesce(sum(a.reach), 0),
+                coalesce(sum(a.link_clicks), 0),
+                coalesce(sum(a.shares), 0),
+                coalesce(sum(a.saves), 0),
+                coalesce(sum(a.video_views), 0),
+                coalesce(sum(a.likes), 0),
+                coalesce(sum(a.comments), 0),
+                coalesce(sum(a.views), 0),
+                coalesce(sum(a.total_interactions), 0),
+                coalesce(avg(nullif(a.avg_watch_time_ms, 0)), 0)::int,
+                coalesce(sum(a.total_watch_time_ms), 0)
+            FROM social_analytics a
+            JOIN social_accounts s ON s.id = a.account_id
+            WHERE s.status = 'connected'
+              AND a.metric_date >= current_date - 30
+        """
+        params: dict = {}
         if platform:
-            analytics_query = analytics_query.where(SocialAccount.platform == platform)
-        
-        analytics_result = await db.execute(analytics_query)
-        analytics = analytics_result.scalars().all()
-        
-        # Aggregate data
-        total_followers = sum(account.follower_count for account in accounts)
-        total_engagement = sum(a.engagement for a in analytics)
-        total_impressions = sum(a.impressions for a in analytics)
-        total_reach = sum(a.reach for a in analytics)
-        total_link_clicks = sum(a.link_clicks for a in analytics)
-        total_shares = sum(a.shares for a in analytics)
-        total_saves = sum(a.saves for a in analytics)
-        total_video_views = sum(a.video_views for a in analytics)
-        
-        # Calculate engagement rate
+            analytics_q += " AND s.platform = :p"
+            params["p"] = platform
+
+        r = await db.execute(text(analytics_q), params)
+        row = r.fetchone()
+
+        total_engagement = row[0]
+        total_impressions = row[1]
+        total_reach = row[2]
+        total_link_clicks = row[3]
+        total_shares = row[4]
+        total_saves = row[5]
+        total_video_views = row[6]
+        total_views = row[9]
+        total_interactions = row[10]
+        avg_watch_time_ms = row[11]
+        total_watch_time_ms = row[12]
+
+        # Use views as impressions if impressions are 0 (IG Reels don't have impressions)
+        if total_impressions == 0 and total_views > 0:
+            total_impressions = total_views
+
         engagement_rate = (total_engagement / total_impressions * 100) if total_impressions > 0 else 0
-        
+
         return SocialSummaryResponse(
             total_followers=total_followers,
             total_engagement=total_engagement,
             total_impressions=total_impressions,
             total_reach=total_reach,
             engagement_rate=round(engagement_rate, 2),
-            accounts_connected=len(accounts),
+            accounts_connected=accounts_connected,
             total_link_clicks=total_link_clicks,
             total_shares=total_shares,
             total_saves=total_saves,
             total_video_views=total_video_views,
+            total_views=total_views,
+            total_interactions=total_interactions,
+            avg_watch_time_ms=avg_watch_time_ms,
+            total_watch_time_ms=total_watch_time_ms,
         )
     except Exception as e:
         logger.error("Failed to fetch social analytics: %s", e)

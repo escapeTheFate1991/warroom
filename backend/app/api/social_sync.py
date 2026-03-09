@@ -155,11 +155,17 @@ async def _try_refresh_token(db: AsyncSession, acc: dict) -> Optional[str]:
 # ── Platform Sync Functions ──────────────────────────────────────────
 
 async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
-    """Sync Instagram: profile stats + post-level metrics + account insights."""
-    results = {"platform": "instagram", "username": acc["username"], "status": "ok", "posts_synced": 0}
+    """Sync Instagram: profile stats + per-media insights + account insights.
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        # Profile stats
+    Per-media metrics (Reels): views, reach, likes, comments, shares, saves,
+    total_interactions, avg_watch_time, total_watch_time, replays.
+    Account metrics: reach, profile_views, follows_and_unfollows.
+    """
+    results = {"platform": "instagram", "username": acc["username"], "status": "ok", "posts_synced": 0}
+    import json as _json
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        # 1. Profile stats
         profile = await client.get("https://graph.instagram.com/me", params={
             "fields": "id,username,account_type,media_count,followers_count,follows_count",
             "access_token": acc["token"],
@@ -177,50 +183,111 @@ async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
             logger.warning("Instagram profile fetch failed: %s %s", profile.status_code, profile.text[:200])
             results["status"] = "partial"
 
-        # Recent media with engagement
+        # 2. Recent media + per-post insights
         media_resp = await client.get("https://graph.instagram.com/me/media", params={
-            "fields": "id,timestamp,like_count,comments_count,media_type",
+            "fields": "id,timestamp,like_count,comments_count,media_type,permalink",
             "limit": 25,
             "access_token": acc["token"],
         })
+
+        totals = {"likes": 0, "comments": 0, "shares": 0, "saves": 0, "views": 0,
+                  "reach": 0, "total_interactions": 0, "avg_watch_time_ms": 0,
+                  "total_watch_time_ms": 0, "video_views": 0}
+        post_insights_list = []
+
         if media_resp.status_code == 200:
             posts = media_resp.json().get("data", [])
-            total_likes = 0
-            total_comments = 0
-            for post in posts:
-                total_likes += post.get("like_count", 0)
-                total_comments += post.get("comments_count", 0)
             results["posts_synced"] = len(posts)
 
-            # Store today's aggregated engagement
+            for post in posts:
+                mid = post["id"]
+                mtype = post.get("media_type", "")
+
+                # Determine which metrics to request based on media type
+                if mtype == "VIDEO":  # Reels
+                    metrics = "reach,saved,shares,likes,comments,total_interactions,ig_reels_avg_watch_time,ig_reels_video_view_total_time,views"
+                elif mtype == "CAROUSEL_ALBUM":
+                    metrics = "reach,saved,shares,likes,comments,total_interactions"
+                else:  # IMAGE
+                    metrics = "reach,saved,shares,likes,comments,total_interactions"
+
+                try:
+                    ins_resp = await client.get(f"https://graph.instagram.com/{mid}/insights", params={
+                        "metric": metrics,
+                        "access_token": acc["token"],
+                    })
+                    post_data = {"id": mid, "type": mtype, "permalink": post.get("permalink", "")}
+
+                    if ins_resp.status_code == 200:
+                        for m in ins_resp.json().get("data", []):
+                            name = m["name"]
+                            val = m["values"][0]["value"] if m.get("values") else 0
+                            post_data[name] = val
+
+                            if name == "likes":
+                                totals["likes"] += val
+                            elif name == "comments":
+                                totals["comments"] += val
+                            elif name == "shares":
+                                totals["shares"] += val
+                            elif name == "saved":
+                                totals["saves"] += val
+                            elif name == "views":
+                                totals["views"] += val
+                                totals["video_views"] += val
+                            elif name == "reach":
+                                totals["reach"] += val
+                            elif name == "total_interactions":
+                                totals["total_interactions"] += val
+                            elif name == "ig_reels_avg_watch_time":
+                                totals["avg_watch_time_ms"] += val
+                            elif name == "ig_reels_video_view_total_time":
+                                totals["total_watch_time_ms"] += val
+
+                    post_insights_list.append(post_data)
+                except Exception as e:
+                    logger.debug("Insights failed for %s: %s", mid, e)
+
+            # Average the avg_watch_time across posts
+            video_count = sum(1 for p in posts if p.get("media_type") == "VIDEO")
+            if video_count > 0:
+                totals["avg_watch_time_ms"] = totals["avg_watch_time_ms"] // video_count
+
+            # Engagement = likes + comments + shares + saves
+            total_engagement = totals["likes"] + totals["comments"] + totals["shares"] + totals["saves"]
+
             await _upsert_daily_analytics(db, acc["id"], date.today(),
-                likes=total_likes,
-                comments=total_comments,
-                engagement=total_likes + total_comments,
-                engagement_rate=round((total_likes + total_comments) / max(len(posts), 1), 2) if posts else 0,
+                likes=totals["likes"],
+                comments=totals["comments"],
+                shares=totals["shares"],
+                saves=totals["saves"],
+                views=totals["views"],
+                video_views=totals["video_views"],
+                reach=totals["reach"],
+                total_interactions=totals["total_interactions"],
+                avg_watch_time_ms=totals["avg_watch_time_ms"],
+                total_watch_time_ms=totals["total_watch_time_ms"],
+                engagement=total_engagement,
+                engagement_rate=round(total_engagement / max(len(posts), 1), 2),
+                media_insights=_json.dumps(post_insights_list) if post_insights_list else None,
             )
 
-        # Account insights (requires Business/Creator account)
+        # 3. Account-level insights (daily)
         try:
-            insights_resp = await client.get("https://graph.instagram.com/me/insights", params={
-                "metric": "impressions,reach,profile_views",
+            acct_resp = await client.get("https://graph.instagram.com/me/insights", params={
+                "metric": "reach",
                 "period": "day",
                 "access_token": acc["token"],
             })
-            if insights_resp.status_code == 200:
-                for metric in insights_resp.json().get("data", []):
-                    name = metric.get("name")
-                    values = metric.get("values", [])
-                    if values:
-                        val = values[-1].get("value", 0)
-                        if name == "impressions":
-                            await _upsert_daily_analytics(db, acc["id"], date.today(), impressions=val)
-                        elif name == "reach":
+            if acct_resp.status_code == 200:
+                for m in acct_resp.json().get("data", []):
+                    vals = m.get("values", [])
+                    if vals:
+                        val = vals[-1].get("value", 0)
+                        if m["name"] == "reach" and val > totals["reach"]:
                             await _upsert_daily_analytics(db, acc["id"], date.today(), reach=val)
-                        elif name == "profile_views":
-                            await _upsert_daily_analytics(db, acc["id"], date.today(), profile_views=val)
         except Exception as e:
-            logger.warning("Instagram insights error: %s", e)
+            logger.debug("Account insights error: %s", e)
 
     return results
 
