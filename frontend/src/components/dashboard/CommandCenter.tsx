@@ -10,6 +10,7 @@ import {
 import { API, authFetch } from "@/lib/api";
 import ActiveAssignmentsList from "@/components/agents/ActiveAssignmentsList";
 import AskAIButton from "@/components/agents/AskAIButton";
+import type { GroundedAIContext } from "@/components/agents/SharedAIChatPanel";
 import SalesDashboard from "@/components/dashboard/SalesDashboard";
 
 type DashboardFocus = "sales" | "social" | "ai";
@@ -313,9 +314,12 @@ export default function CommandCenter() {
   ];
 
   const greeting = currentTime.getHours() < 12 ? "Good morning" : currentTime.getHours() < 18 ? "Good afternoon" : "Good evening";
-  const chatContext = focus === "sales"
+  const chatContext: GroundedAIContext = focus === "sales"
     ? {
         surface: "sales",
+        entityType: "dashboard_view",
+        entityId: "command-center:sales",
+        entityName: "Command Center sales view",
         title: "Command Center sales view",
         summary: `${metrics.activeContracts || 0} active contracts and ${formatNum(metrics.pipelineValue || 0)} in open pipeline value.`,
         facts: [
@@ -327,6 +331,9 @@ export default function CommandCenter() {
     : focus === "social"
       ? {
           surface: "social",
+          entityType: "dashboard_view",
+          entityId: "command-center:social",
+          entityName: "Command Center social view",
           title: "Command Center social view",
           summary: `${accounts.length} connected account(s) with ${formatNum(summary?.total_engagement || 0)} engagements tracked.`,
           facts: [
@@ -337,6 +344,9 @@ export default function CommandCenter() {
         }
       : {
           surface: "ai",
+          entityType: "dashboard_view",
+          entityId: "command-center:ai",
+          entityName: "Command Center AI operations",
           title: "Command Center AI operations",
           summary: `${displayEvents.length} recent handoff or completion event(s).`,
           facts: [

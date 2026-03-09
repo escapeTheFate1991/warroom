@@ -590,6 +590,9 @@ export default function SocialDashboard() {
             <AskAIButton
               context={{
                 surface: "social",
+                entityType: "dashboard_view",
+                entityId: `social-dashboard:${selectedPlatform}`,
+                entityName: `${selectedPlatformLabel} social dashboard`,
                 title: `${selectedPlatformLabel} social coverage`,
                 summary: `${scopedAccounts.length} connected account(s) in view with ${formatNum(summary.total_engagement)} engagements tracked.`,
                 facts: [

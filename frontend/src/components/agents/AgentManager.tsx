@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  Plus, Trash2, Bot, Cpu, Wrench,
-  Loader2, Settings, Zap,
+  Plus, Bot, Cpu, Wrench,
+  Loader2, Zap,
   Users, Pen, Palette, Code, Search,
   BarChart3, Headphones, Globe, Cog, Monitor, Server, ShieldCheck,
 } from "lucide-react";
@@ -41,7 +41,6 @@ interface AgentManagerProps {
 export default function AgentManager({ onNavigate }: AgentManagerProps) {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -55,16 +54,6 @@ export default function AgentManager({ onNavigate }: AgentManagerProps) {
   }, []);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
-
-  const handleDelete = async (agentId: string) => {
-    try {
-      await authFetch(`${API}/api/agents/${agentId}`, { method: "DELETE" });
-      setDeleteConfirm(null);
-      fetchAgents();
-    } catch (err) {
-      console.error("Failed to delete agent:", err);
-    }
-  };
 
   const navigateToCreate = () => {
     onNavigate?.("agent-create");
@@ -140,20 +129,7 @@ export default function AgentManager({ onNavigate }: AgentManagerProps) {
                     <p className="text-[10px] text-warroom-muted capitalize">{agent.role}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); navigateToEdit(agent.id); }}
-                    className="p-1 rounded-lg hover:bg-warroom-border/50 text-warroom-muted hover:text-warroom-text transition"
-                  >
-                    <Settings size={14} />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteConfirm(agent.id); }}
-                    className="p-1 rounded-lg hover:bg-red-500/10 text-warroom-muted hover:text-red-400 transition"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+                {/* Edit/delete moved to individual agent page */}
               </div>
 
               {/* Description */}
@@ -193,16 +169,7 @@ export default function AgentManager({ onNavigate }: AgentManagerProps) {
                 </div>
               )}
 
-              {/* Delete confirmation */}
-              {deleteConfirm === agent.id && (
-                <div className="border-t border-red-500/30 bg-red-500/5 px-4 py-3 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-                  <p className="text-xs text-red-400">Delete this agent?</p>
-                  <div className="flex gap-2">
-                    <button onClick={() => setDeleteConfirm(null)} className="text-xs text-warroom-muted hover:text-warroom-text px-2 py-1">Cancel</button>
-                    <button onClick={() => handleDelete(agent.id)} className="text-xs text-red-400 hover:text-red-300 bg-red-500/10 px-3 py-1 rounded-lg">Delete</button>
-                  </div>
-                </div>
-              )}
+
             </div>
           ))}
         </div>

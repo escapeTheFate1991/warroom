@@ -228,10 +228,13 @@ function WarRoom() {
           {activeTab === "chat" && <ChatPanel />}
           {activeTab === "agents" && (
             <AgentFeaturePage onNavigate={(tab, params) => {
+              const nextTab = normalizeTab(tab);
+              setActiveTab(nextTab);
               if (params?.id) {
                 router.push(`/?tab=${tab}&id=${params.id}`, { scroll: false });
+              } else {
+                router.push(`/?tab=${tab}`, { scroll: false });
               }
-              handleTabChange(tab);
             }} />
           )}
           {activeTab === "agent-create" && (
