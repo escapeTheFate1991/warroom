@@ -170,8 +170,9 @@ function flattenSections(sections: typeof SECTIONS): { id: string; label: string
   const flat: { id: string; label: string; icon: any }[] = [];
   for (const section of sections) {
     for (const item of section.items) {
-      if (item.children && item.children.length > 0) {
-        for (const child of item.children) {
+      const anyItem = item as any;
+      if (anyItem.children && anyItem.children.length > 0) {
+        for (const child of anyItem.children) {
           flat.push({ id: child.id, label: child.label, icon: child.icon });
         }
       } else {
