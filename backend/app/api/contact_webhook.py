@@ -138,11 +138,10 @@ def _build_auto_reply_html(name: str) -> str:
             We're glad you're here.
         </p>
         <p style="font-size:15px;line-height:1.6">
-            Our team will review your request within <strong>24 hours</strong>.
-        </p>
-        <p style="font-size:15px;line-height:1.6">
-            You'll receive a call from us shortly to discuss your needs and schedule
-            a time that works for you.
+            You'll receive a call from us shortly at the number you provided.
+            We'll schedule a time for a member of our team to walk you through
+            your <strong>free website audit</strong> and discuss how we can help
+            streamline your business.
         </p>
         <p style="font-size:15px;line-height:1.6">
             In the meantime, feel free to reply to this email if you have any questions.
@@ -156,6 +155,74 @@ def _build_auto_reply_html(name: str) -> str:
             <a href="mailto:contact@stuffnthings.io" style="color:#999;text-decoration:none">contact@stuffnthings.io</a>
             &nbsp;|&nbsp;
             <a href="https://stuffnthings.io" style="color:#999;text-decoration:none">stuffnthings.io</a>
+        </p>
+    </div>
+    """
+
+
+def _build_lead_notification_html(submission: dict, intake: dict | None = None) -> str:
+    """Build the internal lead notification email sent to contact@stuffnthings.io."""
+    name = submission.get("name", "Unknown")
+    email = submission.get("email", "")
+    phone = submission.get("phone", "N/A")
+    message = submission.get("message", "")
+    business = submission.get("business_name") or "Not provided"
+    website = submission.get("website_url") or "Not provided"
+
+    # Call results section
+    call_section = ""
+    if intake and intake.get("call_status") == "completed":
+        pain = intake.get("pain_points") or "Not captured"
+        services = intake.get("services") or "Not captured"
+        schedule = intake.get("schedule_pref") or "Not captured"
+        call_section = f"""
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:16px 0">
+            <h3 style="color:#166534;margin:0 0 12px 0;font-size:14px">✅ AI Intake Call Completed</h3>
+            <table style="font-size:14px;line-height:1.6;width:100%">
+                <tr><td style="color:#666;padding:4px 12px 4px 0;white-space:nowrap"><strong>Pain Points:</strong></td><td>{pain}</td></tr>
+                <tr><td style="color:#666;padding:4px 12px 4px 0;white-space:nowrap"><strong>Services:</strong></td><td>{services}</td></tr>
+                <tr><td style="color:#666;padding:4px 12px 4px 0;white-space:nowrap"><strong>Scheduling:</strong></td><td>{schedule}</td></tr>
+            </table>
+        </div>
+        """
+    elif intake and intake.get("call_status") in ("no-answer", "busy", "failed"):
+        call_section = f"""
+        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;margin:16px 0">
+            <h3 style="color:#991b1b;margin:0 0 8px 0;font-size:14px">❌ AI Call Did Not Connect</h3>
+            <p style="font-size:13px;color:#666;margin:0">Status: {intake.get('call_status', 'unknown')}. Follow up manually.</p>
+        </div>
+        """
+    else:
+        call_section = """
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px;margin:16px 0">
+            <h3 style="color:#92400e;margin:0 0 8px 0;font-size:14px">📞 No Call Attempted</h3>
+            <p style="font-size:13px;color:#666;margin:0">Phone number was not provided or call was not triggered.</p>
+        </div>
+        """
+
+    return f"""\
+    <div style="font-family:system-ui,-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:32px;color:#333">
+        <h2 style="color:#1a1a2e;margin-bottom:4px">New Lead: {name}</h2>
+        <p style="font-size:13px;color:#999;margin-top:0">From stuffnthings.io contact form</p>
+
+        <table style="font-size:14px;line-height:1.8;width:100%;margin:16px 0">
+            <tr><td style="color:#666;padding:4px 12px 4px 0;white-space:nowrap"><strong>Name:</strong></td><td>{name}</td></tr>
+            <tr><td style="color:#666;padding:4px 12px 4px 0;white-space:nowrap"><strong>Email:</strong></td><td><a href="mailto:{email}" style="color:#0ea5e9">{email}</a></td></tr>
+            <tr><td style="color:#666;padding:4px 12px 4px 0;white-space:nowrap"><strong>Phone:</strong></td><td>{phone}</td></tr>
+            <tr><td style="color:#666;padding:4px 12px 4px 0;white-space:nowrap"><strong>Business:</strong></td><td>{business}</td></tr>
+            <tr><td style="color:#666;padding:4px 12px 4px 0;white-space:nowrap"><strong>Website:</strong></td><td>{website}</td></tr>
+        </table>
+
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0">
+            <h3 style="color:#475569;margin:0 0 8px 0;font-size:14px">Their Message</h3>
+            <p style="font-size:14px;line-height:1.6;margin:0">{message}</p>
+        </div>
+
+        {call_section}
+
+        <hr style="border:none;border-top:1px solid #e0e0e0;margin:24px 0 12px">
+        <p style="font-size:11px;color:#999;text-align:center">
+            War Room Lead Notification &bull; <a href="https://warroom.stuffnthings.io" style="color:#999">Open War Room</a>
         </p>
     </div>
     """
@@ -249,6 +316,43 @@ async def _send_confirmation_sms_and_call(submission_id: int, name: str, phone: 
         logger.error("SMS/Call pipeline failed for submission #%d: %s", submission_id, exc)
 
 
+# ── Lead Notification (sent AFTER call completes or fails) ───────────
+
+LEAD_NOTIFY_TO = "contact@stuffnthings.io"
+
+
+async def send_lead_notification(submission_id: int, intake: dict | None = None):
+    """Send internal lead notification email with call results to contact@stuffnthings.io."""
+    try:
+        # Fetch submission data
+        async with _session() as db:
+            result = await db.execute(
+                text("SELECT * FROM public.contact_submissions WHERE id = :id"),
+                {"id": submission_id},
+            )
+            row = result.fetchone()
+            if not row:
+                logger.warning("Submission #%d not found for lead notification", submission_id)
+                return
+
+        submission = dict(row._mapping)
+        html = _build_lead_notification_html(submission, intake)
+        name = submission.get("name", "Unknown")
+        subject = f"New Lead: {name}"
+        if intake and intake.get("call_status") == "completed":
+            subject = f"New Lead (Call Completed): {name}"
+        elif intake and intake.get("call_status") in ("no-answer", "busy", "failed"):
+            subject = f"New Lead (Call Failed): {name}"
+
+        sent = await asyncio.to_thread(_send_email, LEAD_NOTIFY_TO, subject, html)
+        if sent:
+            logger.info("Lead notification sent to %s for submission #%d", LEAD_NOTIFY_TO, submission_id)
+        else:
+            logger.warning("Lead notification NOT sent (SMTP unconfigured?)")
+    except Exception as exc:
+        logger.error("Lead notification failed for submission #%d: %s", submission_id, exc)
+
+
 # ── Rate Limiting ────────────────────────────────────────────────────
 RATE_LIMIT = 5  # max submissions per email per hour
 
@@ -318,6 +422,9 @@ async def submit_contact(body: ContactSubmission, request: Request):
         asyncio.create_task(
             _send_confirmation_sms_and_call(submission_id, body.name.strip(), clean_phone, body.email.lower().strip())
         )
+    else:
+        # No phone → no call → send lead notification immediately
+        asyncio.create_task(send_lead_notification(submission_id))
 
     # Notification: new contact form submission
     await send_notification(

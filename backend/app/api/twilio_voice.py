@@ -282,6 +282,11 @@ async def voice_complete(request: Request):
             data={"call_sid": call_sid, "link": "/prospects"},
         )
 
+        # Send lead notification email to contact@stuffnthings.io with call results
+        if intake.get("submission_id"):
+            from app.api.contact_webhook import send_lead_notification
+            await send_lead_notification(intake["submission_id"], intake)
+
     return _twiml(f'<Say voice="{VOICE}">Goodbye!</Say><Hangup/>')
 
 
@@ -310,6 +315,19 @@ async def voice_status(request: Request):
                 },
             )
             await db.commit()
+
+            # On terminal failure, send lead notification with just form data
+            if call_status in ("no-answer", "busy", "failed", "canceled"):
+                result = await db.execute(
+                    text("SELECT * FROM public.call_intakes WHERE call_sid = :sid"),
+                    {"sid": call_sid},
+                )
+                row = result.fetchone()
+                if row:
+                    intake = dict(row._mapping)
+                    if intake.get("submission_id"):
+                        from app.api.contact_webhook import send_lead_notification
+                        await send_lead_notification(intake["submission_id"], intake)
 
     return Response(content="", status_code=204)
 
