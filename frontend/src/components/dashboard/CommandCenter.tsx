@@ -33,14 +33,15 @@ interface AgentEvent {
   summary: string; timestamp: string;
 }
 
-const AGENTS = [
+// Fallback agents — replaced by DB agents when available
+const FALLBACK_AGENTS = [
   { id: "friday", emoji: "🖤", name: "Friday", role: "Orchestrator", model: "Opus" },
-  { id: "copy", emoji: "📝", name: "Copy", role: "Copywriter", model: "Sonnet" },
+  { id: "copy", emoji: "✍️", name: "Copy", role: "Copywriter", model: "Sonnet" },
   { id: "design", emoji: "🎨", name: "Design", role: "UI/UX", model: "Sonnet" },
-  { id: "dev", emoji: "💻", name: "Dev", role: "Developer", model: "Sonnet" },
-  { id: "docs", emoji: "📚", name: "Docs", role: "Documentation", model: "Haiku" },
-  { id: "support", emoji: "📞", name: "Support", role: "Call Center", model: "Haiku" },
-  { id: "inbox", emoji: "📧", name: "Inbox", role: "Email", model: "Haiku" },
+  { id: "dev", emoji: "⚡", name: "Dev", role: "Developer", model: "Sonnet" },
+  { id: "docs", emoji: "📖", name: "Docs", role: "Documentation", model: "Haiku" },
+  { id: "support", emoji: "🎧", name: "Support", role: "Support", model: "Haiku" },
+  { id: "inbox", emoji: "📬", name: "Inbox", role: "Email", model: "Haiku" },
 ];
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -177,6 +178,7 @@ export default function CommandCenter() {
   const [recentDeals, setRecentDeals] = useState<CRMDeal[]>([]);
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [upcomingActivities, setUpcomingActivities] = useState<CRMActivity[]>([]);
+  const [dbAgents, setDbAgents] = useState<{ id: string; emoji: string; name: string; role: string; model: string; status: string }[]>([]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -190,6 +192,24 @@ export default function CommandCenter() {
       if (sumResp?.ok) setSummary(await sumResp.json());
       if (trendsResp?.ok) setTrends(await trendsResp.json());
       if (sparkResp?.ok) setSparklineData(await sparkResp.json());
+
+      // Agents from DB
+      try {
+        const agentResp = await authFetch(`${API}/api/agents`).catch(() => null);
+        if (agentResp?.ok) {
+          const agentData = await agentResp.json();
+          if (Array.isArray(agentData) && agentData.length > 0) {
+            setDbAgents(agentData.map((a: any) => ({
+              id: a.id,
+              emoji: a.emoji || "🤖",
+              name: a.name,
+              role: a.role,
+              model: (a.model || "").split("/").pop()?.replace("claude-", "") || "Sonnet",
+              status: a.status || "idle",
+            })));
+          }
+        }
+      } catch {}
 
       // Team events
       try {
@@ -343,14 +363,14 @@ export default function CommandCenter() {
           ],
         }
       : {
-          surface: "ai",
+          surface: "agents",
           entityType: "dashboard_view",
-          entityId: "command-center:ai",
-          entityName: "Command Center AI operations",
-          title: "Command Center AI operations",
-          summary: `${displayEvents.length} recent handoff or completion event(s).`,
+          entityId: "command-center:agents",
+          entityName: "Command Center AI Agents",
+          title: "Command Center AI Agents",
+          summary: `${(dbAgents.length || FALLBACK_AGENTS.length)} agents configured, ${displayEvents.length} recent events.`,
           facts: [
-            { label: "Agents shown", value: AGENTS.length },
+            { label: "Active agents", value: dbAgents.length || FALLBACK_AGENTS.length },
             { label: "Recent events", value: displayEvents.length },
           ],
         };
@@ -372,7 +392,7 @@ export default function CommandCenter() {
                 focus === f ? "bg-warroom-accent text-white" : "text-warroom-muted hover:text-warroom-text"
               }`}
             >
-              {f === "sales" ? "💰 Sales" : f === "social" ? "📱 Social" : "🤖 AI Agents"}
+              {f === "sales" ? "💰 Sales" : f === "social" ? "📱 Social" : "🤖 Agents"}
             </button>
           ))}
         </div>
@@ -387,13 +407,13 @@ export default function CommandCenter() {
           <SocialFocus accounts={accounts} summary={summary} trends={trends} sparklineData={sparklineData} pipelineStats={pipelineStats} />
         )}
         {focus === "ai" && (
-          <AIFocus agents={AGENTS} events={displayEvents} />
+          <AIFocus agents={dbAgents.length > 0 ? dbAgents : FALLBACK_AGENTS} events={displayEvents} />
         )}
       </div>
 
       <AskAIButton
         context={chatContext}
-        buttonLabel={`Ask AI about ${focus}`}
+        buttonLabel={`Ask AI about ${focus === "ai" ? "Agents" : focus === "sales" ? "Sales" : "Social"}`}
         emptyHint="Ask for a diagnosis, next action, or summary of this dashboard view..."
         className="fixed bottom-6 right-6 z-40"
         buttonClassName="h-12 rounded-full px-5 shadow-lg"
@@ -533,7 +553,7 @@ function SocialFocus({ accounts, summary, trends, sparklineData, pipelineStats }
 
 // ── AI Agents Focus View ──────────────────────────────────────
 function AIFocus({ agents, events }: {
-  agents: typeof AGENTS;
+  agents: { id: string; emoji: string; name: string; role: string; model: string; status?: string }[];
   events: AgentEvent[];
 }) {
   return (
@@ -541,7 +561,7 @@ function AIFocus({ agents, events }: {
       {/* Agent Status Grid */}
       <div className="grid grid-cols-4 gap-4">
         {agents.map(agent => {
-          const isRunning = agent.id === "friday";
+          const isRunning = agent.status === "working" || agent.id === "friday";
           return (
             <div key={agent.id} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/30 transition">
               <div className="flex items-center gap-2.5 mb-3">

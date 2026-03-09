@@ -692,3 +692,64 @@ async def improve_prompt(body: dict):
         logger.warning("Improve prompt failed: %s", exc)
 
     return {"improved": original}
+
+
+# ── Scoped AI Chat (Ask AI panel) ────────────────────────────
+
+class AskAIRequest(BaseModel):
+    system: str = ""
+    messages: list[dict] = Field(default_factory=list)
+    context: dict = Field(default_factory=dict)
+
+
+@router.post("/ask-ai")
+async def ask_ai(body: AskAIRequest):
+    """Scoped AI chat for the Command Center help panel."""
+    import httpx
+
+    api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="No AI API key configured")
+
+    is_anthropic = bool(os.getenv("ANTHROPIC_API_KEY"))
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            if is_anthropic:
+                msgs = [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in body.messages]
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": os.getenv("ANTHROPIC_API_KEY", ""),
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-haiku-3-5-20241022",
+                        "max_tokens": 1024,
+                        "system": body.system,
+                        "messages": msgs,
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    text = " ".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+                    return {"response": text.strip() or "No response generated."}
+                logger.warning("Ask AI Anthropic: %s", resp.status_code)
+                return {"response": f"AI returned {resp.status_code}. Try again."}
+            else:
+                msgs = [{"role": "system", "content": body.system}]
+                msgs.extend({"role": m.get("role", "user"), "content": m.get("content", "")} for m in body.messages)
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={"model": "gpt-4o-mini", "max_tokens": 1024, "messages": msgs},
+                )
+                if resp.status_code == 200:
+                    choices = resp.json().get("choices", [])
+                    if choices:
+                        return {"response": choices[0].get("message", {}).get("content", "").strip()}
+                return {"response": f"AI returned {resp.status_code}. Try again."}
+    except Exception as exc:
+        logger.warning("Ask AI failed: %s", exc)
+        return {"response": "AI service temporarily unavailable."}
