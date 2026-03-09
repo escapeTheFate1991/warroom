@@ -1862,6 +1862,157 @@ async def get_competitor_hashtags(
         raise HTTPException(status_code=500, detail="Failed to get hashtags")
 
 
+@router.get("/competitors/{competitor_id}/audience-intel")
+async def get_aggregated_audience_intel(
+    competitor_id: int,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Aggregate audience intelligence across ALL posts for a competitor.
+    
+    Combines individual post comment analyses into a unified view:
+    - Overall sentiment distribution
+    - Top questions audiences are asking
+    - Top pain points across all posts
+    - Common themes
+    - Product/tool mentions
+    - Most engaged commenters
+    - Content format breakdown
+    """
+    try:
+        result = await db.execute(
+            text("""
+                SELECT comments_data, content_analysis, engagement_score
+                FROM crm.competitor_posts
+                WHERE competitor_id = :cid AND comments_data IS NOT NULL
+                ORDER BY engagement_score DESC
+            """),
+            {"cid": competitor_id},
+        )
+        rows = result.fetchall()
+        
+        if not rows:
+            return {"posts_analyzed": 0, "sentiment": "neutral", "questions": [], "pain_points": [], "themes": []}
+        
+        # Aggregate across all posts
+        total_analyzed = 0
+        sentiment_totals = {"positive": 0, "negative": 0, "neutral": 0}
+        all_questions: list = []
+        all_pain_points: list = []
+        all_themes: Counter = Counter()
+        all_products: Counter = Counter()
+        all_commenters: Counter = Counter()
+        total_engagement_quality = {"high": 0, "moderate": 0, "low": 0}
+        format_counts: Counter = Counter()
+        
+        for row in rows:
+            data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+            if not data:
+                continue
+            
+            total_analyzed += data.get("analyzed", 0)
+            
+            # Sentiment
+            sb = data.get("sentiment_breakdown", {})
+            sentiment_totals["positive"] += sb.get("positive", 0)
+            sentiment_totals["negative"] += sb.get("negative", 0)
+            sentiment_totals["neutral"] += sb.get("neutral", 0)
+            
+            # Questions — weight by post engagement
+            eng_score = float(row[2] or 0)
+            for q in data.get("questions", []):
+                all_questions.append({
+                    "question": q["question"],
+                    "likes": q.get("likes", 0),
+                    "weight": eng_score,
+                })
+            
+            # Pain points
+            for p in data.get("pain_points", []):
+                all_pain_points.append({
+                    "pain": p["pain"],
+                    "likes": p.get("likes", 0),
+                    "weight": eng_score,
+                })
+            
+            # Themes
+            for t in data.get("themes", []):
+                all_themes[t["theme"]] += t["count"]
+            
+            # Products
+            for p in data.get("product_mentions", []):
+                all_products[p["product"]] += p["count"]
+            
+            # Top commenters
+            for c in data.get("top_commenters", []):
+                all_commenters[c["username"]] += c["count"]
+            
+            # Engagement quality
+            eq = data.get("engagement_quality", "moderate")
+            total_engagement_quality[eq] = total_engagement_quality.get(eq, 0) + 1
+            
+            # Content format from analysis
+            ca = json.loads(row[1]) if isinstance(row[1], str) else row[1]
+            if ca:
+                fmt = ca.get("content_format", "unknown")
+                format_counts[fmt] += 1
+        
+        # Deduplicate questions by text similarity
+        seen_q = set()
+        unique_questions = []
+        for q in sorted(all_questions, key=lambda x: x["weight"] + x["likes"], reverse=True):
+            q_key = q["question"][:50].lower()
+            if q_key not in seen_q:
+                seen_q.add(q_key)
+                unique_questions.append({"question": q["question"], "likes": q["likes"]})
+        
+        # Deduplicate pain points
+        seen_p = set()
+        unique_pain_points = []
+        for p in sorted(all_pain_points, key=lambda x: x["weight"] + x["likes"], reverse=True):
+            p_key = p["pain"][:50].lower()
+            if p_key not in seen_p:
+                seen_p.add(p_key)
+                unique_pain_points.append({"pain": p["pain"], "likes": p["likes"]})
+        
+        # Overall sentiment
+        total_sent = sum(sentiment_totals.values()) or 1
+        pos_pct = sentiment_totals["positive"] / total_sent
+        neg_pct = sentiment_totals["negative"] / total_sent
+        if pos_pct > 0.6:
+            overall_sentiment = "very_positive"
+        elif pos_pct > 0.4:
+            overall_sentiment = "positive"
+        elif neg_pct > 0.4:
+            overall_sentiment = "negative"
+        elif neg_pct > 0.6:
+            overall_sentiment = "very_negative"
+        else:
+            overall_sentiment = "neutral"
+        
+        return {
+            "posts_analyzed": len(rows),
+            "comments_analyzed": total_analyzed,
+            "sentiment": overall_sentiment,
+            "sentiment_breakdown": sentiment_totals,
+            "sentiment_percentages": {
+                "positive": round(pos_pct * 100, 1),
+                "negative": round(neg_pct * 100, 1),
+                "neutral": round((1 - pos_pct - neg_pct) * 100, 1),
+            },
+            "questions": unique_questions[:15],
+            "pain_points": unique_pain_points[:15],
+            "themes": [{"theme": t, "count": c} for t, c in all_themes.most_common(20)],
+            "product_mentions": [{"product": p, "count": c} for p, c in all_products.most_common(15)],
+            "top_commenters": [{"username": u, "count": c} for u, c in all_commenters.most_common(15)],
+            "engagement_quality": total_engagement_quality,
+            "content_formats": dict(format_counts),
+        }
+    
+    except Exception as e:
+        logger.error("Failed to aggregate audience intel for competitor %s: %s", competitor_id, e)
+        raise HTTPException(status_code=500, detail="Failed to aggregate audience intelligence")
+
+
 @router.post("/index-content")
 async def index_content_for_recommendations(
     body: dict = {},

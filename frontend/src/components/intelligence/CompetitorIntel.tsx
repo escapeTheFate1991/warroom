@@ -497,7 +497,9 @@ export default function CompetitorIntel() {
   const [expandedCompetitor, setExpandedCompetitor] = useState<number | null>(null);
   const [focusedCompetitor, setFocusedCompetitor] = useState<Competitor | null>(null);
   const [competitorPosts, setCompetitorPosts] = useState<CompetitorPost[]>([]);
-  const [competitorDetailTab, setCompetitorDetailTab] = useState<"overview" | "dossier">("overview");
+  const [competitorDetailTab, setCompetitorDetailTab] = useState<"overview" | "dossier" | "audience">("overview");
+  const [audienceIntel, setAudienceIntel] = useState<any>(null);
+  const [loadingAudienceIntel, setLoadingAudienceIntel] = useState(false);
   
   const [showAddCompetitor, setShowAddCompetitor] = useState(false);
   const [showGenerateScript, setShowGenerateScript] = useState(false);
@@ -1066,6 +1068,7 @@ export default function CompetitorIntel() {
     setCompetitorPosts([]);
     setTopVideos([]);
     setHashtags([]);
+    setAudienceIntel(null);
     fetchCompetitorPosts(comp.id);
     fetchTopVideos(comp.id);
     fetchHashtags(comp.id);
@@ -1262,6 +1265,26 @@ export default function CompetitorIntel() {
                     >
                       Dossier
                     </button>
+                    <button 
+                      onClick={() => {
+                        setCompetitorDetailTab("audience");
+                        if (!audienceIntel && focusedCompetitor) {
+                          setLoadingAudienceIntel(true);
+                          authFetch(`${API}/api/content-intel/competitors/${focusedCompetitor.id}/audience-intel`)
+                            .then(r => r.ok ? r.json() : null)
+                            .then(data => { if (data) setAudienceIntel(data); })
+                            .catch(() => {})
+                            .finally(() => setLoadingAudienceIntel(false));
+                        }
+                      }}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
+                        competitorDetailTab === "audience" 
+                          ? "border-warroom-accent text-warroom-accent" 
+                          : "border-transparent text-warroom-muted hover:text-warroom-text"
+                      }`}
+                    >
+                      Audience Intel
+                    </button>
                   </div>
 
                   {/* Content Overview Tab */}
@@ -1454,6 +1477,167 @@ export default function CompetitorIntel() {
                   {/* Dossier Tab */}
                   {competitorDetailTab === "dossier" && (
                     <DossierPanel competitorId={focusedCompetitor.id} bio={focusedCompetitor.bio} />
+                  )}
+
+                  {/* Audience Intelligence Tab */}
+                  {competitorDetailTab === "audience" && (
+                    <div className="space-y-5 py-2">
+                      {loadingAudienceIntel ? (
+                        <div className="flex items-center gap-2 text-sm text-warroom-muted py-8 justify-center">
+                          <Loader2 size={16} className="animate-spin" /> Loading audience intelligence…
+                        </div>
+                      ) : audienceIntel ? (() => {
+                        const ai = audienceIntel;
+                        const sentimentColors: Record<string, string> = {
+                          very_positive: "text-green-400", positive: "text-green-300",
+                          neutral: "text-warroom-muted", negative: "text-orange-400", very_negative: "text-red-400",
+                        };
+                        return (
+                          <>
+                            {/* Summary Stats */}
+                            <div className="grid grid-cols-4 gap-3">
+                              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-3 text-center">
+                                <p className="text-lg font-bold text-warroom-text">{ai.posts_analyzed}</p>
+                                <p className="text-[10px] text-warroom-muted uppercase">Posts Analyzed</p>
+                              </div>
+                              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-3 text-center">
+                                <p className="text-lg font-bold text-warroom-text">{ai.comments_analyzed?.toLocaleString()}</p>
+                                <p className="text-[10px] text-warroom-muted uppercase">Comments</p>
+                              </div>
+                              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-3 text-center">
+                                <p className={`text-lg font-bold capitalize ${sentimentColors[ai.sentiment] || "text-warroom-text"}`}>
+                                  {ai.sentiment?.replace("_", " ")}
+                                </p>
+                                <p className="text-[10px] text-warroom-muted uppercase">Sentiment</p>
+                              </div>
+                              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-3 text-center">
+                                <p className="text-lg font-bold text-warroom-accent">
+                                  {ai.sentiment_percentages?.positive || 0}%
+                                </p>
+                                <p className="text-[10px] text-warroom-muted uppercase">Positive</p>
+                              </div>
+                            </div>
+
+                            {/* Sentiment Bar */}
+                            {ai.sentiment_breakdown && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1.5">Sentiment Distribution</p>
+                                <div className="flex h-3 rounded-full overflow-hidden bg-warroom-bg">
+                                  {ai.sentiment_breakdown.positive > 0 && (
+                                    <div className="bg-green-400" style={{ width: `${ai.sentiment_percentages?.positive || 0}%` }} />
+                                  )}
+                                  {ai.sentiment_breakdown.neutral > 0 && (
+                                    <div className="bg-warroom-border" style={{ width: `${ai.sentiment_percentages?.neutral || 0}%` }} />
+                                  )}
+                                  {ai.sentiment_breakdown.negative > 0 && (
+                                    <div className="bg-red-400" style={{ width: `${ai.sentiment_percentages?.negative || 0}%` }} />
+                                  )}
+                                </div>
+                                <div className="flex justify-between text-[10px] text-warroom-muted mt-1">
+                                  <span className="text-green-400">👍 {ai.sentiment_breakdown.positive}</span>
+                                  <span>😐 {ai.sentiment_breakdown.neutral}</span>
+                                  <span className="text-red-400">👎 {ai.sentiment_breakdown.negative}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Content Formats */}
+                            {ai.content_formats && Object.keys(ai.content_formats).length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Content Format Breakdown</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {Object.entries(ai.content_formats).map(([fmt, count]) => (
+                                    <span key={fmt} className="px-2.5 py-1 bg-warroom-surface border border-warroom-border rounded-full text-[11px] text-warroom-text">
+                                      {fmt === "text_overlay" ? "📝 Text/Tip" : fmt === "short_form" ? "⚡ Short-form" : fmt === "mid_form" ? "📹 Mid-form" : fmt === "long_form" ? "🎬 Long-form" : fmt}
+                                      <span className="ml-1 text-warroom-muted">({String(count)})</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Questions */}
+                            {ai.questions?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🔍 Top Questions from Audience</p>
+                                <div className="space-y-1.5">
+                                  {ai.questions.slice(0, 10).map((q: any, i: number) => (
+                                    <div key={i} className="flex items-start gap-2 bg-blue-400/5 border border-blue-400/10 rounded-lg px-3 py-2">
+                                      <span className="text-blue-400 text-xs mt-0.5">❓</span>
+                                      <p className="text-xs text-warroom-text flex-1">{q.question}</p>
+                                      {q.likes > 0 && <span className="text-[10px] text-warroom-muted">👍 {q.likes}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Pain Points */}
+                            {ai.pain_points?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🎯 Audience Pain Points</p>
+                                <div className="space-y-1.5">
+                                  {ai.pain_points.slice(0, 10).map((p: any, i: number) => (
+                                    <div key={i} className="flex items-start gap-2 bg-red-400/5 border border-red-400/10 rounded-lg px-3 py-2">
+                                      <span className="text-red-400 text-xs mt-0.5">💢</span>
+                                      <p className="text-xs text-warroom-text flex-1">{p.pain}</p>
+                                      {p.likes > 0 && <span className="text-[10px] text-warroom-muted">👍 {p.likes}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Themes */}
+                            {ai.themes?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">💬 Discussion Themes</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {ai.themes.slice(0, 20).map((t: any, i: number) => (
+                                    <span key={i} className="px-2 py-0.5 bg-warroom-accent/10 text-warroom-accent rounded-full text-[10px]">
+                                      {t.theme} ({t.count})
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Product Mentions */}
+                            {ai.product_mentions?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🔧 Tools & Products Mentioned</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {ai.product_mentions.map((p: any, i: number) => (
+                                    <span key={i} className="px-2.5 py-1 bg-purple-400/10 text-purple-400 rounded-full text-[10px]">
+                                      {p.product} ({p.count})
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Top Commenters */}
+                            {ai.top_commenters?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">👥 Most Active Commenters</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {ai.top_commenters.slice(0, 10).map((c: any, i: number) => (
+                                    <a key={i} href={`https://instagram.com/${c.username}`} target="_blank" rel="noopener noreferrer"
+                                      className="px-2.5 py-1 bg-warroom-bg border border-warroom-border rounded-full text-[10px] text-warroom-text hover:border-warroom-accent/50 transition">
+                                      @{c.username} ({c.count})
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })() : (
+                        <div className="text-center py-12">
+                          <p className="text-sm text-warroom-muted">No audience intelligence data yet. Run a sync to populate.</p>
+                        </div>
+                      )}
+                    </div>
                   )}
 
                 </div>

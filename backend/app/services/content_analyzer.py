@@ -97,6 +97,15 @@ def analyze_content_structure(segments: List[Dict]) -> Dict:
     # Detect if this is a clip (< 15s) — likely Instagram preview, not full reel
     is_clip = total_duration < 15 and len(segments) <= 2
     
+    # Detect text-overlay/meme reels — short audio (trending sound) with real content in caption
+    # These are "Tip" format videos: text on screen, music/sound underneath
+    word_count = len(full_script.split())
+    is_text_overlay = (
+        total_duration < 15
+        and word_count < 20
+        and len(segments) <= 2
+    )
+    
     # === HOOK (0 - 3s) ===
     hook_segments = [s for s in segments if s.get("start", 0) < HOOK_END_SEC]
     if not hook_segments:
@@ -141,8 +150,19 @@ def analyze_content_structure(segments: List[Dict]) -> Dict:
         total_duration=total_duration,
     )
     
+    # Determine content format
+    if is_text_overlay:
+        content_format = "text_overlay"  # Tip/meme reel — text on screen, trending sound
+    elif total_duration <= 60:
+        content_format = "short_form"    # Standard short-form (Hook/Value/CTA applies)
+    elif total_duration <= 180:
+        content_format = "mid_form"      # Longer reel/video
+    else:
+        content_format = "long_form"     # Full video/interview
+    
     return {
         "is_clip": is_clip,
+        "content_format": content_format,
         "hook": {
             "text": hook_text,
             "start": 0.0,
