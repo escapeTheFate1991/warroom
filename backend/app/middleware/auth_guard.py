@@ -37,6 +37,13 @@ PUBLIC_PATHS = {
     "/api/webhooks/contact",
     # Telnyx voice webhook (public-facing)
     "/api/telnyx/webhook",
+    # Twilio voice webhooks (public-facing, called by Twilio)
+    "/api/twilio/voice/welcome",
+    "/api/twilio/voice/gather-tasks",
+    "/api/twilio/voice/gather-services",
+    "/api/twilio/voice/gather-schedule",
+    "/api/twilio/voice/complete",
+    "/api/twilio/voice/status",
 }
 
 # Prefix matches (OAuth callbacks only — authorize endpoints require auth

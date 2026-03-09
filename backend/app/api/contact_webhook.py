@@ -188,6 +188,65 @@ async def _send_auto_reply(submission_id: int, name: str, email: str):
         logger.error("Auto-reply failed for submission #%d: %s", submission_id, e)
 
 
+# ── SMS Confirmation + AI Call Trigger ────────────────────────────────
+
+async def _send_confirmation_sms_and_call(submission_id: int, name: str, phone: str, email: str):
+    """Send a confirmation SMS, wait a bit, then trigger the AI intake call."""
+    try:
+        from app.services.twilio_client import send_sms, make_call, get_twilio_config, TwilioConfigError
+
+        first_name = name.split()[0]
+
+        # 1. Send confirmation SMS
+        try:
+            await send_sms(
+                to=phone,
+                body=(
+                    f"Hi {first_name}! Thanks for reaching out to Stuff N Things. "
+                    f"We received your inquiry and will be calling you at this number "
+                    f"in a few minutes to learn more about your needs and schedule a consultation. "
+                    f"Talk soon! — The Stuff N Things Team"
+                ),
+            )
+            logger.info("Confirmation SMS sent to %s for submission #%d", phone, submission_id)
+        except TwilioConfigError as exc:
+            logger.warning("SMS not sent (config missing): %s", exc)
+        except Exception as exc:
+            logger.error("SMS send failed for submission #%d: %s", submission_id, exc)
+
+        # 2. Wait 2 minutes then make the AI intake call
+        await asyncio.sleep(120)
+
+        try:
+            config = await get_twilio_config()
+            # Use the webhook URL for the AI conversation flow
+            webhook_base = "https://warroom.stuffnthings.io/api/twilio"
+            await make_call(
+                to=phone,
+                url=f"{webhook_base}/voice/welcome",
+            )
+            logger.info("AI intake call initiated to %s for submission #%d", phone, submission_id)
+
+            # Store email in intake for calendar event creation
+            async with leadgen_session() as db:
+                await db.execute(
+                    text("""
+                        UPDATE public.call_intakes SET contact_email = :email
+                        WHERE submission_id = :sid
+                    """),
+                    {"email": email, "sid": submission_id},
+                )
+                await db.commit()
+
+        except TwilioConfigError as exc:
+            logger.warning("Call not placed (config missing): %s", exc)
+        except Exception as exc:
+            logger.error("Call failed for submission #%d: %s", submission_id, exc)
+
+    except Exception as exc:
+        logger.error("SMS/Call pipeline failed for submission #%d: %s", submission_id, exc)
+
+
 # ── Rate Limiting ────────────────────────────────────────────────────
 RATE_LIMIT = 5  # max submissions per email per hour
 
@@ -246,8 +305,14 @@ async def submit_contact(body: ContactSubmission, request: Request):
         submission_id = row[0]
         await db.commit()
 
-    # Fire auto-reply (best-effort, don't block response)
+    # Fire auto-reply email (best-effort, don't block response)
     await _send_auto_reply(submission_id, body.name.strip(), body.email.lower().strip())
+
+    # Send confirmation SMS + trigger AI call (best-effort)
+    if body.phone:
+        asyncio.create_task(
+            _send_confirmation_sms_and_call(submission_id, body.name.strip(), body.phone, body.email.lower().strip())
+        )
 
     # Notification: new contact form submission
     await send_notification(
