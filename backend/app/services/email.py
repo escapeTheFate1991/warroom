@@ -13,7 +13,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 APP_NAME = os.getenv("APP_NAME", "War Room")
-FROM_EMAIL = "Stuff N Things <noreply@stuffnthings.io>"
+FROM_EMAIL = "Stuff N Things <hello@stuffnthings.io>"
 
 # Cache the API key after first load
 _resend_key: str | None = None
