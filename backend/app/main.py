@@ -51,6 +51,10 @@ async def lifespan(app: FastAPI):
         # Contact submissions table (public schema)
         await contact_webhook.init_contact_table()
         logger.info("Contact submissions table initialized")
+
+        # Outbound emails table (public schema — comms hub tracking)
+        await comms.init_outbound_emails_table()
+        logger.info("Outbound emails table initialized")
         
         # Cold email tables (public schema)
         await cold_email.init_cold_email_tables()

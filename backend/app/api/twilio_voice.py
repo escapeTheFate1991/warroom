@@ -54,6 +54,10 @@ async def _ensure_table():
         return
     async with leadgen_session() as db:
         await db.execute(text(CREATE_CALL_INTAKES_SQL))
+        # Add person_id column if it doesn't exist (CRM linking)
+        await db.execute(text(
+            "ALTER TABLE public.call_intakes ADD COLUMN IF NOT EXISTS person_id INTEGER"
+        ))
         await db.commit()
     _TABLE_CREATED = True
 

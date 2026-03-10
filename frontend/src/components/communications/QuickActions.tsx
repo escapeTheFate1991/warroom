@@ -12,13 +12,14 @@ interface QuickActionsProps {
   name?: string;
   className?: string;
   size?: "sm" | "md";
+  onSent?: (type: "sms" | "email" | "call", body?: string, subject?: string) => void;
 }
 
 type ModalMode = "sms" | "email" | "call" | null;
 
 /* ── Component ─────────────────────────────────────────── */
 
-export default function QuickActions({ phone, email, name, className = "", size = "sm" }: QuickActionsProps) {
+export default function QuickActions({ phone, email, name, className = "", size = "sm", onSent }: QuickActionsProps) {
   const [modal, setModal] = useState<ModalMode>(null);
   const [body, setBody] = useState("");
   const [subject, setSubject] = useState("");
@@ -42,6 +43,7 @@ export default function QuickActions({ phone, email, name, className = "", size 
       });
       if (res.ok) {
         setResult({ ok: true, msg: "SMS sent" });
+        onSent?.("sms", body.trim());
         setBody("");
         setTimeout(() => { setModal(null); setResult(null); }, 2000);
       } else {
@@ -67,6 +69,7 @@ export default function QuickActions({ phone, email, name, className = "", size 
       });
       if (res.ok) {
         setResult({ ok: true, msg: "Call initiated" });
+        onSent?.("call");
         setTimeout(() => { setModal(null); setResult(null); }, 3000);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -91,6 +94,7 @@ export default function QuickActions({ phone, email, name, className = "", size 
       });
       if (res.ok) {
         setResult({ ok: true, msg: "Email sent" });
+        onSent?.("email", body.trim(), subject);
         setBody("");
         setSubject("");
         setTimeout(() => { setModal(null); setResult(null); }, 2000);

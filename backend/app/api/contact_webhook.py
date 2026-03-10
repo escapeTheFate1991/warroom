@@ -231,10 +231,9 @@ def _build_lead_notification_html(submission: dict, intake: dict | None = None) 
 async def _send_auto_reply(submission_id: int, name: str, email: str):
     """Send auto-reply and update the DB record."""
     try:
+        subject = "We received your request — here's what happens next"
         html = _build_auto_reply_html(name)
-        sent = await _send_email_async(
-            email, "We received your request — here's what happens next", html
-        )
+        sent = await _send_email_async(email, subject, html)
 
         async with _session() as db:
             if sent:
@@ -248,6 +247,18 @@ async def _send_auto_reply(submission_id: int, name: str, email: str):
                 )
                 await db.commit()
                 logger.info("Auto-reply sent to %s for submission #%d", email, submission_id)
+
+                # Log to outbound_emails for comms hub tracking
+                try:
+                    from app.api.comms import log_outbound_email
+                    await log_outbound_email(
+                        to_address=email,
+                        subject=subject,
+                        body_text=f"Auto-reply to {name}",
+                        from_address="contact@stuffnthings.io",
+                    )
+                except Exception:
+                    pass  # best-effort
             else:
                 logger.warning("Auto-reply NOT sent to %s (SMTP unconfigured?)", email)
     except Exception as e:
@@ -346,6 +357,17 @@ async def send_lead_notification(submission_id: int, intake: dict | None = None)
         sent = await _send_email_async(LEAD_NOTIFY_TO, subject, html)
         if sent:
             logger.info("Lead notification sent to %s for submission #%d", LEAD_NOTIFY_TO, submission_id)
+            # Log to outbound_emails for comms hub tracking
+            try:
+                from app.api.comms import log_outbound_email
+                await log_outbound_email(
+                    to_address=LEAD_NOTIFY_TO,
+                    subject=subject,
+                    body_text=f"Lead notification for {name}",
+                    from_address="contact@stuffnthings.io",
+                )
+            except Exception:
+                pass  # best-effort
         else:
             logger.warning("Lead notification NOT sent (Resend key missing?)")
     except Exception as exc:

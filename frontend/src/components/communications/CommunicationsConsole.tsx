@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -12,12 +12,15 @@ import {
   Loader2,
   Mail,
   MessageSquare,
+  PenSquare,
   Phone,
   Search,
+  Send,
   User,
   X,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import QuickActions from "./QuickActions";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -39,6 +42,7 @@ interface CommRecord {
   services: string | null;
   schedule_pref: string | null;
   duration_seconds: number | null;
+  person_id: number | null;
   occurred_at: string;
   metadata: Record<string, string | number | boolean | null>;
 }
@@ -49,11 +53,20 @@ interface ContactGroup {
   phone: string | null;
   email: string | null;
   organization: string | null;
+  person_id: number | null;
   records: CommRecord[];
   lastActivity: string;
   callCount: number;
   smsCount: number;
   emailCount: number;
+}
+
+interface CRMPerson {
+  id: number;
+  name: string;
+  emails: Array<{ value: string; label?: string }>;
+  contact_numbers: Array<{ value: string; label?: string }>;
+  organization_name?: string;
 }
 
 /* ── Constants ─────────────────────────────────────────── */
@@ -94,7 +107,6 @@ function relativeTime(iso: string) {
 }
 
 function contactKey(r: CommRecord): string {
-  // Group by name first, then phone, then email
   return r.contact_name?.toLowerCase().trim()
     || r.contact_phone?.replace(/\D/g, "")
     || r.contact_email?.toLowerCase().trim()
@@ -204,6 +216,244 @@ function RecordCard({ record }: { record: CommRecord }) {
   );
 }
 
+/* ── Compose Modal ─────────────────────────────────────── */
+
+function ComposeModal({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
+  const [contactSearch, setContactSearch] = useState("");
+  const [contactResults, setContactResults] = useState<CRMPerson[]>([]);
+  const [selectedContact, setSelectedContact] = useState<CRMPerson | null>(null);
+  const [messageType, setMessageType] = useState<"sms" | "email">("email");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Typeahead contact search
+  useEffect(() => {
+    if (!contactSearch || contactSearch.length < 2) {
+      setContactResults([]);
+      return;
+    }
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const res = await authFetch(`${API}/api/crm/contacts/persons?search=${encodeURIComponent(contactSearch)}&limit=10`);
+        if (res.ok) {
+          const data = await res.json();
+          setContactResults(data || []);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [contactSearch]);
+
+  const selectedPhone = selectedContact?.contact_numbers?.[0]?.value || null;
+  const selectedEmail = selectedContact?.emails?.[0]?.value || null;
+
+  const canSend = selectedContact && body.trim() && (
+    (messageType === "sms" && selectedPhone) ||
+    (messageType === "email" && selectedEmail)
+  );
+
+  const handleSend = async () => {
+    if (!canSend) return;
+    setSending(true);
+    setResult(null);
+
+    try {
+      if (messageType === "sms" && selectedPhone) {
+        const res = await authFetch(`${API}/api/twilio/sms`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: selectedPhone, body: body.trim() }),
+        });
+        if (res.ok) {
+          setResult({ ok: true, msg: "SMS sent" });
+        } else {
+          const data = await res.json().catch(() => ({}));
+          setResult({ ok: false, msg: data.detail || "Failed to send SMS" });
+        }
+      } else if (messageType === "email" && selectedEmail) {
+        const res = await authFetch(`${API}/api/email/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: selectedEmail, subject: subject || "Message from War Room", body: body.trim() }),
+        });
+        if (res.ok) {
+          setResult({ ok: true, msg: "Email sent" });
+        } else {
+          const data = await res.json().catch(() => ({}));
+          setResult({ ok: false, msg: data.detail || "Failed to send email" });
+        }
+      }
+
+      if (!result || result.ok !== false) {
+        setTimeout(() => {
+          onSent();
+          onClose();
+        }, 1500);
+      }
+    } catch {
+      setResult({ ok: false, msg: "Network error" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-warroom-surface border border-warroom-border rounded-2xl w-full max-w-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-warroom-border">
+          <div className="flex items-center gap-2">
+            <PenSquare size={16} className="text-warroom-accent" />
+            <h3 className="text-sm font-semibold text-warroom-text">New Message</h3>
+          </div>
+          <button onClick={onClose} className="p-1 text-warroom-muted hover:text-warroom-text">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* To: contact search */}
+          <div>
+            <label className="text-xs text-warroom-muted mb-1 block">To</label>
+            {selectedContact ? (
+              <div className="flex items-center gap-2 bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2">
+                <User size={14} className="text-warroom-accent shrink-0" />
+                <span className="text-sm text-warroom-text flex-1">{selectedContact.name}</span>
+                <button onClick={() => { setSelectedContact(null); setContactSearch(""); }} className="text-warroom-muted hover:text-warroom-text">
+                  <X size={12} />
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
+                <input
+                  value={contactSearch}
+                  onChange={(e) => setContactSearch(e.target.value)}
+                  placeholder="Search contacts..."
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-xl pl-9 pr-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/40 focus:outline-none focus:border-warroom-accent/50"
+                  autoFocus
+                />
+                {searchLoading && <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted animate-spin" />}
+                {contactResults.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-warroom-surface border border-warroom-border rounded-xl shadow-lg max-h-48 overflow-y-auto z-10">
+                    {contactResults.map((person) => (
+                      <button
+                        key={person.id}
+                        onClick={() => { setSelectedContact(person); setContactResults([]); setContactSearch(""); }}
+                        className="w-full text-left px-4 py-2.5 hover:bg-warroom-bg transition flex items-center gap-2"
+                      >
+                        <User size={12} className="text-warroom-accent shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm text-warroom-text truncate">{person.name}</p>
+                          <p className="text-[10px] text-warroom-muted truncate">
+                            {person.emails?.[0]?.value || ""} {person.contact_numbers?.[0]?.value ? `· ${person.contact_numbers[0].value}` : ""}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Type toggle */}
+          {selectedContact && (
+            <div className="flex gap-2">
+              {selectedPhone && (
+                <button
+                  onClick={() => setMessageType("sms")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                    messageType === "sms"
+                      ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                      : "bg-warroom-bg border border-warroom-border text-warroom-muted hover:text-warroom-text"
+                  }`}
+                >
+                  <MessageSquare size={12} /> SMS
+                </button>
+              )}
+              {selectedEmail && (
+                <button
+                  onClick={() => setMessageType("email")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                    messageType === "email"
+                      ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                      : "bg-warroom-bg border border-warroom-border text-warroom-muted hover:text-warroom-text"
+                  }`}
+                >
+                  <Mail size={12} /> Email
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Subject (email only) */}
+          {messageType === "email" && selectedContact && (
+            <div>
+              <label className="text-xs text-warroom-muted mb-1 block">Subject</label>
+              <input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Email subject..."
+                className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/40 focus:outline-none focus:border-warroom-accent/50"
+              />
+            </div>
+          )}
+
+          {/* Body */}
+          {selectedContact && (
+            <div>
+              <label className="text-xs text-warroom-muted mb-1 block">Message</label>
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder={messageType === "sms" ? "Type your message..." : "Write your email..."}
+                rows={messageType === "sms" ? 3 : 5}
+                className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-3 py-2 text-sm text-warroom-text placeholder-warroom-muted/40 focus:outline-none focus:border-warroom-accent/50 resize-none"
+              />
+              {messageType === "sms" && (
+                <p className="text-[10px] text-warroom-muted mt-1">{body.length}/160 characters</p>
+              )}
+            </div>
+          )}
+
+          {/* Result */}
+          {result && (
+            <p className={`text-xs ${result.ok ? "text-green-400" : "text-red-400"}`}>
+              {result.ok ? "✓" : "✗"} {result.msg}
+            </p>
+          )}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="px-3 py-2 text-xs text-warroom-muted hover:text-warroom-text transition">
+              Cancel
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={!canSend || sending}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium text-white bg-warroom-accent hover:bg-warroom-accent/80 transition disabled:opacity-40"
+            >
+              {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main Component ────────────────────────────────────── */
 
 export default function CommunicationsConsole() {
@@ -211,6 +461,7 @@ export default function CommunicationsConsole() {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [selectedContact, setSelectedContact] = useState<string | null>(null);
+  const [showCompose, setShowCompose] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -262,6 +513,7 @@ export default function CommunicationsConsole() {
           phone: r.contact_phone,
           email: r.contact_email,
           organization: r.organization,
+          person_id: r.person_id || null,
           records: [],
           lastActivity: r.occurred_at,
           callCount: 0,
@@ -282,6 +534,7 @@ export default function CommunicationsConsole() {
       if (!group.phone && r.contact_phone) group.phone = r.contact_phone;
       if (!group.email && r.contact_email) group.email = r.contact_email;
       if (!group.organization && r.organization) group.organization = r.organization;
+      if (!group.person_id && r.person_id) group.person_id = r.person_id;
       // Prefer actual name over phone/email
       if (r.contact_name && group.name === (group.phone || group.email || "Unknown")) {
         group.name = r.contact_name;
@@ -304,6 +557,39 @@ export default function CommunicationsConsole() {
   };
 
   const hasFilters = search || typeFilter || directionFilter;
+
+  // Optimistic update: add a sent message to the active thread + refresh after delay
+  const handleMessageSent = useCallback((type: "sms" | "email" | "call", body?: string, subject?: string) => {
+    if (!activeGroup) return;
+
+    const optimisticRecord: CommRecord = {
+      id: `optimistic-${Date.now()}`,
+      type,
+      direction: "outbound",
+      status: "sent",
+      contact_name: activeGroup.name,
+      contact_phone: activeGroup.phone,
+      contact_email: activeGroup.email,
+      organization: activeGroup.organization,
+      employee: null,
+      agent: null,
+      subject: subject || null,
+      summary: body?.slice(0, 100) || (type === "call" ? "Call initiated" : null),
+      transcript: body || null,
+      pain_points: null,
+      services: null,
+      schedule_pref: null,
+      duration_seconds: null,
+      person_id: activeGroup.person_id,
+      occurred_at: new Date().toISOString(),
+      metadata: {},
+    };
+
+    setRecords(prev => [optimisticRecord, ...prev]);
+
+    // Refresh from server after short delay
+    setTimeout(() => loadRecords(), 3000);
+  }, [activeGroup, loadRecords]);
 
   /* ── Render ── */
 
@@ -398,7 +684,7 @@ export default function CommunicationsConsole() {
       )}
 
       {/* Content: Contacts List + Contact Detail */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         {/* Contact List */}
         <div className={`${selectedContact ? "hidden md:block md:w-[340px] lg:w-[380px] md:border-r md:border-warroom-border" : "w-full"} overflow-y-auto`}>
           {loading ? (
@@ -499,6 +785,13 @@ export default function CommunicationsConsole() {
                     {activeGroup.organization && <span className="flex items-center gap-1"><Building2 size={9} /> {activeGroup.organization}</span>}
                   </div>
                 </div>
+                {/* QuickActions */}
+                <QuickActions
+                  phone={activeGroup.phone}
+                  email={activeGroup.email}
+                  name={activeGroup.name}
+                  onSent={handleMessageSent}
+                />
                 {/* Type counts */}
                 <div className="flex items-center gap-2 shrink-0">
                   {activeGroup.callCount > 0 && (
@@ -538,7 +831,26 @@ export default function CommunicationsConsole() {
             </div>
           </div>
         )}
+
+        {/* Compose FAB */}
+        {!activeGroup && (
+          <button
+            onClick={() => setShowCompose(true)}
+            className="absolute bottom-6 right-6 bg-warroom-accent hover:bg-warroom-accent/80 text-white rounded-full shadow-lg w-12 h-12 flex items-center justify-center transition-all hover:scale-105"
+            title="New Message"
+          >
+            <PenSquare size={20} />
+          </button>
+        )}
       </div>
+
+      {/* Compose Modal */}
+      {showCompose && (
+        <ComposeModal
+          onClose={() => setShowCompose(false)}
+          onSent={loadRecords}
+        />
+      )}
     </div>
   );
 }

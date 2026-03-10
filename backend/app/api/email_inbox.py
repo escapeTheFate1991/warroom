@@ -1017,3 +1017,35 @@ async def mark_as_read(message_id: int):
         await db.commit()
 
     return {"ok": True, "message_id": message_id, "is_read": True}
+
+
+# ── Send Email ───────────────────────────────────────────────────────
+
+class SendEmailBody(BaseModel):
+    to: str
+    subject: str = "Message from War Room"
+    body: str
+
+
+@router.post("/email/send")
+async def send_email_endpoint(req: SendEmailBody):
+    """Send an email via Resend and log to outbound_emails."""
+    from app.services.email import _send_email_async
+    from app.api.comms import log_outbound_email, _match_crm_person
+
+    # Wrap plain text in basic HTML
+    html_body = req.body.replace("\n", "<br>")
+    sent = await _send_email_async(req.to, req.subject, f"<div>{html_body}</div>")
+    if not sent:
+        raise HTTPException(status_code=500, detail="Failed to send email")
+
+    # Log outbound
+    person_id, _, _ = await _match_crm_person(None, req.to)
+    await log_outbound_email(
+        to_address=req.to,
+        subject=req.subject,
+        body_text=req.body,
+        person_id=person_id,
+    )
+
+    return {"ok": True, "message": "Email sent"}
