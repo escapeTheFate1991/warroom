@@ -689,6 +689,17 @@ export default function ChatPanel() {
 
   useEffect(() => { scrollToBottom(); }, [messages, streamText, partialContent, scrollToBottom]);
 
+  // Scroll to bottom when panel becomes visible again (tab switch back)
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) scrollToBottom(); },
+      { threshold: 0.1 }
+    );
+    const el = messagesEndRef.current;
+    if (el?.parentElement) observer.observe(el.parentElement);
+    return () => observer.disconnect();
+  }, [scrollToBottom]);
+
   // Scroll detection
   useEffect(() => {
     const container = messagesContainerRef.current;
