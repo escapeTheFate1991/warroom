@@ -766,7 +766,11 @@ async def log_contact(lead_id: int, body: ContactLogRequest, db: AsyncSession = 
             lead.outreach_status = "contacted"
 
         await db.commit()
-        return {"status": "logged", "lead_id": lead_id, "outcome": body.outcome}
+        await db.refresh(lead)
+
+        # Return full lead object so frontend can update state
+        from app.api.leadgen_schemas import LeadResponse
+        return LeadResponse.model_validate(lead, from_attributes=True)
     except HTTPException:
         raise
     except Exception as exc:

@@ -380,6 +380,11 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
       if (response.ok) {
         const updatedLead = await response.json();
         onUpdate?.(updatedLead);
+        // Reset form after successful save
+        setContactForm(prev => ({ ...prev, outcome: "", notes: "", who_answered: "", owner_name: "", economic_buyer: "", champion: "" }));
+      } else {
+        const data = await response.json().catch(() => ({}));
+        console.error("Save contact failed:", data.detail || response.status);
       }
     } catch (error) {
       console.error("Failed to save contact:", error);
@@ -1020,21 +1025,33 @@ ${lead.phone || ""}`;
                   <div className="mt-6">
                     <h4 className="text-xs font-medium text-warroom-muted mb-2">Contact History</h4>
                     <div className="space-y-2">
-                      {lead.contact_history.map((contact: any, index) => (
+                      {lead.contact_history.map((contact: any, index) => {
+                        // Backend stores "date" and "by", not "contacted_at" / "contacted_by"
+                        const dateStr = contact.date || contact.contacted_at;
+                        const byStr = contact.by || contact.contacted_by || "";
+                        const parsed = dateStr ? new Date(dateStr) : null;
+                        const formattedDate = parsed && !isNaN(parsed.getTime())
+                          ? parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
+                          : "Unknown date";
+                        return (
                         <div key={index} className="p-3 bg-warroom-bg rounded-lg">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-xs text-warroom-muted">
-                              {contact.contacted_by} • {new Date(contact.contacted_at).toLocaleDateString()}
+                              {byStr} • {formattedDate}
                             </span>
                             <span className="text-xs px-2 py-0.5 bg-warroom-border rounded-full">
                               {contact.outcome}
                             </span>
                           </div>
-                          {contact.notes && (
-                            <p className="text-xs text-warroom-text">{contact.notes}</p>
+                          {(contact.notes || contact.who_answered) && (
+                            <p className="text-xs text-warroom-text">
+                              {contact.who_answered && <span className="text-warroom-muted">Spoke with: {contact.who_answered} · </span>}
+                              {contact.notes}
+                            </p>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
