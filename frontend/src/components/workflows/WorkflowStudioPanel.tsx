@@ -311,7 +311,7 @@ export default function WorkflowStudioPanel() {
                   <div
                     key={wf.id}
                     onClick={() => { setSelectedWorkflow(wf); setView("canvas"); }}
-                    className="bg-warroom-surface border border-warroom-border rounded-2xl p-4 cursor-pointer hover:border-warroom-accent/30 transition group"
+                    className="bg-warroom-surface border border-warroom-border rounded-2xl p-3 sm:p-4 cursor-pointer hover:border-warroom-accent/30 transition group"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3 min-w-0">
@@ -376,7 +376,7 @@ export default function WorkflowStudioPanel() {
             {Object.entries(groupedTemplates).map(([category, catTemplates]) => (
               <div key={category}>
                 <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">{category}</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {catTemplates.map(template => (
                     <div
                       key={template.id}
@@ -475,7 +475,17 @@ export default function WorkflowStudioPanel() {
               )}
             </div>
             {/* React Flow Canvas */}
-            <div className="flex-1">
+            <div className="flex-1 relative">
+              {/* Mobile landscape suggestion */}
+              <div className="sm:hidden absolute inset-0 bg-warroom-bg/95 backdrop-blur-sm z-10 flex items-center justify-center p-6">
+                <div className="text-center max-w-xs">
+                  <div className="text-2xl mb-2">📱➡️</div>
+                  <h3 className="text-sm font-semibold text-warroom-text mb-2">Better in Landscape</h3>
+                  <p className="text-xs text-warroom-muted">
+                    Turn your device to landscape mode for the best workflow editing experience.
+                  </p>
+                </div>
+              </div>
               <WorkflowCanvas workflow={canvasData} readOnly={!!selectedTemplate && !selectedWorkflow} />
             </div>
           </div>
