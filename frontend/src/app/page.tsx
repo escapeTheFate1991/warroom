@@ -225,7 +225,10 @@ function WarRoom() {
         />
         <main className="flex-1 overflow-hidden relative">
           {activeTab === "dashboard" && <CommandCenter />}
-          {activeTab === "chat" && <ChatPanel />}
+          {/* ChatPanel stays mounted (preserves WS + generating state across tab switches) */}
+          <div className={activeTab === "chat" ? "contents" : "hidden"}>
+            <ChatPanel />
+          </div>
           {activeTab === "agents" && (
             <AgentFeaturePage onNavigate={(tab, params) => {
               const nextTab = normalizeTab(tab);

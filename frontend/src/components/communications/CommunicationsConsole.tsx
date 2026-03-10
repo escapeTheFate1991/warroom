@@ -598,7 +598,7 @@ export default function CommunicationsConsole() {
       {/* Header */}
       <div className="border-b border-warroom-border flex items-center px-3 sm:px-6 py-2 sm:py-0 sm:h-14 gap-2 sm:gap-3 shrink-0">
         {activeGroup && (
-          <button onClick={() => setSelectedContact(null)} className="md:hidden p-1 text-warroom-muted hover:text-warroom-text">
+          <button onClick={() => setSelectedContact(null)} className="p-1 text-warroom-muted hover:text-warroom-text">
             <ChevronLeft size={18} />
           </button>
         )}
@@ -683,10 +683,10 @@ export default function CommunicationsConsole() {
         </div>
       )}
 
-      {/* Content: Contacts List + Contact Detail */}
+      {/* Content: Full-width list OR full-width detail (no split) */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Contact List */}
-        <div className={`${selectedContact ? "hidden md:block md:w-[340px] lg:w-[380px] md:border-r md:border-warroom-border" : "w-full"} overflow-y-auto`}>
+        {/* Contact List — hidden when a contact is selected */}
+        <div className={`${selectedContact ? "hidden" : "w-full"} overflow-y-auto`}>
           {loading ? (
             <div className="flex items-center justify-center py-20 text-warroom-muted">
               <Loader2 size={20} className="animate-spin mr-2" />
@@ -765,13 +765,13 @@ export default function CommunicationsConsole() {
           )}
         </div>
 
-        {/* Contact Detail / Thread View */}
+        {/* Contact Detail / Thread View — full width, replaces list */}
         {activeGroup ? (
-          <div className="flex-1 flex flex-col overflow-hidden bg-warroom-bg">
+          <div className="w-full flex flex-col overflow-hidden bg-warroom-bg">
             {/* Contact header card */}
             <div className="sticky top-0 bg-warroom-bg border-b border-warroom-border px-3 sm:px-6 py-3 z-10 shrink-0">
               <div className="flex items-center gap-3">
-                <button onClick={() => setSelectedContact(null)} className="md:hidden p-1 text-warroom-muted hover:text-warroom-text">
+                <button onClick={() => setSelectedContact(null)} className="p-1.5 rounded-lg text-warroom-muted hover:text-warroom-text hover:bg-warroom-surface transition">
                   <ChevronLeft size={18} />
                 </button>
                 <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-warroom-accent/10 flex items-center justify-center shrink-0">
@@ -814,7 +814,7 @@ export default function CommunicationsConsole() {
             </div>
 
             {/* Thread / timeline */}
-            <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 max-w-4xl mx-auto w-full">
               {[...activeGroup.records]
                 .sort((a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime())
                 .map((record) => (
@@ -822,15 +822,7 @@ export default function CommunicationsConsole() {
                 ))}
             </div>
           </div>
-        ) : (
-          /* Empty state when no contact selected (desktop) */
-          <div className="hidden md:flex flex-1 items-center justify-center bg-warroom-bg text-warroom-muted">
-            <div className="text-center">
-              <MessageSquare size={48} className="mx-auto mb-3 opacity-10" />
-              <p className="text-sm">Select a contact to view conversation</p>
-            </div>
-          </div>
-        )}
+        ) : null}
 
         {/* Compose FAB */}
         {!activeGroup && (
