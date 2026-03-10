@@ -609,10 +609,45 @@ export default function LeadgenPanel() {
 
   const totalLabel = showAllLeads ? "All Leads" : "Search Results";
 
+  const getLeadStatusClasses = (outreach_status: string) => {
+    switch (outreach_status) {
+      case "contacted": return { borderColorClass: "border-l-4 border-blue-500", backgroundClass: "" };
+      case "in_progress": return { borderColorClass: "border-l-4 border-yellow-500", backgroundClass: "" };
+      case "won": return { borderColorClass: "border-l-4 border-green-500", backgroundClass: "bg-green-500/5" };
+      case "lost": return { borderColorClass: "border-l-4 border-red-500", backgroundClass: "opacity-60" };
+      default: return { borderColorClass: "", backgroundClass: "" };
+    }
+  };
+
+  const LeadStatusBadge = ({ lead }: { lead: Lead }) => (
+    <>
+      {lead.contacted_by && lead.contacted_at && (
+        <p className="text-xs text-blue-400 mb-0.5">
+          Contacted by {lead.contacted_by} · {new Date(lead.contacted_at).toLocaleDateString()}
+        </p>
+      )}
+      {lead.enrichment_status === "pending" && lead.has_website && (
+        <p className="text-xs text-yellow-400 mb-0.5">
+          <Loader2 size={10} className="inline animate-spin mr-1" />
+          Enriching...
+        </p>
+      )}
+      {lead.enrichment_status === "failed" && (
+        <p className="text-xs text-red-400 mb-0.5">
+          <AlertTriangle size={10} className="inline mr-1" />
+          Enrichment failed
+        </p>
+      )}
+      {lead.enrichment_status === "pending" && !lead.has_website && (
+        <p className="text-xs text-warroom-muted mb-0.5">No website</p>
+      )}
+    </>
+  );
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="h-14 border-b border-warroom-border flex items-center px-6 justify-between">
+      <div className="h-14 border-b border-warroom-border flex items-center px-3 sm:px-6 justify-between">
         <h2 className="text-sm font-semibold">Lead Generator</h2>
         <div className="flex items-center gap-3">
           {activeJobAge !== null && !showAllLeads && (
@@ -624,82 +659,88 @@ export default function LeadgenPanel() {
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-6">
         {/* Error banner */}
         {errorMessage && (
           <ErrorBanner message={errorMessage} onDismiss={dismissError} />
         )}
 
-        {/* Search bar */}
-        <div className="flex gap-3 mb-2">
-          {/* State dropdown */}
-          <div className="relative w-32 shrink-0">
-            <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" />
-            <select
-              value={selectedState}
-              onChange={(e) => {
-                setSelectedState(e.target.value);
-                setSelectedCity("");
-              }}
-              className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-10 pr-8 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
-              style={{ colorScheme: "dark" }}
-            >
-              <option value="" disabled>State...</option>
-              {US_STATES.map((s) => (
-                <option key={s.abbr} value={s.abbr}>{s.name}</option>
-              ))}
-            </select>
-            <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
+        {/* Search bar — stacks vertically on mobile */}
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-2">
+          <div className="flex gap-2 sm:gap-3">
+            {/* State dropdown */}
+            <div className="relative w-24 sm:w-32 shrink-0">
+              <MapPin size={14} className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" />
+              <select
+                value={selectedState}
+                onChange={(e) => {
+                  setSelectedState(e.target.value);
+                  setSelectedCity("");
+                }}
+                className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-8 sm:pl-10 pr-6 sm:pr-8 py-2 sm:py-2.5 text-xs sm:text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+                style={{ colorScheme: "dark" }}
+              >
+                <option value="" disabled>State</option>
+                {US_STATES.map((s) => (
+                  <option key={s.abbr} value={s.abbr}>{s.abbr}</option>
+                ))}
+              </select>
+              <svg className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
+            </div>
+
+            {/* City autocomplete */}
+            <div className="flex-1">
+              <CityAutocomplete
+                state={selectedState}
+                value={selectedCity}
+                onChange={setSelectedCity}
+              />
+            </div>
           </div>
 
-          {/* City autocomplete (29k+ US cities/towns) */}
-          <CityAutocomplete
-            state={selectedState}
-            value={selectedCity}
-            onChange={setSelectedCity}
-          />
+          <div className="flex gap-2 sm:gap-3">
+            {/* Business type dropdown */}
+            <div className="relative flex-1">
+              <Building2 size={14} className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" />
+              <select
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-8 sm:pl-10 pr-6 sm:pr-8 py-2 sm:py-2.5 text-xs sm:text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+                style={{ colorScheme: "dark" }}
+              >
+                <option value="" disabled>Business type...</option>
+                {BUSINESS_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+              <svg className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
+            </div>
 
-          {/* Business type dropdown */}
-          <div className="relative flex-1">
-            <Building2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" />
-            <select
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full bg-warroom-surface border border-warroom-border rounded-lg pl-10 pr-8 py-2.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
-              style={{ colorScheme: "dark" }}
-            >
-              <option value="" disabled>Select business type...</option>
-              {BUSINESS_CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-            <svg className="absolute right-3 top-1/2 -translate-y-1/2 text-warroom-muted pointer-events-none" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5L6 7.5L9 4.5"/></svg>
+            {/* Search / Cancel button */}
+            {searching ? (
+              <button
+                onClick={cancelSearch}
+                className="px-4 sm:px-6 py-2 sm:py-2.5 bg-red-600 hover:bg-red-500 rounded-lg text-xs sm:text-sm font-medium transition flex items-center gap-1.5 sm:gap-2 text-white shrink-0"
+              >
+                <X size={14} />
+                <span className="hidden sm:inline">Cancel</span>
+              </button>
+            ) : (
+              <button
+                onClick={searchBusinesses}
+                disabled={!selectedState || !selectedCity || !query.trim()}
+                className="px-4 sm:px-6 py-2 sm:py-2.5 bg-warroom-accent rounded-lg text-xs sm:text-sm font-medium hover:bg-warroom-accent/80 disabled:opacity-50 transition flex items-center gap-1.5 sm:gap-2 shrink-0"
+              >
+                <Search size={14} />
+                <span className="hidden sm:inline">Search</span>
+              </button>
+            )}
           </div>
-
-          {/* Search / Cancel button */}
-          {searching ? (
-            <button
-              onClick={cancelSearch}
-              className="px-6 py-2.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition flex items-center gap-2 text-white"
-            >
-              <X size={16} />
-              Cancel
-            </button>
-          ) : (
-            <button
-              onClick={searchBusinesses}
-              disabled={!selectedState || !selectedCity || !query.trim()}
-              className="px-6 py-2.5 bg-warroom-accent rounded-lg text-sm font-medium hover:bg-warroom-accent/80 disabled:opacity-50 transition flex items-center gap-2"
-            >
-              <Search size={16} />
-              Search
-            </button>
-          )}
         </div>
 
         {/* Radius selector */}
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-xs text-warroom-muted">Search radius:</span>
+          <span className="text-xs text-warroom-muted">Radius:</span>
           <select
             value={radiusMiles}
             onChange={(e) => setRadiusMiles(Number(e.target.value))}
@@ -715,34 +756,35 @@ export default function LeadgenPanel() {
         </div>
 
         {/* Status + filters bar */}
-        <div className="space-y-3 mb-4">
-          <div className="flex items-center justify-between">
+        <div className="space-y-2 sm:space-y-3 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               {searchStatus && (
-                <p className="text-xs text-warroom-muted">{searchStatus}</p>
+                <p className="text-xs text-warroom-muted truncate">{searchStatus}</p>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {activeJobId && (
                 <>
                   <button
                     onClick={() => refreshSearchJob(activeJobId)}
                     disabled={searching}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 bg-warroom-border/50 text-warroom-muted hover:text-warroom-text disabled:opacity-50"
+                    className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 bg-warroom-border/50 text-warroom-muted hover:text-warroom-text disabled:opacity-50"
                     title="Re-run this search with fresh data"
                   >
-                    🔄 Refresh
+                    🔄 <span className="hidden sm:inline">Refresh</span>
                   </button>
                   <button
                     onClick={() => setShowAllLeads(!showAllLeads)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
+                    className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
                       showAllLeads
                         ? "bg-warroom-border/50 text-warroom-muted hover:text-warroom-text"
                         : "bg-warroom-accent/20 text-warroom-accent"
                     }`}
                   >
                     <Filter size={12} />
-                    {showAllLeads ? "Show Search Results" : "Show All Leads"}
+                    <span className="hidden sm:inline">{showAllLeads ? "Show Search Results" : "Show All Leads"}</span>
+                    <span className="sm:hidden">{showAllLeads ? "Results" : "All"}</span>
                   </button>
                 </>
               )}
@@ -750,14 +792,13 @@ export default function LeadgenPanel() {
           </div>
 
           {/* Filter row */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <div className="text-xs text-warroom-muted font-medium">Filters:</div>
 
-            {/* Contact Status Filter */}
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="bg-warroom-surface border border-warroom-border rounded-lg px-3 py-1.5 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+              className="bg-warroom-surface border border-warroom-border rounded-lg px-2 sm:px-3 py-1.5 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
               style={{ colorScheme: "dark" }}
             >
               <option value="">All</option>
@@ -768,11 +809,10 @@ export default function LeadgenPanel() {
               <option value="lost">Lost</option>
             </select>
 
-            {/* Tier filter */}
             <select
               value={filterTier}
               onChange={(e) => setFilterTier(e.target.value)}
-              className="bg-warroom-surface border border-warroom-border rounded-lg px-3 py-1.5 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+              className="bg-warroom-surface border border-warroom-border rounded-lg px-2 sm:px-3 py-1.5 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
               style={{ colorScheme: "dark" }}
             >
               <option value="">All Tiers</option>
@@ -781,7 +821,6 @@ export default function LeadgenPanel() {
               <option value="cold">🔵 Cold</option>
             </select>
 
-            {/* Clear filters */}
             {(filterStatus || filterTier) && (
               <button
                 onClick={() => {
@@ -796,12 +835,12 @@ export default function LeadgenPanel() {
           </div>
         </div>
 
-        {/* Results table */}
+        {/* Results */}
         {leads.length > 0 && (
           <div className="bg-warroom-surface border border-warroom-border rounded-lg overflow-hidden">
-            <div className="px-4 py-2 border-b border-warroom-border flex items-center justify-between">
+            <div className="px-3 sm:px-4 py-2 border-b border-warroom-border flex items-center justify-between">
               <span className="text-xs text-warroom-muted">
-                {totalLabel} · {leads.length} loaded{hasMore ? "+" : ""}
+                {totalLabel} · {leads.length}{hasMore ? "+" : ""}
               </span>
               <div className="flex items-center gap-3">
                 {activeJobAge !== null && !showAllLeads && (
@@ -812,12 +851,14 @@ export default function LeadgenPanel() {
                     onClick={() => { setShowAllLeads(true); setActiveJobId(null); setSearchStatus(""); setActiveJobAge(null); }}
                     className="text-[10px] text-warroom-muted hover:text-warroom-text flex items-center gap-1 transition"
                   >
-                    <X size={10} /> Clear filter
+                    <X size={10} /> Clear
                   </button>
                 )}
               </div>
             </div>
-            <table className="w-full text-sm">
+
+            {/* Desktop table — hidden on mobile */}
+            <table className="w-full text-sm hidden sm:table">
               <thead>
                 <tr className="border-b border-warroom-border">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Business</th>
@@ -828,28 +869,7 @@ export default function LeadgenPanel() {
               </thead>
               <tbody>
                 {leads.map((lead) => {
-                  let borderColorClass = "";
-                  let backgroundClass = "";
-
-                  switch (lead.outreach_status) {
-                    case "contacted":
-                      borderColorClass = "border-l-4 border-blue-500";
-                      break;
-                    case "in_progress":
-                      borderColorClass = "border-l-4 border-yellow-500";
-                      break;
-                    case "won":
-                      borderColorClass = "border-l-4 border-green-500";
-                      backgroundClass = "bg-green-500/5";
-                      break;
-                    case "lost":
-                      borderColorClass = "border-l-4 border-red-500";
-                      backgroundClass = "opacity-60";
-                      break;
-                    default:
-                      borderColorClass = "";
-                  }
-
+                  const { borderColorClass, backgroundClass } = getLeadStatusClasses(lead.outreach_status);
                   return (
                     <tr
                       key={lead.id}
@@ -858,79 +878,112 @@ export default function LeadgenPanel() {
                     >
                       <td className="px-4 py-3">
                         <p className="font-medium">{lead.business_name}</p>
-                        {lead.contacted_by && lead.contacted_at && (
-                          <p className="text-xs text-blue-400 mb-1">
-                            Contacted by {lead.contacted_by} on {new Date(lead.contacted_at).toLocaleDateString()}
-                          </p>
-                        )}
-                        {lead.enrichment_status === "pending" && lead.has_website && (
-                          <p className="text-xs text-yellow-400 mb-1">
-                            <Loader2 size={10} className="inline animate-spin mr-1" />
-                            Enriching...
-                          </p>
-                        )}
-                        {lead.enrichment_status === "failed" && (
-                          <p className="text-xs text-red-400 mb-1">
-                            <AlertTriangle size={10} className="inline mr-1" />
-                            Enrichment failed
-                          </p>
-                        )}
-                        {lead.enrichment_status === "pending" && !lead.has_website && (
-                          <p className="text-xs text-warroom-muted mb-1">No website</p>
-                        )}
+                        <LeadStatusBadge lead={lead} />
                         <p className="text-xs text-warroom-muted">{[lead.city, lead.state].filter(Boolean).join(", ") || lead.address}</p>
                         {lead.business_category && (
                           <p className="text-[10px] text-warroom-muted/70 mt-0.5">{lead.business_category}</p>
                         )}
                       </td>
-                    <td className="px-4 py-3">
-                      {lead.phone && (
-                        <div className="flex items-center gap-1 text-xs text-warroom-muted">
-                          <Phone size={10} /> {lead.phone}
+                      <td className="px-4 py-3">
+                        {lead.phone && (
+                          <div className="flex items-center gap-1 text-xs text-warroom-muted">
+                            <Phone size={10} /> {lead.phone}
+                          </div>
+                        )}
+                        {lead.emails?.[0] && (
+                          <div className="flex items-center gap-1 text-xs text-warroom-accent mt-0.5">
+                            <Mail size={10} /> {lead.emails[0]}
+                          </div>
+                        )}
+                        {lead.google_rating && (
+                          <div className="flex items-center gap-1 text-[10px] text-warroom-muted mt-0.5">
+                            <Star size={8} /> {lead.google_rating} ({lead.google_reviews_count})
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {lead.website ? (
+                          <a href={lead.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-warroom-accent hover:underline" onClick={(e) => e.stopPropagation()}>
+                            <Globe size={10} /> {(() => { try { return new URL(lead.website).hostname; } catch { return lead.website; } })()}
+                          </a>
+                        ) : (
+                          <span className="text-xs text-warroom-danger">No website</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col gap-1">
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full w-fit ${TIER_COLORS[lead.lead_tier] || TIER_COLORS.unscored}`}>
+                              {lead.lead_tier}
+                            </span>
+                            <span className="text-xs text-warroom-muted">{lead.lead_score}/100</span>
+                          </div>
+                          <button
+                            onClick={(e) => startPipeline(lead, e)}
+                            title="Start Pipeline"
+                            className="p-1.5 rounded-md text-warroom-muted hover:text-warroom-accent hover:bg-warroom-accent/10 transition opacity-0 group-hover:opacity-100"
+                          >
+                            <Rocket size={14} />
+                          </button>
                         </div>
-                      )}
-                      {lead.emails?.[0] && (
-                        <div className="flex items-center gap-1 text-xs text-warroom-accent mt-0.5">
-                          <Mail size={10} /> {lead.emails[0]}
-                        </div>
-                      )}
-                      {lead.google_rating && (
-                        <div className="flex items-center gap-1 text-[10px] text-warroom-muted mt-0.5">
-                          <Star size={8} /> {lead.google_rating} ({lead.google_reviews_count})
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {lead.website ? (
-                        <a href={lead.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-warroom-accent hover:underline" onClick={(e) => e.stopPropagation()}>
-                          <Globe size={10} /> {(() => { try { return new URL(lead.website).hostname; } catch { return lead.website; } })()}
-                        </a>
-                      ) : (
-                        <span className="text-xs text-warroom-danger">No website</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="flex flex-col gap-1">
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full w-fit ${TIER_COLORS[lead.lead_tier] || TIER_COLORS.unscored}`}>
-                            {lead.lead_tier}
-                          </span>
-                          <span className="text-xs text-warroom-muted">{lead.lead_score}/100</span>
-                        </div>
-                        <button
-                          onClick={(e) => startPipeline(lead, e)}
-                          title="Start Pipeline"
-                          className="p-1.5 rounded-md text-warroom-muted hover:text-warroom-accent hover:bg-warroom-accent/10 transition opacity-0 group-hover:opacity-100"
-                        >
-                          <Rocket size={14} />
-                        </button>
-                      </div>
-                    </td>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+
+            {/* Mobile card list — hidden on desktop */}
+            <div className="sm:hidden divide-y divide-warroom-border/50">
+              {leads.map((lead) => {
+                const { borderColorClass, backgroundClass } = getLeadStatusClasses(lead.outreach_status);
+                return (
+                  <div
+                    key={lead.id}
+                    className={`p-3 active:bg-warroom-border/30 cursor-pointer ${borderColorClass} ${backgroundClass}`}
+                    onClick={() => handleLeadClick(lead)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">{lead.business_name}</p>
+                        <LeadStatusBadge lead={lead} />
+                        <p className="text-xs text-warroom-muted">{[lead.city, lead.state].filter(Boolean).join(", ")}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${TIER_COLORS[lead.lead_tier] || TIER_COLORS.unscored}`}>
+                          {lead.lead_tier}
+                        </span>
+                        <span className="text-[10px] text-warroom-muted">{lead.lead_score}/100</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                      {lead.phone && (
+                        <span className="flex items-center gap-1 text-[11px] text-warroom-muted">
+                          <Phone size={9} /> {lead.phone}
+                        </span>
+                      )}
+                      {lead.google_rating && (
+                        <span className="flex items-center gap-1 text-[11px] text-warroom-muted">
+                          <Star size={9} /> {lead.google_rating}
+                        </span>
+                      )}
+                      {lead.website ? (
+                        <span className="flex items-center gap-1 text-[11px] text-warroom-accent">
+                          <Globe size={9} /> Site
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-red-400">No site</span>
+                      )}
+                      {lead.website_audit_grade && (
+                        <span className="text-[10px] text-warroom-muted bg-warroom-border/50 px-1 rounded">
+                          {lead.website_audit_grade}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
             {/* Infinite scroll sentinel */}
             <div ref={sentinelRef} className="h-1" />
