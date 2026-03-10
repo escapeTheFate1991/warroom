@@ -22,3 +22,5 @@ google-auth-httplib2==0.2.0
 sse-starlette==2.1.0
 yt-dlp
 scrapling
+arq==0.26.1
+redis>=5.0.0

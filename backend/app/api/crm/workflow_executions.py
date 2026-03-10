@@ -191,6 +191,65 @@ async def cancel_running_execution(execution_id: int, db: AsyncSession = Depends
     return _serialize_execution(execution)
 
 
+# ── Queue stats endpoint ──────────────────────────────────────────────
+
+@router.get("/workflow-queue/stats")
+async def queue_stats():
+    """Return arq queue depth, active jobs, and Redis availability."""
+    from app.services.redis_pool import get_redis_pool
+
+    pool = await get_redis_pool()
+    if pool is None:
+        return {
+            "redis_available": False,
+            "mode": "asyncio_fallback",
+            "queued": 0,
+            "active": 0,
+            "complete": 0,
+            "failed": 0,
+        }
+
+    try:
+        from arq.jobs import Job
+
+        # arq stores jobs in a sorted set keyed by queue name
+        queued = await pool.zcard(b"arq:queue")
+        # arq tracks running jobs in a set
+        active = await pool.scard(b"arq:in-progress")
+        # Result keys for complete/failed
+        result_keys = await pool.keys("arq:result:*")
+        complete_count = 0
+        failed_count = 0
+        for key in result_keys:
+            raw = await pool.get(key)
+            if raw:
+                import json
+                try:
+                    data = json.loads(raw)
+                    if data.get("success"):
+                        complete_count += 1
+                    else:
+                        failed_count += 1
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        return {
+            "redis_available": True,
+            "mode": "arq",
+            "queued": queued or 0,
+            "active": active or 0,
+            "complete": complete_count,
+            "failed": failed_count,
+        }
+    except Exception as exc:
+        logger.warning("Failed to read queue stats: %s", exc)
+        return {
+            "redis_available": True,
+            "mode": "arq",
+            "error": str(exc),
+        }
+
+
 # ── Helper: standalone session for post-mutation reads ────────────────
 
 from contextlib import asynccontextmanager

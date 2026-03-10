@@ -58,5 +58,19 @@ services:
       - /home/eddy/.npm-global/lib/node_modules/openclaw/skills:/openclaw-bundled-skills:ro
 
 
+  worker:
+    build: ./backend
+    command: arq app.services.workflow_queue.WorkerSettings
+    network_mode: host
+    depends_on:
+      - backend
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://localhost:6379/2}
+      POSTGRES_URL: ${POSTGRES_URL}
+      JWT_SECRET: ${JWT_SECRET}
+    restart: unless-stopped
+    volumes:
+      - /home/eddy/.openclaw/workspace/skills/mental-library/backend/data:/data/mental-library:ro
+
 volumes:
   instagram-cookies:

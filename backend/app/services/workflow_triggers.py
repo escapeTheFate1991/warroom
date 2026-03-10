@@ -244,6 +244,8 @@ def fire_triggers_background(
     """Non-blocking wrapper — schedules ``fire_triggers`` as a background task.
 
     Call this from API endpoints so they return immediately.
+    Uses asyncio.create_task since fire_triggers itself will enqueue arq jobs
+    via start_execution (which handles the arq/asyncio dispatch internally).
     """
     asyncio.create_task(
         fire_triggers(entity_type, event, entity_data, entity_id),
