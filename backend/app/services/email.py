@@ -1,55 +1,127 @@
-"""Email service for auth flows — verification codes and password resets.
+"""Email service — uses Resend HTTP API for all transactional emails.
 
-Uses SMTP (configurable). Falls back to logging if SMTP not configured.
+No SMTP. All email goes through Resend (https://resend.com).
+API key stored in settings DB as 'resend_api_key'.
 """
 import logging
 import os
 import random
-import smtplib
 import string
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
-# SMTP Configuration from environment
-SMTP_HOST = os.getenv("SMTP_HOST", "")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASS = os.getenv("SMTP_PASS", "")
-SMTP_FROM = os.getenv("SMTP_FROM", "noreply@stuffnthings.io")
 APP_NAME = os.getenv("APP_NAME", "War Room")
+FROM_EMAIL = "Stuff N Things <noreply@stuffnthings.io>"
+
+# Cache the API key after first load
+_resend_key: str | None = None
+
+
+async def _get_resend_key() -> str | None:
+    """Load Resend API key from settings DB (cached after first call)."""
+    global _resend_key
+    if _resend_key:
+        return _resend_key
+
+    try:
+        from sqlalchemy import text
+        from app.db.leadgen_db import leadgen_session
+
+        async with leadgen_session() as db:
+            result = await db.execute(
+                text("SELECT value FROM settings WHERE key = 'resend_api_key'")
+            )
+            row = result.fetchone()
+            if row and row[0]:
+                _resend_key = row[0]
+                return _resend_key
+    except Exception as exc:
+        logger.error("Failed to load Resend API key: %s", exc)
+
+    return None
+
+
+def _get_resend_key_sync() -> str | None:
+    """Synchronous version — reads cached key or returns None."""
+    return _resend_key
+
+
+async def _send_email_async(to: str, subject: str, html_body: str, from_email: str | None = None) -> bool:
+    """Send an email via Resend HTTP API. Async version."""
+    key = await _get_resend_key()
+    if not key:
+        logger.warning("Resend API key not configured — email to %s not sent: %s", to, subject)
+        return False
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": from_email or FROM_EMAIL,
+                    "to": [to],
+                    "subject": subject,
+                    "html": html_body,
+                },
+            )
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                logger.info("Email sent to %s: %s (id=%s)", to, subject, data.get("id", "?"))
+                return True
+            else:
+                logger.error("Resend API error %d: %s", resp.status_code, resp.text[:200])
+                return False
+    except Exception as exc:
+        logger.error("Failed to send email to %s: %s", to, exc)
+        return False
+
+
+def _send_email(to: str, subject: str, html_body: str, from_email: str | None = None) -> bool:
+    """Send an email via Resend HTTP API. Synchronous wrapper (uses httpx sync).
+
+    This is called from asyncio.to_thread() in the contact webhook.
+    """
+    key = _get_resend_key_sync()
+    if not key:
+        logger.warning("Resend API key not loaded — email to %s not sent: %s", to, subject)
+        return False
+
+    try:
+        resp = httpx.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": from_email or FROM_EMAIL,
+                "to": [to],
+                "subject": subject,
+                "html": html_body,
+            },
+            timeout=15.0,
+        )
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            logger.info("Email sent to %s: %s (id=%s)", to, subject, data.get("id", "?"))
+            return True
+        else:
+            logger.error("Resend API error %d: %s", resp.status_code, resp.text[:200])
+            return False
+    except Exception as exc:
+        logger.error("Failed to send email to %s: %s", to, exc)
+        return False
 
 
 def generate_code(length: int = 6) -> str:
     """Generate a random numeric verification code."""
     return ''.join(random.choices(string.digits, k=length))
-
-
-def _send_email(to: str, subject: str, html_body: str) -> bool:
-    """Send an email via SMTP. Returns True on success."""
-    if not SMTP_HOST or not SMTP_USER:
-        logger.warning("SMTP not configured — would send to %s: %s", to, subject)
-        logger.info("Email body preview: %s", html_body[:200])
-        return False
-
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = f"{APP_NAME} <{SMTP_FROM}>"
-        msg["To"] = to
-        msg.attach(MIMEText(html_body, "html"))
-
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(SMTP_FROM, to, msg.as_string())
-
-        logger.info("Email sent to %s: %s", to, subject)
-        return True
-    except Exception as e:
-        logger.error("Failed to send email to %s: %s", to, e)
-        return False
 
 
 def send_verification_email(to: str, name: str, code: str) -> bool:

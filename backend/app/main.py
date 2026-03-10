@@ -63,6 +63,11 @@ async def lifespan(app: FastAPI):
         # Email inbox tables (public schema)
         await email_inbox.init_email_tables()
         logger.info("Email inbox tables initialized")
+
+        # Warm Resend API key cache (so sync _send_email works immediately)
+        from app.services.email import _get_resend_key
+        resend_key = await _get_resend_key()
+        logger.info("Resend API key %s", "loaded" if resend_key else "NOT configured")
         
         # Contract tables (public schema)
         await contracts.init_contracts_tables()
