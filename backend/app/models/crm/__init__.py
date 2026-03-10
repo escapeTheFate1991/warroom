@@ -22,6 +22,7 @@ from .automation import Workflow, WorkflowTemplate, WorkflowExecution, Webhook
 from .audit import AuditLog, Import, SavedFilter
 from .social import SocialAccount, SocialAnalytics
 from .competitor import Competitor
+from .content_script import ContentScript
 from .organization import Tenant
 
 __all__ = [
@@ -41,5 +42,6 @@ __all__ = [
     "AuditLog", "Import", "SavedFilter",
     "SocialAccount", "SocialAnalytics",
     "Competitor",
+    "ContentScript",
     "Tenant",
 ]
