@@ -597,7 +597,7 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
         stage_id=stage.id if stage else None,
         source_id=source.id if source else None,
         leadgen_lead_id=convert_data.leadgen_lead_id,
-        metadata=lead_metadata if lead_metadata else None,
+        deal_metadata=lead_metadata if lead_metadata else None,
     )
     db.add(deal)
     await db.flush()

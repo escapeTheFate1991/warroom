@@ -95,7 +95,7 @@ class Deal(CrmBase):
     leadgen_lead_id = Column(Integer)
     
     # Rich metadata from lead enrichment (audit data, ratings, etc.)
-    metadata = Column(JSONB, default={})
+    deal_metadata = Column("metadata", JSONB, default={})
     
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())

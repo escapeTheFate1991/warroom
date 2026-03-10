@@ -683,16 +683,23 @@ export default function ChatPanel() {
     return segments;
   }, [splitTextWithUrls]);
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((force = false) => {
+    if (force) {
+      showScrollBtnRef.current = false;
+      setShowScrollButton(false);
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
-  useEffect(() => { scrollToBottom(); }, [messages, streamText, partialContent, scrollToBottom]);
+  // Auto-scroll only when user is already at the bottom
+  useEffect(() => {
+    if (!showScrollBtnRef.current) scrollToBottom();
+  }, [messages, streamText, partialContent, scrollToBottom]);
 
   // Scroll to bottom when panel becomes visible again (tab switch back)
   useEffect(() => {
     const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) scrollToBottom(); },
+      ([entry]) => { if (entry.isIntersecting) scrollToBottom(true); },
       { threshold: 0.1 }
     );
     const el = messagesEndRef.current;
@@ -700,15 +707,26 @@ export default function ChatPanel() {
     return () => observer.disconnect();
   }, [scrollToBottom]);
 
-  // Scroll detection
+  // Scroll detection (throttled)
+  const showScrollBtnRef = useRef(false);
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
+    let ticking = false;
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      setShowScrollButton(scrollHeight - scrollTop - clientHeight > 100);
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        const isScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
+        if (isScrolledUp !== showScrollBtnRef.current) {
+          showScrollBtnRef.current = isScrolledUp;
+          setShowScrollButton(isScrolledUp);
+        }
+        ticking = false;
+      });
     };
-    container.addEventListener("scroll", handleScroll);
+    container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -1747,13 +1765,15 @@ export default function ChatPanel() {
       </div>
 
       {/* Scroll to bottom */}
-      {showScrollButton && (
-        <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-10">
-          <button onClick={scrollToBottom} className="bg-warroom-surface border border-warroom-border rounded-full p-2 shadow-lg hover:bg-warroom-border transition">
-            <ArrowDown size={16} />
-          </button>
-        </div>
-      )}
+      <div className={`absolute bottom-32 left-1/2 -translate-x-1/2 z-10 transition-all duration-200 ${showScrollButton ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-2 pointer-events-none"}`}>
+        <button
+          onClick={() => scrollToBottom(true)}
+          className="bg-warroom-surface/90 border border-warroom-border rounded-full p-2 shadow-lg hover:bg-warroom-accent/20 transition-colors backdrop-blur-sm"
+          title="Scroll to bottom"
+        >
+          <ArrowDown size={16} className="text-warroom-text" />
+        </button>
+      </div>
 
       {/* Voice recording overlay (STT) */}
       {isRecording && (
