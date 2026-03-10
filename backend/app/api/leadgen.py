@@ -800,6 +800,56 @@ async def enrich_pending_leads(background_tasks: BackgroundTasks, db: AsyncSessi
         raise HTTPException(status_code=500, detail=f"Enrichment trigger failed: {str(exc)[:200]}")
 
 
+@router.post("/leads/{lead_id}/re-enrich")
+async def re_enrich_lead(lead_id: int, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_leadgen_db)):
+    """Force re-enrich a single lead — resets enrichment status and re-runs all sources."""
+    try:
+        result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        lead = result.scalar_one_or_none()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        # Reset enrichment fields so they get re-populated
+        lead.enrichment_status = "pending"
+        lead.enrichment_error = None
+        await db.commit()
+
+        if lead.search_job_id:
+            background_tasks.add_task(_run_enrichment, lead.search_job_id)
+        return {"status": "started", "lead_id": lead_id, "business_name": lead.business_name}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Re-enrich lead %d failed: %s", lead_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)[:200])
+
+
+@router.post("/leads/re-enrich-all")
+async def re_enrich_all_leads(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_leadgen_db)):
+    """Force re-enrich ALL leads — resets all to pending and re-runs enrichment."""
+    try:
+        await _ensure_enrichment_error_column(db)
+        result = await db.execute(select(Lead))
+        leads = result.scalars().all()
+        job_ids = set()
+        count = 0
+        for lead in leads:
+            lead.enrichment_status = "pending"
+            lead.enrichment_error = None
+            if lead.search_job_id:
+                job_ids.add(lead.search_job_id)
+            count += 1
+        await db.commit()
+
+        for job_id in job_ids:
+            background_tasks.add_task(_run_enrichment, job_id)
+
+        return {"status": "started", "leads_reset": count, "jobs_queued": len(job_ids)}
+    except Exception as exc:
+        logger.error("Re-enrich all failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)[:200])
+
+
 @router.post("/leads/rescore")
 async def rescore_all_leads(db: AsyncSession = Depends(get_leadgen_db)):
     """Rescore all leads — fixes leads imported before scoring was wired up."""
