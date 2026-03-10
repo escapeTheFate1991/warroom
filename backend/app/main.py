@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms
-from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows
+from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine, crm_session
 from app.models.lead import Base
@@ -212,3 +212,4 @@ app.include_router(data.router, prefix="/api/crm", tags=["crm-data"])
 app.include_router(audit.router, prefix="/api/crm", tags=["crm-audit"])
 app.include_router(pipeline_board.router, prefix="/api/crm", tags=["crm-pipeline-board"])
 app.include_router(workflows.router, prefix="/api/crm", tags=["crm-workflows"])
+app.include_router(workflow_executions.router, prefix="/api/crm", tags=["crm-workflow-executions"])

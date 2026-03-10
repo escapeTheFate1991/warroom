@@ -507,6 +507,26 @@ CREATE INDEX IF NOT EXISTS idx_activities_type ON crm.activities(type);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_templates_seed_key ON crm.workflow_templates(seed_key) WHERE seed_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_workflows_template_id ON crm.workflows(template_id);
 CREATE INDEX IF NOT EXISTS idx_workflows_root_workflow_id ON crm.workflows(root_workflow_id);
+
+-- Workflow executions (execution engine tracking)
+CREATE TABLE IF NOT EXISTS crm.workflow_executions (
+    id SERIAL PRIMARY KEY,
+    workflow_id INTEGER REFERENCES crm.workflows(id) ON DELETE CASCADE,
+    trigger_event TEXT NOT NULL,
+    trigger_entity_type TEXT,
+    trigger_entity_id INTEGER,
+    trigger_data JSONB DEFAULT '{}',
+    status VARCHAR(20) DEFAULT 'pending',
+    current_step INTEGER DEFAULT 0,
+    step_results JSONB DEFAULT '[]',
+    context JSONB DEFAULT '{}',
+    error TEXT,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_executions_workflow ON crm.workflow_executions(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_executions_status ON crm.workflow_executions(status);
 CREATE INDEX IF NOT EXISTS idx_activities_user ON crm.activities(user_id);
 CREATE INDEX IF NOT EXISTS idx_activities_schedule ON crm.activities(schedule_from);
 CREATE INDEX IF NOT EXISTS idx_emails_deal ON crm.emails(deal_id);
