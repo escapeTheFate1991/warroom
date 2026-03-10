@@ -37,6 +37,18 @@ async def lifespan(app: FastAPI):
         crm_schema_ok = await verify_crm_schema()
         logger.info("CRM schema verified")
 
+        # Ensure metadata JSONB column on deals (idempotent)
+        if crm_schema_ok:
+            try:
+                from app.db.crm_db import crm_engine
+                async with crm_engine.begin() as conn:
+                    await conn.execute(sa_text(
+                        "ALTER TABLE crm.deals ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb"
+                    ))
+                logger.info("Deals metadata column ensured")
+            except Exception as e:
+                logger.warning("Failed to ensure deals metadata column: %s", e)
+
         if crm_schema_ok:
             await telnyx.init_telnyx_tables()
             logger.info("Telnyx CRM tables initialized")

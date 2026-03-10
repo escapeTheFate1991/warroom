@@ -64,16 +64,18 @@ INDEX_SQLS = [
 
 SEED_TEMPLATES = [
     {
-        "name": "Introduction",
-        "subject_template": "Quick question about {{company}}'s web presence",
+        "name": "Introduction — Audit-Based",
+        "subject_template": "We audited {{company}}'s website — here's what we found",
         "body_template": (
             "Hi {{name}},\n\n"
-            "I came across {{company}} and was impressed by what you're building. "
-            "I noticed a few areas where your web presence could be working harder for you — "
-            "especially around {{pain_point}}.\n\n"
-            "We specialize in {{service}} and have helped businesses like yours turn their "
-            "online presence into a real growth engine.\n\n"
-            "Would you be open to a quick 15-minute chat this week to explore how we might help?\n\n"
+            "I came across {{company}} while researching {{category}} businesses in {{city}}. "
+            "We ran a quick audit on your website and found a few things worth flagging:\n\n"
+            "{{pain_point}}\n\n"
+            "{{audit_blurb}}\n\n"
+            "We specialize in {{service}} and have helped businesses like yours turn "
+            "these exact issues into growth opportunities.\n\n"
+            "Would you be open to a quick 15-minute chat this week? "
+            "I can walk you through the full audit results — no strings attached.\n\n"
             "Best,\nThe Stuff N Things Team"
         ),
         "tone": "professional",
@@ -94,15 +96,16 @@ SEED_TEMPLATES = [
         "tone": "friendly",
     },
     {
-        "name": "Value Prop",
-        "subject_template": "How we helped a business like {{company}} solve {{pain_point}}",
+        "name": "Value Prop — Specific Findings",
+        "subject_template": "3 things we'd fix on {{company}}'s website",
         "body_template": (
             "Hi {{name}},\n\n"
-            "I wanted to share a quick win from one of our recent projects. A business "
-            "in a similar space to {{company}} came to us struggling with {{pain_point}}.\n\n"
-            "After implementing our {{service}} solution, they saw measurable improvements "
-            "within the first 30 days — more traffic, better conversions, and a web presence "
-            "that actually works for them instead of against them.\n\n"
+            "I took a look at {{company}}'s online presence and wanted to share "
+            "three specific things that could make a real difference:\n\n"
+            "{{pain_point}}\n\n"
+            "We recently helped a {{category}} business tackle similar issues and saw "
+            "measurable improvements within the first 30 days — more traffic, better "
+            "conversions, and a web presence that actually works for them.\n\n"
             "I'd love to put together a similar game plan for {{company}}. "
             "Would a quick call this week work?\n\n"
             "Best,\nThe Stuff N Things Team"
@@ -277,19 +280,60 @@ async def generate_email(req: GenerateEmailRequest):
             recipient_name = recipient_name or contact.name
             recipient_email = recipient_email or contact.email
 
-        # Resolve recipient from lead if provided
-        if lead_id and (not recipient_name or not recipient_email):
+        # Resolve recipient from lead if provided — pull ALL enrichment data
+        if lead_id:
             result = await db.execute(
-                text("SELECT name, email, company, website FROM leadgen.leads WHERE id = :id"),
+                text(
+                    "SELECT business_name, owner_name, emails, phone, website, "
+                    "business_category, city, state, "
+                    "audit_lite_flags, website_audit_score, website_audit_grade, "
+                    "website_audit_summary, website_audit_top_fixes, "
+                    "yelp_rating, yelp_reviews_count, google_rating, google_reviews_count, "
+                    "review_pain_points, review_opportunity_flags "
+                    "FROM leadgen.leads WHERE id = :id"
+                ),
                 {"id": lead_id},
             )
             lead = result.fetchone()
             if not lead:
                 raise HTTPException(404, "Lead not found")
-            recipient_name = recipient_name or lead.name
-            recipient_email = recipient_email or lead.email
-            if not company_context.get("company") and lead.company:
-                company_context["company"] = lead.company
+            recipient_name = recipient_name or lead.owner_name or lead.business_name
+            # Use first email from emails array if available
+            if not recipient_email and lead.emails:
+                recipient_email = lead.emails[0] if lead.emails else None
+            if not company_context.get("company") and lead.business_name:
+                company_context["company"] = lead.business_name
+
+            # Build rich pain_point from actual audit data
+            pain_points = []
+            if lead.website_audit_top_fixes:
+                pain_points.extend(lead.website_audit_top_fixes[:3])
+            elif lead.audit_lite_flags:
+                pain_points.extend(lead.audit_lite_flags[:3])
+            if lead.review_pain_points:
+                pain_points.extend(lead.review_pain_points[:2])
+
+            if pain_points:
+                company_context.setdefault("pain_point", "; ".join(pain_points))
+
+            # Add audit score context
+            if lead.website_audit_score is not None:
+                company_context["audit_score"] = lead.website_audit_score
+                company_context["audit_grade"] = lead.website_audit_grade or ""
+            if lead.website_audit_summary:
+                company_context["audit_summary"] = lead.website_audit_summary
+            if lead.website:
+                company_context["website"] = lead.website
+            if lead.city:
+                company_context["city"] = lead.city
+            if lead.state:
+                company_context["state"] = lead.state
+            if lead.business_category:
+                company_context["category"] = lead.business_category
+            if lead.yelp_rating:
+                company_context["yelp_rating"] = float(lead.yelp_rating)
+            if lead.google_rating:
+                company_context["google_rating"] = float(lead.google_rating)
 
         if not recipient_name or not recipient_email:
             raise HTTPException(400, "recipient_name and recipient_email required (or provide contact_submission_id/lead_id)")
@@ -308,12 +352,29 @@ async def generate_email(req: GenerateEmailRequest):
         if not template:
             raise HTTPException(404, "No active template found")
 
-        # Build substitution variables
+        # Build substitution variables with rich lead data
+        pain_point = company_context.get("pain_point", "online visibility and lead generation")
+        audit_score = company_context.get("audit_score")
+        audit_blurb = ""
+        if audit_score is not None:
+            audit_blurb = f"Your website scored {audit_score}/100 on our audit"
+            if company_context.get("audit_grade"):
+                audit_blurb += f" (Grade: {company_context['audit_grade']})"
+            audit_blurb += "."
+
         variables = {
             "name": recipient_name,
             "company": company_context.get("company", "your company"),
             "service": company_context.get("service", "web development & digital strategy"),
-            "pain_point": company_context.get("pain_point", "online visibility and lead generation"),
+            "pain_point": pain_point,
+            "audit_score": str(audit_score) if audit_score is not None else "",
+            "audit_blurb": audit_blurb,
+            "website": company_context.get("website", ""),
+            "city": company_context.get("city", ""),
+            "state": company_context.get("state", ""),
+            "category": company_context.get("category", ""),
+            "yelp_rating": str(company_context.get("yelp_rating", "")),
+            "google_rating": str(company_context.get("google_rating", "")),
         }
         # Allow explicit overrides
         if req.variables:

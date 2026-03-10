@@ -1,6 +1,7 @@
 """CRM Deal models - Deal, Pipeline, Stages, Sources, Types."""
 
 from sqlalchemy import Column, Integer, String, Text, Boolean, Numeric, Date, TIMESTAMP, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -92,6 +93,9 @@ class Deal(CrmBase):
     
     # Link to leadgen if deal originated from a lead
     leadgen_lead_id = Column(Integer)
+    
+    # Rich metadata from lead enrichment (audit data, ratings, etc.)
+    metadata = Column(JSONB, default={})
     
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())

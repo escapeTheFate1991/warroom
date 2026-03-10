@@ -224,6 +224,20 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
           address: lead.address,
           city: lead.city,
           state: lead.state,
+          // Propagate enrichment data to deal metadata
+          google_place_id: (lead as any).google_place_id,
+          google_rating: (lead as any).google_rating,
+          yelp_url: (lead as any).yelp_url,
+          yelp_rating: (lead as any).yelp_rating,
+          audit_lite_flags: (lead as any).audit_lite_flags,
+          website_audit_score: (lead as any).website_audit_score,
+          website_audit_grade: (lead as any).website_audit_grade,
+          website_audit_summary: (lead as any).website_audit_summary,
+          website_audit_top_fixes: (lead as any).website_audit_top_fixes,
+          review_pain_points: (lead as any).review_pain_points,
+          review_opportunity_flags: (lead as any).review_opportunity_flags,
+          lead_score: (lead as any).lead_score,
+          lead_tier: (lead as any).lead_tier,
         }),
       });
       if (res.ok) {
@@ -411,6 +425,20 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
           address: lead.address,
           city: lead.city,
           state: lead.state,
+          // Propagate enrichment data to deal metadata
+          google_place_id: (lead as any).google_place_id,
+          google_rating: (lead as any).google_rating,
+          yelp_url: (lead as any).yelp_url,
+          yelp_rating: (lead as any).yelp_rating,
+          audit_lite_flags: (lead as any).audit_lite_flags,
+          website_audit_score: (lead as any).website_audit_score,
+          website_audit_grade: (lead as any).website_audit_grade,
+          website_audit_summary: (lead as any).website_audit_summary,
+          website_audit_top_fixes: (lead as any).website_audit_top_fixes,
+          review_pain_points: (lead as any).review_pain_points,
+          review_opportunity_flags: (lead as any).review_opportunity_flags,
+          lead_score: (lead as any).lead_score,
+          lead_tier: (lead as any).lead_tier,
         }),
       });
       if (res.ok) {

@@ -261,6 +261,20 @@ class ConvertFromLeadRequest(BaseModel):
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
+    # Enrichment data to propagate
+    google_place_id: Optional[str] = None
+    google_rating: Optional[float] = None
+    yelp_url: Optional[str] = None
+    yelp_rating: Optional[float] = None
+    audit_lite_flags: Optional[List[str]] = None
+    website_audit_score: Optional[int] = None
+    website_audit_grade: Optional[str] = None
+    website_audit_summary: Optional[str] = None
+    website_audit_top_fixes: Optional[List[str]] = None
+    review_pain_points: Optional[List[str]] = None
+    review_opportunity_flags: Optional[List[str]] = None
+    lead_score: Optional[int] = None
+    lead_tier: Optional[str] = None
 
 
 # ===== Activity Schemas =====

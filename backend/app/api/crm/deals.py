@@ -497,10 +497,15 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
                            db: AsyncSession = Depends(get_crm_db)):
     """Create deal + org + person from a leadgen lead. Starts the sales pipeline."""
     
-    # 1. Create or find organization
+    # 1. Create or find organization — include website and full address
     org = Organization(
         name=convert_data.business_name or convert_data.title,
-        address={"street": convert_data.address or "", "city": convert_data.city or "", "state": convert_data.state or ""},
+        address={
+            "street": convert_data.address or "",
+            "city": convert_data.city or "",
+            "state": convert_data.state or "",
+            "website": convert_data.website or "",
+        },
         leadgen_lead_id=convert_data.leadgen_lead_id,
     )
     db.add(org)
@@ -545,7 +550,44 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
     )
     source = source_result.scalar_one_or_none()
     
-    # 5. Create the deal
+    # 5. Build lead metadata from enrichment data
+    lead_metadata = {}
+    if convert_data.website:
+        lead_metadata["website"] = convert_data.website
+    if convert_data.google_place_id:
+        lead_metadata["google_place_id"] = convert_data.google_place_id
+    if convert_data.google_rating is not None:
+        lead_metadata["google_rating"] = convert_data.google_rating
+    if convert_data.yelp_url:
+        lead_metadata["yelp_url"] = convert_data.yelp_url
+    if convert_data.yelp_rating is not None:
+        lead_metadata["yelp_rating"] = convert_data.yelp_rating
+    if convert_data.audit_lite_flags:
+        lead_metadata["audit_lite_flags"] = convert_data.audit_lite_flags
+    if convert_data.website_audit_score is not None:
+        lead_metadata["website_audit_score"] = convert_data.website_audit_score
+    if convert_data.website_audit_grade:
+        lead_metadata["website_audit_grade"] = convert_data.website_audit_grade
+    if convert_data.website_audit_summary:
+        lead_metadata["website_audit_summary"] = convert_data.website_audit_summary
+    if convert_data.website_audit_top_fixes:
+        lead_metadata["website_audit_top_fixes"] = convert_data.website_audit_top_fixes
+    if convert_data.review_pain_points:
+        lead_metadata["review_pain_points"] = convert_data.review_pain_points
+    if convert_data.review_opportunity_flags:
+        lead_metadata["review_opportunity_flags"] = convert_data.review_opportunity_flags
+    if convert_data.lead_score is not None:
+        lead_metadata["lead_score"] = convert_data.lead_score
+    if convert_data.lead_tier:
+        lead_metadata["lead_tier"] = convert_data.lead_tier
+    if convert_data.business_category:
+        lead_metadata["business_category"] = convert_data.business_category
+    if convert_data.city:
+        lead_metadata["city"] = convert_data.city
+    if convert_data.state:
+        lead_metadata["state"] = convert_data.state
+
+    # 6. Create the deal with metadata
     deal = Deal(
         title=convert_data.title or convert_data.business_name,
         description=f"Converted from Lead Gen — {convert_data.business_category or 'Business'}",
@@ -555,6 +597,7 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
         stage_id=stage.id if stage else None,
         source_id=source.id if source else None,
         leadgen_lead_id=convert_data.leadgen_lead_id,
+        metadata=lead_metadata if lead_metadata else None,
     )
     db.add(deal)
     await db.flush()
