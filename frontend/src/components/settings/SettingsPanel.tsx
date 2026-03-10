@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Package, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X, RefreshCw, PhoneCall, CreditCard } from "lucide-react";
+import { Settings, Key, Save, Eye, EyeOff, Check, AlertCircle, MapPin, Zap, Building2, Mail, Share2, Package, Target, Bot, Shield, Plus, Edit, Trash2, Users, UserPlus, ChevronDown, Calendar, Loader2, Globe, X, RefreshCw, PhoneCall } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import { useThemeContext } from "@/components/ui/ThemeProvider";
 import ScrollTabs from "@/components/ui/ScrollTabs";
@@ -111,8 +111,7 @@ const SETTINGS_TABS = [
   { id: "email", label: "Email & Calendar", icon: Mail },
   { id: "social", label: "Social Media", icon: Share2 },
   { id: "communications", label: "Communications", icon: PhoneCall },
-  { id: "products", label: "Products", icon: Package },
-  { id: "stripe", label: "Stripe / Billing", icon: CreditCard },
+  { id: "products", label: "Products & Billing", icon: Package },
   { id: "scoring", label: "Lead Scoring", icon: Target },
   { id: "automation", label: "Automation", icon: Bot },
   { id: "access", label: "Access Control", icon: Shield },
@@ -601,9 +600,7 @@ export default function SettingsPanel() {
   }, [cleanupGoogleOAuth, cleanupGmailOAuth]);
 
   useEffect(() => {
-    if (activeTab === "products") {
-      loadProducts();
-    }
+    // Products tab now uses StripeSettingsPanel which handles its own loading
   }, [activeTab, loadProducts]);
 
   const saveSetting = async (key: string) => {
@@ -2313,14 +2310,13 @@ export default function SettingsPanel() {
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className={activeTab === "products" || activeTab === "stripe" ? "max-w-6xl mx-auto" : "max-w-2xl mx-auto"}>
+        <div className={activeTab === "products" ? "max-w-6xl mx-auto" : "max-w-2xl mx-auto"}>
           {activeTab === "general" && renderGeneralTab()}
           {activeTab === "business" && renderBusinessTab()}
           {activeTab === "email" && renderEmailTab()}
           {activeTab === "social" && renderSocialTab()}
           {activeTab === "communications" && renderCommunicationsTab()}
-          {activeTab === "products" && renderProductsTab()}
-          {activeTab === "stripe" && <StripeSettingsPanel />}
+          {activeTab === "products" && <StripeSettingsPanel />}
           {activeTab === "scoring" && renderScoringTab()}
           {activeTab === "automation" && renderAutomationTab()}
           {activeTab === "access" && renderAccessTab()}
