@@ -54,6 +54,7 @@ async def _ensure_enrichment_error_column(db: AsyncSession):
             "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS reddit_mentions JSONB DEFAULT '[]'",
             "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS news_mentions JSONB DEFAULT '[]'",
             "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS social_scan JSONB DEFAULT '{}'",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS video_analysis JSONB DEFAULT '[]'",
         ]
         for col_sql in columns:
             await db.execute(text(col_sql))
