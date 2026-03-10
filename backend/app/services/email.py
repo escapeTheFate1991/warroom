@@ -87,9 +87,9 @@ def _send_email(to: str, subject: str, html_body: str, from_email: str | None = 
 
     This is called from asyncio.to_thread() in the contact webhook.
     """
-    key = _get_resend_key_sync()
+    key = _resend_key
     if not key:
-        logger.warning("Resend API key not loaded — email to %s not sent: %s", to, subject)
+        logger.warning("Resend API key not cached — email to %s not sent: %s (use _send_email_async instead)", to, subject)
         return False
 
     try:

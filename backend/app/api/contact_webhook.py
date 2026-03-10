@@ -15,7 +15,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import text
 
 from app.db.leadgen_db import leadgen_engine, leadgen_session
-from app.services.email import _send_email
+from app.services.email import _send_email_async
 from app.services.notify import send_notification
 
 logger = logging.getLogger(__name__)
@@ -232,9 +232,8 @@ async def _send_auto_reply(submission_id: int, name: str, email: str):
     """Send auto-reply and update the DB record."""
     try:
         html = _build_auto_reply_html(name)
-        # _send_email is sync (uses smtplib) — run in thread to avoid blocking event loop
-        sent = await asyncio.to_thread(
-            _send_email, email, "We received your request — here's what happens next", html
+        sent = await _send_email_async(
+            email, "We received your request — here's what happens next", html
         )
 
         async with _session() as db:
@@ -344,11 +343,11 @@ async def send_lead_notification(submission_id: int, intake: dict | None = None)
         elif intake and intake.get("call_status") in ("no-answer", "busy", "failed"):
             subject = f"New Lead (Call Failed): {name}"
 
-        sent = await asyncio.to_thread(_send_email, LEAD_NOTIFY_TO, subject, html)
+        sent = await _send_email_async(LEAD_NOTIFY_TO, subject, html)
         if sent:
             logger.info("Lead notification sent to %s for submission #%d", LEAD_NOTIFY_TO, submission_id)
         else:
-            logger.warning("Lead notification NOT sent (SMTP unconfigured?)")
+            logger.warning("Lead notification NOT sent (Resend key missing?)")
     except Exception as exc:
         logger.error("Lead notification failed for submission #%d: %s", submission_id, exc)
 
