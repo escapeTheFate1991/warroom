@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass, field
 from datetime import date
 
+from app.services.leadgen.phone_validator import clean_phone
+
 logger = logging.getLogger(__name__)
 
 # ── Google Places daily rate limiter (free tier: 30 requests/day) ────
@@ -164,7 +166,7 @@ def _parse_place(place: dict) -> PlaceResult:
         city=addr_parts["city"],
         state=addr_parts["state"],
         zip_code=addr_parts["zip"],
-        phone=place.get("nationalPhoneNumber", "") or place.get("internationalPhoneNumber", ""),
+        phone=clean_phone(place.get("nationalPhoneNumber", "") or place.get("internationalPhoneNumber", "")),
         website=place.get("websiteUri", ""),
         maps_url=place.get("googleMapsUri", ""),
         rating=place.get("rating", 0.0),
@@ -353,7 +355,7 @@ async def _search_yelp(query: str, location: str, max_results: int) -> list[Plac
                                         city=addr.get("addressLocality", city),
                                         state=addr.get("addressRegion", state),
                                         zip_code=addr.get("postalCode", ""),
-                                        phone=item.get("telephone", ""),
+                                        phone=clean_phone(item.get("telephone", "")),
                                         website="",
                                         maps_url=item.get("url", ""),
                                         rating=float(agg.get("ratingValue", 0)),
@@ -474,7 +476,7 @@ out body center {max_results};
                 if addr_zip:
                     address_parts.append(addr_zip)
 
-                phone = tags_data.get("phone", "") or tags_data.get("contact:phone", "")
+                phone = clean_phone(tags_data.get("phone", "") or tags_data.get("contact:phone", ""))
                 website = tags_data.get("website", "") or tags_data.get("contact:website", "")
                 osm_id = elem.get("id", 0)
                 osm_type = elem.get("type", "node")

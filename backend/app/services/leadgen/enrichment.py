@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.lead import Lead, SearchJob
 from app.services.leadgen.website_crawler import crawl_website
 from app.services.leadgen.lead_scorer import score_lead
+from app.services.leadgen.phone_validator import is_fake_phone, clean_phone
 from app.services.leadgen.review_scraper import scrape_yelp_reviews, fetch_google_reviews
 from app.services.leadgen.review_analyzer import analyze_reviews
 from app.services.leadgen.bbb_scraper import scrape_bbb
@@ -114,7 +115,8 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
             lead.website_platform = crawl.platform
             lead.emails = crawl.emails
             if crawl.phones:
-                lead.website_phones = crawl.phones
+                valid_phones = [p for p in crawl.phones if not is_fake_phone(p)]
+                lead.website_phones = valid_phones if valid_phones else []
             lead.facebook_url = crawl.facebook
             lead.instagram_url = crawl.instagram
             lead.linkedin_url = crawl.linkedin

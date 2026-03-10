@@ -11,7 +11,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 const MARKDOWN_PROSE = [
-  "prose prose-invert prose-sm max-w-none overflow-hidden break-words",
+  "prose prose-invert prose-sm max-w-none overflow-hidden break-words [overflow-wrap:anywhere]",
   // Spacing
   "[&>p]:mb-3 [&>ul]:mb-3 [&>ol]:mb-3 [&>blockquote]:mb-3",
   // Headers
@@ -20,7 +20,7 @@ const MARKDOWN_PROSE = [
   "[&>h3]:text-sm [&>h3]:font-semibold [&>h3]:mb-1.5 [&>h3]:mt-2",
   // Code
   "[&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4 [&>pre]:my-3 [&>pre]:overflow-x-auto [&>pre]:max-w-full",
-  "[&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent",
+  "[&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&>code]:break-all",
   "[&>pre>code]:whitespace-pre [&>pre>code]:break-normal",
   // Links
   "[&_a]:break-all [&_a]:text-warroom-accent [&_a]:underline",
@@ -1037,6 +1037,7 @@ export default function ChatPanel() {
   const sendMessage = (overrideText?: string) => {
     const text = (overrideText || input).trim();
     const images = pendingImages;
+    if (isGeneratingRef.current) return; // Block sends while generating
     if ((!text && images.length === 0) || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
     setMessages(prev => [...prev, {
@@ -1082,7 +1083,7 @@ export default function ChatPanel() {
       if (isTouchDevice) return; // let Enter insert a newline naturally
       if (!e.shiftKey) {
         e.preventDefault();
-        sendMessage();
+        if (!isGeneratingRef.current) sendMessage();
       }
     }
   };
@@ -1545,9 +1546,9 @@ export default function ChatPanel() {
                   <Bot size={16} className="text-warroom-accent" />
                 </div>
               )}
-              <div className={`max-w-[80%] ${msg.role === "user" ? "order-first" : ""}`}>
+              <div className={`max-w-[80%] min-w-0 ${msg.role === "user" ? "order-first" : ""}`}>
                 {msg.role === "user" ? (
-                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl px-4 py-2.5 text-sm">
+                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl px-4 py-2.5 text-sm overflow-hidden">
                     {msg.images && msg.images.length > 0 && (
                       <div className="flex gap-2 mb-2 flex-wrap">
                         {msg.images.map(img => (
@@ -1555,10 +1556,10 @@ export default function ChatPanel() {
                         ))}
                       </div>
                     )}
-                    <p className="whitespace-pre-wrap">{msg.content !== "(image)" ? msg.content : ""}</p>
+                    <p className="whitespace-pre-wrap break-words" style={{ overflowWrap: 'anywhere' }}>{msg.content !== "(image)" ? msg.content : ""}</p>
                   </div>
                 ) : (
-                  <div>
+                  <div className="overflow-hidden">
                     {/* Tool call history (collapsed) */}
                     {msg.toolCalls && msg.toolCalls.length > 0 && (
                       <details className="mb-2 border border-zinc-700/30 rounded-lg bg-zinc-900/40">
@@ -1634,7 +1635,7 @@ export default function ChatPanel() {
               <div className="w-8 h-8 rounded-full bg-warroom-accent/10 flex items-center justify-center flex-shrink-0 mt-1">
                 <Bot size={16} className="text-warroom-accent" />
               </div>
-              <div className="max-w-[80%] space-y-2 w-full">
+              <div className="max-w-[80%] min-w-0 space-y-2 w-full">
                 {/* Partial content from before tool calls — keeps text visible during tool execution */}
                 {!streamText && partialContent && activeTools.length > 0 && (
                   <div className={`${MARKDOWN_PROSE} opacity-70`}>
@@ -1842,9 +1843,10 @@ export default function ChatPanel() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                placeholder={pendingImages.length > 0 ? "Add a message about these images..." : "Message Friday..."}
+                disabled={isGenerating}
+                placeholder={isGenerating ? "Generating response..." : pendingImages.length > 0 ? "Add a message about these images..." : "Message Friday..."}
                 rows={1}
-                className="w-full bg-transparent text-sm text-warroom-text placeholder-warroom-muted resize-none outline-none min-h-[24px] max-h-[200px] leading-6 scrollbar-thin scrollbar-thumb-warroom-border scrollbar-track-transparent"
+                className={`w-full bg-transparent text-sm placeholder-warroom-muted resize-none outline-none min-h-[24px] max-h-[200px] leading-6 scrollbar-thin scrollbar-thumb-warroom-border scrollbar-track-transparent ${isGenerating ? "text-warroom-muted/50 cursor-not-allowed" : "text-warroom-text"}`}
                 style={{ overflow: input.split("\n").length > 8 || input.length > 400 ? "auto" : "hidden" }}
                 onInput={resizeTextarea}
               />
