@@ -969,16 +969,11 @@ class TestFreshness:
     @pytest.mark.asyncio
     async def test_freshness_success(self, client, auth_headers):
         db = client._mock_db
+        now = datetime.now(timezone.utc)
         jobs = [
-            make_fake_search_job(id=1, created_at=datetime.now(timezone.utc)),
-            make_fake_search_job(id=2, created_at=datetime.now(timezone.utc) - timedelta(days=35)),
+            make_fake_search_job(id=1, created_at=now),
+            make_fake_search_job(id=2, created_at=now - timedelta(days=35)),
         ]
-        # Need created_at to have tzinfo attribute
-        for j in jobs:
-            j.created_at = MagicMock()
-            j.created_at.tzinfo = timezone.utc
-            j.created_at.replace.return_value = datetime.now(timezone.utc)
-            j.created_at.isoformat.return_value = datetime.now(timezone.utc).isoformat()
 
         db.execute.return_value = FakeResult(items=jobs)
 
@@ -987,6 +982,9 @@ class TestFreshness:
         data = resp.json()
         assert isinstance(data, list)
         assert len(data) == 2
+        # Second job should be stale (>30 days)
+        assert data[1]["is_stale"] is True
+        assert data[0]["is_stale"] is False
 
 
 # =====================================================================
@@ -1129,12 +1127,7 @@ class TestSearchStatus:
     async def test_search_status_running(self, client, auth_headers):
         db = client._mock_db
 
-        job = make_fake_search_job(id=3, status="running")
-        job.created_at = datetime.now(timezone.utc)
-        job.created_at = MagicMock()
-        job.created_at.tzinfo = timezone.utc
-        job.created_at.replace.return_value = datetime.now(timezone.utc)
-        job.created_at.isoformat.return_value = datetime.now(timezone.utc).isoformat()
+        job = make_fake_search_job(id=3, status="running", created_at=datetime.now(timezone.utc))
 
         call_idx = 0
 
