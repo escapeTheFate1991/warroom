@@ -488,6 +488,10 @@ export default function ChatPanel() {
   const [thinkingCollapsed, setThinkingCollapsed] = useState(false);
   const activeToolsRef = useRef<ToolCall[]>([]);
 
+  // Task completion review — holds stop button until summary renders
+  const [taskReview, setTaskReview] = useState<{ tools: ToolCall[]; show: boolean } | null>(null);
+  const taskReviewTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // Persist pending images to localStorage (max 5MB check)
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -863,7 +867,7 @@ export default function ChatPanel() {
             }
           } else if (state === "final") {
             const text = extractText(message);
-            const finalTools = activeToolsRef.current.length > 0
+            const completedTools = activeToolsRef.current.length > 0
               ? activeToolsRef.current.map(t => ({ ...t, status: "done" as ToolCall["status"] }))
               : undefined;
             if (text && text.trim().length > 0) {
@@ -872,17 +876,33 @@ export default function ChatPanel() {
                 role: "assistant",
                 content: text,
                 timestamp: new Date(message?.timestamp || Date.now()),
-                toolCalls: finalTools,
+                toolCalls: completedTools,
               }]);
             }
             setStreamText(null);
             streamTextRef.current = null;
             updatePartial("");
             setIsLoading(false);
-            updateGenerating(false);
-            setActiveTools([]);
-            activeToolsRef.current = [];
             setThinkingText(null);
+
+            // If tools were used, show task completion review before releasing send button
+            if (completedTools && completedTools.length > 0) {
+              // Clear any previous timer
+              if (taskReviewTimerRef.current) clearTimeout(taskReviewTimerRef.current);
+              setTaskReview({ tools: completedTools, show: true });
+              // Hold for 2.5s so user sees completion, then release
+              taskReviewTimerRef.current = setTimeout(() => {
+                setTaskReview(null);
+                updateGenerating(false);
+                setActiveTools([]);
+                activeToolsRef.current = [];
+              }, 2500);
+            } else {
+              // No tools — release immediately
+              updateGenerating(false);
+              setActiveTools([]);
+              activeToolsRef.current = [];
+            }
 
             // If in conversation mode, speak the response
             if (text && conversationActiveRef.current) {
@@ -1038,6 +1058,9 @@ export default function ChatPanel() {
     setStreamText(null);
     streamTextRef.current = null;
     updateGenerating(false);
+    // Clear task review if aborting during review period
+    if (taskReviewTimerRef.current) clearTimeout(taskReviewTimerRef.current);
+    setTaskReview(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1664,6 +1687,31 @@ export default function ChatPanel() {
                     <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:300ms]" />
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Task completion review card */}
+          {taskReview?.show && (
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded-full bg-green-500/10 flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 size={16} className="text-green-400" />
+              </div>
+              <div className="bg-green-500/5 border border-green-500/20 rounded-xl px-4 py-3 flex-1">
+                <p className="text-xs font-semibold text-green-400 mb-1.5">Task Complete</p>
+                <div className="space-y-1">
+                  {taskReview.tools.map((tool, i) => (
+                    <div key={tool.id || i} className="flex items-center gap-2 text-xs text-warroom-text/70">
+                      <CheckCircle2 size={10} className="text-green-400/60 shrink-0" />
+                      <span className="truncate">{tool.name}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center gap-1.5">
+                  <div className="w-full bg-green-500/10 rounded-full h-1">
+                    <div className="bg-green-400 h-1 rounded-full animate-shrink" />
+                  </div>
+                </div>
               </div>
             </div>
           )}
