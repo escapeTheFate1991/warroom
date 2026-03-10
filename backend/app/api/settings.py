@@ -439,6 +439,142 @@ async def list_settings(
     ]
 
 
+# ── Email settings (must be above /{key} catch-all) ──────────────────
+
+EMAIL_DEFAULTS = {
+    "smtp_host": "",
+    "smtp_port": "587",
+    "smtp_username": "",
+    "smtp_password": "",
+    "imap_host": "",
+    "imap_port": "993",
+    "from_name": "",
+    "from_email": "",
+}
+
+LEAD_SCORING_DEFAULTS = {
+    "weights": {
+        "no_website": 30,
+        "bad_website_score": 20,
+        "mediocre_website": 10,
+        "has_email": 10,
+        "has_phone": 10,
+        "high_google_rating": 10,
+        "many_reviews": 5,
+        "has_socials": 5,
+        "old_platform": 15,
+    },
+    "thresholds": {"hot": 70, "warm": 40, "cold": 0},
+}
+
+
+@router.get("/email")
+async def get_email_settings(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Return email/SMTP configuration from stored settings."""
+    result = {}
+    for field in EMAIL_DEFAULTS:
+        key = f"email_{field}"
+        row = await db.execute(select(Setting).where(Setting.key == key))
+        setting = row.scalars().first()
+        result[field] = setting.value if setting else EMAIL_DEFAULTS[field]
+    return result
+
+
+@router.put("/email")
+async def update_email_settings(
+    body: dict,
+    user: User = Depends(require_superadmin()),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Save email/SMTP configuration."""
+    for field in EMAIL_DEFAULTS:
+        if field not in body:
+            continue
+        key = f"email_{field}"
+        row = await db.execute(select(Setting).where(Setting.key == key))
+        setting = row.scalars().first()
+        if setting:
+            setting.value = str(body[field])
+        else:
+            db.add(Setting(
+                key=key,
+                value=str(body[field]),
+                category="email",
+                description=f"Email setting: {field}",
+                is_secret=1 if "password" in field else 0,
+            ))
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/email/test")
+async def test_email_connection(
+    body: dict,
+    user: User = Depends(require_superadmin()),
+):
+    """Test SMTP connection with provided settings."""
+    import smtplib
+    try:
+        host = body.get("smtp_host", "")
+        port = int(body.get("smtp_port", 587))
+        with smtplib.SMTP(host, port, timeout=10) as server:
+            server.ehlo()
+            if port != 25:
+                server.starttls()
+            username = body.get("smtp_username", "")
+            password = body.get("smtp_password", "")
+            if username and password:
+                server.login(username, password)
+        return {"status": "ok", "message": "Connection successful"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Connection failed: {e}")
+
+
+@router.get("/lead-scoring")
+async def get_lead_scoring_settings(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Return lead scoring weights and thresholds."""
+    import json as _json
+    row = await db.execute(select(Setting).where(Setting.key == "lead_scoring_config"))
+    setting = row.scalars().first()
+    if setting and setting.value:
+        try:
+            return _json.loads(setting.value)
+        except _json.JSONDecodeError:
+            pass
+    return LEAD_SCORING_DEFAULTS
+
+
+@router.put("/lead-scoring")
+async def update_lead_scoring_settings(
+    body: dict,
+    user: User = Depends(require_superadmin()),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Save lead scoring weights and thresholds."""
+    import json as _json
+    row = await db.execute(select(Setting).where(Setting.key == "lead_scoring_config"))
+    setting = row.scalars().first()
+    payload = _json.dumps(body)
+    if setting:
+        setting.value = payload
+    else:
+        db.add(Setting(
+            key="lead_scoring_config",
+            value=payload,
+            category="lead_scoring",
+            description="Lead scoring weights and tier thresholds",
+            is_secret=0,
+        ))
+    await db.commit()
+    return {"status": "ok"}
+
+
 @router.get("/{key}")
 async def get_setting(
     key: str,

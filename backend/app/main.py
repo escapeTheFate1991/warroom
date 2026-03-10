@@ -58,6 +58,8 @@ async def lifespan(app: FastAPI):
         async with crm_session() as db:
             await db.execute(sa_text("SET search_path TO crm, public"))
             await ensure_agent_tables(db)
+        from app.api import agents as _agents_mod
+        _agents_mod._tables_ready = True
         logger.info("Agent tables initialized (crm schema)")
         
         # Contact submissions table (public schema)
@@ -217,7 +219,7 @@ app.include_router(telnyx.router, prefix="/api", tags=["telnyx"])
 app.include_router(twilio.router, prefix="/api", tags=["twilio"])
 app.include_router(twilio_voice.router, prefix="/api/twilio", tags=["twilio-voice"])
 app.include_router(comms.router, prefix="/api/comms", tags=["communications"])
-app.include_router(stripe_settings.router, prefix="/api/settings", tags=["stripe"])
+app.include_router(stripe_settings.router, prefix="/api/stripe", tags=["stripe"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])

@@ -83,7 +83,7 @@ export default function StripeSettingsPanel() {
 
   const loadConfig = useCallback(async () => {
     try {
-      const res = await authFetch(`${API}/api/settings/stripe`);
+      const res = await authFetch(`${API}/api/stripe`);
       if (res.ok) setConfig(await res.json());
     } catch {
       setError("Failed to load Stripe config");
@@ -95,7 +95,7 @@ export default function StripeSettingsPanel() {
   const loadProducts = useCallback(async () => {
     setProductsLoading(true);
     try {
-      const res = await authFetch(`${API}/api/settings/stripe/products`);
+      const res = await authFetch(`${API}/api/stripe/products`);
       if (res.ok) {
         const data = await res.json();
         setProducts(data.filter((p: StripeProduct) => p.is_active));
@@ -119,7 +119,7 @@ export default function StripeSettingsPanel() {
     setTogglingMode(true);
     const newMode = config.mode === "test" ? "live" : "test";
     try {
-      const res = await authFetch(`${API}/api/settings/stripe`, {
+      const res = await authFetch(`${API}/api/stripe`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: newMode }),
@@ -137,7 +137,7 @@ export default function StripeSettingsPanel() {
   const testConnection = async () => {
     setTestingConnection(true);
     try {
-      const res = await authFetch(`${API}/api/settings/stripe/test-connection`);
+      const res = await authFetch(`${API}/api/stripe/test-connection`);
       if (res.ok) {
         const data = await res.json();
         setConfig((prev) => prev ? { ...prev, connected: data.connected, error: data.error } : prev);
@@ -153,7 +153,7 @@ export default function StripeSettingsPanel() {
     setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await authFetch(`${API}/api/settings/stripe/sync`, { method: "POST" });
+      const res = await authFetch(`${API}/api/stripe/sync`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         setSyncResult(data);
@@ -231,8 +231,8 @@ export default function StripeSettingsPanel() {
 
     try {
       const url = editingProduct
-        ? `${API}/api/settings/stripe/products/${editingProduct.id}`
-        : `${API}/api/settings/stripe/products`;
+        ? `${API}/api/stripe/products/${editingProduct.id}`
+        : `${API}/api/stripe/products`;
 
       const res = await authFetch(url, {
         method: editingProduct ? "PUT" : "POST",
@@ -258,7 +258,7 @@ export default function StripeSettingsPanel() {
   const deleteProduct = async (product: StripeProduct) => {
     if (!confirm(`Archive "${product.name}"? It will be deactivated in Stripe.`)) return;
     try {
-      const res = await authFetch(`${API}/api/settings/stripe/products/${product.id}`, {
+      const res = await authFetch(`${API}/api/stripe/products/${product.id}`, {
         method: "DELETE",
       });
       if (res.ok) await loadProducts();

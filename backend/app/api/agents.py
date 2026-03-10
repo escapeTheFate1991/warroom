@@ -128,16 +128,27 @@ ALTER TABLE agents ADD COLUMN IF NOT EXISTS soul_md TEXT DEFAULT '';
 """
 
 
+_tables_ready = False
+
+
 async def ensure_tables(db):
-    await db.execute(text(CREATE_TABLE))
-    await db.execute(text(CREATE_TASK_ASSIGNMENTS))
-    await db.execute(text(CREATE_ASSIGNMENTS))
-    await db.execute(text(CREATE_ASSIGNMENTS_AGENT_INDEX))
-    await db.execute(text(CREATE_ASSIGNMENTS_ENTITY_INDEX))
-    await db.execute(text(CREATE_ASSIGNMENTS_STATUS_INDEX))
-    await db.execute(text(MIGRATE_LEGACY_TASK_ASSIGNMENTS))
-    await db.execute(text(MIGRATE_SOUL_MD))
-    await db.commit()
+    global _tables_ready
+    if _tables_ready:
+        return
+    try:
+        await db.execute(text(CREATE_TABLE))
+        await db.execute(text(CREATE_TASK_ASSIGNMENTS))
+        await db.execute(text(CREATE_ASSIGNMENTS))
+        await db.execute(text(CREATE_ASSIGNMENTS_AGENT_INDEX))
+        await db.execute(text(CREATE_ASSIGNMENTS_ENTITY_INDEX))
+        await db.execute(text(CREATE_ASSIGNMENTS_STATUS_INDEX))
+        await db.execute(text(MIGRATE_LEGACY_TASK_ASSIGNMENTS))
+        await db.execute(text(MIGRATE_SOUL_MD))
+        await db.commit()
+        _tables_ready = True
+    except Exception as e:
+        logger.warning("ensure_tables failed (will retry next request): %s", e)
+        await db.rollback()
 
 
 def _decode_json(value: Any, fallback: Any):
