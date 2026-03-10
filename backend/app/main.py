@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine, crm_session
@@ -84,6 +84,10 @@ async def lifespan(app: FastAPI):
         # Prospects meta table (public schema)
         await prospects.init_prospects_table()
         logger.info("Prospects meta table initialized")
+        
+        # Stripe products table (public schema) + seed defaults
+        await stripe_settings.init_products_table(leadgen_engine)
+        logger.info("Stripe products table initialized")
         
         # AI Call intakes table (public schema)
         await twilio_voice._ensure_table()
@@ -201,6 +205,7 @@ app.include_router(telnyx.router, prefix="/api", tags=["telnyx"])
 app.include_router(twilio.router, prefix="/api", tags=["twilio"])
 app.include_router(twilio_voice.router, prefix="/api/twilio", tags=["twilio-voice"])
 app.include_router(comms.router, prefix="/api/comms", tags=["communications"])
+app.include_router(stripe_settings.router, prefix="/api/settings", tags=["stripe"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])

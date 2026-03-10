@@ -24,3 +24,4 @@ yt-dlp
 scrapling
 arq==0.26.1
 redis>=5.0.0
+stripe
