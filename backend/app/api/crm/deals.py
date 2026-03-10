@@ -512,7 +512,7 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
         emails_json = [{"value": e, "label": "work"} for e in (convert_data.emails or [])]
         phones_json = [{"value": convert_data.phone, "label": "work"}] if convert_data.phone else None
         person = Person(
-            name=convert_data.assigned_to or "Unknown Contact",
+            name=convert_data.business_name or convert_data.title or "Unknown Contact",
             emails=emails_json or [],
             contact_numbers=phones_json,
             organization_id=org.id,
@@ -565,6 +565,14 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
     
     await db.commit()
     await db.refresh(deal)
+
+    # Fire workflow triggers for new deal
+    from app.services.workflow_triggers import fire_triggers_background
+    fire_triggers_background(
+        "deal", "created",
+        {"id": deal.id, "title": deal.title, "source": "leadgen", "leadgen_lead_id": convert_data.leadgen_lead_id},
+        entity_id=deal.id,
+    )
     
     serialized_deal = await load_deal_with_related(db, deal.id)
     if not serialized_deal:

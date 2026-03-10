@@ -134,7 +134,6 @@ const CONTACT_OUTCOMES = [
 ];
 
 function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealId: number) => void }) {
-  const [showForm, setShowForm] = useState(false);
   const [assignTo, setAssignTo] = useState("");
   const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -180,7 +179,6 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
         });
         onAssigned(deal.id);
         setSuccess({ dealId: deal.id, assignee: assignTo });
-        setShowForm(false);
       }
     } catch (err) {
       console.error("Failed to assign:", err);
@@ -190,6 +188,8 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
   };
 
   if (lead.outreach_status === "won") return null;
+
+  const isReady = assignTo && assignTo !== "custom";
 
   return (
     <div>
@@ -209,14 +209,6 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
             View in CRM Deals →
           </a>
         </div>
-      ) : !showForm ? (
-        <button
-          onClick={() => setShowForm(true)}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition text-sm font-medium"
-        >
-          <UserPlus size={16} />
-          Assign to Pipeline
-        </button>
       ) : (
         <div className="space-y-3">
           <div>
@@ -241,21 +233,24 @@ function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealI
               className="w-full bg-[#0d1117] border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text"
             />
           )}
-          <div className="flex gap-2">
-            <button
-              onClick={handleAssign}
-              disabled={!assignTo || loading}
-              className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
-            >
-              {loading ? <Loader2 size={14} className="animate-spin mx-auto" /> : "Assign & Start Pipeline"}
-            </button>
-            <button
-              onClick={() => setShowForm(false)}
-              className="px-4 py-2 bg-warroom-border/30 hover:bg-warroom-border/50 text-warroom-text rounded-lg text-sm"
-            >
-              Cancel
-            </button>
-          </div>
+          <button
+            onClick={handleAssign}
+            disabled={!isReady || loading}
+            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
+              isReady
+                ? "bg-green-600 hover:bg-green-700 text-white"
+                : "bg-warroom-border/20 text-warroom-muted cursor-not-allowed"
+            }`}
+          >
+            {loading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <>
+                <UserPlus size={16} />
+                Assign & Start Pipeline
+              </>
+            )}
+          </button>
         </div>
       )}
     </div>
