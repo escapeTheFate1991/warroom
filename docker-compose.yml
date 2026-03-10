@@ -43,6 +43,16 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       FRONTEND_URL: ${FRONTEND_URL}
       LEADGEN_DB_URL: ${LEADGEN_DB_URL}
+      # Stripe
+      STRIPE_LIVE_PK: ${STRIPE_LIVE_PK}
+      STRIPE_LIVE_SK: ${STRIPE_LIVE_SK}
+      STRIPE_TEST_PK: ${STRIPE_TEST_PK}
+      STRIPE_TEST_SK: ${STRIPE_TEST_SK}
+      STRIPE_MODE: ${STRIPE_MODE:-test}
+      # Resend
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      # Anthropic (for deep audit AI analysis)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       # SQLite read-only mount from the mental-library skill volume
       MENTAL_LIBRARY_DB: ${MENTAL_LIBRARY_DB:-/data/mental-library/mental_library.db}
     restart: unless-stopped
