@@ -414,15 +414,16 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
         method: "POST",
       });
       if (response.ok) {
-        // Poll for results
+        // Poll for updated lead data (not the audit result — that's a different shape)
         const checkAudit = async () => {
-          const auditResponse = await authFetch(`${API}/api/leadgen/leads/${lead.id}/audit`);
-          if (auditResponse.ok) {
-            const updatedLead = await auditResponse.json();
+          const leadResponse = await authFetch(`${API}/api/leadgen/leads/${lead.id}`);
+          if (leadResponse.ok) {
+            const updatedLead = await leadResponse.json();
             onUpdate?.(updatedLead);
           }
         };
-        setTimeout(checkAudit, 2000);
+        // Give audit time to complete, then fetch full lead
+        setTimeout(checkAudit, 3000);
       }
     } catch (error) {
       console.error("Failed to trigger audit:", error);
