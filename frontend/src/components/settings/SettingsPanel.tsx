@@ -805,10 +805,12 @@ export default function SettingsPanel() {
     const error = errors[setting.key];
     const isMasked = setting.value?.startsWith("••••");
     const hasValue = setting.is_secret
-      ? isMasked
+      ? !!(setting.value && setting.value !== "")
       : !!(setting.value && setting.value !== "");
     const editValue = editValues[setting.key] ?? "";
-    const displayValue = (setting.is_secret && hasValue && !isEditing) ? setting.value : editValue;
+    const displayValue = (setting.is_secret && hasValue && !isEditing)
+      ? (isMasked ? setting.value : "••••••••" + (setting.value?.slice(-4) || ""))
+      : editValue;
     const canSave = setting.is_secret
       ? (isEditing && editValue.length > 0 && !editValue.startsWith("••••"))
       : (editValue.length > 0);

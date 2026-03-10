@@ -6,7 +6,7 @@ const nextConfig = {
     // bridge networking so we need the host's LAN IP to reach it.
     // This is a build-time value — if NEXT_PUBLIC_API_URL is empty (for
     // client-side relative paths), fall back to a hard backend URL.
-    const backendUrl = process.env.REWRITE_BACKEND_URL || "http://192.168.1.94:8300";
+    const backendUrl = process.env.REWRITE_BACKEND_URL || "http://10.0.0.1:8300";
     return [
       {
         // Proxy all /api/* through the frontend domain so OAuth callbacks
