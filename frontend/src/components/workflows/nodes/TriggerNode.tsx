@@ -18,13 +18,17 @@ const EVENT_LABELS: Record<string, string> = {
   stage_changed: "changes stage",
 };
 
-function TriggerNode({ data }: NodeProps) {
+function TriggerNode({ data, selected }: NodeProps) {
   const d = data as Record<string, unknown>;
   const entityLabel = ENTITY_LABELS[d.entity_type as string] || String(d.entity_type || "");
   const eventLabel = EVENT_LABELS[d.event as string] || String(d.event || "");
 
   return (
-    <div className="bg-warroom-surface border-2 border-emerald-500/50 rounded-2xl px-5 py-4 min-w-[220px] shadow-lg shadow-emerald-500/10">
+    <div className={`bg-warroom-surface border-2 rounded-2xl px-5 py-4 min-w-[220px] shadow-lg transition-all ${
+      selected
+        ? "border-indigo-400 shadow-indigo-500/25 ring-2 ring-indigo-400/30"
+        : "border-emerald-500/50 shadow-emerald-500/10"
+    }`}>
       <div className="flex items-center gap-2.5 mb-2">
         <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
           <Zap size={16} className="text-emerald-400" />

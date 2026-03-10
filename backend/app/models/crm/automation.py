@@ -1,6 +1,6 @@
-"""CRM Automation models - Workflows, templates, and Webhooks."""
+"""CRM Automation models - Workflows, templates, Webhooks, and Executions."""
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, Text, TIMESTAMP
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, TIMESTAMP
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 
@@ -51,6 +51,27 @@ class Workflow(CrmBase):
     version = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class WorkflowExecution(CrmBase):
+    """Tracks individual workflow execution runs."""
+    __tablename__ = "workflow_executions"
+    __table_args__ = {"schema": "crm"}
+
+    id = Column(Integer, primary_key=True)
+    workflow_id = Column(Integer, ForeignKey("crm.workflows.id", ondelete="CASCADE"))
+    trigger_event = Column(Text, nullable=False)
+    trigger_entity_type = Column(Text)
+    trigger_entity_id = Column(Integer)
+    trigger_data = Column(JSONB, default=dict)
+    status = Column(String(20), default="pending")  # pending, running, completed, failed, paused
+    current_step = Column(Integer, default=0)
+    step_results = Column(JSONB, default=list)  # [{step_index, action_type, status, result, error, started_at, completed_at}]
+    context = Column(JSONB, default=dict)  # shared context passed between steps
+    error = Column(Text)
+    started_at = Column(TIMESTAMP(timezone=True))
+    completed_at = Column(TIMESTAMP(timezone=True))
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
 class Webhook(CrmBase):

@@ -19,11 +19,12 @@ import {
   ConnectionLineType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Zap, GitBranch, Play, ChevronLeft, ChevronRight } from "lucide-react";
+import { Zap, GitBranch, Play, ChevronLeft, ChevronRight, Save, Loader2, Check, AlertCircle } from "lucide-react";
 
 import TriggerNode from "./nodes/TriggerNode";
 import ConditionNode from "./nodes/ConditionNode";
 import ActionNode from "./nodes/ActionNode";
+import StepEditorPanel from "./StepEditorPanel";
 
 /* ── Types ─────────────────────────────────────────────── */
 
@@ -38,6 +39,12 @@ interface WorkflowData {
 interface WorkflowCanvasProps {
   workflow: WorkflowData;
   readOnly?: boolean;
+  workflowId?: number;
+}
+
+interface ToastState {
+  type: "success" | "error";
+  message: string;
 }
 
 const nodeTypes: NodeTypes = {
@@ -107,7 +114,7 @@ function NodePalette({ isCollapsed, onToggle }: { isCollapsed: boolean; onToggle
       {!isCollapsed && (
         <div className="px-3 py-2">
           <div className="text-[10px] text-warroom-muted/70 leading-relaxed">
-            Drag items onto the canvas to add new nodes. They'll automatically connect to the last node.
+            Drag items onto the canvas to add new nodes. They&apos;ll automatically connect to the last node.
           </div>
         </div>
       )}
@@ -189,9 +196,36 @@ function buildNodesAndEdges(workflow: WorkflowData): { nodes: Node[]; edges: Edg
   return { nodes, edges };
 }
 
+/* ── Canvas to Workflow Export ──────────────────────────── */
+
+export function canvasToWorkflow(nodes: Node[], edges: Edge[]): WorkflowData {
+  // Find trigger node
+  const triggerNode = nodes.find((n) => n.type === "trigger");
+  const entity_type = (triggerNode?.data?.entity_type as string) || "deal";
+  const event = (triggerNode?.data?.event as string) || "created";
+
+  // Find condition node
+  const conditionNode = nodes.find((n) => n.type === "condition");
+  const condition_type = (conditionNode?.data?.conditionType as string) || "and";
+  const conditions = (conditionNode?.data?.conditions as any[]) || [];
+
+  // Collect action nodes — preserve edge order from condition/trigger
+  const actionNodes = nodes.filter((n) => n.type === "action");
+  const actions = actionNodes.map((n) => {
+    const d = n.data as Record<string, unknown>;
+    const { title, detail, ...rest } = d;
+    return {
+      type: d.actionType,
+      ...rest,
+    };
+  });
+
+  return { entity_type, event, condition_type, conditions, actions };
+}
+
 /* ── Component ─────────────────────────────────────────── */
 
-function WorkflowCanvasInner({ workflow, readOnly = false }: WorkflowCanvasProps) {
+function WorkflowCanvasInner({ workflow, readOnly = false, workflowId }: WorkflowCanvasProps) {
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
     () => buildNodesAndEdges(workflow),
     [workflow]
@@ -200,19 +234,82 @@ function WorkflowCanvasInner({ workflow, readOnly = false }: WorkflowCanvasProps
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
+
+  // Auto-dismiss toast
+  const showToast = useCallback((t: ToastState) => {
+    setToast(t);
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
   const onConnect: OnConnect = useCallback(
     (params) => setEdges((eds) => addEdge({ ...params, type: "smoothstep", animated: true }, eds)),
     [setEdges]
   );
 
+  // Node click handler — open step editor
+  const onNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (readOnly) return;
+      setSelectedNode(node);
+    },
+    [readOnly]
+  );
+
+  // Deselect when clicking on pane
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
+
+  // Save node data from step editor
+  const handleNodeSave = useCallback(
+    (nodeId: string, data: Record<string, unknown>) => {
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.id !== nodeId) return n;
+          return { ...n, data: { ...data } };
+        })
+      );
+      setSelectedNode(null);
+    },
+    [setNodes]
+  );
+
+  // Close step editor
+  const handleEditorClose = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
+
+  // Save workflow
+  const handleSaveWorkflow = useCallback(async () => {
+    if (!workflowId) return;
+    setSaving(true);
+    try {
+      const workflowData = canvasToWorkflow(nodes, edges);
+      const { authFetch } = await import("@/lib/api");
+      const API = (await import("@/lib/api")).API;
+      const res = await authFetch(`${API}/api/crm/workflows/${workflowId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(workflowData),
+      });
+      if (!res.ok) throw new Error("Failed to save workflow");
+      showToast({ type: "success", message: "Workflow saved successfully" });
+    } catch (err) {
+      showToast({ type: "error", message: err instanceof Error ? err.message : "Failed to save" });
+    } finally {
+      setSaving(false);
+    }
+  }, [nodes, edges, workflowId, showToast]);
+
   // Find the last node in the flow
   const getLastNode = useCallback(() => {
     if (nodes.length === 0) return null;
-    // Find the node with the highest Y position (bottom-most)
-    return nodes.reduce((lastNode, currentNode) => 
+    return nodes.reduce((lastNode, currentNode) =>
       currentNode.position.y > lastNode.position.y ? currentNode : lastNode
     );
   }, [nodes]);
@@ -241,7 +338,6 @@ function WorkflowCanvasInner({ workflow, readOnly = false }: WorkflowCanvasProps
       const newNodeId = generateNodeId(nodeType);
       let newNodeData: any = {};
 
-      // Set default data based on node type
       switch (nodeType) {
         case "trigger":
           newNodeData = { entity_type: "deal", event: "created" };
@@ -263,7 +359,6 @@ function WorkflowCanvasInner({ workflow, readOnly = false }: WorkflowCanvasProps
 
       setNodes((nds) => nds.concat(newNode));
 
-      // Connect to the last node
       const lastNode = getLastNode();
       if (lastNode) {
         const newEdge: Edge = {
@@ -285,20 +380,25 @@ function WorkflowCanvasInner({ workflow, readOnly = false }: WorkflowCanvasProps
     event.dataTransfer.dropEffect = "move";
   }, []);
 
+  // Keep selectedNode in sync with nodes state
+  const currentSelectedNode = selectedNode
+    ? nodes.find((n) => n.id === selectedNode.id) || null
+    : null;
+
   return (
     <div className="w-full h-full flex bg-warroom-bg rounded-xl overflow-hidden border border-warroom-border">
       {/* Node Palette Sidebar */}
       {!readOnly && (
         <div className={`${paletteCollapsed ? "hidden" : "block"} md:block`}>
-          <NodePalette 
-            isCollapsed={paletteCollapsed} 
-            onToggle={() => setPaletteCollapsed(!paletteCollapsed)} 
+          <NodePalette
+            isCollapsed={paletteCollapsed}
+            onToggle={() => setPaletteCollapsed(!paletteCollapsed)}
           />
         </div>
       )}
 
       {/* React Flow Canvas */}
-      <div className="flex-1" ref={reactFlowWrapper}>
+      <div className="flex-1 relative" ref={reactFlowWrapper}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -307,6 +407,8 @@ function WorkflowCanvasInner({ workflow, readOnly = false }: WorkflowCanvasProps
           onConnect={readOnly ? undefined : onConnect}
           onDrop={readOnly ? undefined : onDrop}
           onDragOver={readOnly ? undefined : onDragOver}
+          onNodeClick={readOnly ? undefined : onNodeClick}
+          onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
           connectionLineType={ConnectionLineType.SmoothStep}
           fitView
@@ -331,7 +433,44 @@ function WorkflowCanvasInner({ workflow, readOnly = false }: WorkflowCanvasProps
             maskColor="rgba(0, 0, 0, 0.3)"
           />
         </ReactFlow>
+
+        {/* Save Workflow button — floating top-right */}
+        {!readOnly && workflowId && (
+          <div className="absolute top-3 right-3 z-10">
+            <button
+              onClick={handleSaveWorkflow}
+              disabled={saving}
+              className="flex items-center gap-2 px-4 py-2 bg-warroom-accent text-white text-sm font-medium rounded-xl hover:bg-warroom-accent/80 transition shadow-lg disabled:opacity-50"
+            >
+              {saving ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Save size={14} />
+              )}
+              Save Workflow
+            </button>
+          </div>
+        )}
+
+        {/* Toast */}
+        {toast && (
+          <div className={`absolute bottom-6 right-6 z-20 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg ${
+            toast.type === "success" ? "bg-green-600/90" : "bg-red-600/90"
+          }`}>
+            {toast.type === "success" ? <Check size={14} /> : <AlertCircle size={14} />}
+            <span>{toast.message}</span>
+          </div>
+        )}
       </div>
+
+      {/* Step Editor Panel */}
+      {currentSelectedNode && !readOnly && (
+        <StepEditorPanel
+          node={currentSelectedNode}
+          onSave={handleNodeSave}
+          onClose={handleEditorClose}
+        />
+      )}
     </div>
   );
 }

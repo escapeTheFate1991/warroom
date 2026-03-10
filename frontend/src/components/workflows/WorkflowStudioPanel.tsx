@@ -486,7 +486,7 @@ export default function WorkflowStudioPanel() {
                   </p>
                 </div>
               </div>
-              <WorkflowCanvas workflow={canvasData} readOnly={!!selectedTemplate && !selectedWorkflow} />
+              <WorkflowCanvas workflow={canvasData} readOnly={!!selectedTemplate && !selectedWorkflow} workflowId={selectedWorkflow?.id} />
             </div>
           </div>
         )}

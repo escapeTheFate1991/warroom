@@ -25,7 +25,7 @@ const COLOR_MAP: Record<string, { border: string; bg: string; text: string; shad
   slate: { border: "border-slate-500/50", bg: "bg-slate-500/20", text: "text-slate-400", shadow: "shadow-slate-500/10" },
 };
 
-function ActionNode({ data }: NodeProps) {
+function ActionNode({ data, selected }: NodeProps) {
   const d = data as Record<string, unknown>;
   const actionType = (d.actionType as string) || "create_activity";
   const config = ACTION_CONFIG[actionType] || ACTION_CONFIG.create_activity;
@@ -36,7 +36,11 @@ function ActionNode({ data }: NodeProps) {
   const detail = String(d.detail || d.body || d.message || "");
 
   return (
-    <div className={`bg-warroom-surface border-2 ${colors.border} rounded-2xl px-5 py-4 min-w-[220px] shadow-lg ${colors.shadow}`}>
+    <div className={`bg-warroom-surface border-2 rounded-2xl px-5 py-4 min-w-[220px] shadow-lg transition-all ${
+      selected
+        ? "border-indigo-400 shadow-indigo-500/25 ring-2 ring-indigo-400/30"
+        : `${colors.border} ${colors.shadow}`
+    }`}>
       <Handle type="target" position={Position.Top} className={`!w-3 !h-3 !bg-warroom-accent !border-2 !border-warroom-surface`} />
       <div className="flex items-center gap-2.5 mb-1">
         <div className={`w-8 h-8 rounded-lg ${colors.bg} flex items-center justify-center`}>

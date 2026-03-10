@@ -18,7 +18,7 @@ from .email import Email, EmailAttachment, EmailTemplate
 from .marketing import MarketingCampaign, MarketingEvent
 from .quote import Quote, QuoteItem, DealQuote
 from .attribute import Attribute, AttributeOption, AttributeValue
-from .automation import Workflow, WorkflowTemplate, Webhook
+from .automation import Workflow, WorkflowTemplate, WorkflowExecution, Webhook
 from .audit import AuditLog, Import, SavedFilter
 from .social import SocialAccount, SocialAnalytics
 from .competitor import Competitor
@@ -37,7 +37,7 @@ __all__ = [
     "MarketingCampaign", "MarketingEvent",
     "Quote", "QuoteItem", "DealQuote",
     "Attribute", "AttributeOption", "AttributeValue",
-    "Workflow", "WorkflowTemplate", "Webhook",
+    "Workflow", "WorkflowTemplate", "WorkflowExecution", "Webhook",
     "AuditLog", "Import", "SavedFilter",
     "SocialAccount", "SocialAnalytics",
     "Competitor",
