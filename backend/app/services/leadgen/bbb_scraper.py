@@ -34,6 +34,12 @@ class BBBResult:
     error: str = ""
 
 
+_BIZ_SUFFIXES = re.compile(
+    r'\s*,?\s*\b(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Co\.?|L\.?L\.?C\.?|Incorporated|Corporation|Company)\s*$',
+    re.IGNORECASE,
+)
+
+
 async def scrape_bbb(business_name: str, city: str, state: str) -> BBBResult:
     """Search for BBB profile and extract rating/accreditation info.
 
@@ -42,18 +48,20 @@ async def scrape_bbb(business_name: str, city: str, state: str) -> BBBResult:
       2. Fall back to fetching a BBB profile page directly if URL is known
     """
     result = BBBResult()
+    # Strip Inc/LLC etc for better search
+    clean_name = _BIZ_SUFFIXES.sub('', business_name).strip()
 
     try:
         async with httpx.AsyncClient(
             timeout=20.0, follow_redirects=True, headers=BROWSER_HEADERS
         ) as client:
             # Strategy 1: BBB API search
-            api_result = await _search_bbb_api(client, business_name, city, state)
+            api_result = await _search_bbb_api(client, clean_name, city, state)
             if api_result:
                 return api_result
 
             # Strategy 2: Try constructing the BBB URL directly
-            direct_result = await _try_direct_bbb(client, business_name, city, state)
+            direct_result = await _try_direct_bbb(client, clean_name, city, state)
             if direct_result:
                 return direct_result
 

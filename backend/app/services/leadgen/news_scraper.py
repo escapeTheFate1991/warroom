@@ -20,6 +20,17 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.5",
 }
 
+# Common business suffixes that hurt search results
+_BIZ_SUFFIXES = re.compile(
+    r'\s*,?\s*\b(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Co\.?|L\.?L\.?C\.?|Incorporated|Corporation|Company)\s*$',
+    re.IGNORECASE,
+)
+
+
+def _clean_biz_name(name: str) -> str:
+    """Strip common business suffixes for better search results."""
+    return _BIZ_SUFFIXES.sub('', name).strip()
+
 
 @dataclass
 class NewsMention:
@@ -50,7 +61,8 @@ class GlassdoorResult:
 async def search_reddit(business_name: str) -> list[NewsMention]:
     """Search Reddit for mentions using the free JSON API."""
     mentions = []
-    query = quote_plus(f'"{business_name}"')
+    clean_name = _clean_biz_name(business_name)
+    query = quote_plus(f'"{clean_name}"')
 
     try:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
@@ -72,7 +84,7 @@ async def search_reddit(business_name: str) -> list[NewsMention]:
 
                     # Skip if business name not in title or text
                     combined = f"{title} {selftext}".lower()
-                    if business_name.lower().split()[0] not in combined:
+                    if clean_name.lower().split()[0] not in combined:
                         continue
 
                     from datetime import datetime
@@ -100,7 +112,8 @@ async def search_reddit(business_name: str) -> list[NewsMention]:
 async def search_news(business_name: str, website_url: str = "") -> NewsResult:
     """Search Google News RSS for recent coverage. Free, no auth."""
     result = NewsResult()
-    query = quote_plus(f'"{business_name}"')
+    clean_name = _clean_biz_name(business_name)
+    query = quote_plus(f'"{clean_name}"')
 
     # Parse business domain to filter out their own site
     own_domain = ""
@@ -173,7 +186,8 @@ async def search_news(business_name: str, website_url: str = "") -> NewsResult:
 async def search_web_mentions(business_name: str, website_url: str = "") -> list[NewsMention]:
     """Search DuckDuckGo HTML for web mentions. No API key."""
     mentions = []
-    query = quote_plus(f'"{business_name}" reviews OR news OR article')
+    clean_name = _clean_biz_name(business_name)
+    query = quote_plus(f'"{clean_name}" reviews OR news OR article')
 
     own_domain = ""
     if website_url:
@@ -231,7 +245,7 @@ async def search_web_mentions(business_name: str, website_url: str = "") -> list
 async def search_glassdoor(business_name: str) -> GlassdoorResult:
     """Try to get Glassdoor info via direct scrape. Glassdoor blocks aggressively."""
     result = GlassdoorResult()
-    query = quote_plus(business_name)
+    query = quote_plus(_clean_biz_name(business_name))
 
     try:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
