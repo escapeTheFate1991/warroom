@@ -425,6 +425,27 @@ async def submit_contact(body: ContactSubmission, request: Request):
         # No phone → no call → send lead notification immediately
         asyncio.create_task(send_lead_notification(submission_id))
 
+    # Fire workflow triggers for contact_submission.created (non-blocking)
+    from app.services.workflow_triggers import fire_triggers_background
+    fire_triggers_background(
+        entity_type="contact_submission",
+        event="created",
+        entity_data={
+            "id": submission_id,
+            "name": body.name.strip(),
+            "email": body.email.lower().strip(),
+            "phone": body.phone,
+            "message": body.message.strip(),
+            "business_name": body.business_name.strip() if body.business_name else None,
+            "website_url": body.website_url.strip() if body.website_url else None,
+            "source_url": body.source_url,
+            "lead_source": "website_form",
+            "event": "created",
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
+        },
+        entity_id=submission_id,
+    )
+
     # Notification: new contact form submission
     await send_notification(
         type="lead",

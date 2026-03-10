@@ -238,6 +238,19 @@ async def create_person(person_data: PersonCreate, db: AsyncSession = Depends(ge
     await log_audit(db, "person", person.id, "created", person_data.user_id, 
                    new_values=person_data.model_dump())
     await db.commit()
+
+    # Fire workflow triggers (non-blocking)
+    from app.services.workflow_triggers import fire_triggers_background
+    fire_triggers_background(
+        entity_type="person",
+        event="created",
+        entity_data={
+            **person_data.model_dump(),
+            "id": person.id,
+            "event": "created",
+        },
+        entity_id=person.id,
+    )
     
     return person
 
@@ -272,6 +285,20 @@ async def update_person(person_id: int, person_data: PersonUpdate,
     # Log audit
     await log_audit(db, "person", person.id, "updated", person_data.user_id, old_values, update_data)
     await db.commit()
+
+    # Fire workflow triggers (non-blocking)
+    from app.services.workflow_triggers import fire_triggers_background
+    fire_triggers_background(
+        entity_type="person",
+        event="updated",
+        entity_data={
+            **update_data,
+            "id": person.id,
+            "old_values": old_values,
+            "event": "updated",
+        },
+        entity_id=person.id,
+    )
     
     return person
 

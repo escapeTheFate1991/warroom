@@ -222,6 +222,20 @@ async def create_deal(deal_data: DealCreate, db: AsyncSession = Depends(get_crm_
     # Log audit
     await log_audit(db, "deal", deal.id, "created", deal_data.user_id, new_values=deal_data.model_dump())
     await db.commit()
+
+    # Fire workflow triggers (non-blocking)
+    from app.services.workflow_triggers import fire_triggers_background
+    fire_triggers_background(
+        entity_type="deal",
+        event="created",
+        entity_data={
+            **deal_data.model_dump(),
+            "id": deal.id,
+            "deal_value": str(deal.deal_value) if deal.deal_value else None,
+            "event": "created",
+        },
+        entity_id=deal.id,
+    )
     
     serialized_deal = await load_deal_with_related(db, deal.id)
     if not serialized_deal:
@@ -268,6 +282,35 @@ async def update_deal(deal_id: int, deal_data: DealUpdate, db: AsyncSession = De
     # Log audit
     await log_audit(db, "deal", deal.id, "updated", deal_data.user_id, old_values, update_data)
     await db.commit()
+
+    # Fire workflow triggers (non-blocking)
+    from app.services.workflow_triggers import fire_triggers_background
+    trigger_data = {
+        **update_data,
+        "id": deal.id,
+        "deal_value": str(deal.deal_value) if deal.deal_value else None,
+        "old_values": old_values,
+        "event": "updated",
+    }
+    fire_triggers_background(
+        entity_type="deal",
+        event="updated",
+        entity_data=trigger_data,
+        entity_id=deal.id,
+    )
+    # Also fire stage_changed if stage was updated
+    if "stage_id" in update_data and old_values.get("stage_id") != update_data["stage_id"]:
+        fire_triggers_background(
+            entity_type="deal",
+            event="stage_changed",
+            entity_data={
+                **trigger_data,
+                "old_stage_id": old_values.get("stage_id"),
+                "new_stage_id": update_data["stage_id"],
+                "event": "stage_changed",
+            },
+            entity_id=deal.id,
+        )
     
     serialized_deal = await load_deal_with_related(db, deal.id)
     if not serialized_deal:
@@ -368,6 +411,33 @@ async def move_deal_stage(deal_id: int, stage_move: DealStageMove, user_id: Opti
     await log_audit(db, "deal", deal.id, "stage_changed", user_id, 
                    {"stage_id": old_stage_id}, {"stage_id": stage_move.stage_id})
     await db.commit()
+
+    # Fire workflow triggers (non-blocking)
+    from app.services.workflow_triggers import fire_triggers_background
+    stage_trigger_data = {
+        "id": deal.id,
+        "title": deal.title,
+        "deal_value": str(deal.deal_value) if deal.deal_value else None,
+        "pipeline_id": deal.pipeline_id,
+        "old_stage_id": old_stage_id,
+        "new_stage_id": stage_move.stage_id,
+        "stage_id": stage_move.stage_id,
+        "status": deal.status,
+        "event": "stage_changed",
+    }
+    fire_triggers_background(
+        entity_type="deal",
+        event="stage_changed",
+        entity_data=stage_trigger_data,
+        entity_id=deal.id,
+    )
+    # Also fire generic "updated" trigger
+    fire_triggers_background(
+        entity_type="deal",
+        event="updated",
+        entity_data={**stage_trigger_data, "event": "updated"},
+        entity_id=deal.id,
+    )
     
     serialized_deal = await load_deal_with_related(db, deal.id)
     if not serialized_deal:

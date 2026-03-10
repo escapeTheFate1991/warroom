@@ -454,6 +454,19 @@ async def create_activity(activity_data: ActivityCreate, db: AsyncSession = Depe
     await log_audit(db, "activity", activity.id, "created", activity_data.user_id, 
                    new_values=activity_data.model_dump())
     await db.commit()
+
+    # Fire workflow triggers (non-blocking)
+    from app.services.workflow_triggers import fire_triggers_background
+    fire_triggers_background(
+        entity_type="activity",
+        event="created",
+        entity_data={
+            **activity_data.model_dump(),
+            "id": activity.id,
+            "event": "created",
+        },
+        entity_id=activity.id,
+    )
     
     return activity
 
@@ -490,6 +503,20 @@ async def update_activity(activity_id: int, activity_data: ActivityUpdate,
     # Log audit
     await log_audit(db, "activity", activity.id, "updated", activity_data.user_id, old_values, update_data)
     await db.commit()
+
+    # Fire workflow triggers (non-blocking)
+    from app.services.workflow_triggers import fire_triggers_background
+    fire_triggers_background(
+        entity_type="activity",
+        event="updated",
+        entity_data={
+            **update_data,
+            "id": activity.id,
+            "old_values": old_values,
+            "event": "updated",
+        },
+        entity_id=activity.id,
+    )
     
     return activity
 
