@@ -183,7 +183,7 @@ async def init_products_table(engine) -> None:
                     text("""
                         INSERT INTO public.products_stripe
                             (name, description, price_cents, interval, features, sort_order)
-                        VALUES (:name, :description, :price_cents, :interval, :features::jsonb, :sort_order)
+                        VALUES (:name, :description, :price_cents, :interval, CAST(:features AS jsonb), :sort_order)
                     """),
                     {**p, "features": json.dumps(p["features"])},
                 )
