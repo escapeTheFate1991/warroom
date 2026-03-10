@@ -4,7 +4,7 @@ import csv
 import io
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -426,13 +426,18 @@ async def get_freshness(db: AsyncSession = Depends(get_leadgen_db)):
             select(SearchJob).order_by(SearchJob.created_at.desc())
         )
         jobs = result.scalars().all()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         freshness = []
         for job in jobs:
-            created = job.created_at.replace(tzinfo=None) if job.created_at.tzinfo else job.created_at
-            age = now - created
-            age_days = age.days
+            created = job.created_at
+            if created is None:
+                age_days = 0
+            else:
+                # Ensure both sides are tz-aware for safe subtraction
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                age_days = (now - created).days
             freshness.append({
                 "job_id": job.id,
                 "query": job.query,
@@ -460,7 +465,7 @@ async def delete_stale_leads(
 ):
     """Delete leads (and search jobs) older than max_age_days."""
     try:
-        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
 
         # Find stale job IDs
         stale_jobs = await db.execute(
@@ -604,8 +609,10 @@ async def get_search_status(job_id: int, db: AsyncSession = Depends(get_leadgen_
             message = f"Status: {job.status}"
 
         # Age info
-        now = datetime.utcnow()
-        created = job.created_at.replace(tzinfo=None) if job.created_at and job.created_at.tzinfo else job.created_at
+        now = datetime.now(timezone.utc)
+        created = job.created_at
+        if created is not None and created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
         age_days = (now - created).days if created else 0
 
         return {
