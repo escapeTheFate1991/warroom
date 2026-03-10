@@ -276,27 +276,32 @@ async def _enrich_bbb(lead: Lead) -> None:
 
 
 async def _enrich_glassdoor(lead: Lead) -> None:
-    """Search for Glassdoor listing via web search."""
+    """Search for Glassdoor listing via direct scrape."""
     if not lead.business_name:
         return
-    gd = await search_glassdoor(lead.business_name, lead.city or "", lead.state or "")
-    if gd:
-        lead.glassdoor_url = gd.get("url")
-        if gd.get("rating"):
-            lead.glassdoor_rating = gd["rating"]
-        if gd.get("review_count"):
-            lead.glassdoor_review_count = gd["review_count"]
-        lead.glassdoor_summary = gd.get("summary")
-        logger.info("Lead %d: Glassdoor — %.1f rating", lead.id, gd.get("rating") or 0)
+    gd = await search_glassdoor(lead.business_name)
+    if gd.url:
+        lead.glassdoor_url = gd.url
+    if gd.rating:
+        lead.glassdoor_rating = gd.rating
+    if gd.review_count:
+        lead.glassdoor_review_count = gd.review_count
+    if gd.summary:
+        lead.glassdoor_summary = gd.summary
+    if not gd.error:
+        logger.info("Lead %d: Glassdoor — %.1f rating", lead.id, gd.rating or 0)
 
 
 async def _enrich_reddit(lead: Lead) -> None:
     """Search Reddit for mentions of the business."""
     if not lead.business_name:
         return
-    mentions = await search_reddit(lead.business_name, lead.city or "", lead.state or "")
+    mentions = await search_reddit(lead.business_name)
     if mentions:
-        lead.reddit_mentions = mentions
+        lead.reddit_mentions = [
+            {"title": m.title, "url": m.url, "source": m.source, "snippet": m.snippet, "date": m.date}
+            for m in mentions
+        ]
         logger.info("Lead %d: %d Reddit mentions found", lead.id, len(mentions))
 
 
@@ -304,12 +309,7 @@ async def _enrich_news(lead: Lead) -> None:
     """Search for recent news about the business or owner."""
     if not lead.business_name:
         return
-    result = await search_news(
-        lead.business_name,
-        lead.city or "",
-        lead.state or "",
-        lead.owner_name or "",
-    )
+    result = await search_news(lead.business_name, lead.website or "")
     if result.mentions:
         lead.news_mentions = [
             {"title": m.title, "url": m.url, "source": m.source, "snippet": m.snippet, "date": m.date}

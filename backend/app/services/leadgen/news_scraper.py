@@ -1,14 +1,24 @@
-"""News & web mention scanner — uses Brave Search API for recent coverage."""
+"""News & web mention scanner — uses free sources (Reddit JSON API, Google News RSS, DuckDuckGo).
+
+No API keys required. All direct scraping.
+"""
 
 import logging
 import os
 import re
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import quote_plus
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+}
 
 
 @dataclass
@@ -26,226 +36,230 @@ class NewsResult:
     error: str = ""
 
 
-async def _get_brave_api_key() -> str:
-    """Get Brave Search API key from settings DB, falling back to env."""
+@dataclass
+class GlassdoorResult:
+    url: str = ""
+    rating: Optional[float] = None
+    review_count: int = 0
+    summary: str = ""
+    error: str = ""
+
+
+# ── Reddit (free JSON API via old.reddit.com) ─────────────────────
+
+async def search_reddit(business_name: str) -> list[NewsMention]:
+    """Search Reddit for mentions using the free JSON API."""
+    mentions = []
+    query = quote_plus(f'"{business_name}"')
+
     try:
-        from app.db.leadgen_db import leadgen_session
-        from sqlalchemy import text
-        async with leadgen_session() as db:
-            r = await db.execute(
-                text("SELECT value FROM public.settings WHERE key = 'brave_api_key'")
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            # old.reddit.com/search.json is public, no auth needed
+            resp = await client.get(
+                f"https://old.reddit.com/search.json?q={query}&sort=relevance&limit=10",
+                headers={**HEADERS, "Accept": "application/json"},
             )
-            row = r.fetchone()
-            if row and row[0]:
-                return row[0]
-    except Exception:
-        pass
-    return os.environ.get("BRAVE_API_KEY", "")
+            if resp.status_code == 200:
+                data = resp.json()
+                children = data.get("data", {}).get("children", [])
+                for child in children[:5]:
+                    post = child.get("data", {})
+                    title = post.get("title", "")
+                    subreddit = post.get("subreddit", "")
+                    permalink = post.get("permalink", "")
+                    selftext = post.get("selftext", "")[:200]
+                    created = post.get("created_utc", 0)
+
+                    # Skip if business name not in title or text
+                    combined = f"{title} {selftext}".lower()
+                    if business_name.lower().split()[0] not in combined:
+                        continue
+
+                    from datetime import datetime
+                    date_str = datetime.fromtimestamp(created).strftime("%Y-%m-%d") if created else ""
+
+                    mentions.append(NewsMention(
+                        title=title,
+                        url=f"https://reddit.com{permalink}",
+                        source=f"r/{subreddit}",
+                        snippet=selftext[:200] if selftext else title,
+                        date=date_str,
+                    ))
+            elif resp.status_code == 429:
+                logger.warning("Reddit rate limited")
+            else:
+                logger.debug("Reddit search returned %d", resp.status_code)
+    except Exception as exc:
+        logger.warning("Reddit search failed: %s", exc)
+
+    return mentions
 
 
-async def search_news(
-    business_name: str,
-    city: str = "",
-    state: str = "",
-    owner_name: str = "",
-    max_results: int = 5,
-) -> NewsResult:
-    """Search for recent news/mentions about a business and optionally its owner."""
+# ── Google News RSS (free, no API key) ────────────────────────────
+
+async def search_news(business_name: str, website_url: str = "") -> NewsResult:
+    """Search Google News RSS for recent coverage. Free, no auth."""
     result = NewsResult()
+    query = quote_plus(f'"{business_name}"')
 
-    api_key = await _get_brave_api_key()
-    if not api_key:
-        result.error = "No Brave Search API key configured"
-        return result
-
-    queries = []
-    # Business name + location
-    location = f"{city} {state}".strip()
-    queries.append(f'"{business_name}" {location}')
-    # Owner name if available
-    if owner_name:
-        queries.append(f'"{owner_name}" {business_name}')
+    # Parse business domain to filter out their own site
+    own_domain = ""
+    if website_url:
+        try:
+            from urllib.parse import urlparse
+            own_domain = urlparse(website_url).hostname or ""
+            own_domain = own_domain.replace("www.", "")
+        except Exception:
+            pass
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            seen_urls = set()
-
-            for query in queries:
-                resp = await client.get(
-                    "https://api.search.brave.com/res/v1/web/search",
-                    params={
-                        "q": query,
-                        "count": max_results,
-                        "freshness": "py",  # Past year
-                    },
-                    headers={
-                        "Accept": "application/json",
-                        "Accept-Encoding": "gzip",
-                        "X-Subscription-Token": api_key,
-                    },
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            # Google News RSS feed
+            resp = await client.get(
+                f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en",
+                headers=HEADERS,
+            )
+            if resp.status_code == 200:
+                text = resp.text
+                # Parse RSS XML items
+                items = re.findall(
+                    r'<item>\s*<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>.*?'
+                    r'<link>(.*?)</link>.*?'
+                    r'(?:<source[^>]*>(.*?)</source>)?.*?'
+                    r'(?:<pubDate>(.*?)</pubDate>)?.*?'
+                    r'</item>',
+                    text, re.DOTALL
                 )
 
-                if resp.status_code != 200:
-                    logger.warning("Brave Search returned %d for '%s'", resp.status_code, query)
-                    continue
+                for title, url, source, pub_date in items[:10]:
+                    title = re.sub(r'<[^>]+>', '', title).strip()
+                    url = url.strip()
+                    source = re.sub(r'<[^>]+>', '', source).strip() if source else ""
 
-                data = resp.json()
-                web_results = data.get("web", {}).get("results", [])
-
-                for item in web_results:
-                    url = item.get("url", "")
-                    if url in seen_urls:
+                    # Skip own website and social profiles
+                    if own_domain and own_domain in url:
                         continue
-                    seen_urls.add(url)
-
-                    # Skip the business's own website
-                    if _is_own_website(url, business_name):
+                    if any(s in url for s in ["facebook.com", "twitter.com", "instagram.com", "linkedin.com", "yelp.com"]):
                         continue
 
-                    # Skip social media profiles (we get those separately)
-                    if any(d in url for d in [
-                        "facebook.com", "instagram.com", "twitter.com", "x.com",
-                        "linkedin.com", "tiktok.com", "youtube.com", "yelp.com",
-                        "bbb.org", "glassdoor.com",
-                    ]):
-                        continue
+                    # Parse date
+                    date_str = ""
+                    if pub_date:
+                        try:
+                            from email.utils import parsedate_to_datetime
+                            dt = parsedate_to_datetime(pub_date.strip())
+                            date_str = dt.strftime("%Y-%m-%d")
+                        except Exception:
+                            date_str = pub_date.strip()[:10]
 
                     result.mentions.append(NewsMention(
-                        title=item.get("title", ""),
+                        title=title,
                         url=url,
-                        source=item.get("meta_url", {}).get("hostname", _extract_domain(url)),
-                        snippet=item.get("description", "")[:300],
-                        date=item.get("page_age", ""),
+                        source=source or "Google News",
+                        snippet=title,  # RSS doesn't include description usually
+                        date=date_str,
                     ))
-
-                if len(result.mentions) >= max_results:
-                    break
-
-    except httpx.HTTPError as exc:
-        result.error = f"HTTP error: {exc}"
-        logger.warning("News search failed for '%s': %s", business_name, exc)
+            else:
+                logger.debug("Google News RSS returned %d", resp.status_code)
     except Exception as exc:
-        result.error = f"Error: {exc}"
-        logger.warning("News search error for '%s': %s", business_name, exc)
+        logger.warning("News search failed: %s", exc)
+        result.error = str(exc)[:200]
 
     return result
 
 
-async def search_reddit(
-    business_name: str,
-    city: str = "",
-    state: str = "",
-    max_results: int = 5,
-) -> list[dict]:
-    """Search Reddit for mentions of a business via Brave Search."""
-    api_key = await _get_brave_api_key()
-    if not api_key:
-        return []
+# ── DuckDuckGo HTML scrape (fallback for general web mentions) ────
 
-    location = f"{city} {state}".strip()
-    query = f'site:reddit.com "{business_name}" {location}'
+async def search_web_mentions(business_name: str, website_url: str = "") -> list[NewsMention]:
+    """Search DuckDuckGo HTML for web mentions. No API key."""
+    mentions = []
+    query = quote_plus(f'"{business_name}" reviews OR news OR article')
 
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                "https://api.search.brave.com/res/v1/web/search",
-                params={"q": query, "count": max_results},
-                headers={
-                    "Accept": "application/json",
-                    "Accept-Encoding": "gzip",
-                    "X-Subscription-Token": api_key,
-                },
-            )
-
-            if resp.status_code != 200:
-                return []
-
-            data = resp.json()
-            results = []
-
-            for item in data.get("web", {}).get("results", []):
-                url = item.get("url", "")
-                if "reddit.com" not in url:
-                    continue
-
-                # Extract subreddit
-                sub_match = re.search(r'reddit\.com/r/([^/]+)', url)
-                subreddit = sub_match.group(1) if sub_match else ""
-
-                results.append({
-                    "title": item.get("title", ""),
-                    "url": url,
-                    "subreddit": subreddit,
-                    "snippet": item.get("description", "")[:300],
-                    "date": item.get("page_age", ""),
-                })
-
-            return results
-
-    except Exception as exc:
-        logger.warning("Reddit search failed for '%s': %s", business_name, exc)
-        return []
-
-
-async def search_glassdoor(
-    business_name: str,
-    city: str = "",
-    state: str = "",
-) -> dict:
-    """Search for Glassdoor listing via Brave Search (direct scraping blocked)."""
-    api_key = await _get_brave_api_key()
-    if not api_key:
-        return {}
-
-    query = f'site:glassdoor.com "{business_name}" reviews'
+    own_domain = ""
+    if website_url:
+        try:
+            from urllib.parse import urlparse
+            own_domain = urlparse(website_url).hostname or ""
+            own_domain = own_domain.replace("www.", "")
+        except Exception:
+            pass
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             resp = await client.get(
-                "https://api.search.brave.com/res/v1/web/search",
-                params={"q": query, "count": 3},
-                headers={
-                    "Accept": "application/json",
-                    "Accept-Encoding": "gzip",
-                    "X-Subscription-Token": api_key,
-                },
+                f"https://html.duckduckgo.com/html/?q={query}",
+                headers=HEADERS,
             )
+            if resp.status_code == 200:
+                # Parse result blocks
+                results = re.findall(
+                    r'<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?'
+                    r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>',
+                    resp.text, re.DOTALL
+                )
+                for url, title, snippet in results[:5]:
+                    title = re.sub(r'<[^>]+>', '', title).strip()
+                    snippet = re.sub(r'<[^>]+>', '', snippet).strip()
+                    url = url.strip()
 
-            if resp.status_code != 200:
-                return {}
+                    # Decode DDG redirect URL
+                    if "uddg=" in url:
+                        from urllib.parse import unquote, parse_qs, urlparse as _up
+                        parsed = _up(url)
+                        qs = parse_qs(parsed.query)
+                        url = unquote(qs.get("uddg", [url])[0])
 
-            data = resp.json()
-            for item in data.get("web", {}).get("results", []):
-                url = item.get("url", "")
-                if "glassdoor.com" not in url:
-                    continue
+                    if own_domain and own_domain in url:
+                        continue
+                    if any(s in url for s in ["facebook.com", "twitter.com", "instagram.com"]):
+                        continue
 
-                # Try to extract rating from snippet
-                snippet = item.get("description", "")
-                rating_match = re.search(r'(\d\.\d)\s*/?\s*5', snippet)
-                review_match = re.search(r'(\d[\d,]*)\s*reviews?', snippet, re.IGNORECASE)
-
-                return {
-                    "url": url,
-                    "rating": float(rating_match.group(1)) if rating_match else None,
-                    "review_count": int(review_match.group(1).replace(",", "")) if review_match else 0,
-                    "summary": snippet[:200],
-                }
-
+                    mentions.append(NewsMention(
+                        title=title,
+                        url=url,
+                        source="DuckDuckGo",
+                        snippet=snippet[:200],
+                    ))
     except Exception as exc:
-        logger.warning("Glassdoor search failed for '%s': %s", business_name, exc)
+        logger.warning("DDG search failed: %s", exc)
 
-    return {}
-
-
-def _is_own_website(url: str, business_name: str) -> bool:
-    """Check if a URL is likely the business's own website."""
-    slug = re.sub(r'[^a-z0-9]+', '', business_name.lower())
-    domain = _extract_domain(url).lower().replace(".", "").replace("-", "")
-    return slug[:10] in domain
+    return mentions
 
 
-def _extract_domain(url: str) -> str:
-    """Extract domain from URL."""
-    match = re.search(r'://(?:www\.)?([^/]+)', url)
-    return match.group(1) if match else url
+# ── Glassdoor (direct scrape attempt) ─────────────────────────────
+
+async def search_glassdoor(business_name: str) -> GlassdoorResult:
+    """Try to get Glassdoor info via direct scrape. Glassdoor blocks aggressively."""
+    result = GlassdoorResult()
+    query = quote_plus(business_name)
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            # Try Glassdoor search page
+            resp = await client.get(
+                f"https://www.glassdoor.com/Search/results.htm?keyword={query}",
+                headers=HEADERS,
+            )
+            if resp.status_code == 200:
+                text = resp.text
+                # Try to extract rating from search results
+                rating_match = re.search(r'(\d\.\d)\s*(?:★|star)', text)
+                reviews_match = re.search(r'([\d,]+)\s*(?:reviews?|Reviews?)', text)
+                url_match = re.search(r'href="(/Overview/[^"]+)"', text)
+
+                if rating_match:
+                    result.rating = float(rating_match.group(1))
+                if reviews_match:
+                    result.review_count = int(reviews_match.group(1).replace(",", ""))
+                if url_match:
+                    result.url = f"https://www.glassdoor.com{url_match.group(1)}"
+                    result.summary = f"Glassdoor profile found for {business_name}"
+            elif resp.status_code == 403:
+                result.error = "Glassdoor blocked request (anti-bot)"
+            else:
+                result.error = f"Glassdoor returned {resp.status_code}"
+    except Exception as exc:
+        result.error = f"Glassdoor scrape failed: {str(exc)[:100]}"
+        logger.debug("Glassdoor scrape failed: %s", exc)
+
+    return result
