@@ -1041,9 +1041,15 @@ export default function ChatPanel() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+    if (e.key === "Enter") {
+      // On touch devices (mobile), Enter = newline. Send only via button.
+      const isTouchDevice =
+        "ontouchstart" in window || navigator.maxTouchPoints > 0;
+      if (isTouchDevice) return; // let Enter insert a newline naturally
+      if (!e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
     }
   };
 
