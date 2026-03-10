@@ -310,6 +310,237 @@ async def get_google_events(month: str = Query(..., description="YYYY-MM")):
         raise HTTPException(status_code=502, detail=f"Failed to fetch events: {exc}")
 
 
+# ── Availability & Event Creation (used by AI call pipeline) ─────────
+
+BUSINESS_START = 9   # 9 AM ET
+BUSINESS_END = 18    # 6 PM ET
+SLOT_DURATION = 60   # minutes per meeting
+TIMEZONE = "America/New_York"
+
+
+async def get_available_slots(num_slots: int = 3) -> list[dict]:
+    """Find available meeting slots during business hours.
+    
+    Returns up to `num_slots` available times:
+    - 1 slot same day (if still during business hours)
+    - 2 slots next business day
+    Falls back to subsequent days if needed.
+    
+    Each slot: {"date": "2026-03-10", "time": "10:00", "end_time": "11:00", 
+                "label": "Today at 10:00 AM", "iso": "2026-03-10T10:00:00-04:00"}
+    """
+    from zoneinfo import ZoneInfo
+    
+    creds = await _get_credentials()
+    if not creds:
+        logger.warning("Google Calendar not connected — returning default slots")
+        return _generate_default_slots(num_slots)
+
+    tz = ZoneInfo(TIMEZONE)
+    now = datetime.now(tz)
+    
+    # Look ahead 5 business days to find enough slots
+    candidates = []
+    check_date = now.date()
+    days_checked = 0
+    
+    while len(candidates) < num_slots and days_checked < 7:
+        # Skip weekends
+        if check_date.weekday() < 5:  # Mon=0, Fri=4
+            day_start = datetime(check_date.year, check_date.month, check_date.day, 
+                              BUSINESS_START, 0, tzinfo=tz)
+            day_end = datetime(check_date.year, check_date.month, check_date.day, 
+                            BUSINESS_END, 0, tzinfo=tz)
+            
+            # If today, start from next full hour (at least 30 min from now)
+            if check_date == now.date():
+                earliest = now + timedelta(minutes=30)
+                # Round up to next hour
+                if earliest.minute > 0:
+                    earliest = earliest.replace(minute=0, second=0) + timedelta(hours=1)
+                else:
+                    earliest = earliest.replace(minute=0, second=0)
+                day_start = max(day_start, earliest)
+            
+            if day_start < day_end:
+                candidates.append((check_date, day_start, day_end))
+        
+        check_date += timedelta(days=1)
+        days_checked += 1
+
+    if not candidates:
+        return _generate_default_slots(num_slots)
+
+    # Fetch busy times from Google Calendar
+    try:
+        from googleapiclient.discovery import build
+        
+        overall_start = candidates[0][1]
+        overall_end = candidates[-1][2]
+        
+        def _fetch_busy():
+            service = build("calendar", "v3", credentials=creds)
+            body = {
+                "timeMin": overall_start.isoformat(),
+                "timeMax": overall_end.isoformat(),
+                "timeZone": TIMEZONE,
+                "items": [{"id": "primary"}],
+            }
+            return service.freebusy().query(body=body).execute()
+        
+        freebusy = await asyncio.to_thread(_fetch_busy)
+        busy_periods = freebusy.get("calendars", {}).get("primary", {}).get("busy", [])
+        
+        # Parse busy periods
+        busy_ranges = []
+        for bp in busy_periods:
+            b_start = datetime.fromisoformat(bp["start"])
+            b_end = datetime.fromisoformat(bp["end"])
+            busy_ranges.append((b_start, b_end))
+        
+    except Exception as exc:
+        logger.warning("Failed to fetch freebusy: %s — using default slots", exc)
+        return _generate_default_slots(num_slots)
+
+    # Find open slots
+    slots = []
+    for check_date, day_start, day_end in candidates:
+        slot_time = day_start
+        while slot_time + timedelta(minutes=SLOT_DURATION) <= day_end and len(slots) < num_slots:
+            slot_end = slot_time + timedelta(minutes=SLOT_DURATION)
+            
+            # Check if this slot overlaps any busy period
+            is_busy = any(
+                slot_time < b_end and slot_end > b_start
+                for b_start, b_end in busy_ranges
+            )
+            
+            if not is_busy:
+                # Format label
+                if check_date == now.date():
+                    day_label = "Today"
+                elif check_date == (now + timedelta(days=1)).date():
+                    day_label = "Tomorrow"
+                else:
+                    day_label = check_date.strftime("%A, %B %-d")
+                
+                time_label = slot_time.strftime("%-I:%M %p")
+                
+                slots.append({
+                    "date": check_date.isoformat(),
+                    "time": slot_time.strftime("%H:%M"),
+                    "end_time": slot_end.strftime("%H:%M"),
+                    "label": f"{day_label} at {time_label}",
+                    "iso": slot_time.isoformat(),
+                    "iso_end": slot_end.isoformat(),
+                })
+            
+            slot_time += timedelta(hours=1)  # Check hourly slots
+        
+        if len(slots) >= num_slots:
+            break
+
+    return slots[:num_slots]
+
+
+def _generate_default_slots(num_slots: int) -> list[dict]:
+    """Fallback slots when calendar is unavailable."""
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(TIMEZONE)
+    now = datetime.now(tz)
+    
+    slots = []
+    check_date = now.date()
+    hours = [10, 14, 11]  # 10am, 2pm, 11am
+    
+    for i in range(num_slots):
+        # Skip to next weekday if weekend
+        while check_date.weekday() >= 5:
+            check_date += timedelta(days=1)
+        
+        hour = hours[i % len(hours)]
+        slot_time = datetime(check_date.year, check_date.month, check_date.day,
+                           hour, 0, tzinfo=tz)
+        
+        if check_date == now.date() and slot_time <= now:
+            check_date += timedelta(days=1)
+            while check_date.weekday() >= 5:
+                check_date += timedelta(days=1)
+            slot_time = datetime(check_date.year, check_date.month, check_date.day,
+                               hour, 0, tzinfo=tz)
+        
+        slot_end = slot_time + timedelta(minutes=SLOT_DURATION)
+        
+        if check_date == now.date():
+            day_label = "Today"
+        elif check_date == (now + timedelta(days=1)).date():
+            day_label = "Tomorrow"
+        else:
+            day_label = check_date.strftime("%A, %B %-d")
+        
+        slots.append({
+            "date": check_date.isoformat(),
+            "time": slot_time.strftime("%H:%M"),
+            "end_time": slot_end.strftime("%H:%M"),
+            "label": f"{day_label} at {slot_time.strftime('%-I:%M %p')}",
+            "iso": slot_time.isoformat(),
+            "iso_end": slot_end.isoformat(),
+        })
+        
+        if i == 0:
+            check_date += timedelta(days=1)
+    
+    return slots
+
+
+async def create_calendar_event(
+    summary: str,
+    start_iso: str,
+    end_iso: str,
+    attendee_email: str | None = None,
+    description: str = "",
+) -> dict | None:
+    """Create a Google Calendar event. Returns event dict or None on failure."""
+    creds = await _get_credentials()
+    if not creds:
+        logger.warning("Google Calendar not connected — cannot create event")
+        return None
+
+    try:
+        from googleapiclient.discovery import build
+        
+        event_body = {
+            "summary": summary,
+            "description": description,
+            "start": {"dateTime": start_iso, "timeZone": TIMEZONE},
+            "end": {"dateTime": end_iso, "timeZone": TIMEZONE},
+        }
+        
+        if attendee_email:
+            event_body["attendees"] = [
+                {"email": attendee_email},
+                {"email": "contact@stuffnthings.io"},
+            ]
+            # Send email invites
+            event_body["conferenceData"] = None
+        
+        def _create():
+            service = build("calendar", "v3", credentials=creds)
+            return service.events().insert(
+                calendarId="primary",
+                body=event_body,
+                sendUpdates="all" if attendee_email else "none",
+            ).execute()
+        
+        event = await asyncio.to_thread(_create)
+        logger.info("Calendar event created: %s (%s)", summary, event.get("id"))
+        return event
+        
+    except Exception as exc:
+        logger.error("Failed to create calendar event: %s", exc)
+        return None
+
+
 @router.post("/calendar/google/disconnect")
 async def disconnect_google():
     """Revoke token and clear stored credentials."""

@@ -74,7 +74,7 @@ BASE_URL = "https://warroom.stuffnthings.io/api/twilio"
 
 @router.post("/voice/welcome")
 async def voice_welcome(request: Request):
-    """Initial greeting when call connects. Asks about time-consuming tasks."""
+    """Initial greeting — thanks for the audit request, asks about website challenges."""
     form = await request.form()
     call_sid = form.get("CallSid", "")
     to = form.get("To", "")
@@ -114,20 +114,20 @@ async def voice_welcome(request: Request):
 
     return _twiml(f"""
         <Say voice="{VOICE}">
-            Hi {contact_name}, this is the Stuff N Things team calling about your inquiry.
-            Thank you for reaching out to us.
+            Hi {contact_name}, this is the Stuff N Things team calling about your free site audit request.
+            Thanks for reaching out — we're going to review your website and put together a full report for you.
         </Say>
         <Pause length="1"/>
-        <Gather {GATHER_OPTS} action="https://warroom.stuffnthings.io/api/twilio/voice/gather-tasks">
+        <Gather {GATHER_OPTS} action="{BASE_URL}/voice/gather-tasks">
             <Say voice="{VOICE}">
-                We'd love to learn more about your business.
-                What tasks or processes do you feel are taking time away from your core business?
+                Before we dive in, I'd love to learn a bit about your business.
+                What's your biggest challenge with your website right now?
             </Say>
         </Gather>
         <Say voice="{VOICE}">
-            I didn't catch that. Let me move on.
+            No worries. Let me move on.
         </Say>
-        <Redirect>https://warroom.stuffnthings.io/api/twilio/voice/gather-services</Redirect>
+        <Redirect>{BASE_URL}/voice/gather-services</Redirect>
     """)
 
 
@@ -155,17 +155,17 @@ async def voice_gather_tasks(request: Request):
             Got it, that's really helpful. Thank you for sharing that.
         </Say>
         <Pause length="1"/>
-        <Gather {GATHER_OPTS} action="https://warroom.stuffnthings.io/api/twilio/voice/gather-services">
+        <Gather {GATHER_OPTS} action="{BASE_URL}/voice/gather-services">
             <Say voice="{VOICE}">
-                Now, what services were you most interested in?
-                For example, we offer website design and development, A I workflow automation,
-                S E O optimization, and ongoing website management.
+                What would you most like to improve?
+                For example, we can help with website design, speed and performance,
+                getting found on Google, or automating parts of your workflow with A I.
             </Say>
         </Gather>
         <Say voice="{VOICE}">
             No worries. Let me move to the next question.
         </Say>
-        <Redirect>https://warroom.stuffnthings.io/api/twilio/voice/gather-schedule</Redirect>
+        <Redirect>{BASE_URL}/voice/gather-schedule</Redirect>
     """)
 
 
@@ -187,22 +187,43 @@ async def voice_gather_services(request: Request):
 
     logger.info("Call %s — services: %s", call_sid, speech_result[:100])
 
+    # Fetch real availability from Google Calendar
+    from app.api.google_calendar import get_available_slots
+    slots = await get_available_slots(3)
+
+    # Store slots in intake record so gather-schedule can look them up
+    async with leadgen_session() as db:
+        await db.execute(
+            text("UPDATE public.call_intakes SET raw_data = raw_data || :data::jsonb WHERE call_sid = :sid"),
+            {"data": json.dumps({"offered_slots": slots}), "sid": call_sid},
+        )
+        await db.commit()
+
+    # Build the slot options for the caller
+    slot_text = ""
+    for i, slot in enumerate(slots, 1):
+        slot_text += f'Press {i} for {slot["label"]}. '
+
     return _twiml(f"""
         <Say voice="{VOICE}">
-            Great choices. We can definitely help with that.
+            Great. We can definitely help with that.
         </Say>
         <Pause length="1"/>
-        <Gather {GATHER_OPTS} action="https://warroom.stuffnthings.io/api/twilio/voice/gather-schedule">
+        <Say voice="{VOICE}">
+            Let's get you scheduled to walk through your audit results with a member of our team.
+            I have a few times available this week.
+        </Say>
+        <Pause length="1"/>
+        <Gather input="dtmf" numDigits="1" timeout="10" action="{BASE_URL}/voice/gather-schedule">
             <Say voice="{VOICE}">
-                Last question. When would be a good day and time for one of our team members
-                to meet with you for a more detailed consultation?
-                You can say something like, Tuesday afternoon, or Friday at 2 PM.
+                {slot_text}
+                Or press 4 if none of those work and we'll follow up by email.
             </Say>
         </Gather>
         <Say voice="{VOICE}">
-            No problem. We'll follow up by email to find a time that works.
+            I didn't get a response. No worries, we'll follow up by email to find a time that works.
         </Say>
-        <Redirect>https://warroom.stuffnthings.io/api/twilio/voice/complete</Redirect>
+        <Redirect>{BASE_URL}/voice/complete</Redirect>
     """)
 
 
@@ -210,32 +231,109 @@ async def voice_gather_services(request: Request):
 
 @router.post("/voice/gather-schedule")
 async def voice_gather_schedule(request: Request):
-    """Receives scheduling preference, wraps up the call."""
+    """Receives DTMF slot selection, creates calendar event, wraps up."""
     form = await request.form()
     call_sid = form.get("CallSid", "")
-    speech_result = form.get("SpeechResult", "")
+    digits = form.get("Digits", "")
 
+    logger.info("Call %s — selected slot: %s", call_sid, digits)
+
+    # Look up the offered slots and intake data
+    async with leadgen_session() as db:
+        result = await db.execute(
+            text("SELECT * FROM public.call_intakes WHERE call_sid = :sid"),
+            {"sid": call_sid},
+        )
+        row = result.fetchone()
+
+    if not row:
+        return _twiml(f"""
+            <Say voice="{VOICE}">Something went wrong. We'll follow up by email.</Say>
+            <Redirect>{BASE_URL}/voice/complete</Redirect>
+        """)
+
+    intake = dict(row._mapping)
+    raw_data = intake.get("raw_data") or {}
+    if isinstance(raw_data, str):
+        raw_data = json.loads(raw_data)
+    offered_slots = raw_data.get("offered_slots", [])
+
+    # Parse selection
+    selected_slot = None
+    if digits in ("1", "2", "3"):
+        idx = int(digits) - 1
+        if idx < len(offered_slots):
+            selected_slot = offered_slots[idx]
+
+    if digits == "4" or not selected_slot:
+        # None of the times work
+        async with leadgen_session() as db:
+            await db.execute(
+                text("UPDATE public.call_intakes SET schedule_pref = :sched WHERE call_sid = :sid"),
+                {"sched": "Requested email follow-up for scheduling", "sid": call_sid},
+            )
+            await db.commit()
+
+        return _twiml(f"""
+            <Say voice="{VOICE}">
+                No problem at all. We'll send you an email with a few more options so you can pick a time that works best.
+            </Say>
+            <Pause length="1"/>
+            <Say voice="{VOICE}">
+                Thank you so much for your time today. We're excited to work with you. Have a great day!
+            </Say>
+            <Redirect>{BASE_URL}/voice/complete</Redirect>
+        """)
+
+    # Got a valid slot — create the calendar event
     async with leadgen_session() as db:
         await db.execute(
             text("UPDATE public.call_intakes SET schedule_pref = :sched WHERE call_sid = :sid"),
-            {"sched": speech_result, "sid": call_sid},
+            {"sched": selected_slot["label"], "sid": call_sid},
         )
         await db.commit()
 
-    logger.info("Call %s — schedule: %s", call_sid, speech_result[:100])
+    # Create real Google Calendar event
+    from app.api.google_calendar import create_calendar_event
+    
+    contact_name = intake.get("contact_name", "Contact")
+    contact_email = intake.get("contact_email")
+    pain_points = intake.get("pain_points", "Not discussed")
+    services = intake.get("services", "Not discussed")
 
+    event = await create_calendar_event(
+        summary=f"Site Audit Review — {contact_name}",
+        start_iso=selected_slot["iso"],
+        end_iso=selected_slot["iso_end"],
+        attendee_email=contact_email,
+        description=(
+            f"Site Audit Review with {contact_name}\n\n"
+            f"Website Challenges: {pain_points}\n"
+            f"Interested In: {services}\n\n"
+            f"Auto-scheduled by AI intake call."
+        ),
+    )
+
+    if event:
+        async with leadgen_session() as db:
+            await db.execute(
+                text("UPDATE public.call_intakes SET calendar_event_created = TRUE WHERE call_sid = :sid"),
+                {"sid": call_sid},
+            )
+            await db.commit()
+
+    slot_label = selected_slot["label"]
     return _twiml(f"""
         <Say voice="{VOICE}">
-            Perfect. I've noted that down.
-            You'll receive a calendar invite at the email you provided with the meeting details.
-            A member of our team will be ready to discuss your needs in depth.
+            Perfect. You're all set for {slot_label}.
+            You'll receive a calendar invite at the email you provided with all the details.
+            One of our team members will walk you through your full site audit report.
         </Say>
         <Pause length="1"/>
         <Say voice="{VOICE}">
-            Thank you so much for your time today. We're excited to work with you.
-            Have a great day!
+            Thank you so much for your time today. We look forward to working with you. Have a great day!
         </Say>
-        <Redirect>https://warroom.stuffnthings.io/api/twilio/voice/complete</Redirect>
+        <Redirect>{BASE_URL}/voice/complete</Redirect>
     """)
 
 
@@ -267,11 +365,6 @@ async def voice_complete(request: Request):
 
     if row:
         intake = dict(row._mapping)
-        # Trigger calendar event creation (background)
-        try:
-            await _create_calendar_event(intake)
-        except Exception as exc:
-            logger.error("Failed to create calendar event for call %s: %s", call_sid, exc)
 
         # Send notification
         from app.services.notify import send_notification
