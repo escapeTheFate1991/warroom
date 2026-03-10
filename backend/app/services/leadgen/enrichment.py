@@ -90,113 +90,108 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
             await db.commit()
             return
 
-    # Check if audit is recent enough (within 30 days)
+    # Check if audit is recent enough (within 30 days) — skip website CRAWL only, 
+    # still run the intel sources (BBB, Reddit, News, Social, Glassdoor)
+    skip_crawl = False
     if (lead.website_audit_date and 
         datetime.now(timezone.utc).replace(tzinfo=None) - lead.website_audit_date.replace(tzinfo=None) < timedelta(days=30)):
-        logger.debug("Lead %d has recent audit, skipping crawl", lead_id)
-        lead.enrichment_status = "enriched"
-        score, tier = score_lead(lead)
-        lead.lead_score = score
-        lead.lead_tier = tier
-        await db.commit()
-        return
+        logger.debug("Lead %d has recent audit, skipping website crawl but running intel sources", lead_id)
+        skip_crawl = True
 
     lead.enrichment_status = "crawling"
     await db.commit()
 
-    if not lead.website:
-        lead.has_website = False
-        lead.enrichment_status = "enriched"
-        lead.audit_status = "no_website"
-        score, tier = score_lead(lead)
-        lead.lead_score = score
-        lead.lead_tier = tier
-        await db.commit()
-        return
+    # ── Website crawl (skip if recent audit exists) ──
+    if not skip_crawl:
+        if not lead.website:
+            lead.has_website = False
+            lead.audit_status = "no_website"
+        else:
+            lead.has_website = True
+            crawl = await crawl_website(lead.website)
 
-    lead.has_website = True
-    crawl = await crawl_website(lead.website)
+            lead.website_status = crawl.status_code
+            lead.website_platform = crawl.platform
+            lead.emails = crawl.emails
+            if crawl.phones:
+                lead.website_phones = crawl.phones
+            lead.facebook_url = crawl.facebook
+            lead.instagram_url = crawl.instagram
+            lead.linkedin_url = crawl.linkedin
+            lead.twitter_url = crawl.twitter
+            lead.tiktok_url = crawl.tiktok
+            lead.youtube_url = crawl.youtube
+            lead.yelp_url = crawl.yelp
 
-    lead.website_status = crawl.status_code
-    lead.website_platform = crawl.platform
-    lead.emails = crawl.emails
-    # Store scraped phones — merge with Google phone if different
-    if crawl.phones:
-        lead.website_phones = crawl.phones
-    lead.facebook_url = crawl.facebook
-    lead.instagram_url = crawl.instagram
-    lead.linkedin_url = crawl.linkedin
-    lead.twitter_url = crawl.twitter
-    lead.tiktok_url = crawl.tiktok
-    lead.youtube_url = crawl.youtube
-    lead.yelp_url = crawl.yelp
-    lead.enrichment_status = "failed" if crawl.error else "enriched"
+            # Quick audit lite
+            audit_flags = []
+            if crawl.platform and crawl.platform != "custom":
+                audit_flags.append(f"Built on {crawl.platform.title()}")
+            if not crawl.emails:
+                audit_flags.append("No email found on website")
+            if not crawl.phones:
+                audit_flags.append("No phone found on website")
+            has_ssl = lead.website.startswith("https://") if lead.website else False
+            if not has_ssl:
+                audit_flags.append("No SSL (HTTP only)")
+            social_count = sum(1 for x in [crawl.facebook, crawl.instagram, crawl.linkedin, crawl.twitter] if x)
+            if social_count == 0:
+                audit_flags.append("No social media links")
+            elif social_count < 2:
+                audit_flags.append("Minimal social presence")
+            lead.audit_lite_flags = audit_flags
 
-    # Quick audit lite — surface level signals from the crawl
-    audit_flags = []
-    if crawl.platform and crawl.platform != "custom":
-        audit_flags.append(f"Built on {crawl.platform.title()}")
-    if not crawl.emails:
-        audit_flags.append("No email found on website")
-    if not crawl.phones:
-        audit_flags.append("No phone found on website")
-    has_ssl = lead.website.startswith("https://") if lead.website else False
-    if not has_ssl:
-        audit_flags.append("No SSL (HTTP only)")
-    social_count = sum(1 for x in [crawl.facebook, crawl.instagram, crawl.linkedin, crawl.twitter] if x)
-    if social_count == 0:
-        audit_flags.append("No social media links")
-    elif social_count < 2:
-        audit_flags.append("Minimal social presence")
-    lead.audit_lite_flags = audit_flags
+    # ── Intel sources (always run, even when crawl is skipped) ──
 
-    # --- Review scraping & analysis ---
+    # Reviews
     try:
         await _enrich_reviews(lead)
     except Exception as exc:
         logger.warning("Review enrichment failed for lead %d: %s", lead_id, exc)
 
-    # --- BBB ---
+    # BBB
     try:
         await _enrich_bbb(lead)
     except Exception as exc:
         logger.warning("BBB enrichment failed for lead %d: %s", lead_id, exc)
 
-    # --- Glassdoor ---
+    # Glassdoor
     try:
         await _enrich_glassdoor(lead)
     except Exception as exc:
         logger.warning("Glassdoor enrichment failed for lead %d: %s", lead_id, exc)
 
-    # --- Reddit mentions ---
+    # Reddit mentions
     try:
         await _enrich_reddit(lead)
     except Exception as exc:
         logger.warning("Reddit enrichment failed for lead %d: %s", lead_id, exc)
 
-    # --- News mentions ---
+    # News mentions
     try:
         await _enrich_news(lead)
     except Exception as exc:
         logger.warning("News enrichment failed for lead %d: %s", lead_id, exc)
 
-    # --- Social presence scan ---
+    # Social presence scan
     try:
         await _enrich_social_scan(lead)
     except Exception as exc:
         logger.warning("Social scan failed for lead %d: %s", lead_id, exc)
 
-    # --- Website audit (deeper than audit_lite) ---
-    if lead.website and lead.has_website:
+    # Website audit (deeper) — only if not skipping crawl
+    if not skip_crawl and lead.website and lead.has_website:
         try:
             await _enrich_website_audit(lead)
         except Exception as exc:
             logger.warning("Website audit failed for lead %d: %s", lead_id, exc)
 
+    lead.enrichment_status = "enriched"
     score, tier = score_lead(lead)
     lead.lead_score = score
     lead.lead_tier = tier
-    lead.website_audit_date = datetime.now()  # Track when we performed enrichment
+    if not skip_crawl:
+        lead.website_audit_date = datetime.now()  # Track when we performed full enrichment
 
     await db.commit()
 
