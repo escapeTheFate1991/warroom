@@ -261,7 +261,7 @@ async def export_csv(entity_type: str, db: AsyncSession = Depends(get_crm_db)):
         ])
         
         for person in persons:
-            emails = "; ".join([email.get("value", "") for email in (person.emails or [])])
+            emails = "; ".join([email.get("value", "") for email in (person.email_addresses or [])])
             phones = "; ".join([phone.get("value", "") for phone in (person.contact_numbers or [])])
             
             writer.writerow([

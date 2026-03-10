@@ -268,7 +268,7 @@ async def update_person(person_id: int, person_data: PersonUpdate,
     # Store old values for audit
     old_values = {
         "name": person.name,
-        "emails": person.emails,
+        "emails": person.email_addresses,
         "contact_numbers": person.contact_numbers,
         "job_title": person.job_title,
         "organization_id": person.organization_id
@@ -313,7 +313,7 @@ async def delete_person(person_id: int, user_id: Optional[int] = None,
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     
-    old_values = {"name": person.name, "emails": person.emails}
+    old_values = {"name": person.name, "emails": person.email_addresses}
     await db.execute(delete(Person).where(Person.id == person_id))
     
     # Log audit

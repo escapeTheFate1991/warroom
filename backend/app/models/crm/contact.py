@@ -35,7 +35,7 @@ class Person(CrmBase):
 
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
-    emails = Column(JSONB, default=[])  # [{value: "x@y.com", label: "work"}]
+    email_addresses = Column("emails", JSONB, default=[])  # [{value: "x@y.com", label: "work"}]
     contact_numbers = Column(JSONB)     # [{value: "555-1234", label: "mobile"}]
     job_title = Column(Text)
     organization_id = Column(Integer, ForeignKey("crm.organizations.id", ondelete="SET NULL"))

@@ -88,7 +88,7 @@ def serialize_deal(deal: Deal, agent_assignments=None) -> DealResponse:
         leadgen_lead_id=deal.leadgen_lead_id,
         person_name=deal.person.name if deal.person else None,
         person_phone=_first_contact_value(deal.person.contact_numbers if deal.person else None),
-        person_email=_first_contact_value(deal.person.emails if deal.person else None),
+        person_email=_first_contact_value(deal.person.email_addresses if deal.person else None),
         organization_name=deal.organization.name if deal.organization else None,
         source_name=deal.source.name if deal.source else None,
         type_name=deal.type.name if deal.type else None,
@@ -513,7 +513,7 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
         phones_json = [{"value": convert_data.phone, "label": "work"}] if convert_data.phone else None
         person = Person(
             name=convert_data.business_name or convert_data.title or "Unknown Contact",
-            emails=emails_json or [],
+            email_addresses=emails_json or [],
             contact_numbers=phones_json,
             organization_id=org.id,
         )
