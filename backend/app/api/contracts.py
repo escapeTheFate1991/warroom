@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.leadgen_db import leadgen_engine, leadgen_session
 from app.services.email import _send_email
@@ -71,6 +72,7 @@ INDEX_SQLS = [
     "CREATE INDEX IF NOT EXISTS idx_contracts_contract_number ON public.contracts (contract_number)",
     "CREATE INDEX IF NOT EXISTS idx_contract_templates_active ON public.contract_templates (is_active)",
     "CREATE INDEX IF NOT EXISTS idx_contracts_deal_stage ON public.contracts (deal_stage)",
+    "CREATE INDEX IF NOT EXISTS idx_contracts_deal_id ON public.contracts (deal_id)",
     # Unique constraint on template name for ON CONFLICT seeding
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_contract_templates_name ON public.contract_templates (name)",
 ]
@@ -89,6 +91,9 @@ DEAL_PIPELINE_ALTERS = [
     "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS congratulation_sent_at TIMESTAMP",
     "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS deal_notes TEXT",
     "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS deal_history JSONB DEFAULT '[]'",
+    # CRM deal linkage columns
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS deal_id INTEGER",
+    "ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS organization_id INTEGER",
 ]
 
 VALID_STATUSES = {"draft", "sent", "viewed", "signed", "active", "expired", "cancelled"}
@@ -122,6 +127,12 @@ class ContractCreate(BaseModel):
     client_address: Optional[str] = None
     start_date: Optional[date] = None
     custom_terms: Optional[dict] = None
+
+
+class ContractFromDeal(BaseModel):
+    deal_id: int
+    product_id: Optional[int] = None
+    term_months: int = 12
 
 
 class ContractUpdate(BaseModel):
@@ -458,6 +469,152 @@ async def create_contract(data: ContractCreate):
             "status": "draft",
             "created_at": str(row["created_at"]),
         }
+
+
+# ── Create Contract from CRM Deal ────────────────────────────────────
+
+@router.post("/contracts/from-deal", status_code=201)
+async def create_contract_from_deal(data: ContractFromDeal):
+    """Create a contract pre-populated from a CRM deal's person/organization."""
+    from app.db.crm_db import crm_engine
+    from sqlalchemy.ext.asyncio import AsyncSession as _AS
+    from sqlalchemy.orm import sessionmaker as _sm
+
+    # Fetch deal with person + organization from CRM DB
+    async with AsyncSession(crm_engine, expire_on_commit=False) as crm_db:
+        from app.models.crm.deal import Deal
+        from app.models.crm.contact import Person, Organization
+        from sqlalchemy import select as sa_select
+        from sqlalchemy.orm import selectinload as sa_load
+
+        deal_q = await crm_db.execute(
+            sa_select(Deal).options(
+                sa_load(Deal.person),
+                sa_load(Deal.organization),
+            ).where(Deal.id == data.deal_id)
+        )
+        deal = deal_q.scalar_one_or_none()
+        if not deal:
+            raise HTTPException(404, f"Deal {data.deal_id} not found")
+
+        person = deal.person
+        org = deal.organization
+
+        # Extract client info from deal
+        client_name = person.name if person else deal.title
+        client_email = ""
+        if person and person.email_addresses:
+            emails = person.email_addresses if isinstance(person.email_addresses, list) else json.loads(person.email_addresses)
+            if emails and isinstance(emails, list) and len(emails) > 0:
+                first = emails[0]
+                client_email = first.get("value", "") if isinstance(first, dict) else str(first)
+        client_company = org.name if org else None
+        org_id = org.id if org else None
+
+    # Fetch product info if product_id provided
+    plan_name = deal.title
+    monthly_price = float(deal.deal_value) if deal.deal_value else 0.0
+
+    if data.product_id:
+        async with _session() as db:
+            prod_result = await db.execute(
+                text("SELECT name, price_cents FROM public.products_stripe WHERE id = :id"),
+                {"id": data.product_id},
+            )
+            prod = prod_result.mappings().fetchone()
+            if prod:
+                plan_name = prod["name"]
+                monthly_price = prod["price_cents"] / 100.0
+
+    # Determine template — use the first active one as default
+    async with _session() as db:
+        tpl_result = await db.execute(
+            text("SELECT id, default_terms FROM public.contract_templates WHERE is_active = TRUE ORDER BY id LIMIT 1")
+        )
+        tpl = tpl_result.mappings().fetchone()
+        template_id = tpl["id"] if tpl else None
+        default_terms = _parse_json(tpl["default_terms"]) if tpl else {}
+
+    contract_terms = {**default_terms, "term_months": data.term_months}
+    start = date.today()
+    end = start + timedelta(days=data.term_months * 30)
+    contract_number = _generate_contract_number()
+
+    async with _session() as db:
+        result = await db.execute(
+            text("""
+                INSERT INTO public.contracts
+                    (contract_number, client_name, client_email, client_company,
+                     template_id, plan_name, monthly_price, setup_fee, contract_terms,
+                     status, start_date, end_date, deal_id, organization_id)
+                VALUES (:contract_number, :client_name, :client_email, :client_company,
+                        :template_id, :plan_name, :monthly_price, 0,
+                        CAST(:contract_terms AS jsonb), 'draft', :start_date, :end_date,
+                        :deal_id, :organization_id)
+                RETURNING id, contract_number, created_at
+            """),
+            {
+                "contract_number": contract_number,
+                "client_name": client_name,
+                "client_email": client_email,
+                "client_company": client_company,
+                "template_id": template_id,
+                "plan_name": plan_name,
+                "monthly_price": monthly_price,
+                "contract_terms": _json_dumps(contract_terms),
+                "start_date": start,
+                "end_date": end,
+                "deal_id": data.deal_id,
+                "organization_id": org_id,
+            },
+        )
+        row = result.mappings().fetchone()
+        await db.commit()
+
+        return {
+            "id": row["id"],
+            "contract_number": row["contract_number"],
+            "plan_name": plan_name,
+            "client_name": client_name,
+            "client_email": client_email,
+            "client_company": client_company,
+            "monthly_price": monthly_price,
+            "deal_id": data.deal_id,
+            "status": "draft",
+            "created_at": str(row["created_at"]),
+        }
+
+
+@router.get("/contracts/by-deal/{deal_id}")
+async def get_contracts_by_deal(deal_id: int):
+    """Return all contracts linked to a specific CRM deal."""
+    async with _session() as db:
+        result = await db.execute(
+            text("""
+                SELECT id, contract_number, client_name, client_email, client_company,
+                       plan_name, monthly_price, status, deal_stage, created_at
+                FROM public.contracts
+                WHERE deal_id = :deal_id
+                ORDER BY created_at DESC
+            """),
+            {"deal_id": deal_id},
+        )
+        rows = result.mappings().all()
+        return [
+            {
+                "id": r["id"],
+                "contract_number": r["contract_number"],
+                "client_name": r["client_name"],
+                "client_email": r["client_email"],
+                "client_company": r["client_company"],
+                "plan_name": r["plan_name"],
+                "monthly_price": float(r["monthly_price"]),
+                "status": r["status"],
+                "deal_stage": r["deal_stage"],
+                "created_at": str(r["created_at"]),
+            }
+            for r in rows
+        ]
 
 
 @router.get("/contracts/{contract_id}")

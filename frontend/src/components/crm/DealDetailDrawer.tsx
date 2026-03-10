@@ -11,6 +11,7 @@ import { API, authFetch } from "@/lib/api";
 import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
 import CallEvidence, { getCallEvidence } from "./CallEvidence";
 import QuickActions from "@/components/communications/QuickActions";
+import DealContractSection from "./DealContractSection";
 
 interface DealDetailDrawerProps {
   deal: Deal;
@@ -171,6 +172,14 @@ export default function DealDetailDrawer({ deal, stages, onClose, onAdvance }: D
               title={`Work deal: ${deal.title}`}
             />
           </div>
+
+          {/* Contract Section */}
+          <DealContractSection
+            dealId={deal.id}
+            personName={deal.person_name}
+            personEmail={d?.person_email ?? null}
+            organizationName={deal.organization_name}
+          />
 
           {/* Stage Timeline */}
           <div className="p-5 border-b border-warroom-border">
