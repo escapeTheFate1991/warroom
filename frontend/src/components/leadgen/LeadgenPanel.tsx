@@ -433,6 +433,10 @@ export default function LeadgenPanel() {
         reddit_mentions: [],
         news_mentions: [],
         social_scan: {},
+        deep_audit_results: null,
+        deep_audit_score: null,
+        deep_audit_grade: null,
+        deep_audit_date: null,
       };
       setSelectedLead(partialLead);
       setIsDrawerOpen(true);

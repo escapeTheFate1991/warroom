@@ -71,6 +71,12 @@ class LeadResponse(BaseModel):
     website_audit_top_fixes: list[str] | None
     audit_lite_flags: list[str]
 
+    # Deep AI audit
+    deep_audit_results: dict | None = None
+    deep_audit_score: int | None = None
+    deep_audit_grade: str | None = None
+    deep_audit_date: datetime | None = None
+
     # BBB
     bbb_url: str | None = None
     bbb_rating: str | None = None
@@ -158,3 +164,26 @@ class WebsiteAuditResult(BaseModel):
     grade: str
     summary: str
     top_fixes: list[str]
+
+
+class DeepAuditRequest(BaseModel):
+    """Request body for triggering a deep AI audit."""
+    competitor_urls: list[dict] | None = None  # [{"url": "...", "name": "..."}]
+    industry: str | None = None  # Override business_category
+
+
+class DeepAuditResponse(BaseModel):
+    """Response for deep audit results."""
+    url: str
+    overall_score: int
+    overall_grade: str
+    audited_at: str
+    duration_seconds: float = 0
+    categories: dict = {}
+    findings: list[dict] = []
+    ai_summary: str = ""
+    ai_recommendations: list[str] = []
+    competitor_analysis: list[dict] = []
+    competitor_comparison: dict = {}
+    extraction: dict = {}
+    error: str = ""

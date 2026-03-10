@@ -86,6 +86,12 @@ class Lead(Base):
     website_audit_top_fixes = Column(ARRAY(Text))
     website_audit_date = Column(TIMESTAMP(timezone=True))
 
+    # Deep AI audit (comprehensive Claude-powered analysis)
+    deep_audit_results = Column(JSONB)
+    deep_audit_score = Column(Integer)
+    deep_audit_grade = Column(String(2))
+    deep_audit_date = Column(TIMESTAMP(timezone=True))
+
     # Audit lite (quick surface-level flags from enrichment crawl)
     audit_lite_flags = Column(ARRAY(Text), default=[])
 

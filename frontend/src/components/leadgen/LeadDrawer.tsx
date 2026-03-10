@@ -22,7 +22,12 @@ import {
   Save,
   Loader2,
   UserPlus,
-  Rocket
+  Rocket,
+  TrendingUp,
+  Zap,
+  ChevronDown,
+  ChevronRight,
+  BarChart3
 } from "lucide-react";
 import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
@@ -30,6 +35,56 @@ import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
 import ScrollTabs from "@/components/ui/ScrollTabs";
 import QuickActions from "@/components/communications/QuickActions";
 
+
+interface DeepAuditFinding {
+  category: string;
+  metric: string;
+  status: "pass" | "warn" | "fail";
+  score: number;
+  finding: string;
+  recommendation: string;
+  impact: "high" | "medium" | "low";
+}
+
+interface DeepAuditCategory {
+  score: number;
+  weight: number;
+  weighted_score: number;
+  findings: DeepAuditFinding[];
+}
+
+interface CompetitorData {
+  name: string;
+  url: string;
+  word_count: number;
+  pages: number;
+  has_blog: boolean;
+  blog_post_count: number;
+  schema_types: string[];
+  social_link_count: number;
+  has_review_widget: boolean;
+  has_google_maps: boolean;
+  has_faq: boolean;
+}
+
+interface DeepAuditResults {
+  url: string;
+  overall_score: number;
+  overall_grade: string;
+  audited_at: string;
+  duration_seconds: number;
+  categories: Record<string, DeepAuditCategory>;
+  findings: DeepAuditFinding[];
+  ai_summary: string;
+  ai_recommendations: string[];
+  competitor_analysis: CompetitorData[];
+  competitor_comparison: {
+    client?: CompetitorData;
+    competitors?: CompetitorData[];
+  };
+  extraction: Record<string, any>;
+  error?: string;
+}
 
 export interface LeadFull {
   id: number;
@@ -50,6 +105,12 @@ export interface LeadFull {
   website_audit_summary: string | null;
   website_audit_top_fixes: string[];
   audit_lite_flags: string[];
+
+  // Deep AI Audit
+  deep_audit_results: DeepAuditResults | null;
+  deep_audit_score: number | null;
+  deep_audit_grade: string | null;
+  deep_audit_date: string | null;
   lead_score: number;
   lead_tier: string;
   enrichment_status: string;
@@ -282,6 +343,8 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [deepAudit, setDeepAudit] = useState<DeepAuditResults | null>(lead?.deep_audit_results || null);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [teamMembers, setTeamMembers] = useState<{ id: number; name: string }[]>([]);
 
@@ -315,6 +378,8 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
         notes: lead.contact_notes || "",
       });
       setNotes(lead.notes || "");
+      setDeepAudit(lead.deep_audit_results || null);
+      setExpandedCategories(new Set());
     }
   }, [lead]);
 
@@ -407,29 +472,40 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
     }
   };
 
-  const triggerAudit = async () => {
+  const triggerDeepAudit = async () => {
     setAuditLoading(true);
     try {
-      const response = await authFetch(`${API}/api/leadgen/leads/${lead.id}/audit`, {
+      const response = await authFetch(`${API}/api/leadgen/leads/${lead.id}/deep-audit`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          industry: lead.business_category || undefined,
+        }),
       });
       if (response.ok) {
-        // Poll for updated lead data (not the audit result — that's a different shape)
-        const checkAudit = async () => {
-          const leadResponse = await authFetch(`${API}/api/leadgen/leads/${lead.id}`);
-          if (leadResponse.ok) {
-            const updatedLead = await leadResponse.json();
-            onUpdate?.(updatedLead);
-          }
-        };
-        // Give audit time to complete, then fetch full lead
-        setTimeout(checkAudit, 3000);
+        const auditData = await response.json();
+        setDeepAudit(auditData);
+        // Refresh the full lead object
+        const leadResponse = await authFetch(`${API}/api/leadgen/leads/${lead.id}`);
+        if (leadResponse.ok) {
+          const updatedLead = await leadResponse.json();
+          onUpdate?.(updatedLead);
+        }
       }
     } catch (error) {
-      console.error("Failed to trigger audit:", error);
+      console.error("Failed to trigger deep audit:", error);
     } finally {
       setAuditLoading(false);
     }
+  };
+
+  const toggleCategory = (cat: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
   };
 
   const copyToClipboard = async (text: string) => {
@@ -668,52 +744,242 @@ ${lead.phone || ""}`;
           <div className="flex-1 overflow-y-auto p-6">
             {activeTab === "audit" && (
               <div className="space-y-4">
+                {/* Header */}
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-warroom-text">Website Audit</h3>
+                  <h3 className="text-sm font-semibold text-warroom-text flex items-center gap-2">
+                    <Zap size={16} className="text-warroom-accent" />
+                    Deep AI Audit
+                  </h3>
                   <button
-                    onClick={triggerAudit}
+                    onClick={triggerDeepAudit}
                     disabled={auditLoading}
                     className="px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 rounded-lg text-sm font-medium transition flex items-center gap-1"
                   >
-                    {auditLoading ? <Loader2 size={14} className="animate-spin" /> : <AlertCircle size={14} />}
-                    {auditLoading ? "Running..." : "Trigger Audit"}
+                    {auditLoading ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
+                    {auditLoading ? "Analyzing..." : deepAudit ? "Re-run Audit" : "Run Deep Audit"}
                   </button>
                 </div>
 
-                {lead.audit_lite_flags.length > 0 && (
-                  <div>
-                    <h4 className="text-xs font-medium text-warroom-muted mb-2">Issues Found</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {lead.audit_lite_flags.map((flag) => (
-                        <span
-                          key={flag}
-                          className="text-xs px-2 py-1 bg-orange-500/20 text-orange-400 rounded-full"
-                        >
-                          {flag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {lead.website_audit_score && (
-                  <div>
-                    <h4 className="text-xs font-medium text-warroom-muted mb-2">Audit Score</h4>
-                    <div className="p-3 bg-warroom-bg rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-warroom-text">Score: {lead.website_audit_score}/100</span>
-                        <span className="text-sm font-medium text-warroom-accent">{lead.website_audit_grade}</span>
+                {auditLoading && (
+                  <div className="p-4 bg-warroom-accent/5 border border-warroom-accent/20 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <Loader2 size={18} className="animate-spin text-warroom-accent" />
+                      <div>
+                        <p className="text-sm text-warroom-text font-medium">Running deep analysis...</p>
+                        <p className="text-xs text-warroom-muted mt-0.5">Crawling site, checking robots.txt, sitemap, analyzing content with AI (15-30s)</p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {lead.website_audit_summary && (
+                {/* Quick flags from enrichment */}
+                {lead.audit_lite_flags.length > 0 && !deepAudit && (
                   <div>
-                    <h4 className="text-xs font-medium text-warroom-muted mb-2">Summary</h4>
-                    <div className="p-3 bg-warroom-bg rounded-lg text-sm text-warroom-text">
-                      {lead.website_audit_summary}
+                    <h4 className="text-xs font-medium text-warroom-muted mb-2">Quick Scan Issues</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {lead.audit_lite_flags.map((flag) => (
+                        <span key={flag} className="text-xs px-2 py-1 bg-orange-500/20 text-orange-400 rounded-full">{flag}</span>
+                      ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Deep Audit Results */}
+                {deepAudit && (
+                  <div className="space-y-4">
+                    {/* Overall Score */}
+                    <div className="p-4 bg-warroom-bg rounded-xl border border-warroom-border">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <span className="text-3xl font-bold text-warroom-text">{deepAudit.overall_score}</span>
+                          <span className="text-sm text-warroom-muted">/100</span>
+                        </div>
+                        <span className={`text-2xl font-bold px-3 py-1 rounded-lg ${
+                          deepAudit.overall_grade === "A" ? "bg-green-500/20 text-green-400" :
+                          deepAudit.overall_grade === "B" ? "bg-blue-500/20 text-blue-400" :
+                          deepAudit.overall_grade === "C" ? "bg-yellow-500/20 text-yellow-400" :
+                          deepAudit.overall_grade === "D" ? "bg-orange-500/20 text-orange-400" :
+                          "bg-red-500/20 text-red-400"
+                        }`}>{deepAudit.overall_grade}</span>
+                      </div>
+                      <div className="w-full h-3 bg-warroom-border rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            deepAudit.overall_score >= 80 ? "bg-green-500" :
+                            deepAudit.overall_score >= 60 ? "bg-yellow-500" :
+                            deepAudit.overall_score >= 40 ? "bg-orange-500" : "bg-red-500"
+                          }`}
+                          style={{ width: `${deepAudit.overall_score}%` }}
+                        />
+                      </div>
+                      {deepAudit.audited_at && (
+                        <p className="text-[10px] text-warroom-muted mt-2">
+                          Audited {new Date(deepAudit.audited_at).toLocaleDateString()} · {deepAudit.duration_seconds}s
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Category Scores */}
+                    <div className="space-y-2">
+                      {Object.entries(deepAudit.categories).map(([catKey, cat]) => {
+                        const isExpanded = expandedCategories.has(catKey);
+                        const label = catKey.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                        const failCount = cat.findings.filter(f => f.status === "fail").length;
+                        const warnCount = cat.findings.filter(f => f.status === "warn").length;
+                        return (
+                          <div key={catKey} className="bg-warroom-bg rounded-xl border border-warroom-border overflow-hidden">
+                            <button
+                              onClick={() => toggleCategory(catKey)}
+                              className="w-full flex items-center justify-between p-3 hover:bg-warroom-surface/50 transition text-left"
+                            >
+                              <div className="flex items-center gap-3">
+                                {isExpanded ? <ChevronDown size={14} className="text-warroom-muted" /> : <ChevronRight size={14} className="text-warroom-muted" />}
+                                <span className="text-sm font-medium text-warroom-text">{label}</span>
+                                <span className="text-[10px] text-warroom-muted">({(cat.weight * 100).toFixed(0)}% weight)</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {failCount > 0 && <span className="text-[10px] px-1.5 py-0.5 bg-red-500/15 text-red-400 rounded">{failCount} fail</span>}
+                                {warnCount > 0 && <span className="text-[10px] px-1.5 py-0.5 bg-yellow-500/15 text-yellow-400 rounded">{warnCount} warn</span>}
+                                <span className={`text-sm font-bold ${
+                                  cat.score >= 80 ? "text-green-400" :
+                                  cat.score >= 60 ? "text-yellow-400" :
+                                  cat.score >= 40 ? "text-orange-400" : "text-red-400"
+                                }`}>{cat.score}</span>
+                              </div>
+                            </button>
+                            {isExpanded && (
+                              <div className="border-t border-warroom-border/50 p-3 space-y-2">
+                                {cat.findings.map((f, i) => (
+                                  <div key={i} className="flex items-start gap-2 py-1.5">
+                                    <span className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                                      f.status === "pass" ? "bg-green-400" :
+                                      f.status === "warn" ? "bg-yellow-400" : "bg-red-400"
+                                    }`} />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-medium text-warroom-text">{f.metric}</span>
+                                        {f.impact === "high" && f.status !== "pass" && (
+                                          <span className="text-[9px] px-1 py-0.5 bg-red-500/10 text-red-400 rounded">HIGH</span>
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-warroom-muted mt-0.5">{f.finding}</p>
+                                      {f.recommendation && (
+                                        <p className="text-[11px] text-warroom-accent/80 mt-1">→ {f.recommendation}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* AI Summary */}
+                    {deepAudit.ai_summary && (
+                      <div className="bg-warroom-accent/5 border border-warroom-accent/20 rounded-xl p-4">
+                        <h4 className="text-xs font-semibold text-warroom-accent flex items-center gap-2 mb-2">
+                          <Zap size={12} />
+                          AI Analysis
+                        </h4>
+                        <p className="text-xs text-warroom-text whitespace-pre-line leading-relaxed">{deepAudit.ai_summary}</p>
+                      </div>
+                    )}
+
+                    {/* AI Recommendations */}
+                    {deepAudit.ai_recommendations && deepAudit.ai_recommendations.length > 0 && (
+                      <div>
+                        <h4 className="text-xs font-semibold text-warroom-muted mb-2 flex items-center gap-2">
+                          <TrendingUp size={12} />
+                          Top Recommendations
+                        </h4>
+                        <div className="space-y-2">
+                          {deepAudit.ai_recommendations.map((rec, i) => (
+                            <div key={i} className="flex items-start gap-2 p-2.5 bg-warroom-bg rounded-lg border border-warroom-border/50">
+                              <span className="text-xs font-bold text-warroom-accent mt-0.5">{i + 1}.</span>
+                              <span className="text-xs text-warroom-text">{rec}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Competitor Comparison */}
+                    {deepAudit.competitor_comparison?.competitors && deepAudit.competitor_comparison.competitors.length > 0 && (
+                      <div>
+                        <h4 className="text-xs font-semibold text-warroom-muted mb-2 flex items-center gap-2">
+                          <BarChart3 size={12} />
+                          Competitor Gap Analysis
+                        </h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-[11px]">
+                            <thead>
+                              <tr className="border-b border-warroom-border">
+                                <th className="text-left py-2 pr-2 text-warroom-muted font-medium">Metric</th>
+                                <th className="text-center py-2 px-2 text-warroom-accent font-medium truncate max-w-[100px]">
+                                  {deepAudit.competitor_comparison.client?.name?.slice(0, 18) || "Client"}
+                                </th>
+                                {deepAudit.competitor_comparison.competitors.map((c, i) => (
+                                  <th key={i} className="text-center py-2 px-2 text-warroom-muted font-medium truncate max-w-[100px]">
+                                    {c.name?.slice(0, 18) || `Comp ${i + 1}`}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[
+                                { label: "Word Count", key: "word_count", format: (v: number) => v.toLocaleString() },
+                                { label: "Pages", key: "pages", format: (v: number) => v.toString() },
+                                { label: "Blog", key: "has_blog", format: (v: boolean, d: CompetitorData) => v ? `Yes${d.blog_post_count ? ` (${d.blog_post_count})` : ""}` : "No" },
+                                { label: "Schema", key: "schema_types", format: (v: string[]) => v.length ? v.join(", ") : "None" },
+                                { label: "Social Links", key: "social_link_count", format: (v: number) => v.toString() },
+                                { label: "Reviews", key: "has_review_widget", format: (v: boolean) => v ? "Yes" : "No" },
+                                { label: "Google Maps", key: "has_google_maps", format: (v: boolean) => v ? "Yes" : "No" },
+                                { label: "FAQ", key: "has_faq", format: (v: boolean) => v ? "Yes" : "No" },
+                              ].map((row) => {
+                                const clientVal = (deepAudit.competitor_comparison.client as any)?.[row.key];
+                                return (
+                                  <tr key={row.key} className="border-b border-warroom-border/30">
+                                    <td className="py-1.5 pr-2 text-warroom-muted">{row.label}</td>
+                                    <td className="py-1.5 px-2 text-center text-warroom-text font-medium">
+                                      {(row.format as any)(clientVal, deepAudit.competitor_comparison.client)}
+                                    </td>
+                                    {deepAudit.competitor_comparison.competitors!.map((comp, i) => {
+                                      const compVal = (comp as any)[row.key];
+                                      const isBetter = row.key === "word_count" ? compVal > (clientVal || 0) * 1.5 :
+                                        row.key === "pages" ? compVal > (clientVal || 0) * 1.5 :
+                                        row.key === "social_link_count" ? compVal > (clientVal || 0) :
+                                        typeof compVal === "boolean" ? compVal && !clientVal :
+                                        Array.isArray(compVal) ? compVal.length > (clientVal?.length || 0) : false;
+                                      return (
+                                        <td key={i} className={`py-1.5 px-2 text-center ${isBetter ? "text-green-400" : "text-warroom-muted"}`}>
+                                          {(row.format as any)(compVal, comp)}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Fallback: show basic audit if no deep audit */}
+                {!deepAudit && !auditLoading && lead.website_audit_score != null && (
+                  <div className="p-3 bg-warroom-bg rounded-lg border border-warroom-border">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-warroom-text">Basic Audit Score: {lead.website_audit_score}/100</span>
+                      <span className="text-sm font-medium text-warroom-accent">{lead.website_audit_grade}</span>
+                    </div>
+                    {lead.website_audit_summary && (
+                      <p className="text-xs text-warroom-muted">{lead.website_audit_summary}</p>
+                    )}
+                    <p className="text-[10px] text-warroom-accent mt-2">Run a Deep AI Audit for comprehensive analysis →</p>
                   </div>
                 )}
               </div>

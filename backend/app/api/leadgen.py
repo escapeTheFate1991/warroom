@@ -16,11 +16,13 @@ from app.models.lead import Lead, SearchJob
 from app.services.leadgen.google_places import search_places
 from app.services.leadgen.enrichment import enrich_job
 from app.services.leadgen.website_auditor import audit_website
+from app.services.leadgen.deep_website_auditor import run_deep_audit
 from app.services.leadgen.lead_scorer import score_lead
 from app.api.agent_assignment_helpers import load_assignment_summaries
 from app.api.leadgen_schemas import (
     LeadResponse, LeadUpdate, StatsResponse, SearchRequest,
-    SearchJobResponse, WebsiteAuditResult, ContactLogRequest
+    SearchJobResponse, WebsiteAuditResult, ContactLogRequest,
+    DeepAuditRequest, DeepAuditResponse,
 )
 from app.services.notify import send_notification
 
@@ -31,6 +33,30 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Ensure enrichment_error column exists (idempotent ALTER TABLE)
 # ---------------------------------------------------------------------------
+_DEEP_AUDIT_COLS_ADDED = False
+
+
+async def _ensure_deep_audit_columns(db: AsyncSession):
+    """Add deep audit columns to leads table if they don't exist."""
+    global _DEEP_AUDIT_COLS_ADDED
+    if _DEEP_AUDIT_COLS_ADDED:
+        return
+    try:
+        stmts = [
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS deep_audit_results JSONB",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS deep_audit_score INTEGER",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS deep_audit_grade VARCHAR(2)",
+            "ALTER TABLE leadgen.leads ADD COLUMN IF NOT EXISTS deep_audit_date TIMESTAMPTZ",
+        ]
+        for stmt in stmts:
+            await db.execute(text(stmt))
+        await db.commit()
+        _DEEP_AUDIT_COLS_ADDED = True
+    except Exception:
+        await db.rollback()
+        _DEEP_AUDIT_COLS_ADDED = True
+
+
 _ENRICHMENT_ERROR_COL_ADDED = False
 
 
@@ -723,6 +749,83 @@ async def get_audit_results(lead_id: int, db: AsyncSession = Depends(get_leadgen
     except Exception as exc:
         logger.error("Failed to get audit for lead %d: %s", lead_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to load audit: {str(exc)[:200]}")
+
+
+# ---------------------------------------------------------------------------
+# Deep AI Audit endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/leads/{lead_id}/deep-audit", response_model=DeepAuditResponse)
+async def trigger_deep_audit(
+    lead_id: int,
+    body: DeepAuditRequest | None = None,
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Trigger a comprehensive AI-powered website audit (15-30 seconds)."""
+    try:
+        await _ensure_deep_audit_columns(db)
+
+        result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        lead = result.scalar_one_or_none()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        if not lead.website:
+            raise HTTPException(status_code=400, detail="Lead has no website to audit")
+
+        competitor_urls = (body.competitor_urls if body else None) or []
+        industry = (body.industry if body else None) or lead.business_category or ""
+
+        audit_result = await run_deep_audit(
+            url=lead.website,
+            industry=industry,
+            competitor_urls=competitor_urls if competitor_urls else None,
+        )
+
+        # Store results
+        lead.deep_audit_results = audit_result
+        lead.deep_audit_score = audit_result.get("overall_score", 0)
+        lead.deep_audit_grade = audit_result.get("overall_grade", "F")
+        lead.deep_audit_date = datetime.now(timezone.utc)
+
+        # Also update the basic audit fields for backward compatibility
+        lead.website_audit_score = audit_result.get("overall_score", 0)
+        lead.website_audit_grade = audit_result.get("overall_grade", "F")
+        lead.website_audit_summary = audit_result.get("ai_summary", "")[:500]
+        lead.website_audit_top_fixes = audit_result.get("ai_recommendations", [])[:5]
+        lead.website_audit_date = datetime.now(timezone.utc)
+        lead.audit_status = "complete"
+
+        await db.commit()
+
+        return DeepAuditResponse(**audit_result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Deep audit failed for lead %d: %s", lead_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Deep audit failed: {str(exc)[:200]}")
+
+
+@router.get("/leads/{lead_id}/deep-audit", response_model=DeepAuditResponse)
+async def get_deep_audit_results(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
+    """Get deep audit results for a lead."""
+    try:
+        await _ensure_deep_audit_columns(db)
+
+        result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        lead = result.scalar_one_or_none()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        if not lead.deep_audit_results:
+            raise HTTPException(status_code=404, detail="No deep audit results found. Trigger one first with POST.")
+
+        return DeepAuditResponse(**lead.deep_audit_results)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to get deep audit for lead %d: %s", lead_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load deep audit: {str(exc)[:200]}")
 
 
 # ---------------------------------------------------------------------------
