@@ -696,6 +696,18 @@ export default function ChatPanel() {
     if (!showScrollBtnRef.current) scrollToBottom();
   }, [messages, streamText, partialContent, scrollToBottom]);
 
+  // Scroll to bottom on initial load (after messages populate)
+  const initialScrollDone = useRef(false);
+  useEffect(() => {
+    if (messages.length > 0 && !initialScrollDone.current) {
+      initialScrollDone.current = true;
+      // Use instant scroll (not smooth) so user doesn't see the scroll animation
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+      });
+    }
+  }, [messages]);
+
   // Scroll to bottom when panel becomes visible again (tab switch back)
   useEffect(() => {
     const observer = new IntersectionObserver(
