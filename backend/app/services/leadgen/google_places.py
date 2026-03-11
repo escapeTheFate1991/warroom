@@ -587,8 +587,8 @@ async def search_places(query: str, location: str, max_results: int = 60, radius
     sources_tried: list[str] = []
     sources_used: list[str] = []
 
-    # 1. Google Places (primary)
-    google_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+    # 1. Google Places (primary) — check env var OR settings DB
+    google_key = os.getenv("GOOGLE_MAPS_API_KEY", "") or await _get_google_maps_key()
     if google_key:
         sources_tried.append("google_places")
         google_results = await _search_google_places(query, location, max_results, radius_km)
@@ -596,7 +596,7 @@ async def search_places(query: str, location: str, max_results: int = 60, radius
             sources_used.append(f"google_places({len(google_results)})")
             all_results.extend(google_results)
     else:
-        logger.info("No GOOGLE_MAPS_API_KEY — skipping Google Places")
+        logger.info("No Google Maps API key in env or settings DB — skipping Google Places")
 
     # 2. Yelp scrape (secondary, fills gaps — no API key needed)
     remaining = max_results - len(all_results)

@@ -33,6 +33,89 @@ from app.services.notify import send_notification
 logger = logging.getLogger(__name__)
 
 
+async def _discover_website(business_name: str, city: str = "", state: str = "") -> str | None:
+    """Try to find a business website via Google search when Places didn't provide one.
+    
+    Uses SerpAPI if available, falls back to a simple heuristic Google search.
+    Returns the URL or None.
+    """
+    import httpx
+    import os
+    import re
+
+    if not business_name:
+        return None
+
+    query = f"{business_name}"
+    if city:
+        query += f" {city}"
+    if state:
+        query += f" {state}"
+
+    # Try SerpAPI first (structured results)
+    serp_key = os.getenv("SERP_API_KEY", "")
+    if not serp_key:
+        try:
+            from sqlalchemy import text as sa_text
+            from app.db.leadgen_db import leadgen_engine
+            async with leadgen_engine.begin() as conn:
+                result = await conn.execute(
+                    sa_text("SELECT value FROM public.settings WHERE key = 'serp_api_key'")
+                )
+                row = result.fetchone()
+                if row and row[0]:
+                    serp_key = row[0]
+        except Exception:
+            pass
+
+    if serp_key:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    "https://serpapi.com/search",
+                    params={"q": query, "api_key": serp_key, "num": 5, "engine": "google"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # Check knowledge graph first (Google's own business card)
+                    kg = data.get("knowledge_graph", {})
+                    kg_website = kg.get("website")
+                    if kg_website:
+                        logger.info("Website found via SerpAPI knowledge graph: %s", kg_website)
+                        return kg_website
+
+                    # Check organic results — skip directories (yelp, yellowpages, bbb, etc.)
+                    skip_domains = {"yelp.com", "yellowpages.com", "bbb.org", "facebook.com",
+                                    "instagram.com", "linkedin.com", "mapquest.com", "manta.com",
+                                    "angi.com", "thumbtack.com", "homeadvisor.com", "nextdoor.com",
+                                    "google.com", "twitter.com", "x.com", "tiktok.com"}
+                    for result in data.get("organic_results", [])[:5]:
+                        link = result.get("link", "")
+                        domain = re.sub(r"^https?://(www\.)?", "", link).split("/")[0].lower()
+                        if domain and not any(skip in domain for skip in skip_domains):
+                            logger.info("Website found via SerpAPI organic: %s", link)
+                            return link
+        except Exception as exc:
+            logger.warning("SerpAPI website discovery failed: %s", exc)
+
+    # Fallback: try Brave Search API (free tier)
+    try:
+        from app.services.leadgen.news_scraper import _brave_search
+        brave_results = await _brave_search(query, count=5)
+        skip_domains = {"yelp.com", "yellowpages.com", "bbb.org", "facebook.com",
+                        "instagram.com", "linkedin.com", "mapquest.com"}
+        for r in brave_results:
+            url = r.get("url", "")
+            domain = re.sub(r"^https?://(www\.)?", "", url).split("/")[0].lower()
+            if domain and not any(skip in domain for skip in skip_domains):
+                logger.info("Website found via Brave Search: %s", url)
+                return url
+    except Exception as exc:
+        logger.debug("Brave Search website discovery failed: %s", exc)
+
+    return None
+
+
 async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
     """Enrich a single lead with website data and scoring."""
     result = await db.execute(select(Lead).where(Lead.id == lead_id))
@@ -101,6 +184,13 @@ async def enrich_lead(lead_id: int, db: AsyncSession) -> None:
 
     lead.enrichment_status = "crawling"
     await db.commit()
+
+    # ── Website discovery (find website if missing) ──
+    if not skip_crawl and not lead.website:
+        discovered = await _discover_website(lead.name, lead.city, lead.state)
+        if discovered:
+            lead.website = discovered
+            logger.info("Discovered website for lead %d (%s): %s", lead_id, lead.name, discovered)
 
     # ── Website crawl (skip if recent audit exists) ──
     if not skip_crawl:
