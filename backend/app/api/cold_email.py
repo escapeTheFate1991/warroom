@@ -63,54 +63,146 @@ INDEX_SQLS = [
 ]
 
 SEED_TEMPLATES = [
+    # ── 1. Audit Hook — lead has website audit data ──
     {
-        "name": "Introduction — Audit-Based",
-        "subject_template": "We audited {{company}}'s website — here's what we found",
+        "name": "Audit Hook",
+        "subject_template": "{{company}} scored {{audit_score}}/100 on our site audit",
         "body_template": (
             "Hi {{name}},\n\n"
-            "I came across {{company}} while researching {{category}} businesses in {{city}}. "
-            "We ran a quick audit on your website and found a few things worth flagging:\n\n"
+            "I ran a free audit on {{company}}'s website and it scored {{audit_score}} out of 100. "
+            "Here's what stood out:\n\n"
             "{{pain_point}}\n\n"
-            "{{audit_blurb}}\n\n"
-            "We specialize in {{service}} and have helped businesses like yours turn "
-            "these exact issues into growth opportunities.\n\n"
-            "Would you be open to a quick 15-minute chat this week? "
-            "I can walk you through the full audit results — no strings attached.\n\n"
-            "Best,\nThe Stuff N Things Team"
+            "These are the kinds of issues that quietly cost {{category}} businesses "
+            "customers every week — people land on the site, hit a wall, and bounce to a competitor.\n\n"
+            "I put together a full breakdown with fixes. Want me to send it over? "
+            "No cost, no pitch — just the data.\n\n"
+            "— {{sender_name}}\n"
+            "{{sender_phone}}"
         ),
-        "tone": "professional",
+        "tone": "direct",
     },
+    # ── 2. No Website — lead has no website ──
     {
-        "name": "Follow Up",
-        "subject_template": "Following up — {{service}} for {{company}}",
+        "name": "No Website",
+        "subject_template": "{{company}} — customers can't find you online",
         "body_template": (
             "Hi {{name}},\n\n"
-            "I reached out last week about helping {{company}} with {{service}} "
-            "and wanted to check in. I know things get busy.\n\n"
-            "We've been seeing great results helping businesses tackle {{pain_point}} — "
-            "if that's still a priority for you, I'd love to share a few ideas.\n\n"
-            "No pressure at all. Just reply to this email or grab a time on my calendar "
-            "if you'd like to chat.\n\n"
-            "Best,\nThe Stuff N Things Team"
+            "I was looking into {{category}} businesses in {{city}} and noticed "
+            "{{company}} doesn't have a website yet.\n\n"
+            "That means when someone in {{city}} searches for a {{category}} provider, "
+            "they're finding your competitors instead. Every day without a site is "
+            "leads going to someone else.\n\n"
+            "We build and manage websites for local businesses — "
+            "the whole thing, done-for-you, starting at $299/mo. No upfront cost.\n\n"
+            "Worth a 10-minute call to see if it makes sense?\n\n"
+            "— {{sender_name}}\n"
+            "{{sender_phone}}"
+        ),
+        "tone": "direct",
+    },
+    # ── 3. Low Google Rating — lead has poor reviews ──
+    {
+        "name": "Low Google Rating",
+        "subject_template": "{{company}}'s {{google_rating}}-star rating is costing you",
+        "body_template": (
+            "Hi {{name}},\n\n"
+            "I noticed {{company}} has a {{google_rating}}-star rating on Google. "
+            "For {{category}} businesses, anything under 4.2 stars means "
+            "most people scroll right past you.\n\n"
+            "The fix isn't just asking for more reviews — it starts with your website. "
+            "A site that makes it easy for happy customers to leave reviews, "
+            "shows off your best work, and builds trust before they even call.\n\n"
+            "I've got a few ideas specific to {{company}}. "
+            "Can I send you a quick breakdown?\n\n"
+            "— {{sender_name}}\n"
+            "{{sender_phone}}"
+        ),
+        "tone": "direct",
+    },
+    # ── 4. Competitor Gap — competitors are doing better ──
+    {
+        "name": "Competitor Gap",
+        "subject_template": "{{company}} vs your competitors in {{city}}",
+        "body_template": (
+            "Hi {{name}},\n\n"
+            "I compared {{company}}'s online presence to a few other "
+            "{{category}} businesses in {{city}}. Honest take: they're ahead.\n\n"
+            "{{pain_point}}\n\n"
+            "The good news — most of these gaps are straightforward to close. "
+            "A better site, cleaner SEO, and a review strategy can flip the script in 60-90 days.\n\n"
+            "I put together a side-by-side comparison. Want me to send it?\n\n"
+            "— {{sender_name}}\n"
+            "{{sender_phone}}"
+        ),
+        "tone": "direct",
+    },
+    # ── 5. Follow Up #1 — 3 days after initial ──
+    {
+        "name": "Follow Up #1",
+        "subject_template": "Re: {{company}}'s website",
+        "body_template": (
+            "Hi {{name}},\n\n"
+            "Sent you a note a few days ago about {{company}}'s online presence. "
+            "Figured it might've gotten buried.\n\n"
+            "Quick recap: I found some specific issues that are likely costing you "
+            "customers. Happy to share the details — takes 5 minutes to review.\n\n"
+            "If now's not the right time, no worries. Just don't want you "
+            "losing business to a fixable problem.\n\n"
+            "— {{sender_name}}\n"
+            "{{sender_phone}}"
         ),
         "tone": "friendly",
     },
+    # ── 6. Follow Up #2 — 7 days, different angle ──
     {
-        "name": "Value Prop — Specific Findings",
-        "subject_template": "3 things we'd fix on {{company}}'s website",
+        "name": "Follow Up #2",
+        "subject_template": "One thing I'd change on {{company}}'s site",
         "body_template": (
             "Hi {{name}},\n\n"
-            "I took a look at {{company}}'s online presence and wanted to share "
-            "three specific things that could make a real difference:\n\n"
+            "I know you're busy running {{company}}, so I'll keep this short.\n\n"
+            "If I could only fix one thing on your online presence, it'd be this:\n\n"
             "{{pain_point}}\n\n"
-            "We recently helped a {{category}} business tackle similar issues and saw "
-            "measurable improvements within the first 30 days — more traffic, better "
-            "conversions, and a web presence that actually works for them.\n\n"
-            "I'd love to put together a similar game plan for {{company}}. "
-            "Would a quick call this week work?\n\n"
-            "Best,\nThe Stuff N Things Team"
+            "That single change could make a real difference in how many "
+            "{{city}} customers find and trust {{company}}.\n\n"
+            "Want me to show you what I mean? 10 minutes, no strings.\n\n"
+            "— {{sender_name}}\n"
+            "{{sender_phone}}"
+        ),
+        "tone": "friendly",
+    },
+    # ── 7. Breakup Email — final touch, creates urgency ──
+    {
+        "name": "Breakup Email",
+        "subject_template": "Closing the loop on {{company}}",
+        "body_template": (
+            "Hi {{name}},\n\n"
+            "I've reached out a couple times about some issues I spotted "
+            "with {{company}}'s online presence. I don't want to be a pest.\n\n"
+            "I'll leave the audit results on file in case you want them later. "
+            "If things change and you want a fresh look at your website, "
+            "my door's open.\n\n"
+            "Wishing you and {{company}} the best.\n\n"
+            "— {{sender_name}}\n"
+            "{{sender_phone}}"
         ),
         "tone": "professional",
+    },
+    # ── 8. Re-engagement — leads that went cold ──
+    {
+        "name": "Re-engagement",
+        "subject_template": "Things have changed for {{company}}",
+        "body_template": (
+            "Hi {{name}},\n\n"
+            "We talked a while back about {{company}}'s website. "
+            "I just re-ran your audit and wanted to share what's changed.\n\n"
+            "{{audit_blurb}}\n\n"
+            "A few of your competitors in {{city}} have made moves since we last spoke. "
+            "The gap is wider now than it was before.\n\n"
+            "Worth 15 minutes to see where {{company}} stands today?\n\n"
+            "— {{sender_name}}\n"
+            "{{sender_phone}}"
+        ),
+        "tone": "direct",
     },
 ]
 
@@ -370,11 +462,14 @@ async def generate_email(req: GenerateEmailRequest):
             "audit_score": str(audit_score) if audit_score is not None else "",
             "audit_blurb": audit_blurb,
             "website": company_context.get("website", ""),
-            "city": company_context.get("city", ""),
+            "city": company_context.get("city", "your area"),
             "state": company_context.get("state", ""),
-            "category": company_context.get("category", ""),
+            "category": company_context.get("category", "local"),
             "yelp_rating": str(company_context.get("yelp_rating", "")),
             "google_rating": str(company_context.get("google_rating", "")),
+            "sender_name": company_context.get("sender_name", ""),
+            "sender_phone": company_context.get("sender_phone", ""),
+            "sender_email": company_context.get("sender_email", ""),
         }
         # Allow explicit overrides
         if req.variables:

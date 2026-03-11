@@ -548,47 +548,195 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
     }
   };
 
-  const companyName = settings.company_name || "My Company";
+  const companyName = settings.company_name || "Stuff N Things";
   const userName = settings.your_name || contactForm.contacted_by || "";
+  const userPhone = settings.your_phone || "";
   const contactName = lead.contact_owner_name || lead.contact_who_answered || "";
 
   const generateColdCallScript = () => {
-    const greeting = contactName ? `May I speak with ${contactName}?` : "Who am I speaking with?";
-    const websiteStatus = lead.has_website ? "I took a look at your website" : "I noticed you don't currently have a website";
-    const auditIssues = lead.audit_lite_flags.length > 0 
-      ? ` and found some areas that could boost your online presence: ${lead.audit_lite_flags.slice(0, 2).join(", ")}`
-      : "";
-    
-    return `Hi, this is ${userName || "[Your Name]"} from ${companyName}. I'm calling about ${lead.business_name}. ${greeting}
+    const caller = userName || "[Your Name]";
+    const biz = lead.business_name;
+    const category = lead.business_category || "local business";
+    const city = lead.city || "your area";
+    const greeting = contactName ? `Is this ${contactName}?` : "Who am I speaking with?";
 
-${websiteStatus}${auditIssues}. I specialize in helping ${lead.business_category || "businesses like yours"} increase their online visibility and attract more customers.
+    // Determine variant based on lead data
+    const hasLowReviews = (lead.google_rating != null && lead.google_rating < 4.0) ||
+      (lead.yelp_rating != null && lead.yelp_rating < 4.0);
 
-Could I take just 2 minutes to show you how we've helped similar businesses in ${lead.city || "your area"} grow their customer base by 30-50%?
+    // Build specific findings from audit data
+    const findings: string[] = [];
+    if (deepAudit?.findings) {
+      deepAudit.findings
+        .filter((f: DeepAuditFinding) => f.status === "fail" || f.status === "warn")
+        .slice(0, 2)
+        .forEach((f: DeepAuditFinding) => findings.push(f.finding));
+    }
+    if (findings.length === 0 && lead.audit_lite_flags.length > 0) {
+      findings.push(...lead.audit_lite_flags.slice(0, 2));
+    }
+    if (findings.length === 0 && lead.website_audit_top_fixes?.length > 0) {
+      findings.push(...lead.website_audit_top_fixes.slice(0, 2));
+    }
 
-When would be a good time for a quick 15-minute conversation this week?`;
+    let script: string;
+    let objections: string;
+
+    if (!lead.has_website) {
+      // ── NO WEBSITE variant ──
+      script = `Hi, this is ${caller} from ${companyName}. ${greeting}
+
+I'm reaching out because I work with ${category} businesses in ${city}, and I noticed ${biz} doesn't have a website right now. Do you have 30 seconds?
+
+[WAIT FOR YES]
+
+Here's why I'm calling — when someone in ${city} needs a ${category}, they Google it. Without a site, those customers are going straight to your competitors.
+
+We build and manage websites for local businesses. Done-for-you, no upfront cost, starts at $299 a month. We've got several ${category} clients already.
+
+Can I send you a quick example of what we'd build for ${biz}? Takes 15 minutes to walk through.`;
+    } else if (hasLowReviews) {
+      // ── LOW REVIEWS variant ──
+      const rating = lead.google_rating || lead.yelp_rating || "low";
+      script = `Hi, this is ${caller} from ${companyName}. ${greeting}
+
+I work with ${category} businesses in ${city}. I noticed ${biz} has a ${rating}-star rating online. Do you have 30 seconds?
+
+[WAIT FOR YES]
+
+Here's the thing — most people won't call a business under 4 stars. But it's not just about getting more reviews. Your website needs to make it easy for happy customers to leave one.
+
+We help businesses like yours build a site that drives reviews, shows off your work, and builds trust before someone ever picks up the phone.
+
+Can I send you a free breakdown of what we'd fix? No cost, just the data.`;
+    } else {
+      // ── HAS WEBSITE (with audit issues) variant ──
+      const findingText = findings.length > 0
+        ? `Specifically: ${findings.join("; ")}.`
+        : `There are some things that could be hurting your traffic and conversions.`;
+      const scoreText = lead.website_audit_score != null
+        ? ` Your site scored ${lead.website_audit_score} out of 100 on our audit.`
+        : "";
+      script = `Hi, this is ${caller} from ${companyName}. ${greeting}
+
+I work with ${category} businesses in ${city}. I ran a free audit on ${biz}'s website and found some issues worth flagging. Do you have 30 seconds?
+
+[WAIT FOR YES]
+
+${findingText}${scoreText}
+
+These are the kinds of things that quietly send customers to your competitors — they hit your site, something feels off, and they leave.
+
+I've got the full report ready. Can I send it over? It's free, takes 5 minutes to review, and there's no pitch attached.`;
+    }
+
+    // ── Objection handlers ──
+    objections = `
+---
+OBJECTION HANDLERS:
+
+"I'm busy right now"
+→ Totally understand. Can I email you the report instead? Takes 2 minutes to read. What's the best email?
+
+"Not interested"
+→ Fair enough. Just so you know — we found [specific issue] that's likely costing you customers. I'll send the data in case you change your mind. What's your email?
+
+"I already have a web person"
+→ No problem. We're not trying to replace anyone. The audit might actually help them — it catches things most developers miss. Want me to send it to you or directly to them?`;
+
+    return script + objections;
   };
 
   const generateColdEmail = () => {
     const recipientEmail = lead.emails?.[0] || "";
     const recipientName = contactName || "there";
-    
+    const sender = userName || "[Your Name]";
+    const phone = userPhone || "";
+    const biz = lead.business_name;
+    const category = lead.business_category || "local business";
+    const city = lead.city || "your area";
+
+    // Build specific findings from deepest available data
+    const findings: string[] = [];
+    if (deepAudit?.ai_recommendations) {
+      findings.push(...deepAudit.ai_recommendations.slice(0, 3));
+    } else if (deepAudit?.findings) {
+      deepAudit.findings
+        .filter((f: DeepAuditFinding) => f.status === "fail" || f.status === "warn")
+        .slice(0, 3)
+        .forEach((f: DeepAuditFinding) => findings.push(`${f.finding} — ${f.recommendation}`));
+    }
+    if (findings.length === 0 && lead.website_audit_top_fixes?.length > 0) {
+      findings.push(...lead.website_audit_top_fixes.slice(0, 3));
+    }
+    if (findings.length === 0 && lead.audit_lite_flags.length > 0) {
+      findings.push(...lead.audit_lite_flags.slice(0, 3));
+    }
+
+    const findingsBullets = findings.length > 0
+      ? findings.map((f, i) => `${i + 1}. ${f}`).join("\n")
+      : "";
+
+    const hasLowReviews = (lead.google_rating != null && lead.google_rating < 4.0) ||
+      (lead.yelp_rating != null && lead.yelp_rating < 4.0);
+
+    let subject: string;
+    let body: string;
+
+    if (!lead.has_website) {
+      // ── NO WEBSITE ──
+      subject = `${biz} — customers can't find you online`;
+      body = `Hi ${recipientName},
+
+I was looking into ${category} businesses in ${city} and noticed ${biz} doesn't have a website yet.
+
+That means when someone nearby searches for a ${category}, they're finding your competitors instead. Every day without a site is leads going somewhere else.
+
+We build and manage websites for local businesses — done-for-you, starting at $299/mo. No upfront cost.
+
+Worth a 10-minute call to see if it makes sense?
+
+— ${sender}${phone ? `\n${phone}` : ""}`;
+    } else if (hasLowReviews && !findingsBullets) {
+      // ── LOW REVIEWS (no audit data) ──
+      const rating = lead.google_rating || lead.yelp_rating || "low";
+      subject = `${biz}'s ${rating}-star rating is costing you`;
+      body = `Hi ${recipientName},
+
+I noticed ${biz} has a ${rating}-star rating on Google. For ${category} businesses, anything under 4.2 means most people scroll right past.
+
+The fix starts with your website — making it easy for happy customers to leave reviews, showing off your best work, and building trust before they call.
+
+I've got a few ideas specific to ${biz}. Can I send you a quick breakdown?
+
+— ${sender}${phone ? `\n${phone}` : ""}`;
+    } else {
+      // ── AUDIT HOOK (default) ──
+      const scoreText = lead.website_audit_score != null
+        ? `I ran a free audit on ${biz}'s website and it scored ${lead.website_audit_score}/100. Here's what stood out:`
+        : `I took a look at ${biz}'s website and found a few things worth flagging:`;
+      const aiSummary = deepAudit?.ai_summary
+        ? `\n${deepAudit.ai_summary}\n`
+        : "";
+      subject = lead.website_audit_score != null
+        ? `${biz} scored ${lead.website_audit_score}/100 on our site audit`
+        : `Noticed something on ${biz}'s website`;
+      body = `Hi ${recipientName},
+
+${scoreText}
+${findingsBullets || "There are issues that could be quietly costing you customers."}
+${aiSummary}
+These are the kinds of problems that send ${city} customers to your competitors without you ever knowing.
+
+I put together a full breakdown with fixes. Want me to send it over? No cost, no pitch.
+
+— ${sender}${phone ? `\n${phone}` : ""}`;
+    }
+
     return `To: ${recipientEmail}
-Subject: Quick question about ${lead.business_name}'s online presence
+Subject: ${subject}
 
-Hi ${recipientName},
-
-I was looking at ${lead.business_name} online and ${lead.has_website ? "visited your website" : "noticed you might not have a website yet"}.
-
-${lead.audit_lite_flags.length > 0 ? `I ran a quick analysis and spotted a few quick wins that could help you attract more customers online.` : "I help businesses like yours increase their online visibility."}
-
-Would you be interested in a free 5-minute consultation to see how we could help ${lead.business_name} grow?
-
-I've helped other ${lead.business_category || "local businesses"} in ${lead.city || "the area"} increase their customer base by 30-50%.
-
-Best regards,
-${userName || "[Your Name]"}
-${companyName}
-${lead.phone || ""}`;
+${body}`;
   };
 
   const socialLinks = [
