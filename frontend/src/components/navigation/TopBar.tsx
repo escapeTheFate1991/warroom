@@ -101,15 +101,13 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenu
             </button>
             {showUserMenu && (
               <div className="absolute right-0 top-full mt-1 w-48 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl py-1 z-50">
-                {userName && (
-                  <button
-                    onClick={() => { setShowUserMenu(false); onNavigate?.("profile"); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-warroom-text hover:bg-warroom-bg transition-colors border-b border-warroom-border"
-                  >
-                    <User size={14} className="text-warroom-accent" />
-                    {userName}
-                  </button>
-                )}
+                <button
+                  onClick={() => { setShowUserMenu(false); onNavigate?.("profile"); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-warroom-text hover:bg-warroom-bg transition-colors border-b border-warroom-border"
+                >
+                  <User size={14} className="text-warroom-accent" />
+                  {userName || "Profile"}
+                </button>
                 <button onClick={onLogout} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-warroom-bg transition-colors">
                   <LogOut size={14} /> Sign Out
                 </button>
