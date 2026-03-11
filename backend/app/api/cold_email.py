@@ -444,6 +444,21 @@ async def generate_email(req: GenerateEmailRequest):
         if not template:
             raise HTTPException(404, "No active template found")
 
+        # Fetch sender settings (your_name, your_phone, your_email) from general settings
+        sender_settings_result = await db.execute(
+            text(
+                "SELECT key, value FROM public.settings "
+                "WHERE key IN ('your_name', 'your_phone', 'your_email', 'company_name') "
+                "AND category = 'general'"
+            )
+        )
+        sender_lookup = {r.key: (r.value or "") for r in sender_settings_result.fetchall()}
+        sender_name = sender_lookup.get("your_name", "")
+        sender_phone = sender_lookup.get("your_phone", "")
+        sender_email = sender_lookup.get("your_email", "")
+        if not company_context.get("company") and sender_lookup.get("company_name"):
+            company_context["company"] = sender_lookup["company_name"]
+
         # Build substitution variables with rich lead data
         pain_point = company_context.get("pain_point", "online visibility and lead generation")
         audit_score = company_context.get("audit_score")
@@ -467,9 +482,9 @@ async def generate_email(req: GenerateEmailRequest):
             "category": company_context.get("category", "local"),
             "yelp_rating": str(company_context.get("yelp_rating", "")),
             "google_rating": str(company_context.get("google_rating", "")),
-            "sender_name": company_context.get("sender_name", ""),
-            "sender_phone": company_context.get("sender_phone", ""),
-            "sender_email": company_context.get("sender_email", ""),
+            "sender_name": sender_name,
+            "sender_phone": sender_phone,
+            "sender_email": sender_email,
         }
         # Allow explicit overrides
         if req.variables:

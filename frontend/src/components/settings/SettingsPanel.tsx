@@ -83,6 +83,7 @@ const KEY_LABELS: Record<string, string> = {
   company_name: "Company Name",
   your_name: "Your Name",
   your_phone: "Your Phone",
+  your_email: "Your Email",
   business_legal_name: "Legal Entity Name",
   business_dba: "DBA / Trade Name",
   business_address_line1: "Address Line 1",
