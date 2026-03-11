@@ -143,6 +143,20 @@ DEFAULT_SETTINGS = [
         "description": "Your phone number (used in email signatures)",
         "is_secret": False,
     },
+    {
+        "key": "your_email",
+        "value": "",
+        "category": "general",
+        "description": "Your email address (used in cold email signatures)",
+        "is_secret": False,
+    },
+    {
+        "key": "outreach_timing_alerts",
+        "value": "enabled",
+        "category": "general",
+        "description": "Show cold outreach timing recommendations (enabled/disabled)",
+        "is_secret": False,
+    },
     # ── Business Details (for contracts, invoices, proposals) ──
     {
         "key": "business_legal_name",

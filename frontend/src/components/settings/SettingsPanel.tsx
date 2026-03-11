@@ -1009,6 +1009,48 @@ export default function SettingsPanel() {
           </button>
         </div>
 
+        {/* Outreach Timing Alerts toggle */}
+        <div className="flex items-center justify-between p-4 bg-warroom-bg rounded-xl border border-warroom-border">
+          <div>
+            <h4 className="text-sm font-semibold">Outreach Timing Alerts</h4>
+            <p className="text-xs text-warroom-muted mt-1">Show cold outreach timing recommendations at the top of the page</p>
+          </div>
+          <button
+            onClick={async () => {
+              const currentVal = editValues["outreach_timing_alerts"];
+              const newVal = currentVal === "disabled" ? "enabled" : "disabled";
+              setEditValues((p) => ({ ...p, outreach_timing_alerts: newVal }));
+              try {
+                await authFetch(`${API}/api/settings/outreach_timing_alerts`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ value: newVal }),
+                });
+                loadSettings();
+              } catch {}
+            }}
+            className="relative w-14 h-7 rounded-full transition-colors duration-200"
+            style={{
+              backgroundColor:
+                (editValues["outreach_timing_alerts"] || "enabled") === "enabled"
+                  ? "#6366f1"
+                  : "#1e1e2e",
+            }}
+          >
+            <div
+              className="absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform duration-200 flex items-center justify-center text-xs"
+              style={{
+                transform:
+                  (editValues["outreach_timing_alerts"] || "enabled") === "enabled"
+                    ? "translateX(30px)"
+                    : "translateX(2px)",
+              }}
+            >
+              {(editValues["outreach_timing_alerts"] || "enabled") === "enabled" ? "📞" : "🔇"}
+            </div>
+          </button>
+        </div>
+
         {/* General & Leadgen — render flat like before */}
         {["general", "leadgen"].map((catKey) => {
           const meta = CATEGORY_META[catKey];

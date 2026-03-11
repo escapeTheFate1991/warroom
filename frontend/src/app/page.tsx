@@ -14,6 +14,7 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/navigation/Sidebar";
 import TopBar from "@/components/navigation/TopBar";
+import OutreachTimingBar from "@/components/OutreachTimingBar";
 // MobileNav available for per-feature horizontal navs (not global layout)
 
 const PanelLoader = () => (
@@ -223,6 +224,7 @@ function WarRoom() {
           onLogout={logout}
           onMenuToggle={() => setSidebarOpen(true)}
         />
+        <OutreachTimingBar />
         <main className="flex-1 overflow-hidden relative">
           {activeTab === "dashboard" && <CommandCenter />}
           {/* ChatPanel stays mounted (preserves WS + generating state across tab switches) */}
