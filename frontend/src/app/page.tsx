@@ -50,6 +50,7 @@ const ProspectsPanel = dynamic(() => import("@/components/prospects/ProspectsPan
 const UnifiedPipeline = dynamic(() => import("@/components/crm/UnifiedPipeline"), { loading: PanelLoader });
 const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsPanel"), { loading: PanelLoader });
 const CommunicationsConsole = dynamic(() => import("@/components/communications/CommunicationsConsole"), { loading: PanelLoader });
+const ProfilePage = dynamic(() => import("@/components/profile/ProfilePage"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -142,7 +143,7 @@ type TabId =
   | "marketing-campaigns" | "marketing-templates"
   | "invoices" | "contracts"
   | "reports-overview" | "reports-revenue" | "reports-sales"
-  | "settings";
+  | "settings" | "profile";
 
 function normalizeTab(tab: string | null): TabId {
   if (!tab) return "dashboard";
@@ -223,6 +224,7 @@ function WarRoom() {
           userName={user?.name || user?.email}
           onLogout={logout}
           onMenuToggle={() => setSidebarOpen(true)}
+          onNavigate={(tab) => setActiveTab(tab as TabId)}
         />
         <OutreachTimingBar />
         <main className="flex-1 overflow-hidden relative">
@@ -284,6 +286,7 @@ function WarRoom() {
           {activeTab === "reports-revenue" && <ComingSoon title="Revenue Reports" />}
           {activeTab === "reports-sales" && <ComingSoon title="Sales Activity" />}
           {activeTab === "settings" && <SettingsPanel />}
+          {activeTab === "profile" && <ProfilePage />}
         </main>
       </div>
     </div>

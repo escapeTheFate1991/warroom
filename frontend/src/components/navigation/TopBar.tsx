@@ -31,9 +31,10 @@ interface TopBarProps {
   onLogout: () => void;
   onSearch?: (query: string, scope: string) => void;
   onMenuToggle?: () => void; // hamburger for mobile sidebar
+  onNavigate?: (tab: string) => void;
 }
 
-export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenuToggle }: TopBarProps) {
+export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenuToggle, onNavigate }: TopBarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -71,7 +72,7 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenu
         )}
 
         {/* Search */}
-        <div className="relative flex-1 max-w-xl">
+        <div className="relative flex-1 max-w-md">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
           <input
             type="text"
@@ -100,7 +101,15 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenu
             </button>
             {showUserMenu && (
               <div className="absolute right-0 top-full mt-1 w-48 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl py-1 z-50">
-                {userName && <div className="px-3 py-2 text-sm font-medium border-b border-warroom-border text-warroom-text break-words">{userName}</div>}
+                {userName && (
+                  <button
+                    onClick={() => { setShowUserMenu(false); onNavigate?.("profile"); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-warroom-text hover:bg-warroom-bg transition-colors border-b border-warroom-border"
+                  >
+                    <User size={14} className="text-warroom-accent" />
+                    {userName}
+                  </button>
+                )}
                 <button onClick={onLogout} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-warroom-bg transition-colors">
                   <LogOut size={14} /> Sign Out
                 </button>
