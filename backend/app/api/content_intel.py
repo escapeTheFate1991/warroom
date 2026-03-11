@@ -1496,6 +1496,92 @@ async def generate_content_script(
         raise HTTPException(status_code=500, detail="Failed to generate script")
 
 
+@router.post("/generate-scripts", response_model=List[GeneratedScript])
+async def generate_aggregated_scripts(
+    request: ScriptGenerationRequest,
+    save_to_db: bool = False,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Generate script ideas aggregated from ALL competitors' top-performing posts."""
+    try:
+        # Load all cached posts across every competitor for the requested platform
+        all_posts = await load_cached_posts(db, platform=request.platform, days=45)
+        if not all_posts:
+            raise HTTPException(
+                status_code=422,
+                detail="No cached competitor content available. Sync your competitors first.",
+            )
+
+        # Rank by engagement across all competitors, take top 30
+        ranked_posts = _sorted_posts_for_analysis(all_posts)[:30]
+
+        # Build a combined handle label from unique source competitors
+        source_handles = list(dict.fromkeys(
+            post.get("handle", "unknown") for post in ranked_posts if post.get("handle")
+        ))
+        combined_handle = ", ".join(source_handles[:5]) or "all competitors"
+
+        trending_topics = await analyze_trending_topics(ranked_posts, enable_clustering=False)
+        business_settings = await _get_business_settings()
+
+        scripts = build_competitor_script_ideas(
+            competitor_handle=combined_handle,
+            platform=request.platform,
+            posts=ranked_posts,
+            business_settings=business_settings,
+            count=request.count,
+            requested_topic=request.topic,
+            hook_style=request.hook_style,
+            trending_topics=[t.topic for t in trending_topics],
+        )
+
+        if not scripts:
+            raise HTTPException(
+                status_code=422,
+                detail="Unable to build scripts from the available competitor data.",
+            )
+
+        # Ensure source_competitors lists all unique handles across all scripts
+        for script in scripts:
+            if not script.source_competitors or script.source_competitors == [combined_handle]:
+                script.source_competitors = source_handles[:8]
+
+        if not save_to_db:
+            return scripts
+
+        # Persist to DB
+        persisted: List[GeneratedScript] = []
+        rows: List[ContentScript] = []
+        for script in scripts:
+            row = ContentScript(
+                competitor_id=None,
+                platform=request.platform,
+                title=script.title,
+                hook=script.hook,
+                body=script.body_outline,
+                cta=script.cta,
+                topic=script.topic,
+                source_post_url=script.source_post_url,
+                scene_map=_serialize_script_metadata(script),
+                status="generated",
+            )
+            db.add(row)
+            rows.append(row)
+
+        await db.commit()
+        for row in rows:
+            await db.refresh(row)
+            persisted.append(_content_script_to_response(row))
+
+        return persisted
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to generate aggregated scripts: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to generate scripts")
+
+
 def generate_script_content(
     competitor_handle: str,
     platform: str,

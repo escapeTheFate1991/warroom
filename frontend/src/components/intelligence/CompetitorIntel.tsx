@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import PostDetailModal from "./PostDetailModal";
 import ScrollTabs from "@/components/ui/ScrollTabs";
@@ -181,7 +181,7 @@ function timeAgo(dateString: string): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  
+
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   if (diffDays < 7) return `${diffDays}d ago`;
@@ -495,17 +495,18 @@ export default function CompetitorIntel() {
   const [hooks, setHooks] = useState<Hook[]>([]);
   const [scripts, setScripts] = useState<Script[]>([]);
   const [selectedScriptId, setSelectedScriptId] = useState<number | null>(null);
+  const [expandedScriptIdx, setExpandedScriptIdx] = useState<number | null>(null);
   const [expandedCompetitor, setExpandedCompetitor] = useState<number | null>(null);
   const [focusedCompetitor, setFocusedCompetitor] = useState<Competitor | null>(null);
   const [competitorPosts, setCompetitorPosts] = useState<CompetitorPost[]>([]);
   const [competitorDetailTab, setCompetitorDetailTab] = useState<"overview" | "dossier" | "audience">("overview");
   const [audienceIntel, setAudienceIntel] = useState<any>(null);
   const [loadingAudienceIntel, setLoadingAudienceIntel] = useState(false);
-  
+
   const [showAddCompetitor, setShowAddCompetitor] = useState(false);
   const [showGenerateScript, setShowGenerateScript] = useState(false);
   const [copiedHook, setCopiedHook] = useState<number | null>(null);
-  
+
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -513,7 +514,7 @@ export default function CompetitorIntel() {
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [loadingPosts, setLoadingPosts] = useState(false);
-  
+
   const [newComp, setNewComp] = useState({ handle: "", platform: "instagram" });
   const [scriptForm, setScriptForm] = useState({
     competitor_id: 0,
@@ -522,7 +523,7 @@ export default function CompetitorIntel() {
     hook_style: "",
     count: 6,
   });
-  
+
   const [error, setError] = useState<string>("");
   const [notice, setNotice] = useState<string>("");
 
@@ -807,11 +808,11 @@ export default function CompetitorIntel() {
   // Add competitor
   const addCompetitor = async () => {
     if (!newComp.handle.trim()) return;
-    
+
     try {
       setSubmitting(true);
       setError("");
-      
+
       // Create competitor
       const createResponse = await authFetch(`${API}/api/competitors`, {
         method: "POST",
@@ -824,7 +825,7 @@ export default function CompetitorIntel() {
 
       if (createResponse.ok) {
         const newCompetitor = await createResponse.json();
-        
+
         // Auto-populate data
         try {
           await authFetch(`${API}/api/competitors/${newCompetitor.id}/auto-populate`, {
@@ -833,7 +834,7 @@ export default function CompetitorIntel() {
         } catch (error) {
           console.warn("Auto-populate failed, but competitor was created");
         }
-        
+
         setCompetitors(prev => [newCompetitor, ...prev]);
         setNewComp({ handle: "", platform: "instagram" });
         setShowAddCompetitor(false);
@@ -986,14 +987,12 @@ export default function CompetitorIntel() {
     }));
   };
 
-  // Generate script
+  // Generate script (aggregated from all competitors)
   const generateScript = async () => {
-    if (!scriptForm.competitor_id) return;
-    
     try {
       setSubmitting(true);
       setError("");
-      const response = await authFetch(`${API}/api/content-intel/competitors/${scriptForm.competitor_id}/generate-script`, {
+      const response = await authFetch(`${API}/api/content-intel/generate-scripts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1008,16 +1007,16 @@ export default function CompetitorIntel() {
         const payload = await response.json();
         const generatedScripts = Array.isArray(payload) ? payload : [payload];
         setScripts((prev) => mergeScriptsById(generatedScripts, prev));
-        setSelectedScriptId(generatedScripts[0]?.id ?? null);
+        setExpandedScriptIdx(null);
         setScriptForm({ competitor_id: 0, platform: "instagram", topic: "", hook_style: "", count: 6 });
         setShowGenerateScript(false);
-        setNotice(`Generated ${generatedScripts.length} competitor-driven script ideas.`);
+        setNotice(`Generated ${generatedScripts.length} script ideas from all competitors.`);
       } else {
         const error = await response.json();
-        setError(`Failed to generate script: ${error.detail || response.statusText}`);
+        setError(`Failed to generate scripts: ${error.detail || response.statusText}`);
       }
     } catch (error) {
-      setError(`Error generating script: ${error}`);
+      setError(`Error generating scripts: ${error}`);
     } finally {
       setSubmitting(false);
     }
@@ -1066,7 +1065,7 @@ export default function CompetitorIntel() {
     setTimeout(() => setCopiedHook(null), 2000);
   };
 
-  // Focus on a competitor — switches from grid to detail view
+  // Focus on a competitor - switches from grid to detail view
   const focusOnCompetitor = (comp: Competitor) => {
     setFocusedCompetitor(comp);
     setCompetitorPosts([]);
@@ -1187,7 +1186,7 @@ export default function CompetitorIntel() {
                 </div>
               )}
 
-              {/* FOCUSED VIEW — single competitor detail */}
+              {/* FOCUSED VIEW - single competitor detail */}
               {focusedCompetitor ? (
                 <div className="space-y-4">
                   {/* Back button + competitor header */}
@@ -1216,7 +1215,7 @@ export default function CompetitorIntel() {
                     </a>
                   </div>
 
-                  {/* Stats bar — responsive grid */}
+                  {/* Stats bar - responsive grid */}
                   <div className="grid grid-cols-4 gap-2">
                     <div className="bg-warroom-surface border border-warroom-border rounded-lg p-2.5 text-center">
                       <p className="text-lg sm:text-xl font-bold text-warroom-text">{formatNum(focusedCompetitor.followers)}</p>
@@ -1358,7 +1357,7 @@ export default function CompetitorIntel() {
                     )}
                   </div>
 
-                  {/* Content feed — scrollable post list */}
+                  {/* Content feed - scrollable post list */}
                   <div>
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="text-sm font-semibold flex items-center gap-2">
@@ -1705,7 +1704,7 @@ export default function CompetitorIntel() {
 
                 </div>
               ) : (
-                /* GRID VIEW — all competitors */
+                /* GRID VIEW - all competitors */
                 <>
                   {/* Sync Status Bar */}
                   <div className="flex items-center justify-between bg-warroom-surface border border-warroom-border rounded-xl px-4 py-2.5">
@@ -1847,7 +1846,7 @@ export default function CompetitorIntel() {
                           )}
 
                           <div className="flex items-center justify-between text-[10px] text-warroom-muted mt-auto pt-2 border-t border-warroom-border">
-                            <span>{comp.posting_frequency || "—"}</span>
+                            <span>{comp.posting_frequency || "-"}</span>
                             <span>{comp.last_auto_sync ? timeAgo(comp.last_auto_sync) : "Never synced"}</span>
                           </div>
                         </div>
@@ -1863,7 +1862,7 @@ export default function CompetitorIntel() {
           {activeTab === "top-content" && (
             <div className="space-y-4">
               <p className="text-sm text-warroom-muted">Top-performing posts across all tracked competitors, re-ranked by live virality and engagement on every refresh.</p>
-              
+
               {loading ? (
                 <div className="text-center py-16">
                   <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
@@ -1890,12 +1889,12 @@ export default function CompetitorIntel() {
                           </a>
                         )}
                       </div>
-                      
+
                       {post.hook && (
                         <p className="text-sm font-medium text-warroom-accent mb-1">🪝 {post.hook}</p>
                       )}
                       <p className="text-xs text-warroom-text mb-3 line-clamp-3">{(post.text || "").slice(0, 200)}</p>
-                      
+
                       <div className="flex items-center justify-between text-xs text-warroom-muted">
                         <div className="flex gap-3">
                           <span>❤️ {formatNum(post.likes)}</span>
@@ -1912,7 +1911,7 @@ export default function CompetitorIntel() {
                           {post.timestamp && <span>{timeAgo(post.timestamp)}</span>}
                         </div>
                       </div>
-                      
+
                       <div className="mt-2 bg-warroom-bg rounded px-2 py-1 flex items-center justify-between gap-2">
                         <span className="text-xs text-warroom-accent font-medium">Score: {post.engagement_score.toFixed(0)}</span>
                         <span className="text-[10px] text-orange-300">Virality: {post.virality_score.toFixed(1)}</span>
@@ -1929,7 +1928,7 @@ export default function CompetitorIntel() {
           {activeTab === "hooks" && (
             <div className="space-y-4">
               <p className="text-sm text-warroom-muted">Opening hook language pulled from the current top-performing competitor posts.</p>
-              
+
               {loading ? (
                 <div className="text-center py-16">
                   <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
@@ -1955,9 +1954,9 @@ export default function CompetitorIntel() {
                           {copiedHook === idx ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
                         </button>
                       </div>
-                      
+
                       <p className="text-sm text-warroom-text mb-2">{hook.hook}</p>
-                      
+
                       <div className="flex items-center justify-between text-xs text-warroom-muted">
                         <span>Score: {hook.engagement_score.toFixed(0)}</span>
                         <span className="text-orange-300">Virality: {hook.virality_score.toFixed(1)}</span>
@@ -1977,223 +1976,230 @@ export default function CompetitorIntel() {
           {/* SCRIPTS TAB */}
           {activeTab === "scripts" && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-warroom-muted">Generate hook-first script ideas from real competitor winners, then click any card to drill into the full script, metrics, and source evidence.</p>
-                <button onClick={() => openGenerateScriptModal(focusedCompetitor)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition">
-                  <Plus size={14} /> Generate New
-                </button>
-              </div>
-
               {loading ? (
                 <div className="text-center py-16">
                   <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
                   <p className="text-sm text-warroom-muted">Loading scripts...</p>
                 </div>
               ) : scripts.length === 0 ? (
-                <div className="text-center py-16 text-warroom-muted">
-                  <BookOpen size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="text-sm">No scripts generated yet</p>
-                  <p className="text-xs mt-1">Generate your first script based on competitor insights</p>
+                /* Empty state - centered generate form */
+                <div className="flex flex-col items-center justify-center py-16 max-w-md mx-auto">
+                  <Film size={48} className="text-warroom-muted/20 mb-4" />
+                  <h3 className="text-base font-semibold mb-1">No scripts yet</h3>
+                  <p className="text-sm text-warroom-muted mb-6 text-center">Generate winning scripts aggregated from all your competitors' top-performing content.</p>
+
+                  <div className="w-full space-y-3 bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-warroom-muted block mb-1">Platform</label>
+                        <select
+                          value={scriptForm.platform}
+                          onChange={(e) => setScriptForm({ ...scriptForm, platform: e.target.value })}
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                        >
+                          <option value="instagram">Instagram</option>
+                          <option value="tiktok">TikTok</option>
+                          <option value="youtube">YouTube</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-warroom-muted block mb-1">How many</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={12}
+                          value={scriptForm.count}
+                          onChange={(e) => setScriptForm({ ...scriptForm, count: parseInt(e.target.value, 10) || 6 })}
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-warroom-muted block mb-1">Topic / angle (optional)</label>
+                      <input
+                        type="text"
+                        value={scriptForm.topic}
+                        onChange={(e) => setScriptForm({ ...scriptForm, topic: e.target.value })}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                        placeholder="Leave blank to auto-detect from competitor trends"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-warroom-muted block mb-1">Hook style (optional)</label>
+                      <select
+                        value={scriptForm.hook_style}
+                        onChange={(e) => setScriptForm({ ...scriptForm, hook_style: e.target.value })}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                      >
+                        <option value="">Auto</option>
+                        <option value="question">Question</option>
+                        <option value="bold_claim">Bold Claim</option>
+                        <option value="confession">Confession</option>
+                        <option value="shocking_stat">Shocking Stat</option>
+                        <option value="comparison">Comparison</option>
+                      </select>
+                    </div>
+                    <button
+                      onClick={generateScript}
+                      disabled={submitting}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40 rounded-lg text-sm font-medium transition"
+                    >
+                      {submitting ? <><Loader2 size={14} className="animate-spin" /> Generating...</> : <><Sparkles size={14} /> Generate Scripts</>}
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)] lg:items-start">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                /* Script list */
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-warroom-muted">
+                      <Sparkles size={13} className="inline mr-1 -mt-0.5" />
+                      {scripts.length} script{scripts.length !== 1 ? "s" : ""} generated from all competitors
+                    </p>
+                    <button
+                      onClick={() => setShowGenerateScript(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition"
+                    >
+                      <Plus size={14} /> Generate More
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
                     {scripts.map((script, idx) => {
-                      const isSelected = script.id != null && script.id === selectedScriptId;
+                      const isExpanded = expandedScriptIdx === idx;
                       return (
-                        <button
+                        <div
                           key={script.id ?? `${script.title}-${idx}`}
-                          onClick={() => setSelectedScriptId(script.id ?? null)}
-                          className={`text-left bg-warroom-surface border rounded-2xl p-4 transition hover:border-warroom-accent/40 ${
-                            isSelected ? "border-warroom-accent shadow-lg shadow-warroom-accent/10" : "border-warroom-border"
-                          }`}
+                          className="bg-warroom-surface border border-warroom-border rounded-xl transition hover:border-warroom-accent/30"
                         >
-                          <div className="flex items-start justify-between gap-3 mb-3">
-                            <div>
-                              <div className="flex items-center gap-2 mb-2">
+                          {/* Collapsed row */}
+                          <button
+                            onClick={() => setExpandedScriptIdx(isExpanded ? null : idx)}
+                            className="w-full text-left px-5 py-4 flex items-start gap-3"
+                          >
+                            <span className="mt-0.5 text-warroom-muted">
+                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-sm leading-snug text-warroom-text">{script.hook}</p>
+                              <div className="flex flex-wrap items-center gap-2 mt-1.5">
                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[script.platform] || "bg-gray-500/20 text-gray-400"}`}>{script.platform}</span>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${ALIGNMENT_STYLES[script.business_alignment_label] || ALIGNMENT_STYLES.Low}`}>{script.business_alignment_label} alignment</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${ALIGNMENT_STYLES[script.business_alignment_label] || ALIGNMENT_STYLES.Low}`}>{script.business_alignment_label}</span>
+                                <span className="text-[11px] text-warroom-muted flex items-center gap-1"><Eye size={11} /> {formatNum(script.predicted_views)}</span>
+                                <span className="text-[11px] text-warroom-muted flex items-center gap-1"><TrendingUp size={11} /> {formatPercent(script.predicted_engagement_rate, 2)}</span>
+                                <span className="text-[11px] text-warroom-muted flex items-center gap-1"><Zap size={11} /> {script.virality_score.toFixed(1)}</span>
+                                {script.source_competitors.length > 0 && (
+                                  <span className="text-[11px] text-warroom-muted ml-1">
+                                    {script.source_competitors.slice(0, 3).map((h) => (
+                                      <span key={h} className="inline-block px-1.5 py-0.5 mr-1 rounded bg-warroom-bg border border-warroom-border text-[10px]">@{h}</span>
+                                    ))}
+                                    {script.source_competitors.length > 3 && <span className="text-[10px]">+{script.source_competitors.length - 3}</span>}
+                                  </span>
+                                )}
                               </div>
-                              <h4 className="font-semibold text-sm leading-snug mb-1">{script.title}</h4>
-                              <p className="text-xs text-warroom-accent line-clamp-2">🪝 {script.hook}</p>
                             </div>
                             {script.id != null && (
                               <button
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  deleteScript(script.id!);
-                                }}
-                                className="text-warroom-muted hover:text-red-400 transition"
+                                onClick={(e) => { e.stopPropagation(); deleteScript(script.id!); }}
+                                className="text-warroom-muted hover:text-red-400 transition mt-0.5"
                               >
                                 <Trash2 size={14} />
                               </button>
                             )}
-                          </div>
+                          </button>
 
-                          <p className="text-xs text-warroom-muted line-clamp-3 mb-4">{script.body_outline}</p>
+                          {/* Expanded accordion */}
+                          {isExpanded && (
+                            <div className="px-5 pb-5 pt-0 border-t border-warroom-border space-y-5">
+                              {/* Title + body */}
+                              <div className="pt-4">
+                                <h4 className="text-sm font-semibold mb-1">{script.title}</h4>
+                                <p className="text-sm text-warroom-text whitespace-pre-line leading-relaxed">{script.body_outline}</p>
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-                            <div className="bg-warroom-bg rounded-lg px-3 py-2">
-                              <p className="text-[10px] text-warroom-muted mb-1">Potential Views</p>
-                              <p className="font-semibold text-warroom-text">{formatNum(script.predicted_views)}</p>
+                              {/* Scene breakdown */}
+                              {script.scene_map.length > 0 && (
+                                <div>
+                                  <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2 flex items-center gap-1"><Film size={12} /> Scene Breakdown</p>
+                                  <div className="space-y-2">
+                                    {script.scene_map.map((scene, sIdx) => (
+                                      <div key={`${scene.scene}-${sIdx}`} className="bg-warroom-bg rounded-lg p-3 border border-warroom-border">
+                                        <p className="text-xs font-semibold mb-0.5">{scene.scene}</p>
+                                        <p className="text-xs text-warroom-text">{scene.direction}</p>
+                                        <p className="text-[11px] text-warroom-muted mt-1">Goal: {scene.goal}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Business alignment */}
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2 flex items-center gap-1"><Target size={12} /> Business Alignment</p>
+                                <div className="bg-warroom-bg rounded-lg p-3 border border-warroom-border">
+                                  <p className="text-sm font-medium">{script.business_alignment_label} • {script.business_alignment_score.toFixed(1)}/100</p>
+                                  <p className="text-xs text-warroom-muted mt-1">{script.business_alignment_reason}</p>
+                                </div>
+                              </div>
+
+                              {/* CTA */}
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2 flex items-center gap-1"><Play size={12} /> Call to Action</p>
+                                <p className="text-sm bg-warroom-bg rounded-lg p-3 border border-warroom-border">{script.cta}</p>
+                              </div>
+
+                              {/* Source evidence */}
+                              {script.similar_videos.length > 0 && (
+                                <div>
+                                  <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2 flex items-center gap-1"><ExternalLink size={12} /> Source Evidence</p>
+                                  <div className="space-y-1.5">
+                                    {script.similar_videos.map((video, vIdx) => (
+                                      <div key={`${video.source_url || video.hook}-${vIdx}`} className="flex items-center gap-2 text-xs bg-warroom-bg rounded-lg px-3 py-2 border border-warroom-border">
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[video.platform] || "bg-gray-500/20 text-gray-400"}`}>{video.platform}</span>
+                                        <span className="text-warroom-muted">@{video.competitor_handle}</span>
+                                        <span className="flex-1 truncate text-warroom-text">{video.hook || "Reference post"}</span>
+                                        <span className="text-warroom-accent text-[11px]">Score {video.engagement_score.toFixed(0)}</span>
+                                        {video.source_url && (
+                                          <a href={video.source_url} target="_blank" rel="noopener noreferrer" className="text-warroom-muted hover:text-warroom-accent transition" onClick={(e) => e.stopPropagation()}>
+                                            <ExternalLink size={11} />
+                                          </a>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Actions */}
+                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                                <button
+                                  onClick={() => saveScriptToPlatform(script, script.platform)}
+                                  className="flex items-center gap-1.5 px-3 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition"
+                                >
+                                  <Save size={12} /> Save to {formatPlatformLabel(script.platform)}
+                                </button>
+                                {SCRIPT_SAVE_PLATFORMS.filter((p) => p !== script.platform).slice(0, 2).map((p) => (
+                                  <button
+                                    key={p}
+                                    onClick={() => saveScriptToPlatform(script, p)}
+                                    className="flex items-center gap-1 px-2.5 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-xs hover:border-warroom-accent/30 transition"
+                                  >
+                                    <Save size={12} /> {formatPlatformLabel(p)}
+                                  </button>
+                                ))}
+                                {script.source_post_url && (
+                                  <a href={script.source_post_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-warroom-muted hover:text-warroom-accent transition ml-2">
+                                    <ExternalLink size={12} /> Source
+                                  </a>
+                                )}
+                              </div>
                             </div>
-                            <div className="bg-warroom-bg rounded-lg px-3 py-2">
-                              <p className="text-[10px] text-warroom-muted mb-1">Pred. Engagement</p>
-                              <p className="font-semibold text-warroom-text">{formatNum(Math.round(script.predicted_engagement))}</p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between text-[11px] text-warroom-muted gap-2">
-                            <span>ER {formatPercent(script.predicted_engagement_rate, 2)}</span>
-                            <span>Virality {script.virality_score.toFixed(1)}</span>
-                            <span>{script.created_at ? timeAgo(script.created_at) : "Just now"}</span>
-                          </div>
-                        </button>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
-
-                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 lg:sticky lg:top-6">
-                    {selectedScript ? (
-                      <div className="space-y-5">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2 mb-2">
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[selectedScript.platform] || "bg-gray-500/20 text-gray-400"}`}>{selectedScript.platform}</span>
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${ALIGNMENT_STYLES[selectedScript.business_alignment_label] || ALIGNMENT_STYLES.Low}`}>{selectedScript.business_alignment_label} alignment</span>
-                              {selectedScript.estimated_duration && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-warroom-bg text-warroom-muted">{selectedScript.estimated_duration}</span>
-                              )}
-                            </div>
-                            <h3 className="text-base font-semibold leading-snug">{selectedScript.title}</h3>
-                            <p className="text-sm text-warroom-accent mt-2">🪝 {selectedScript.hook}</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          <div className="bg-warroom-bg rounded-xl p-3">
-                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">Potential Views</p>
-                            <p className="font-semibold">{formatNum(selectedScript.predicted_views)}</p>
-                          </div>
-                          <div className="bg-warroom-bg rounded-xl p-3">
-                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">Engagement Rate</p>
-                            <p className="font-semibold">{formatPercent(selectedScript.predicted_engagement_rate, 2)}</p>
-                          </div>
-                          <div className="bg-warroom-bg rounded-xl p-3">
-                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">Pred. Engagement</p>
-                            <p className="font-semibold">{formatNum(Math.round(selectedScript.predicted_engagement))}</p>
-                          </div>
-                          <div className="bg-warroom-bg rounded-xl p-3">
-                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">Virality Score</p>
-                            <p className="font-semibold">{selectedScript.virality_score.toFixed(1)}</p>
-                          </div>
-                        </div>
-
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Business Message Alignment</p>
-                          <div className="bg-warroom-bg rounded-xl p-3 border border-warroom-border">
-                            <p className="text-sm font-medium mb-1">{selectedScript.business_alignment_label} • {selectedScript.business_alignment_score.toFixed(1)}/100</p>
-                            <p className="text-xs text-warroom-muted">{selectedScript.business_alignment_reason}</p>
-                          </div>
-                        </div>
-
-                        {selectedScript.source_competitors.length > 0 && (
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Source Competitors</p>
-                            <div className="flex flex-wrap gap-2">
-                              {selectedScript.source_competitors.map((sourceCompetitor) => (
-                                <span key={sourceCompetitor} className="px-2.5 py-1 rounded-full bg-warroom-bg text-xs text-warroom-text border border-warroom-border">
-                                  @{sourceCompetitor}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Script</p>
-                          <div className="bg-warroom-bg rounded-xl p-4 border border-warroom-border space-y-3">
-                            <p className="text-sm whitespace-pre-line">{selectedScript.body_outline}</p>
-                            <div className="pt-3 border-t border-warroom-border">
-                              <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-1">CTA</p>
-                              <p className="text-sm">{selectedScript.cta}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {selectedScript.scene_map.length > 0 && (
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Scene Map</p>
-                            <div className="space-y-2">
-                              {selectedScript.scene_map.map((scene, idx) => (
-                                <div key={`${scene.scene}-${idx}`} className="bg-warroom-bg rounded-xl p-3 border border-warroom-border">
-                                  <p className="text-xs font-semibold mb-1">{scene.scene}</p>
-                                  <p className="text-xs text-warroom-text mb-1">{scene.direction}</p>
-                                  <p className="text-[11px] text-warroom-muted">Goal: {scene.goal}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {selectedScript.similar_videos.length > 0 && (
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">Similar Competitor Videos</p>
-                            <div className="space-y-2">
-                              {selectedScript.similar_videos.map((video, idx) => (
-                                <div key={`${video.source_url || video.hook}-${idx}`} className="bg-warroom-bg rounded-xl p-3 border border-warroom-border">
-                                  <div className="flex items-center justify-between gap-2 mb-1">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[video.platform] || "bg-gray-500/20 text-gray-400"}`}>{video.platform}</span>
-                                      <span className="text-xs text-warroom-muted truncate">@{video.competitor_handle}</span>
-                                    </div>
-                                    <span className="text-[11px] text-warroom-accent">Score {video.engagement_score.toFixed(0)}</span>
-                                  </div>
-                                  <p className="text-xs text-warroom-text">{video.hook || "Reference post"}</p>
-                                  {video.source_url && (
-                                    <a href={video.source_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-[11px] text-warroom-muted hover:text-warroom-accent transition">
-                                      <ExternalLink size={11} /> View source
-                                    </a>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          <button
-                            onClick={() => saveScriptToPlatform(selectedScript, selectedScript.platform)}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition"
-                          >
-                            <Save size={12} /> Save to {formatPlatformLabel(selectedScript.platform)}
-                          </button>
-                          {SCRIPT_SAVE_PLATFORMS.filter((platform) => platform !== selectedScript.platform).slice(0, 2).map((platform) => (
-                            <button
-                              key={platform}
-                              onClick={() => saveScriptToPlatform(selectedScript, platform)}
-                              className="flex items-center gap-1 px-2.5 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-xs hover:border-warroom-accent/30 transition"
-                            >
-                              <Save size={12} /> Save to {formatPlatformLabel(platform)}
-                            </button>
-                          ))}
-                        </div>
-
-                        {selectedScript.source_post_url && (
-                          <a href={selectedScript.source_post_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-warroom-muted hover:text-warroom-accent transition">
-                            <ExternalLink size={12} /> View source post
-                          </a>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-center py-12 text-warroom-muted">
-                        <BookOpen size={32} className="mx-auto mb-3 opacity-20" />
-                        <p className="text-sm">Select a script idea to inspect the full detail.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                </>
               )}
             </div>
           )}
@@ -2215,19 +2221,19 @@ export default function CompetitorIntel() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-warroom-muted block mb-1">Handle</label>
-                  <input 
-                    type="text" 
-                    value={newComp.handle} 
+                  <input
+                    type="text"
+                    value={newComp.handle}
                     onChange={e => setNewComp({ ...newComp, handle: e.target.value })}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent" 
-                    placeholder="handle" 
-                    autoFocus 
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                    placeholder="handle"
+                    autoFocus
                   />
                 </div>
                 <div>
                   <label className="text-xs text-warroom-muted block mb-1">Platform</label>
-                  <select 
-                    value={newComp.platform} 
+                  <select
+                    value={newComp.platform}
                     onChange={e => setNewComp({ ...newComp, platform: e.target.value })}
                     className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent">
                     {Object.keys(PLATFORM_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
@@ -2237,7 +2243,7 @@ export default function CompetitorIntel() {
             </div>
 
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowAddCompetitor(false)} 
+              <button onClick={() => setShowAddCompetitor(false)}
                 className="flex-1 px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm hover:bg-warroom-surface transition">
                 Cancel
               </button>
@@ -2255,79 +2261,77 @@ export default function CompetitorIntel() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Generate Competitor-Driven Scripts</h3>
+              <h3 className="text-lg font-semibold">Generate Scripts</h3>
               <button onClick={() => setShowGenerateScript(false)} className="text-warroom-muted hover:text-warroom-text">
                 <X size={20} />
               </button>
             </div>
 
             <div className="space-y-3">
-              <p className="text-xs text-warroom-muted">We’ll use the competitor’s latest winning posts, hook language, and engagement patterns to generate multiple script ideas. Topic is optional if you want to steer the angle.</p>
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Competitor</label>
-                <select 
-                  value={scriptForm.competitor_id} 
-                  onChange={e => handleScriptCompetitorChange(e.target.value)}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent">
-                  <option value={0}>Select a competitor</option>
-                  {competitors.map(comp => (
-                    <option key={comp.id} value={comp.id}>@{comp.handle} ({comp.platform})</option>
-                  ))}
-                </select>
+              <p className="text-xs text-warroom-muted">Aggregates top-performing posts from all your competitors to generate winning script ideas.</p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-warroom-muted block mb-1">Platform</label>
+                  <select
+                    value={scriptForm.platform}
+                    onChange={(e) => setScriptForm({ ...scriptForm, platform: e.target.value })}
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                  >
+                    <option value="instagram">Instagram</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="youtube">YouTube</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-warroom-muted block mb-1">How many</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={scriptForm.count}
+                    onChange={(e) => setScriptForm({ ...scriptForm, count: parseInt(e.target.value, 10) || 6 })}
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                  />
+                </div>
               </div>
-              
+
               <div>
-                <label className="text-xs text-warroom-muted block mb-1">Platform</label>
-                <select 
-                  value={scriptForm.platform} 
-                  onChange={e => setScriptForm({ ...scriptForm, platform: e.target.value })}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent">
-                  {Object.keys(PLATFORM_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Topic Override (optional)</label>
-                <input 
-                  type="text" 
-                  value={scriptForm.topic} 
-                  onChange={e => setScriptForm({ ...scriptForm, topic: e.target.value })}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent" 
-                  placeholder="Leave blank to let current competitor trends drive the angle" 
+                <label className="text-xs text-warroom-muted block mb-1">Topic / angle (optional)</label>
+                <input
+                  type="text"
+                  value={scriptForm.topic}
+                  onChange={(e) => setScriptForm({ ...scriptForm, topic: e.target.value })}
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                  placeholder="Leave blank to auto-detect from competitor trends"
                 />
               </div>
 
               <div>
-                <label className="text-xs text-warroom-muted block mb-1">How many ideas?</label>
+                <label className="text-xs text-warroom-muted block mb-1">Hook style (optional)</label>
                 <select
-                  value={scriptForm.count}
-                  onChange={e => setScriptForm({ ...scriptForm, count: parseInt(e.target.value, 10) || 6 })}
+                  value={scriptForm.hook_style}
+                  onChange={(e) => setScriptForm({ ...scriptForm, hook_style: e.target.value })}
                   className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
                 >
-                  {[3, 6, 9].map((count) => <option key={count} value={count}>{count} ideas</option>)}
+                  <option value="">Auto</option>
+                  <option value="question">Question</option>
+                  <option value="bold_claim">Bold Claim</option>
+                  <option value="confession">Confession</option>
+                  <option value="shocking_stat">Shocking Stat</option>
+                  <option value="comparison">Comparison</option>
                 </select>
-              </div>
-              
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Hook Style (optional)</label>
-                <input 
-                  type="text" 
-                  value={scriptForm.hook_style} 
-                  onChange={e => setScriptForm({ ...scriptForm, hook_style: e.target.value })}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent" 
-                  placeholder="e.g. question, bold claim, shocking stat" 
-                />
               </div>
             </div>
 
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowGenerateScript(false)} 
+              <button onClick={() => setShowGenerateScript(false)}
                 className="flex-1 px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm hover:bg-warroom-surface transition">
                 Cancel
               </button>
-              <button onClick={generateScript} disabled={!scriptForm.competitor_id || submitting}
+              <button onClick={generateScript} disabled={submitting}
                 className="flex-1 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
-                {submitting ? <><Loader2 size={14} className="animate-spin" /> Generating...</> : "Generate Ideas"}
+                {submitting ? <><Loader2 size={14} className="animate-spin" /> Generating...</> : <><Sparkles size={14} /> Generate Scripts</>}
               </button>
             </div>
           </div>
