@@ -340,27 +340,17 @@ export default function StripeSettingsPanel() {
                   : "Test mode — no real charges"}
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className={`text-xs font-medium ${config?.mode === "test" ? "text-yellow-400" : "text-warroom-muted"}`}>
-                Test
-              </span>
-              <button
-                onClick={toggleMode}
-                disabled={togglingMode}
-                className={`relative w-10 h-5 rounded-full transition-colors ${
-                  config?.mode === "live" ? "bg-green-500" : "bg-yellow-500"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                    config?.mode === "live" ? "translate-x-5" : "translate-x-0.5"
-                  }`}
-                />
-              </button>
-              <span className={`text-xs font-medium ${config?.mode === "live" ? "text-green-400" : "text-warroom-muted"}`}>
-                Live
-              </span>
-            </div>
+            <button
+              onClick={toggleMode}
+              disabled={togglingMode}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                config?.mode === "live"
+                  ? "bg-green-500/15 border-green-500/30 text-green-400"
+                  : "bg-yellow-500/15 border-yellow-500/30 text-yellow-400"
+              }`}
+            >
+              {togglingMode ? "Switching..." : config?.mode === "live" ? "Live Mode" : "Test Mode"}
+            </button>
           </div>
 
           {config?.mode === "test" && (
