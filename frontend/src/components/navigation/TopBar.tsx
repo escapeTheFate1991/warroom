@@ -59,7 +59,7 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenu
 
   return (
     <div className="bg-warroom-surface border-b border-warroom-border px-3 py-2.5 flex-shrink-0">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-center gap-2">
         {/* Hamburger (mobile only) */}
         {onMenuToggle && (
           <button
@@ -71,8 +71,8 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenu
           </button>
         )}
 
-        {/* Search */}
-        <div className="relative flex-1 max-w-md">
+        {/* Search + actions grouped together in the center */}
+        <div className="relative w-full max-w-xl">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
           <input
             type="text"
@@ -84,7 +84,7 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenu
           />
         </div>
 
-        {/* Right actions */}
+        {/* Actions sit right next to search */}
         <div className="flex items-center gap-1 flex-shrink-0">
           <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-warroom-bg transition-colors text-warroom-muted hover:text-warroom-text" title="Toggle theme">
             {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
