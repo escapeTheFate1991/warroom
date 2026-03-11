@@ -27,7 +27,11 @@ import {
   Zap,
   ChevronDown,
   ChevronRight,
-  BarChart3
+  BarChart3,
+  Download,
+  Award,
+  Target,
+  Wrench
 } from "lucide-react";
 import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
@@ -771,46 +775,185 @@ ${lead.phone || ""}`;
           {/* Tab Content */}
           <div className="flex-1 overflow-y-auto p-6">
             {activeTab === "audit" && (
-              <div className="space-y-4">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-warroom-text flex items-center gap-2">
-                    <Zap size={16} className="text-warroom-accent" />
-                    Deep AI Audit
-                  </h3>
-                  <button
-                    onClick={triggerDeepAudit}
-                    disabled={auditLoading}
-                    className="px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 rounded-lg text-sm font-medium transition flex items-center gap-1"
-                  >
-                    {auditLoading ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
-                    {auditLoading ? "Analyzing..." : deepAudit ? "Re-run Audit" : "Run Deep Audit"}
-                  </button>
-                </div>
+              <div className="space-y-6">
+                {/* ── Audit Lite Section ──────────────────────────────── */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-warroom-text flex items-center gap-2">
+                      <BarChart3 size={16} className="text-warroom-accent" />
+                      Audit Lite
+                    </h3>
+                    <button
+                      onClick={() => console.log("Download PDF — placeholder")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-warroom-text hover:bg-warroom-bg border border-warroom-border transition"
+                    >
+                      <Download size={12} />
+                      Download PDF
+                    </button>
+                  </div>
 
-                {auditLoading && (
-                  <div className="p-4 bg-warroom-accent/5 border border-warroom-accent/20 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Loader2 size={18} className="animate-spin text-warroom-accent" />
-                      <div>
-                        <p className="text-sm text-warroom-text font-medium">Running deep analysis...</p>
-                        <p className="text-xs text-warroom-muted mt-0.5">Crawling site, checking robots.txt, sitemap, analyzing content with AI (15-30s)</p>
+                  {/* Score Tiles */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Website Score */}
+                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Globe size={14} className="text-warroom-muted" />
+                        <span className="text-[10px] font-medium text-warroom-muted uppercase tracking-wider">Website Score</span>
+                      </div>
+                      {lead.website_audit_score != null ? (
+                        <div className="flex items-end gap-2">
+                          <span className="text-2xl font-bold text-warroom-text">{lead.website_audit_score}</span>
+                          <span className="text-xs text-warroom-muted mb-1">/100</span>
+                          {lead.website_audit_grade && (
+                            <span className={`ml-auto text-lg font-bold px-2 py-0.5 rounded-lg ${
+                              lead.website_audit_grade === "A" ? "bg-green-500/20 text-green-400" :
+                              lead.website_audit_grade === "B" ? "bg-blue-500/20 text-blue-400" :
+                              lead.website_audit_grade === "C" ? "bg-yellow-500/20 text-yellow-400" :
+                              lead.website_audit_grade === "D" ? "bg-orange-500/20 text-orange-400" :
+                              "bg-red-500/20 text-red-400"
+                            }`}>{lead.website_audit_grade}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-warroom-muted">No data</span>
+                      )}
+                    </div>
+
+                    {/* Google Rating */}
+                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Star size={14} className="text-yellow-400" />
+                        <span className="text-[10px] font-medium text-warroom-muted uppercase tracking-wider">Google Rating</span>
+                      </div>
+                      {lead.google_rating != null ? (
+                        <div className="flex items-end gap-2">
+                          <span className="text-2xl font-bold text-warroom-text">{lead.google_rating}</span>
+                          <span className="text-xs text-warroom-muted mb-1">/ 5</span>
+                          <div className="ml-auto flex items-center gap-0.5">
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <Star
+                                key={s}
+                                size={12}
+                                className={s <= Math.round(lead.google_rating!) ? "text-yellow-400 fill-yellow-400" : "text-warroom-border"}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-warroom-muted">No data</span>
+                      )}
+                    </div>
+
+                    {/* Yelp Rating */}
+                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Star size={14} className="text-red-400" />
+                        <span className="text-[10px] font-medium text-warroom-muted uppercase tracking-wider">Yelp Rating</span>
+                      </div>
+                      {lead.yelp_rating != null ? (
+                        <div className="flex items-end gap-2">
+                          <span className="text-2xl font-bold text-warroom-text">{lead.yelp_rating}</span>
+                          <span className="text-xs text-warroom-muted mb-1">/ 5</span>
+                          <span className="ml-auto text-xs text-warroom-muted">{lead.yelp_reviews_count} reviews</span>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-warroom-muted">No data</span>
+                      )}
+                    </div>
+
+                    {/* Lead Score */}
+                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Target size={14} className="text-warroom-accent" />
+                        <span className="text-[10px] font-medium text-warroom-muted uppercase tracking-wider">Lead Score</span>
+                      </div>
+                      <div className="flex items-end gap-2">
+                        <span className="text-2xl font-bold text-warroom-text">{lead.lead_score}</span>
+                        <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full border ${TIER_COLORS[lead.lead_tier] || TIER_COLORS.unscored}`}>
+                          {lead.lead_tier}
+                        </span>
                       </div>
                     </div>
                   </div>
-                )}
 
-                {/* Quick flags from enrichment */}
-                {lead.audit_lite_flags.length > 0 && !deepAudit && (
-                  <div>
-                    <h4 className="text-xs font-medium text-warroom-muted mb-2">Quick Scan Issues</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {lead.audit_lite_flags.map((flag) => (
-                        <span key={flag} className="text-xs px-2 py-1 bg-orange-500/20 text-orange-400 rounded-full">{flag}</span>
-                      ))}
+                  {/* Audit Flags */}
+                  {lead.audit_lite_flags.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-medium text-warroom-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <AlertCircle size={12} />
+                        Audit Flags
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {lead.audit_lite_flags.map((flag) => (
+                          <span
+                            key={flag}
+                            className="text-[11px] px-2.5 py-1 rounded-full font-medium bg-orange-500/15 text-orange-400 border border-orange-500/20"
+                          >
+                            {flag}
+                          </span>
+                        ))}
+                      </div>
                     </div>
+                  )}
+
+                  {/* Top Fixes */}
+                  {lead.website_audit_top_fixes && lead.website_audit_top_fixes.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-medium text-warroom-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <Wrench size={12} />
+                        Top Fixes
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {lead.website_audit_top_fixes.map((fix, i) => (
+                          <li key={i} className="flex items-start gap-2 text-xs text-warroom-text">
+                            <span className="text-warroom-accent font-bold mt-0.5 shrink-0">{i + 1}.</span>
+                            <span>{fix}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Audit Summary */}
+                  {lead.website_audit_summary && (
+                    <div className="p-3 bg-warroom-bg rounded-lg border border-warroom-border">
+                      <p className="text-xs text-warroom-muted leading-relaxed">{lead.website_audit_summary}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Divider ────────────────────────────────────────── */}
+                <div className="border-t border-warroom-border" />
+
+                {/* ── Deep AI Audit Section ───────────────────────────── */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-warroom-text flex items-center gap-2">
+                      <Zap size={16} className="text-warroom-accent" />
+                      Deep AI Audit
+                    </h3>
+                    <button
+                      onClick={triggerDeepAudit}
+                      disabled={auditLoading}
+                      className="px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 rounded-lg text-sm font-medium transition flex items-center gap-1"
+                    >
+                      {auditLoading ? <Loader2 size={14} className="animate-spin" /> : <BarChart3 size={14} />}
+                      {auditLoading ? "Analyzing..." : deepAudit ? "Re-run Audit" : "Run Deep Audit"}
+                    </button>
                   </div>
-                )}
+
+                  {auditLoading && (
+                    <div className="p-4 bg-warroom-accent/5 border border-warroom-accent/20 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Loader2 size={18} className="animate-spin text-warroom-accent" />
+                        <div>
+                          <p className="text-sm text-warroom-text font-medium">Running deep analysis...</p>
+                          <p className="text-xs text-warroom-muted mt-0.5">Crawling site, checking robots.txt, sitemap, analyzing content with AI (15-30s)</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Deep Audit Results */}
                 {deepAudit && (
@@ -997,17 +1140,11 @@ ${lead.phone || ""}`;
                   </div>
                 )}
 
-                {/* Fallback: show basic audit if no deep audit */}
-                {!deepAudit && !auditLoading && lead.website_audit_score != null && (
-                  <div className="p-3 bg-warroom-bg rounded-lg border border-warroom-border">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-warroom-text">Basic Audit Score: {lead.website_audit_score}/100</span>
-                      <span className="text-sm font-medium text-warroom-accent">{lead.website_audit_grade}</span>
-                    </div>
-                    {lead.website_audit_summary && (
-                      <p className="text-xs text-warroom-muted">{lead.website_audit_summary}</p>
-                    )}
-                    <p className="text-[10px] text-warroom-accent mt-2">Run a Deep AI Audit for comprehensive analysis →</p>
+                {/* No deep audit yet — prompt user */}
+                {!deepAudit && !auditLoading && (
+                  <div className="p-4 bg-warroom-bg rounded-lg border border-warroom-border text-center">
+                    <p className="text-xs text-warroom-muted">No deep audit has been run yet.</p>
+                    <p className="text-[10px] text-warroom-accent mt-1">Click &quot;Run Deep Audit&quot; for a comprehensive AI-powered analysis →</p>
                   </div>
                 )}
               </div>
