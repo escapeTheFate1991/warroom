@@ -224,7 +224,7 @@ function WarRoom() {
           userName={user?.name || user?.email}
           onLogout={logout}
           onMenuToggle={() => setSidebarOpen(true)}
-          onNavigate={(tab) => setActiveTab(tab as TabId)}
+          onNavigate={handleTabChange}
         />
         <OutreachTimingBar />
         <main className="flex-1 overflow-hidden relative">
