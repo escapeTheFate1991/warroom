@@ -400,17 +400,26 @@ export default function StripeSettingsPanel() {
 
         {/* Sync result */}
         {syncResult && (
-          <div className={`mb-4 px-3 py-2 rounded-lg text-xs flex items-center gap-2 ${
+          <div className={`mb-4 rounded-lg text-xs ${
             syncResult.errors.length > 0
               ? "bg-yellow-500/10 border border-yellow-500/20 text-yellow-400"
               : "bg-green-500/10 border border-green-500/20 text-green-400"
           }`}>
-            <CheckCircle size={12} />
-            Synced {syncResult.synced} products.
+            <div className="flex items-center gap-2 px-3 py-2">
+              <CheckCircle size={12} />
+              <span>Synced {syncResult.synced} of {syncResult.synced + syncResult.errors.length} products.</span>
+              <button onClick={() => setSyncResult(null)} className="ml-auto hover:opacity-70">✕</button>
+            </div>
             {syncResult.errors.length > 0 && (
-              <span className="ml-1">{syncResult.errors.length} errors.</span>
+              <div className="px-3 pb-2 space-y-1">
+                {syncResult.errors.map((e, i) => (
+                  <div key={i} className="flex items-start gap-1.5 text-[11px] text-red-400">
+                    <AlertCircle size={10} className="mt-0.5 shrink-0" />
+                    <span><strong>{e.product}:</strong> {e.error}</span>
+                  </div>
+                ))}
+              </div>
             )}
-            <button onClick={() => setSyncResult(null)} className="ml-auto hover:opacity-70">✕</button>
           </div>
         )}
 

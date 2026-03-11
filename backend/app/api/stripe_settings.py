@@ -6,6 +6,7 @@ Table: public.products (auto-created on startup via init_products_table).
 import json
 import logging
 import os
+import stripe
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -404,26 +405,57 @@ async def sync_products():
     for p in products:
         try:
             if p["stripe_product_id"]:
-                # Update existing
-                stripe_service.update_product(
-                    p["stripe_product_id"],
-                    name=p["name"],
-                    description=p["description"],
-                )
-                # Check if price needs update
-                if p["price_cents"]:
-                    new_price_id = stripe_service.update_price(
+                try:
+                    # Update existing
+                    stripe_service.update_product(
                         p["stripe_product_id"],
-                        p["stripe_price_id"],
-                        p["price_cents"],
-                        p["interval"] or "month",
+                        name=p["name"],
+                        description=p["description"],
                     )
-                    async with leadgen_session() as db:
-                        await db.execute(
-                            text("UPDATE public.products_stripe SET stripe_price_id = :pid WHERE id = :id"),
-                            {"pid": new_price_id, "id": p["id"]},
+                    # Check if price needs update
+                    if p["price_cents"]:
+                        new_price_id = stripe_service.update_price(
+                            p["stripe_product_id"],
+                            p["stripe_price_id"],
+                            p["price_cents"],
+                            p["interval"] or "month",
                         )
-                        await db.commit()
+                        async with leadgen_session() as db:
+                            await db.execute(
+                                text("UPDATE public.products_stripe SET stripe_price_id = :pid WHERE id = :id"),
+                                {"pid": new_price_id, "id": p["id"]},
+                            )
+                            await db.commit()
+                except stripe.error.InvalidRequestError as e:
+                    if "No such product" in str(e):
+                        # Product doesn't exist in current mode (e.g. created in test, now in live)
+                        # Clear stale IDs and create fresh
+                        logger.info("Product %s not found in current Stripe mode, creating fresh", p["name"])
+                        async with leadgen_session() as db:
+                            await db.execute(
+                                text("UPDATE public.products_stripe SET stripe_product_id = NULL, stripe_price_id = NULL WHERE id = :id"),
+                                {"id": p["id"]},
+                            )
+                            await db.commit()
+                        # Fall through to create
+                        ids = stripe_service.create_product(
+                            name=p["name"],
+                            description=p["description"],
+                            price_cents=p["price_cents"],
+                            interval=p["interval"] or "month",
+                        )
+                        async with leadgen_session() as db:
+                            await db.execute(
+                                text("""
+                                    UPDATE public.products_stripe
+                                    SET stripe_product_id = :spid, stripe_price_id = :sprid, updated_at = now()
+                                    WHERE id = :id
+                                """),
+                                {"spid": ids["stripe_product_id"], "sprid": ids["stripe_price_id"], "id": p["id"]},
+                            )
+                            await db.commit()
+                    else:
+                        raise
             else:
                 # Create new in Stripe
                 ids = stripe_service.create_product(
