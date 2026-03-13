@@ -184,7 +184,9 @@ export default function LeadgenPanel() {
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [filterTier, setFilterTier] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
+  const [filterWebsite, setFilterWebsite] = useState<string>("");
   const [showAllLeads, setShowAllLeads] = useState(true);
+  const [viewTab, setViewTab] = useState<"current" | "historical">("current");
 
   // Error state
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -277,6 +279,14 @@ export default function LeadgenPanel() {
   const dismissError = useCallback(() => setErrorMessage(null), []);
 
   const buildUrl = useCallback((pageOffset: number) => {
+    if (viewTab === "historical") {
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(pageOffset),
+      });
+      if (filterStatus) params.set("outcome", filterStatus);
+      return `${API}/api/leadgen/contacts?${params}`;
+    }
     const params = new URLSearchParams({
       sort_by: "lead_score",
       sort_dir: "desc",
@@ -286,8 +296,9 @@ export default function LeadgenPanel() {
     if (!showAllLeads && activeJobId) params.set("search_job_id", String(activeJobId));
     if (filterTier) params.set("tier", filterTier);
     if (filterStatus) params.set("outreach_status", filterStatus);
+    if (filterWebsite) params.set("has_website", filterWebsite);
     return `${API}/api/leadgen/leads?${params}`;
-  }, [activeJobId, filterTier, filterStatus, showAllLeads]);
+  }, [activeJobId, filterTier, filterStatus, filterWebsite, showAllLeads, viewTab]);
 
   // Fetch a page of results
   const fetchPage = useCallback(async (pageOffset: number): Promise<Lead[]> => {
@@ -809,6 +820,30 @@ export default function LeadgenPanel() {
             </div>
           </div>
 
+          {/* Current / Historical tabs */}
+          <div className="flex items-center gap-1 mb-1">
+            <button
+              onClick={() => setViewTab("current")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
+                viewTab === "current"
+                  ? "bg-warroom-accent/20 text-warroom-accent"
+                  : "text-warroom-muted hover:text-warroom-text"
+              }`}
+            >
+              Current
+            </button>
+            <button
+              onClick={() => setViewTab("historical")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
+                viewTab === "historical"
+                  ? "bg-warroom-accent/20 text-warroom-accent"
+                  : "text-warroom-muted hover:text-warroom-text"
+              }`}
+            >
+              Historical
+            </button>
+          </div>
+
           {/* Filter row */}
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <div className="text-xs text-warroom-muted font-medium">Filters:</div>
@@ -839,11 +874,23 @@ export default function LeadgenPanel() {
               <option value="cold">🔵 Cold</option>
             </select>
 
-            {(filterStatus || filterTier) && (
+            <select
+              value={filterWebsite}
+              onChange={(e) => setFilterWebsite(e.target.value)}
+              className="bg-warroom-surface border border-warroom-border rounded-lg px-2 sm:px-3 py-1.5 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer"
+              style={{ colorScheme: "dark" }}
+            >
+              <option value="">All Leads</option>
+              <option value="true">🌐 Has Website</option>
+              <option value="false">❌ No Website</option>
+            </select>
+
+            {(filterStatus || filterTier || filterWebsite) && (
               <button
                 onClick={() => {
                   setFilterStatus("");
                   setFilterTier("");
+                  setFilterWebsite("");
                 }}
                 className="text-[10px] text-warroom-muted hover:text-warroom-text flex items-center gap-1 transition"
               >
@@ -899,7 +946,7 @@ export default function LeadgenPanel() {
                         <LeadStatusBadge lead={lead} />
                         <p className="text-xs text-warroom-muted">{[lead.city, lead.state].filter(Boolean).join(", ") || lead.address}</p>
                         {lead.business_category && (
-                          <p className="text-[10px] text-warroom-muted/70 mt-0.5">{lead.business_category}</p>
+                          <p className="text-[10px] text-warroom-muted/70 mt-0.5">{lead.business_category.replace(/_/g, " ")}</p>
                         )}
                       </td>
                       <td className="px-4 py-3">

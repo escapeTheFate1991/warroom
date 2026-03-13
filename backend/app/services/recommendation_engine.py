@@ -21,6 +21,15 @@ from app.services.content_embedder import search_similar_content
 logger = logging.getLogger(__name__)
 
 
+def _source_comments_count(source: Dict) -> int:
+    """Normalize comment counts from either indexed or cached post shapes."""
+    raw_value = source.get("comments_count", source.get("comments", 0))
+    try:
+        return int(raw_value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 async def recommend_content_v2(
     db: AsyncSession,
     topic: Optional[str] = None,
@@ -250,7 +259,7 @@ def _generate_recommendations(
                 "engagement_score": source.get("engagement_score", 0),
                 "similarity_score": source.get("similarity_score", 0),
                 "likes": source.get("likes", 0),
-                "comments": source.get("comments_count", 0),
+                "comments": _source_comments_count(source),
                 "views": source.get("views", 0),
             },
             "audience_insights": {
@@ -304,7 +313,7 @@ def _build_reasoning(source: Dict, patterns: Dict) -> str:
     
     eng = source.get("engagement_score", 0)
     likes = source.get("likes", 0)
-    comments = source.get("comments_count", 0)
+    comments = _source_comments_count(source)
     
     parts.append(f"Based on a post with {likes:,} likes and {comments:,} comments (engagement score: {eng:,.0f}).")
     

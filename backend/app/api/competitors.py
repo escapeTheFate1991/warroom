@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,9 +89,7 @@ class CompetitorResponse(BaseModel):
     auto_sync_enabled: bool
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SocialPlatformData(BaseModel):

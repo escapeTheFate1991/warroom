@@ -9,6 +9,8 @@ const ENTITY_LABELS: Record<string, string> = {
   person: "Contact",
   activity: "Activity",
   email: "Email",
+  social_event: "Instagram",
+  contact_submission: "Submission",
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -16,6 +18,10 @@ const EVENT_LABELS: Record<string, string> = {
   updated: "is updated",
   deleted: "is deleted",
   stage_changed: "changes stage",
+  comment_received: "receives a comment",
+  dm_received: "receives a DM",
+  mention: "is mentioned",
+  keyword_comment: "comment matches keyword",
 };
 
 function TriggerNode({ data, selected }: NodeProps) {

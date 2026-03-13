@@ -6,7 +6,7 @@ POST /api/social/sync/{platform} — sync specific platform
 Auto-refreshes expired OAuth tokens on 401 and retries once.
 """
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional
 
 import httpx
@@ -63,7 +63,7 @@ async def _upsert_daily_analytics(
 async def _update_account_stats(db: AsyncSession, account_id: int, **stats):
     """Update follower/following/post counts and last_synced."""
     fields = {k: v for k, v in stats.items() if v is not None}
-    fields["last_synced"] = datetime.utcnow()
+    fields["last_synced"] = datetime.now(timezone.utc)
     sets = ", ".join(f"{k} = :{k}" for k in fields)
     await db.execute(text(
         f"UPDATE crm.social_accounts SET {sets} WHERE id = :id"
@@ -524,7 +524,7 @@ async def sync_all(db: AsyncSession = Depends(get_crm_db)):
                 results.append({"platform": acc["platform"], "username": acc["username"], "status": "error", "error": str(e)[:200]})
 
     await db.commit()
-    return {"status": "ok", "synced_at": datetime.utcnow().isoformat(), "results": results}
+    return {"status": "ok", "synced_at": datetime.now(timezone.utc).isoformat(), "results": results}
 
 
 @router.post("/sync/{platform}")
@@ -555,4 +555,4 @@ async def sync_platform(platform: str, db: AsyncSession = Depends(get_crm_db)):
             results.append({"platform": platform, "username": acc["username"], "status": "error", "error": str(e)[:200]})
 
     await db.commit()
-    return {"status": "ok", "synced_at": datetime.utcnow().isoformat(), "results": results}
+    return {"status": "ok", "synced_at": datetime.now(timezone.utc).isoformat(), "results": results}

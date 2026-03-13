@@ -462,7 +462,7 @@ export default function ChatPanel() {
 
   // Alert banners
   const [rateLimitAlert, setRateLimitAlert] = useState<string | null>(null);
-  const [compactionAlert, setCompactionAlert] = useState(false);
+  const [compactionAlert, setCompactionAlert] = useState<false | "start" | "end">(false);
 
   // Prompt improver
   const [improverState, setImproverState] = useState<{
@@ -554,8 +554,8 @@ export default function ChatPanel() {
           lastCompactionRef.current = data.compactionCount;
         } else if (data.compactionCount > lastCompactionRef.current) {
           lastCompactionRef.current = data.compactionCount;
-          // Show persistent banner
-          setCompactionAlert(true);
+          // Show persistent banner (fallback for polling-based detection)
+          setCompactionAlert("end");
           setTimeout(() => setCompactionAlert(false), 30000);
           setMessages(prev => [...prev, {
             id: crypto.randomUUID(),
@@ -784,6 +784,24 @@ export default function ChatPanel() {
             return;
           }
           setWsConnected(false);
+          return;
+        }
+        if (data.type === "compaction") {
+          if (data.phase === "start") {
+            setCompactionAlert("start");
+          } else if (data.phase === "end") {
+            setCompactionAlert("end");
+            // Keep banner visible for 30s after completion
+            setTimeout(() => setCompactionAlert(false), 30000);
+            setMessages(prev => [...prev, {
+              id: crypto.randomUUID(),
+              role: "system" as const,
+              content: "🧹 " + (data.message || "Context compressed — older messages summarized to free up space."),
+              timestamp: new Date(),
+            }]);
+            // Refresh token usage
+            fetchTokenUsage();
+          }
           return;
         }
         if (data.type === "session_changed") {
@@ -1538,14 +1556,26 @@ export default function ChatPanel() {
       )}
       {compactionAlert && (
         <div className="mx-4 mt-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-center gap-3 flex-shrink-0">
-          <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+          {compactionAlert === "start" ? (
+            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+          ) : (
+            <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+          )}
           <div className="flex-1">
-            <p className="text-sm font-medium text-amber-400">Context Compressed</p>
-            <p className="text-xs text-amber-400/70">Older messages were summarized to free up space. Recent context is preserved.</p>
+            <p className="text-sm font-medium text-amber-400">
+              {compactionAlert === "start" ? "Compressing Context..." : "Context Compressed"}
+            </p>
+            <p className="text-xs text-amber-400/70">
+              {compactionAlert === "start"
+                ? "Summarizing older messages to free up space. This may take a moment..."
+                : "Older messages were summarized to free up space. Recent context is preserved."}
+            </p>
           </div>
-          <button onClick={() => setCompactionAlert(false)} className="text-amber-400/50 hover:text-amber-400 transition flex-shrink-0">
-            <X size={16} />
-          </button>
+          {compactionAlert === "end" && (
+            <button onClick={() => setCompactionAlert(false)} className="text-amber-400/50 hover:text-amber-400 transition flex-shrink-0">
+              <X size={16} />
+            </button>
+          )}
         </div>
       )}
 

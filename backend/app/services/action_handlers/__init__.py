@@ -10,6 +10,7 @@ from . import (
     notify_owner,
     ai_draft_message,
     approval_gate,
+    social_reply,
 )
 
 # Registry: action_type → handler module (each has async handle(step, context, execution))
@@ -23,6 +24,8 @@ HANDLER_REGISTRY: dict[str, object] = {
     "notify_owner": notify_owner,
     "ai_draft_message": ai_draft_message,
     "approval_gate": approval_gate,
+    "social_reply": social_reply,
+    "social_dm": social_reply,
 }
 
 

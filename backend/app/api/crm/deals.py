@@ -403,7 +403,12 @@ async def move_deal_stage(deal_id: int, stage_move: DealStageMove, user_id: Opti
     if new_stage.code in ("won", "lost"):
         deal.status = True if new_stage.code == "won" else False
         deal.closed_at = datetime.now()
-    
+
+    # Sync linked leadgen lead
+    if new_stage.code in ("won", "lost"):
+        from app.services.lead_deal_sync import sync_lead_from_deal
+        await sync_lead_from_deal(db, deal_id, deal.status, lost_reason=deal.lost_reason)
+
     await db.commit()
     await db.refresh(deal)
     

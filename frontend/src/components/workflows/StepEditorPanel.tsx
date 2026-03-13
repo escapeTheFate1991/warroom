@@ -29,6 +29,7 @@ const ENTITY_OPTIONS = [
   { value: "deal", label: "Deal" },
   { value: "activity", label: "Activity" },
   { value: "contact_submission", label: "Contact Submission" },
+  { value: "social_event", label: "Social Event" },
 ];
 
 const EVENT_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -47,6 +48,12 @@ const EVENT_OPTIONS: Record<string, { value: string; label: string }[]> = {
   ],
   contact_submission: [
     { value: "created", label: "is created" },
+  ],
+  social_event: [
+    { value: "comment_received", label: "receives a comment" },
+    { value: "dm_received", label: "receives a DM" },
+    { value: "mention", label: "is mentioned" },
+    { value: "keyword_comment", label: "comment matches keyword" },
   ],
 };
 
@@ -76,6 +83,8 @@ const ACTION_TYPES = [
   { value: "ai_summarize_context", label: "AI Summarize Context", icon: Bot },
   { value: "ai_prioritize_lead", label: "AI Prioritize Lead", icon: Bot },
   { value: "approval_gate", label: "Approval Gate", icon: Shield },
+  { value: "social_reply", label: "Social Comment Reply", icon: Send },
+  { value: "social_dm", label: "Social DM Reply", icon: MessageSquare },
 ];
 
 const DELAY_UNITS = [
@@ -552,6 +561,38 @@ function ActionEditor({ data, onChange }: { data: Record<string, unknown>; onCha
                 className={textareaClass}
               />
             </Field>
+          </>
+        );
+
+      case "social_reply":
+        return (
+          <>
+            <Field label="Reply Message">
+              <textarea
+                value={(data.message as string) || ""}
+                onChange={(e) => setField("message", e.target.value)}
+                placeholder="Your public comment reply..."
+                rows={3}
+                className={textareaClass}
+              />
+            </Field>
+            <p className="text-[10px] text-warroom-muted">Use {'{{commenter_name}}'} to personalize. Reply will be posted publicly under the comment.</p>
+          </>
+        );
+
+      case "social_dm":
+        return (
+          <>
+            <Field label="DM Message">
+              <textarea
+                value={(data.message as string) || ""}
+                onChange={(e) => setField("message", e.target.value)}
+                placeholder="Your private DM message..."
+                rows={4}
+                className={textareaClass}
+              />
+            </Field>
+            <p className="text-[10px] text-warroom-muted">Use {'{{commenter_name}}'} to personalize. This message will be sent as a private Instagram DM.</p>
           </>
         );
 

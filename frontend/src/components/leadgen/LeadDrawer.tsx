@@ -31,11 +31,13 @@ import {
   Download,
   Award,
   Target,
-  Wrench
+  Wrench,
+  Pencil,
+  Check,
+  Maximize2,
+  Minimize2
 } from "lucide-react";
-import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
-import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
 import ScrollTabs from "@/components/ui/ScrollTabs";
 import QuickActions from "@/components/communications/QuickActions";
 
@@ -135,7 +137,7 @@ export interface LeadFull {
   notes: string | null;
   tags: string[];
   website_platform: string | null;
-  agent_assignments?: AgentAssignmentSummary[];
+  agent_assignments?: { agent_id: string; agent_name: string; status: string }[];
 
   // Reviews
   yelp_rating: number | null;
@@ -190,12 +192,22 @@ const STATUS_COLORS: Record<string, string> = {
   lost: "bg-red-500/20 text-red-400",
 };
 
-const CONTACT_OUTCOMES = [
+const CALL_OUTCOMES = [
   { value: "won", label: "Won" },
   { value: "lost", label: "Lost" },
   { value: "follow_up", label: "Follow Up" },
   { value: "no_answer", label: "No Answer" },
   { value: "callback", label: "Callback" },
+  { value: "voicemail", label: "Voicemail" },
+];
+
+const EMAIL_OUTCOMES = [
+  { value: "email_sent", label: "Email Sent" },
+  { value: "email_replied", label: "Reply Received" },
+  { value: "email_bounced", label: "Bounced" },
+  { value: "follow_up", label: "Follow Up Needed" },
+  { value: "won", label: "Won" },
+  { value: "lost", label: "Lost" },
 ];
 
 function AssignButton({ lead, onAssigned }: { lead: LeadFull; onAssigned: (dealId: number) => void }) {
@@ -351,6 +363,7 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
   const [activeTab, setActiveTab] = useState<"audit" | "intel" | "contact" | "scripts" | "notes">("contact");
   const [contactForm, setContactForm] = useState({
     contacted_by: "",
+    contact_method: "call" as "call" | "email",
     who_answered: "",
     owner_name: "",
     economic_buyer: "",
@@ -388,6 +401,7 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
     if (lead) {
       setContactForm({
         contacted_by: lead.contacted_by || "",
+        contact_method: "call",
         who_answered: lead.contact_who_answered || "",
         owner_name: lead.contact_owner_name || "",
         economic_buyer: lead.contact_economic_buyer || "",
@@ -403,6 +417,73 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
 
   const [pipelineToast, setPipelineToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [startingPipeline, setStartingPipeline] = useState(false);
+
+  // Inline editing state
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
+  const [isPopoutOpen, setIsPopoutOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    business_name: "",
+    phone: "",
+    address: "",
+    city: "",
+    state: "",
+    website: "",
+    email: "",
+  });
+  const [savingDetails, setSavingDetails] = useState(false);
+
+  // Reset edit form when lead changes
+  useEffect(() => {
+    if (lead) {
+      setEditForm({
+        business_name: lead.business_name || "",
+        phone: lead.phone || "",
+        address: lead.address || "",
+        city: lead.city || "",
+        state: lead.state || "",
+        website: lead.website || "",
+        email: lead.emails?.[0] || "",
+      });
+      setIsEditingDetails(false);
+    }
+  }, [lead]);
+
+  const handleSaveDetails = async () => {
+    if (!lead) return;
+    setSavingDetails(true);
+    try {
+      const payload: Record<string, unknown> = {};
+      if (editForm.business_name !== (lead.business_name || "")) payload.business_name = editForm.business_name;
+      if (editForm.phone !== (lead.phone || "")) payload.phone = editForm.phone || null;
+      if (editForm.address !== (lead.address || "")) payload.address = editForm.address || null;
+      if (editForm.city !== (lead.city || "")) payload.city = editForm.city || null;
+      if (editForm.state !== (lead.state || "")) payload.state = editForm.state || null;
+      if (editForm.website !== (lead.website || "")) payload.website = editForm.website || null;
+      const newEmail = editForm.email.trim();
+      const oldEmail = lead.emails?.[0] || "";
+      if (newEmail !== oldEmail) {
+        payload.emails = newEmail ? [newEmail, ...lead.emails.slice(1)] : lead.emails.slice(1);
+      }
+      if (Object.keys(payload).length === 0) {
+        setIsEditingDetails(false);
+        return;
+      }
+      const response = await authFetch(`${API}/api/leadgen/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        const updatedLead = await response.json();
+        onUpdate?.(updatedLead);
+        setIsEditingDetails(false);
+      }
+    } catch (error) {
+      console.error("Failed to save details:", error);
+    } finally {
+      setSavingDetails(false);
+    }
+  };
 
   useEffect(() => {
     if (pipelineToast) {
@@ -473,7 +554,7 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
         const updatedLead = await response.json();
         onUpdate?.(updatedLead);
         // Reset form after successful save
-        setContactForm(prev => ({ ...prev, outcome: "", notes: "", who_answered: "", owner_name: "", economic_buyer: "", champion: "" }));
+        setContactForm(prev => ({ ...prev, contact_method: "call", outcome: "", notes: "", who_answered: "", owner_name: "", economic_buyer: "", champion: "" }));
       } else {
         const data = await response.json().catch(() => ({}));
         console.error("Save contact failed:", data.detail || response.status);
@@ -501,6 +582,48 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
       console.error("Failed to save notes:", error);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const downloadAuditPdf = () => {
+    const biz = lead.business_name;
+    const score = lead.website_audit_score ?? deepAudit?.overall_score ?? "N/A";
+    const grade = lead.website_audit_grade ?? deepAudit?.overall_grade ?? "N/A";
+    const summary = deepAudit?.ai_summary || lead.website_audit_summary || "";
+    const recommendations = deepAudit?.ai_recommendations || [];
+    const findings = deepAudit?.findings || [];
+    const topFixes = lead.website_audit_top_fixes || [];
+    const liteFlags = lead.audit_lite_flags || [];
+
+    const findingsHtml = findings.length > 0
+      ? findings.map((f: DeepAuditFinding) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;">${f.category}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${f.metric}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;color:${f.status === 'fail' ? '#dc2626' : f.status === 'warn' ? '#d97706' : '#16a34a'}">${f.status.toUpperCase()}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${f.finding}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${f.recommendation}</td></tr>`).join("")
+      : "";
+
+    const categoriesHtml = deepAudit?.categories
+      ? Object.entries(deepAudit.categories).map(([name, cat]) => {
+          const c = cat as DeepAuditCategory;
+          return `<div style="display:inline-block;width:130px;text-align:center;margin:8px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;"><div style="font-size:24px;font-weight:bold;color:${c.score >= 70 ? '#16a34a' : c.score >= 40 ? '#d97706' : '#dc2626'}">${c.score}</div><div style="font-size:11px;color:#6b7280;margin-top:4px;">${name.replace(/_/g, " ").toUpperCase()}</div></div>`;
+        }).join("")
+      : "";
+
+    const html = `<!DOCTYPE html><html><head><title>Website Audit — ${biz}</title><style>body{font-family:-apple-system,system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;color:#1f2937;line-height:1.6}h1{font-size:22px;margin-bottom:4px}h2{font-size:16px;margin-top:28px;border-bottom:2px solid #e5e7eb;padding-bottom:6px}table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;padding:8px 10px;background:#f9fafb;border-bottom:2px solid #e5e7eb;font-size:12px;text-transform:uppercase;color:#6b7280}ul{padding-left:20px}li{margin-bottom:6px;font-size:14px}.score-badge{display:inline-block;font-size:36px;font-weight:bold;padding:8px 20px;border-radius:12px;margin-right:12px}.grade-badge{display:inline-block;font-size:28px;font-weight:bold;padding:8px 16px;border-radius:8px;background:#f3f4f6}@media print{body{margin:20px}}</style></head><body>
+<h1>Website Audit Report</h1>
+<p style="color:#6b7280;margin-bottom:20px;">${biz} · ${lead.website || "No website"} · ${new Date().toLocaleDateString()}</p>
+<div style="margin:20px 0;"><span class="score-badge" style="background:${typeof score === 'number' && score >= 70 ? '#dcfce7;color:#16a34a' : typeof score === 'number' && score >= 40 ? '#fef3c7;color:#d97706' : '#fee2e2;color:#dc2626'}">${score}/100</span><span class="grade-badge">${grade}</span></div>
+${summary ? `<h2>Summary</h2><p>${summary}</p>` : ""}
+${categoriesHtml ? `<h2>Category Scores</h2><div>${categoriesHtml}</div>` : ""}
+${recommendations.length > 0 ? `<h2>AI Recommendations</h2><ul>${recommendations.map(r => `<li>${r}</li>`).join("")}</ul>` : ""}
+${findingsHtml ? `<h2>Detailed Findings</h2><table><thead><tr><th>Category</th><th>Metric</th><th>Status</th><th>Finding</th><th>Recommendation</th></tr></thead><tbody>${findingsHtml}</tbody></table>` : ""}
+${topFixes.length > 0 ? `<h2>Top Fixes</h2><ul>${topFixes.map(f => `<li>${f}</li>`).join("")}</ul>` : ""}
+${liteFlags.length > 0 ? `<h2>Audit Flags</h2><ul>${liteFlags.map(f => `<li>${f}</li>`).join("")}</ul>` : ""}
+<p style="margin-top:40px;font-size:12px;color:#9ca3af;">Generated by WarRoom · ${new Date().toISOString()}</p>
+</body></html>`;
+
+    const w = window.open("", "_blank");
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+      setTimeout(() => w.print(), 500);
     }
   };
 
@@ -556,7 +679,7 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
   const generateColdCallScript = () => {
     const caller = userName || "[Your Name]";
     const biz = lead.business_name;
-    const category = lead.business_category || "local business";
+    const category = (lead.business_category || "local business").replace(/_/g, " ");
     const city = lead.city || "your area";
     const greeting = contactName ? `Is this ${contactName}?` : "Who am I speaking with?";
 
@@ -566,18 +689,24 @@ export default function LeadDrawer({ lead, isOpen, onClose, onUpdate }: LeadDraw
 
     // Build specific findings from audit data
     const findings: string[] = [];
-    if (deepAudit?.findings) {
+    if (deepAudit?.ai_recommendations) {
+      findings.push(...deepAudit.ai_recommendations.slice(0, 3));
+    } else if (deepAudit?.findings) {
       deepAudit.findings
         .filter((f: DeepAuditFinding) => f.status === "fail" || f.status === "warn")
-        .slice(0, 2)
+        .slice(0, 3)
         .forEach((f: DeepAuditFinding) => findings.push(f.finding));
     }
     if (findings.length === 0 && lead.audit_lite_flags.length > 0) {
-      findings.push(...lead.audit_lite_flags.slice(0, 2));
+      findings.push(...lead.audit_lite_flags.slice(0, 3));
     }
     if (findings.length === 0 && lead.website_audit_top_fixes?.length > 0) {
-      findings.push(...lead.website_audit_top_fixes.slice(0, 2));
+      findings.push(...lead.website_audit_top_fixes.slice(0, 3));
     }
+    // Distill finding keywords for natural conversation
+    const painPoints = findings.length > 0
+      ? findings.map(f => f.split(/[—\-:,.]/)[0].trim().toLowerCase()).filter(Boolean).slice(0, 3)
+      : [];
 
     let script: string;
     let objections: string;
@@ -611,23 +740,21 @@ We help businesses like yours build a site that drives reviews, shows off your w
 Can I send you a free breakdown of what we'd fix? No cost, just the data.`;
     } else {
       // ── HAS WEBSITE (with audit issues) variant ──
-      const findingText = findings.length > 0
-        ? `Specifically: ${findings.join("; ")}.`
-        : `There are some things that could be hurting your traffic and conversions.`;
+      const painPointOpener = painPoints.length > 0
+        ? `things like ${painPoints.join(", ")}`
+        : "some technical issues";
       const scoreText = lead.website_audit_score != null
-        ? ` Your site scored ${lead.website_audit_score} out of 100 on our audit.`
+        ? `Your site scored ${lead.website_audit_score} out of 100 on our audit. `
         : "";
       script = `Hi, this is ${caller} from ${companyName}. ${greeting}
 
-I work with ${category} businesses in ${city}. I ran a free audit on ${biz}'s website and found some issues worth flagging. Do you have 30 seconds?
+I work with ${category} businesses in ${city}. I ran a quick audit on ${biz}'s website and noticed ${painPointOpener} that could be quietly costing you customers. Do you have 30 seconds?
 
 [WAIT FOR YES]
 
-${findingText}${scoreText}
+${scoreText}These are the kinds of small technical issues that push potential ${city} customers to competing ${category} companies without you ever knowing.
 
-These are the kinds of things that quietly send customers to your competitors — they hit your site, something feels off, and they leave.
-
-I've got the full report ready. Can I send it over? It's free, takes 5 minutes to review, and there's no pitch attached.`;
+I put together a full breakdown with the exact fixes. Would you like me to send it over? No cost and no pitch — just figured you might find it useful.`;
     }
 
     // ── Objection handlers ──
@@ -639,7 +766,7 @@ OBJECTION HANDLERS:
 → Totally understand. Can I email you the report instead? Takes 2 minutes to read. What's the best email?
 
 "Not interested"
-→ Fair enough. Just so you know — we found [specific issue] that's likely costing you customers. I'll send the data in case you change your mind. What's your email?
+→ Fair enough. Just so you know — we found ${painPoints.length > 0 ? painPoints[0] : "an issue"} that's likely costing you customers. I'll send the data in case you change your mind. What's your email?
 
 "I already have a web person"
 → No problem. We're not trying to replace anyone. The audit might actually help them — it catches things most developers miss. Want me to send it to you or directly to them?`;
@@ -653,7 +780,7 @@ OBJECTION HANDLERS:
     const sender = userName || "[Your Name]";
     const phone = userPhone || "";
     const biz = lead.business_name;
-    const category = lead.business_category || "local business";
+    const category = (lead.business_category || "local business").replace(/_/g, " ");
     const city = lead.city || "your area";
 
     // Build specific findings from deepest available data
@@ -674,7 +801,29 @@ OBJECTION HANDLERS:
     }
 
     const findingsBullets = findings.length > 0
-      ? findings.map((f, i) => `${i + 1}. ${f}`).join("\n")
+      ? findings.map((f) => `• ${f}`).join("\n")
+      : "";
+
+    // Build short keyword summary for the "full breakdown" line (e.g. "XML, FAQ, sitemap")
+    const findingsKeywords = findings.length > 0
+      ? findings.map((f) => {
+          // Extract short keyword from finding text
+          const lower = f.toLowerCase();
+          if (lower.includes("faq")) return "FAQ structure";
+          if (lower.includes("sitemap")) return "sitemap";
+          if (lower.includes("xml")) return "XML";
+          if (lower.includes("ssl") || lower.includes("https")) return "SSL/HTTPS";
+          if (lower.includes("schema") || lower.includes("structured")) return "structured data";
+          if (lower.includes("seo")) return "local SEO";
+          if (lower.includes("mobile") || lower.includes("responsive")) return "mobile optimization";
+          if (lower.includes("speed") || lower.includes("performance") || lower.includes("load")) return "page speed";
+          if (lower.includes("meta") || lower.includes("title")) return "meta tags";
+          if (lower.includes("review")) return "review visibility";
+          if (lower.includes("image") || lower.includes("alt")) return "image optimization";
+          if (lower.includes("analytics") || lower.includes("tracking")) return "analytics setup";
+          // Fallback: first few words
+          return f.split(/[—\-,.]/).map(s => s.trim())[0]?.slice(0, 30) || f.slice(0, 25);
+        }).filter((v, i, a) => a.indexOf(v) === i).join(", ")
       : "";
 
     const hasLowReviews = (lead.google_rating != null && lead.google_rating < 4.0) ||
@@ -713,24 +862,30 @@ I've got a few ideas specific to ${biz}. Can I send you a quick breakdown?
     } else {
       // ── AUDIT HOOK (default) ──
       const scoreText = lead.website_audit_score != null
-        ? `I ran a free audit on ${biz}'s website and it scored ${lead.website_audit_score}/100. Here's what stood out:`
-        : `I took a look at ${biz}'s website and found a few things worth flagging:`;
-      const aiSummary = deepAudit?.ai_summary
-        ? `\n${deepAudit.ai_summary}\n`
-        : "";
+        ? `I ran a quick audit on ${biz}'s website and it scored ${lead.website_audit_score}/100. A few things stood out:`
+        : `I took a look at ${biz}'s website and noticed a few things:`;
       subject = lead.website_audit_score != null
-        ? `${biz} scored ${lead.website_audit_score}/100 on our site audit`
+        ? `Quick question about ${biz}'s website`
         : `Noticed something on ${biz}'s website`;
+      const breakdownLine = findingsKeywords
+        ? `I put together a full breakdown with the exact fixes (${findingsKeywords}, etc.).`
+        : `I put together a full breakdown with the exact fixes.`;
       body = `Hi ${recipientName},
 
 ${scoreText}
-${findingsBullets || "There are issues that could be quietly costing you customers."}
-${aiSummary}
-These are the kinds of problems that send ${city} customers to your competitors without you ever knowing.
 
-I put together a full breakdown with fixes. Want me to send it over? No cost, no pitch.
+${findingsBullets || "There are small technical issues that could be quietly costing you customers."}
 
-— ${sender}${phone ? `\n${phone}` : ""}`;
+These are the kinds of things that quietly push potential ${city} customers to competing ${category} companies without you ever knowing.
+
+${breakdownLine}
+
+Would you like me to send it over?
+
+No cost and no pitch — just figured you might find it useful.
+
+Best,
+${sender}${phone ? `\n${phone}` : ""}`;
     }
 
     return `To: ${recipientEmail}
@@ -760,9 +915,17 @@ ${body}`;
               <div className="flex-1">
                 <div className="flex items-start gap-3">
                   <div className="flex-1">
-                    <h2 className="text-xl font-semibold text-warroom-text mb-2">
-                      {lead.business_name}
-                    </h2>
+                    {isEditingDetails ? (
+                      <input
+                        value={editForm.business_name}
+                        onChange={(e) => setEditForm({ ...editForm, business_name: e.target.value })}
+                        className="text-xl font-semibold text-warroom-text mb-2 bg-warroom-bg border border-warroom-border rounded px-2 py-1 w-full focus:outline-none focus:border-warroom-accent"
+                      />
+                    ) : (
+                      <h2 className="text-xl font-semibold text-warroom-text mb-2">
+                        {lead.business_name}
+                      </h2>
+                    )}
                     <div className="flex items-center gap-2 mb-3">
                       <span className={`text-xs font-medium px-2 py-1 rounded-full border ${TIER_COLORS[lead.lead_tier] || TIER_COLORS.unscored}`}>
                         {lead.lead_tier}
@@ -773,6 +936,17 @@ ${body}`;
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        if (isEditingDetails) { handleSaveDetails(); }
+                        else { setIsEditingDetails(true); }
+                      }}
+                      disabled={savingDetails}
+                      className="flex items-center gap-1 px-2 py-1.5 text-warroom-muted hover:text-warroom-accent transition rounded-lg text-xs"
+                      title={isEditingDetails ? "Save changes" : "Edit details"}
+                    >
+                      {savingDetails ? <Loader2 size={14} className="animate-spin" /> : isEditingDetails ? <Check size={14} /> : <Pencil size={14} />}
+                    </button>
                     <button
                       onClick={startPipeline}
                       disabled={startingPipeline}
@@ -791,6 +965,31 @@ ${body}`;
                 </div>
 
                 {/* Contact Info */}
+                {isEditingDetails ? (
+                  <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
+                    <div className="flex items-center gap-2">
+                      <MapPin size={14} className="text-warroom-muted shrink-0" />
+                      <input value={editForm.address} onChange={(e) => setEditForm({ ...editForm, address: e.target.value })} placeholder="Address" className="bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text w-full focus:outline-none focus:border-warroom-accent" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MapPin size={14} className="text-warroom-muted shrink-0 opacity-0" />
+                      <input value={editForm.city} onChange={(e) => setEditForm({ ...editForm, city: e.target.value })} placeholder="City" className="bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text w-full focus:outline-none focus:border-warroom-accent" />
+                      <input value={editForm.state} onChange={(e) => setEditForm({ ...editForm, state: e.target.value })} placeholder="ST" className="bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text w-16 focus:outline-none focus:border-warroom-accent" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Phone size={14} className="text-warroom-muted shrink-0" />
+                      <input value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="Phone" className="bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text w-full focus:outline-none focus:border-warroom-accent" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Mail size={14} className="text-warroom-muted shrink-0" />
+                      <input value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} placeholder="Email" className="bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text w-full focus:outline-none focus:border-warroom-accent" />
+                    </div>
+                    <div className="flex items-center gap-2 col-span-2">
+                      <Globe size={14} className="text-warroom-muted shrink-0" />
+                      <input value={editForm.website} onChange={(e) => setEditForm({ ...editForm, website: e.target.value })} placeholder="Website URL" className="bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-xs text-warroom-text w-full focus:outline-none focus:border-warroom-accent" />
+                    </div>
+                  </div>
+                ) : (
                 <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
                   {lead.address && (
                     <div className="flex items-center gap-2 text-warroom-muted">
@@ -807,9 +1006,9 @@ ${body}`;
                   {lead.website && (
                     <div className="flex items-center gap-2">
                       <Globe size={14} className="text-warroom-muted" />
-                      <a 
-                        href={lead.website} 
-                        target="_blank" 
+                      <a
+                        href={lead.website}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="text-warroom-accent hover:underline"
                       >
@@ -835,6 +1034,7 @@ ${body}`;
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Rating & Social */}
                 <div className="flex items-center justify-between">
@@ -896,13 +1096,7 @@ ${body}`;
                   </div>
                 )}
 
-                <AgentAssignmentCard
-                  className="mt-4"
-                  entityType="leadgen_lead"
-                  entityId={lead.id}
-                  initialAssignments={lead.agent_assignments}
-                  title={`Work lead: ${lead.business_name}`}
-                />
+
               </div>
             </div>
           </div>
@@ -932,7 +1126,7 @@ ${body}`;
                       Audit Lite
                     </h3>
                     <button
-                      onClick={() => console.log("Download PDF — placeholder")}
+                      onClick={downloadAuditPdf}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-warroom-text hover:bg-warroom-bg border border-warroom-border transition"
                     >
                       <Download size={12} />
@@ -1447,6 +1641,17 @@ ${body}`;
 
             {activeTab === "contact" && (
               <div className="space-y-4">
+                {/* Pop-out button */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setIsPopoutOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-warroom-muted hover:text-warroom-accent border border-warroom-border rounded-lg transition"
+                    title="Open in larger view"
+                  >
+                    <Maximize2 size={12} />
+                    Pop Out
+                  </button>
+                </div>
                 {/* Enriched Data from Website Scrape */}
                 {(lead.emails.length > 0 || (lead.website_phones && lead.website_phones.length > 0)) && (
                   <div className="p-4 bg-warroom-accent/5 border border-warroom-accent/20 rounded-lg space-y-3">
@@ -1506,11 +1711,27 @@ ${body}`;
                   </div>
                 )}
 
-                <h3 className="text-sm font-semibold text-warroom-text">Contact Information</h3>
-                
+                <h3 className="text-sm font-semibold text-warroom-text">Log Activity</h3>
+
+                {/* Call / Email toggle */}
+                <div className="flex gap-1 p-1 bg-warroom-bg rounded-lg border border-warroom-border">
+                  <button
+                    onClick={() => setContactForm(prev => ({ ...prev, contact_method: "call", outcome: "" }))}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${contactForm.contact_method === "call" ? "bg-warroom-accent text-white" : "text-warroom-muted hover:text-warroom-text"}`}
+                  >
+                    <Phone size={12} /> Call
+                  </button>
+                  <button
+                    onClick={() => setContactForm(prev => ({ ...prev, contact_method: "email", outcome: "" }))}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${contactForm.contact_method === "email" ? "bg-warroom-accent text-white" : "text-warroom-muted hover:text-warroom-text"}`}
+                  >
+                    <Mail size={12} /> Email
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-warroom-muted mb-1">Contacted By</label>
+                    <label className="block text-xs font-medium text-warroom-muted mb-1">{contactForm.contact_method === "email" ? "Sent By" : "Contacted By"}</label>
                     <select
                       value={contactForm.contacted_by}
                       onChange={(e) => setContactForm(prev => ({ ...prev, contacted_by: e.target.value }))}
@@ -1524,12 +1745,12 @@ ${body}`;
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-warroom-muted mb-1">Who Answered</label>
+                    <label className="block text-xs font-medium text-warroom-muted mb-1">{contactForm.contact_method === "email" ? "Recipient" : "Who Answered"}</label>
                     <input
                       value={contactForm.who_answered}
                       onChange={(e) => setContactForm(prev => ({ ...prev, who_answered: e.target.value }))}
                       className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
-                      placeholder="Contact person"
+                      placeholder={contactForm.contact_method === "email" ? "Email recipient" : "Contact person"}
                     />
                   </div>
                   <div>
@@ -1568,7 +1789,7 @@ ${body}`;
                       style={{ colorScheme: "dark" }}
                     >
                       <option value="">Select outcome...</option>
-                      {CONTACT_OUTCOMES.map(({ value, label }) => (
+                      {(contactForm.contact_method === "email" ? EMAIL_OUTCOMES : CALL_OUTCOMES).map(({ value, label }) => (
                         <option key={value} value={value}>{label}</option>
                       ))}
                     </select>
@@ -1582,7 +1803,7 @@ ${body}`;
                     onChange={(e) => setContactForm(prev => ({ ...prev, notes: e.target.value }))}
                     rows={4}
                     className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent resize-none"
-                    placeholder="Call notes, follow-up actions, etc."
+                    placeholder={contactForm.contact_method === "email" ? "Email subject, body summary, follow-up plan..." : "Call notes, follow-up actions, etc."}
                   />
                 </div>
 
@@ -1592,18 +1813,18 @@ ${body}`;
                   className="w-full px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
                 >
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                  {saving ? "Saving..." : "Save Contact"}
+                  {saving ? "Saving..." : contactForm.contact_method === "email" ? "Log Email" : "Log Call"}
                 </button>
 
                 {/* Contact History */}
                 {lead.contact_history.length > 0 && (
                   <div className="mt-6">
-                    <h4 className="text-xs font-medium text-warroom-muted mb-2">Contact History</h4>
+                    <h4 className="text-xs font-medium text-warroom-muted mb-2">Activity History</h4>
                     <div className="space-y-2">
                       {lead.contact_history.map((contact: any, index) => {
-                        // Backend stores "date" and "by", not "contacted_at" / "contacted_by"
                         const dateStr = contact.date || contact.contacted_at;
                         const byStr = contact.by || contact.contacted_by || "";
+                        const method = contact.method || "call";
                         const parsed = dateStr ? new Date(dateStr) : null;
                         const formattedDate = parsed && !isNaN(parsed.getTime())
                           ? parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
@@ -1611,16 +1832,19 @@ ${body}`;
                         return (
                         <div key={index} className="p-3 bg-warroom-bg rounded-lg">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-warroom-muted">
+                            <span className="text-xs text-warroom-muted flex items-center gap-1.5">
+                              {method === "email" ? <Mail size={10} /> : <Phone size={10} />}
                               {byStr} • {formattedDate}
                             </span>
-                            <span className="text-xs px-2 py-0.5 bg-warroom-border rounded-full">
-                              {contact.outcome}
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              method === "email" ? "bg-blue-500/20 text-blue-400" : "bg-warroom-border"
+                            }`}>
+                              {(contact.outcome || "").replace(/_/g, " ")}
                             </span>
                           </div>
                           {(contact.notes || contact.who_answered) && (
                             <p className="text-xs text-warroom-text">
-                              {contact.who_answered && <span className="text-warroom-muted">Spoke with: {contact.who_answered} · </span>}
+                              {contact.who_answered && <span className="text-warroom-muted">{method === "email" ? "To: " : "Spoke with: "}{contact.who_answered} · </span>}
                               {contact.notes}
                             </p>
                           )}
@@ -1714,6 +1938,110 @@ ${body}`;
           </div>
         </div>
       </div>
+
+      {/* Pop-out Modal */}
+      {isPopoutOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setIsPopoutOpen(false)} />
+          <div className="relative w-[90vw] max-w-[1200px] h-[85vh] bg-warroom-surface border border-warroom-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-warroom-border shrink-0">
+              <div>
+                <h2 className="text-lg font-semibold text-warroom-text">{lead.business_name}</h2>
+                <p className="text-xs text-warroom-muted">{lead.phone} · {lead.emails?.[0] || "No email"} · {lead.city}, {lead.state}</p>
+              </div>
+              <button onClick={() => setIsPopoutOpen(false)} className="p-2 text-warroom-muted hover:text-warroom-text transition rounded-lg hover:bg-warroom-border/30">
+                <Minimize2 size={18} />
+              </button>
+            </div>
+            {/* Modal body — 3 columns */}
+            <div className="flex-1 overflow-hidden grid grid-cols-3 divide-x divide-warroom-border">
+              {/* Column 1: Contact Form */}
+              <div className="overflow-y-auto p-5 space-y-4">
+                <h3 className="text-sm font-semibold text-warroom-text mb-3">Log Activity</h3>
+                <div className="flex gap-1 p-1 bg-warroom-bg rounded-lg border border-warroom-border mb-3">
+                  <button onClick={() => setContactForm(prev => ({ ...prev, contact_method: "call", outcome: "" }))} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${contactForm.contact_method === "call" ? "bg-warroom-accent text-white" : "text-warroom-muted hover:text-warroom-text"}`}><Phone size={12} /> Call</button>
+                  <button onClick={() => setContactForm(prev => ({ ...prev, contact_method: "email", outcome: "" }))} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${contactForm.contact_method === "email" ? "bg-warroom-accent text-white" : "text-warroom-muted hover:text-warroom-text"}`}><Mail size={12} /> Email</button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-warroom-muted mb-1">{contactForm.contact_method === "email" ? "Sent By" : "Contacted By"}</label>
+                    <select value={contactForm.contacted_by} onChange={(e) => setContactForm(prev => ({ ...prev, contacted_by: e.target.value }))} className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent appearance-none cursor-pointer" style={{ colorScheme: "dark" }}>
+                      <option value="">Select...</option>
+                      {teamMembers.map((u) => (<option key={u.id} value={u.name}>{u.name}</option>))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-warroom-muted mb-1">Who Answered</label>
+                    <input value={contactForm.who_answered} onChange={(e) => setContactForm(prev => ({ ...prev, who_answered: e.target.value }))} className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" placeholder="Contact person" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-warroom-muted mb-1">Owner Name</label>
+                    <input value={contactForm.owner_name} onChange={(e) => setContactForm(prev => ({ ...prev, owner_name: e.target.value }))} className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" placeholder="Business owner" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-warroom-muted mb-1">Outcome</label>
+                    <select value={contactForm.outcome} onChange={(e) => setContactForm(prev => ({ ...prev, outcome: e.target.value }))} className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" style={{ colorScheme: "dark" }}>
+                      <option value="">Select outcome...</option>
+                      {(contactForm.contact_method === "email" ? EMAIL_OUTCOMES : CALL_OUTCOMES).map(({ value, label }) => (<option key={value} value={value}>{label}</option>))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-warroom-muted mb-1">Notes</label>
+                  <textarea value={contactForm.notes} onChange={(e) => setContactForm(prev => ({ ...prev, notes: e.target.value }))} rows={6} className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent resize-none" placeholder={contactForm.contact_method === "email" ? "Email subject, body summary, follow-up plan..." : "Call notes, follow-up actions, etc."} />
+                </div>
+                <button onClick={handleContactSubmit} disabled={saving} className="w-full px-4 py-2.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
+                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  {saving ? "Saving..." : contactForm.contact_method === "email" ? "Log Email" : "Log Call"}
+                </button>
+                {/* Activity History */}
+                {lead.contact_history.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="text-xs font-medium text-warroom-muted mb-2">History ({lead.contact_history.length})</h4>
+                    <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                      {lead.contact_history.map((contact: any, index) => {
+                        const dateStr = contact.date || contact.contacted_at;
+                        const byStr = contact.by || contact.contacted_by || "";
+                        const m = contact.method || "call";
+                        const parsed = dateStr ? new Date(dateStr) : null;
+                        const formattedDate = parsed && !isNaN(parsed.getTime()) ? parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Unknown";
+                        return (
+                          <div key={index} className="p-2 bg-warroom-bg rounded-lg text-xs">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-warroom-muted flex items-center gap-1">{m === "email" ? <Mail size={10} /> : <Phone size={10} />} {byStr} · {formattedDate}</span>
+                              <span className={`px-1.5 py-0.5 rounded-full ${m === "email" ? "bg-blue-500/20 text-blue-400" : "bg-warroom-border"}`}>{(contact.outcome || "").replace(/_/g, " ")}</span>
+                            </div>
+                            {contact.notes && <p className="text-warroom-text">{contact.notes}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Column 2: Call Script */}
+              <div className="overflow-y-auto p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-warroom-text">Cold Call Script</h3>
+                  <button onClick={() => copyToClipboard(generateColdCallScript())} className="px-2 py-1 text-xs bg-warroom-border/50 hover:bg-warroom-border transition rounded flex items-center gap-1"><Copy size={12} /> Copy</button>
+                </div>
+                <pre className="text-xs text-warroom-text whitespace-pre-wrap font-mono p-4 bg-warroom-bg rounded-lg border border-warroom-border">{generateColdCallScript()}</pre>
+              </div>
+
+              {/* Column 3: Email Template */}
+              <div className="overflow-y-auto p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-warroom-text">Cold Email Template</h3>
+                  <button onClick={() => copyToClipboard(generateColdEmail())} className="px-2 py-1 text-xs bg-warroom-border/50 hover:bg-warroom-border transition rounded flex items-center gap-1"><Copy size={12} /> Copy</button>
+                </div>
+                <pre className="text-xs text-warroom-text whitespace-pre-wrap font-mono p-4 bg-warroom-bg rounded-lg border border-warroom-border">{generateColdEmail()}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pipeline Toast */}
       {pipelineToast && (

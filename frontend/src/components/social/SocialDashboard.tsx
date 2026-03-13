@@ -688,12 +688,12 @@ export default function SocialDashboard() {
                   </div>
                 </div>
 
-                <div className="h-72 flex items-end gap-2 rounded-xl bg-warroom-bg border border-warroom-border p-4 overflow-x-auto">
+                <div className="h-72 flex gap-2 rounded-xl bg-warroom-bg border border-warroom-border p-4 overflow-x-auto">
                   {timeSeries.map((point) => {
                     const height = point.engagement > 0 ? Math.max((point.engagement / chartMax) * 100, 8) : 4;
 
                     return (
-                      <div key={`${point.bucket}-${point.label}`} className="min-w-[44px] flex-1 flex flex-col items-center justify-end gap-2">
+                      <div key={`${point.bucket}-${point.label}`} className="min-w-[44px] flex-1 h-full flex flex-col items-center justify-end gap-2">
                         <div className="text-[10px] text-warroom-muted">{formatNum(point.engagement)}</div>
                         <div
                           className="w-full rounded-t-lg bg-gradient-to-t from-warroom-accent/30 to-warroom-accent"

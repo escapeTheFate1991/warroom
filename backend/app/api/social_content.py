@@ -2,7 +2,7 @@
 Social Content API — fetch real posts, videos, and metrics from connected platforms.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -98,11 +98,12 @@ async def instagram_insights(db: AsyncSession = Depends(get_crm_db)):
 
     async with httpx.AsyncClient(timeout=15) as client:
         # Account insights — last 30 days
+        now = datetime.now(timezone.utc)
         resp = await client.get(f"{INSTAGRAM_GRAPH}/me/insights", params={
             "metric": "impressions,reach,profile_views",
             "period": "day",
-            "since": int((datetime.utcnow().timestamp()) - 30 * 86400),
-            "until": int(datetime.utcnow().timestamp()),
+            "since": int(now.timestamp() - 30 * 86400),
+            "until": int(now.timestamp()),
             "access_token": acc["token"],
         })
 

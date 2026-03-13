@@ -16,6 +16,8 @@ class Organization(CrmBase):
     id = Column(Integer, primary_key=True)
     name = Column(Text, unique=True, nullable=False)
     address = Column(JSONB)
+    emails = Column(JSONB, default=list)
+    contact_numbers = Column(JSONB, default=list)
     user_id = Column(Integer, ForeignKey("crm.users.id", ondelete="SET NULL"))
     # Link to leadgen business if originated from lead gen
     leadgen_lead_id = Column(Integer)

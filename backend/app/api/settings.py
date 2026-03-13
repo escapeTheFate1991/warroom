@@ -25,6 +25,7 @@ API_KEY_ENV_MAP = {
     "google_maps_api_key": "GOOGLE_MAPS_API_KEY",
     "serp_api_key": "SERP_API_KEY",
     "openclaw_auth_token": "OPENCLAW_AUTH_TOKEN",
+    "google_ai_studio_api_key": "GOOGLE_AI_STUDIO_API_KEY",
 }
 
 
@@ -360,6 +361,13 @@ DEFAULT_SETTINGS = [
         "value": "",
         "category": "api_keys",
         "description": "Google OAuth Client Secret (YouTube + Calendar)",
+        "is_secret": True,
+    },
+    {
+        "key": "google_ai_studio_api_key",
+        "value": "",
+        "category": "api_keys",
+        "description": "Google AI Studio (Gemini) API key for AI generation",
         "is_secret": True,
     },
     {

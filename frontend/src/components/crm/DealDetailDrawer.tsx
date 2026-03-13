@@ -14,6 +14,7 @@ import QuickActions from "@/components/communications/QuickActions";
 import DealContractSection from "./DealContractSection";
 
 interface DealDetailDrawerProps {
+  onEditDeal?: (dealId: number) => void;
   deal: Deal;
   stages: PipelineStage[];
   onClose: () => void;
@@ -34,7 +35,7 @@ const ACTIVITY_ICONS: Record<string, typeof FileText> = {
   call: Phone, meeting: User, email: Mail, note: FileText, task: CheckCircle,
 };
 
-export default function DealDetailDrawer({ deal, stages, onClose, onAdvance }: DealDetailDrawerProps) {
+export default function DealDetailDrawer({ deal, stages, onClose, onAdvance, onEditDeal }: DealDetailDrawerProps) {
   const [fullDeal, setFullDeal] = useState<DealFull | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loadingFull, setLoadingFull] = useState(true);
@@ -266,7 +267,7 @@ export default function DealDetailDrawer({ deal, stages, onClose, onAdvance }: D
           )}
           <button
             className="flex-1 px-4 py-2.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-border/30 rounded-lg text-sm font-medium text-warroom-muted transition flex items-center justify-center gap-2"
-            onClick={() => {/* placeholder */}}
+            onClick={() => { if (onEditDeal) { onClose(); onEditDeal(deal.id); } }}
           >
             <Edit size={14} />Edit Deal
           </button>

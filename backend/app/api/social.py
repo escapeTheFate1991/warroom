@@ -4,7 +4,7 @@ from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict
 
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,9 +41,7 @@ class SocialAccountResponse(BaseModel):
     last_synced: Optional[datetime]
     status: str
     agent_assignments: list[AgentAssignmentSummary] = Field(default_factory=list)
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SocialAnalyticsResponse(BaseModel):
@@ -528,61 +526,6 @@ async def get_analytics_timeseries(
         raise HTTPException(status_code=500, detail="Failed to fetch analytics timeseries")
 
 
-@router.get("/analytics/{platform}", response_model=List[SocialAnalyticsResponse])
-async def get_platform_analytics(
-    platform: str,
-    days: int = 30,
-    db: AsyncSession = Depends(get_crm_db)
-):
-    """Get analytics for a specific platform."""
-    try:
-        end_date = date.today()
-        start_date = end_date - timedelta(days=days)
-        
-        query = (
-            select(SocialAnalytics)
-            .join(SocialAccount)
-            .where(
-                SocialAccount.status == "connected",
-                SocialAccount.platform == platform,
-                SocialAnalytics.metric_date >= start_date,
-                SocialAnalytics.metric_date <= end_date
-            )
-            .order_by(SocialAnalytics.metric_date.desc())
-        )
-        
-        result = await db.execute(query)
-        analytics = result.scalars().all()
-        
-        if not analytics:
-            # Return empty data if no analytics exist
-            return []
-        
-        return [
-            SocialAnalyticsResponse(
-                platform=platform,
-                metric_date=a.metric_date,
-                impressions=a.impressions,
-                reach=a.reach,
-                engagement=a.engagement,
-                engagement_rate=float(a.engagement_rate),
-                followers_gained=a.followers_gained,
-                followers_lost=a.followers_lost,
-                profile_views=a.profile_views,
-                link_clicks=a.link_clicks,
-                shares=a.shares,
-                saves=a.saves,
-                comments=a.comments,
-                likes=a.likes,
-                video_views=a.video_views
-            )
-            for a in analytics
-        ]
-    except Exception as e:
-        logger.error("Failed to fetch platform analytics: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to fetch platform analytics")
-
-
 @router.get("/analytics/engagement-velocity")
 async def get_engagement_velocity(
     media_id: Optional[str] = None,
@@ -647,38 +590,68 @@ async def get_engagement_velocity(
         raise HTTPException(500, "Failed to fetch engagement velocity")
 
 
+@router.get("/analytics/{platform}", response_model=List[SocialAnalyticsResponse])
+async def get_platform_analytics(
+    platform: str,
+    days: int = 30,
+    db: AsyncSession = Depends(get_crm_db)
+):
+    """Get analytics for a specific platform."""
+    try:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+
+        query = (
+            select(SocialAnalytics)
+            .join(SocialAccount)
+            .where(
+                SocialAccount.status == "connected",
+                SocialAccount.platform == platform,
+                SocialAnalytics.metric_date >= start_date,
+                SocialAnalytics.metric_date <= end_date
+            )
+            .order_by(SocialAnalytics.metric_date.desc())
+        )
+
+        result = await db.execute(query)
+        analytics = result.scalars().all()
+
+        if not analytics:
+            return []
+
+        return [
+            SocialAnalyticsResponse(
+                platform=platform,
+                metric_date=a.metric_date,
+                impressions=a.impressions,
+                reach=a.reach,
+                engagement=a.engagement,
+                engagement_rate=float(a.engagement_rate),
+                followers_gained=a.followers_gained,
+                followers_lost=a.followers_lost,
+                profile_views=a.profile_views,
+                link_clicks=a.link_clicks,
+                shares=a.shares,
+                saves=a.saves,
+                comments=a.comments,
+                likes=a.likes,
+                video_views=a.video_views
+            )
+            for a in analytics
+        ]
+    except Exception as e:
+        logger.error("Failed to fetch platform analytics: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch platform analytics")
+
+
 @router.post("/sync")
 async def sync_social_data(db: AsyncSession = Depends(get_crm_db)):
-    """Trigger real sync of all connected social media accounts (calls platform APIs)."""
+    """Trigger real sync of all connected social media accounts."""
     try:
-        from app.api.social_sync import _get_accounts, SYNC_MAP, _try_refresh_token
-
-        accounts = await _get_accounts(db)
-        if not accounts:
-            return {"message": "No connected accounts to sync", "synced_accounts": 0}
-
-        results = []
-        for acc in accounts:
-            syncer = SYNC_MAP.get(acc["platform"])
-            if syncer:
-                try:
-                    r = await syncer(db, acc)
-                    if r.get("status") == "error":
-                        new_token = await _try_refresh_token(db, acc)
-                        if new_token:
-                            acc["token"] = new_token
-                            r = await syncer(db, acc)
-                            r["token_refreshed"] = True
-                    results.append(r)
-                except Exception as e:
-                    results.append({"platform": acc["platform"], "status": "error", "error": str(e)[:200]})
-
-        await db.commit()
-        return {
-            "message": f"Synced {len(results)} accounts",
-            "synced_accounts": len(results),
-            "results": results,
-        }
+        from app.api.social_sync import sync_all
+        return await sync_all(db)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to sync social data: %s", e)
         raise HTTPException(status_code=500, detail="Failed to sync social data")

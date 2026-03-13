@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from app.api.agent_contract import AgentAssignmentSummary
 
@@ -22,9 +22,7 @@ class SearchJobResponse(BaseModel):
     total_found: int
     enriched_count: int
     created_at: datetime
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LeadResponse(BaseModel):
@@ -121,22 +119,32 @@ class LeadResponse(BaseModel):
 
     agent_assignments: list[AgentAssignmentSummary] = Field(default_factory=list)
     created_at: datetime
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LeadUpdate(BaseModel):
+    business_name: str | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip: str | None = None
+    phone: str | None = None
+    website: str | None = None
+    emails: list[str] | None = None
     notes: str | None = None
     tags: list[str] | None = None
     outreach_status: str | None = None
     lead_tier: str | None = None
+    contact_owner_name: str | None = None
+    contact_economic_buyer: str | None = None
+    contact_champion: str | None = None
 
 
 class ContactLogRequest(BaseModel):
     """Log a contact attempt / call result."""
     contacted_by: str
-    outcome: str  # won, lost, follow_up, no_answer, voicemail, callback
+    outcome: str  # won, lost, follow_up, no_answer, voicemail, callback, email_sent, email_replied
+    contact_method: str = "call"  # call, email
     notes: Optional[str] = None
     who_answered: Optional[str] = None
     owner_name: Optional[str] = None

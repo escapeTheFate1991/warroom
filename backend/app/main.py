@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine, crm_session
@@ -45,9 +45,15 @@ async def lifespan(app: FastAPI):
                     await conn.execute(sa_text(
                         "ALTER TABLE crm.deals ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb"
                     ))
-                logger.info("Deals metadata column ensured")
+                    await conn.execute(sa_text(
+                        "ALTER TABLE crm.organizations ADD COLUMN IF NOT EXISTS emails JSONB DEFAULT '[]'::jsonb"
+                    ))
+                    await conn.execute(sa_text(
+                        "ALTER TABLE crm.organizations ADD COLUMN IF NOT EXISTS contact_numbers JSONB DEFAULT '[]'::jsonb"
+                    ))
+                logger.info("Deals metadata and organization contact columns ensured")
             except Exception as e:
-                logger.warning("Failed to ensure deals metadata column: %s", e)
+                logger.warning("Failed to ensure CRM metadata/contact columns: %s", e)
 
         if crm_schema_ok:
             await telnyx.init_telnyx_tables()
@@ -220,6 +226,7 @@ app.include_router(twilio.router, prefix="/api", tags=["twilio"])
 app.include_router(twilio_voice.router, prefix="/api/twilio", tags=["twilio-voice"])
 app.include_router(comms.router, prefix="/api/comms", tags=["communications"])
 app.include_router(stripe_settings.router, prefix="/api", tags=["stripe"])
+app.include_router(google_ai_studio.router, prefix="/api/ai-studio", tags=["google-ai-studio"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])

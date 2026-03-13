@@ -51,11 +51,14 @@ export default function StageGateModal({ isOpen, onClose, deal, fromStage, toSta
 
   if (!isOpen) return null;
 
+  const isLostStage = toStage.probability === 0;
   const gateFields = STAGE_GATES[toStage.probability] || [];
 
   const handleSubmit = async () => {
-    if (reasoning.length < 10) {
-      setError("Reasoning must be at least 10 characters.");
+    // For Lost stage, use lost_reason as the reasoning too
+    const effectiveReasoning = isLostStage ? (formData["lost_reason"] || "") : reasoning;
+    if (effectiveReasoning.length < 10) {
+      setError(isLostStage ? "Lost reason must be at least 10 characters." : "Reasoning must be at least 10 characters.");
       return;
     }
     // Check all required gate fields
@@ -70,7 +73,7 @@ export default function StageGateModal({ isOpen, onClose, deal, fromStage, toSta
     try {
       await onAdvance({
         target_stage_id: toStage.id,
-        reasoning,
+        reasoning: effectiveReasoning,
         ...formData,
       });
       // Reset
@@ -130,12 +133,14 @@ export default function StageGateModal({ isOpen, onClose, deal, fromStage, toSta
             </div>
           ))}
 
-          {/* Reasoning — always required */}
-          <div>
-            <label className="block text-xs font-medium text-warroom-muted mb-1">Reasoning * <span className="font-normal">(min 10 chars)</span></label>
-            <textarea rows={3} value={reasoning} onChange={(e) => setReasoning(e.target.value)} placeholder="Explain why this deal is ready to advance…"
-              className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent resize-none" />
-          </div>
+          {/* Reasoning — required for non-Lost stages (Lost uses lost_reason as reasoning) */}
+          {!isLostStage && (
+            <div>
+              <label className="block text-xs font-medium text-warroom-muted mb-1">Reasoning * <span className="font-normal">(min 10 chars)</span></label>
+              <textarea rows={3} value={reasoning} onChange={(e) => setReasoning(e.target.value)} placeholder="Explain why this deal is ready to advance…"
+                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent resize-none" />
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -144,7 +149,7 @@ export default function StageGateModal({ isOpen, onClose, deal, fromStage, toSta
           <button onClick={handleSubmit} disabled={submitting}
             className="px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition flex items-center gap-2 disabled:opacity-50">
             {submitting ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
-            Advance Deal
+            {isLostStage ? "Mark as Lost" : "Advance Deal"}
           </button>
         </div>
       </div>

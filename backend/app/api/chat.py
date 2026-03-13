@@ -232,6 +232,25 @@ async def chat_ws(ws: WebSocket):
                             if event_session and session_key not in event_session:
                                 continue
 
+                            # Detect compaction events from gateway
+                            event_stream = payload.get("stream", "")
+                            if event_stream == "compaction":
+                                phase = payload.get("data", {}).get("phase", "")
+                                if phase == "start":
+                                    await ws.send_text(json.dumps({
+                                        "type": "compaction",
+                                        "phase": "start",
+                                        "message": "Context compressing — older messages being summarized...",
+                                    }))
+                                elif phase == "end":
+                                    will_retry = payload.get("data", {}).get("willRetry", False)
+                                    if not will_retry:
+                                        await ws.send_text(json.dumps({
+                                            "type": "compaction",
+                                            "phase": "end",
+                                            "message": "Context compressed — older messages summarized to free up space.",
+                                        }))
+
                             # Detect rate limit in chat events
                             chat_state = payload.get("state", "")
                             if chat_state == "error":

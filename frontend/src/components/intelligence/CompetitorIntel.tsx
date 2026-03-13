@@ -44,6 +44,7 @@ interface CompetitorPost {
 }
 
 interface TopContentPost {
+  id?: number;
   text: string;
   hook: string;
   likes: number;
@@ -108,24 +109,129 @@ interface Script {
 
 interface TopVideoItem {
   id?: number;
+  competitor_id?: number;
+  competitor_handle?: string;
+  platform?: string;
   post_url?: string;
   title: string;
   likes: number;
   comments: number;
   shares: number;
   engagement_score: number;
+  virality_score: number;
   posted_at?: string;
   hook?: string;
   media_type?: string;
   has_transcript?: boolean;
   has_comments?: boolean;
+  analysis?: TopVideoAnalysis | null;
 }
 
-interface FollowerAnalysis {
-  themes: string[];
-  audience_type: string;
-  engagement_style: string;
-  key_interests: string[];
+interface TopVideoSection {
+  text?: string;
+  start?: number;
+  end?: number;
+}
+
+interface TopVideoStoryboardScene {
+  scene: string;
+  direction: string;
+  goal: string;
+  timing?: string | null;
+}
+
+interface TopVideoProductionSpec {
+  creative_angle: string;
+  pacing_label: string;
+  pacing_notes: string;
+  scene_pattern: string[];
+  production_notes: string[];
+  cta_strategy: string;
+}
+
+interface TopVideoAnalysis {
+  content_format?: string | null;
+  duration_seconds: number;
+  structure_score: number;
+  hook_type?: string | null;
+  hook_strength: number;
+  cta_type?: string | null;
+  cta_phrase?: string | null;
+  pacing_label: string;
+  pacing_reason: string;
+  key_points: string[];
+  scene_pattern: string[];
+  hook_window?: TopVideoSection;
+  value_window?: TopVideoSection;
+  cta_window?: TopVideoSection;
+  storyboard: TopVideoStoryboardScene[];
+  production_spec: TopVideoProductionSpec;
+}
+
+interface InstagramAdviceItem {
+  title: string;
+  detail: string;
+  metric?: string | null;
+}
+
+interface InstagramProfileAdvice {
+  connected: boolean;
+  platform: string;
+  username?: string | null;
+  status: string;
+  summary: string;
+  follower_count: number;
+  following_count: number;
+  post_count: number;
+  last_synced?: string | null;
+  days_analyzed: number;
+  avg_engagement_rate: number;
+  avg_reach: number;
+  avg_profile_views: number;
+  avg_video_views: number;
+  total_link_clicks: number;
+  net_followers: number;
+  recommendations: InstagramAdviceItem[];
+}
+
+interface AudienceQuestion {
+  question: string;
+  likes: number;
+}
+
+interface AudiencePainPoint {
+  pain: string;
+  likes: number;
+}
+
+interface AudienceTheme {
+  theme: string;
+  count: number;
+}
+
+interface AudienceProductMention {
+  product: string;
+  count: number;
+}
+
+interface AudienceCommenter {
+  username: string;
+  count: number;
+}
+
+interface AudienceIntel {
+  posts_analyzed: number;
+  comments_analyzed: number;
+  sentiment: string;
+  sentiment_breakdown: Record<string, number>;
+  sentiment_percentages: Record<string, number>;
+  questions: AudienceQuestion[];
+  pain_points: AudiencePainPoint[];
+  themes: AudienceTheme[];
+  product_mentions: AudienceProductMention[];
+  top_commenters: AudienceCommenter[];
+  engagement_quality: Record<string, number>;
+  content_formats: Record<string, number>;
 }
 
 interface HashtagItem {
@@ -144,6 +250,20 @@ const PLATFORM_COLORS: Record<string, string> = {
   x: "bg-gray-600/20 text-gray-300",
   facebook: "bg-blue-500/20 text-blue-400",
   threads: "bg-gray-500/20 text-gray-400",
+};
+
+const CONTENT_TIMEFRAME_OPTIONS = [
+  { label: "Day", days: 1 },
+  { label: "Week", days: 7 },
+  { label: "Month", days: 30 },
+] as const;
+
+const AUDIENCE_SENTIMENT_COLORS: Record<string, string> = {
+  very_positive: "text-green-400",
+  positive: "text-green-300",
+  neutral: "text-warroom-muted",
+  negative: "text-orange-400",
+  very_negative: "text-red-400",
 };
 
 const SCRIPT_SAVE_PLATFORMS = ["instagram", "youtube", "x", "facebook"] as const;
@@ -187,6 +307,162 @@ function timeAgo(dateString: string): string {
   if (diffDays < 7) return `${diffDays}d ago`;
   if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
   return `${Math.floor(diffDays / 30)}mo ago`;
+}
+
+function titleizeToken(value?: string | null): string {
+  if (!value) return "Unknown";
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatTimeWindow(section?: TopVideoSection | null): string | null {
+  if (!section) return null;
+  const start = formatTime(section.start);
+  const end = formatTime(section.end);
+  if (!start || !end) return null;
+  return start === end ? start : `${start}-${end}`;
+}
+
+function TopVideoInsights({ video, compact = false }: { video: TopVideoItem; compact?: boolean }) {
+  const analysis = video.analysis;
+  if (!analysis) return null;
+
+  const hasInsights = Boolean(
+    analysis.scene_pattern?.length ||
+    analysis.key_points?.length ||
+    analysis.storyboard?.length ||
+    analysis.pacing_reason ||
+    analysis.cta_phrase ||
+    analysis.production_spec?.production_notes?.length
+  );
+
+  if (!hasInsights) return null;
+
+  const keyPoints = (analysis.key_points || []).slice(0, compact ? 2 : 4);
+  const storyboard = (analysis.storyboard || []).slice(0, compact ? 3 : analysis.storyboard.length);
+  const structurePct = analysis.structure_score > 0 ? formatPercent(analysis.structure_score * 100, 0) : null;
+  const hookTiming = formatTimeWindow(analysis.hook_window);
+  const ctaText = analysis.cta_phrase || analysis.cta_window?.text;
+
+  return (
+    <div className="mt-3 space-y-3 border-t border-warroom-border/70 pt-3">
+      <div className="flex flex-wrap gap-1.5 text-[10px]">
+        <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-amber-300">
+          {titleizeToken(analysis.pacing_label)} pace
+        </span>
+        {analysis.content_format && (
+          <span className="rounded-full border border-sky-500/20 bg-sky-500/10 px-2 py-1 text-sky-300">
+            {titleizeToken(analysis.content_format)}
+          </span>
+        )}
+        {analysis.duration_seconds > 0 && (
+          <span className="rounded-full border border-warroom-border bg-warroom-surface px-2 py-1 text-warroom-muted">
+            {formatTime(analysis.duration_seconds)} runtime
+          </span>
+        )}
+        {structurePct && (
+          <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-emerald-300">
+            {structurePct} structure
+          </span>
+        )}
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-warroom-text">
+            <Zap size={12} className="text-amber-400" />
+            Pacing + pattern
+          </div>
+          <p className="text-[11px] leading-5 text-warroom-muted">{analysis.pacing_reason}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {(analysis.scene_pattern || []).map((pattern, idx) => (
+              <span key={`${pattern}-${idx}`} className="rounded-full bg-warroom-bg px-2 py-1 text-[10px] text-warroom-text border border-warroom-border">
+                {pattern}
+              </span>
+            ))}
+          </div>
+          {hookTiming && analysis.hook_type && (
+            <p className="text-[10px] text-warroom-muted">
+              Hook: <span className="text-warroom-text">{titleizeToken(analysis.hook_type)}</span> · {hookTiming}
+            </p>
+          )}
+        </div>
+
+        {(keyPoints.length > 0 || ctaText) && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium text-warroom-text">
+              <Target size={12} className="text-warroom-accent" />
+              Core beats
+            </div>
+            {keyPoints.length > 0 && (
+              <ul className="space-y-1.5 text-[11px] text-warroom-muted">
+                {keyPoints.map((point, idx) => (
+                  <li key={`${idx}-${point.slice(0, 16)}`} className="flex gap-2">
+                    <span className="mt-[3px] h-1.5 w-1.5 rounded-full bg-warroom-accent flex-shrink-0" />
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {ctaText && (
+              <p className="text-[11px] leading-5 text-warroom-muted">
+                CTA: <span className="text-warroom-text">{ctaText}</span>
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {storyboard.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-warroom-text">
+            <BookOpen size={12} className="text-pink-400" />
+            Storyboard groundwork
+          </div>
+          <div className={`grid gap-2 ${compact ? "grid-cols-1" : "grid-cols-1 xl:grid-cols-2"}`}>
+            {storyboard.map((scene, idx) => (
+              <div key={`${scene.scene}-${idx}`} className="rounded-lg border border-warroom-border bg-warroom-bg px-3 py-2">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="text-[11px] font-medium text-warroom-text">{scene.scene}</p>
+                  {scene.timing && <span className="text-[10px] text-warroom-muted">{scene.timing}</span>}
+                </div>
+                <p className="text-[10px] text-warroom-muted leading-5">{scene.direction}</p>
+                {!compact && <p className="mt-1 text-[10px] text-pink-300">Goal: {scene.goal}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!compact && analysis.production_spec && (
+        <div className="rounded-xl border border-warroom-border bg-warroom-bg/60 p-3 space-y-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-warroom-text">
+            <Sparkles size={12} className="text-emerald-400" />
+            Generation-ready spec
+          </div>
+          {analysis.production_spec.creative_angle && (
+            <p className="text-[11px] text-warroom-muted leading-5">
+              Angle: <span className="text-warroom-text">{analysis.production_spec.creative_angle}</span>
+            </p>
+          )}
+          <p className="text-[11px] text-warroom-muted leading-5">
+            CTA strategy: <span className="text-warroom-text">{analysis.production_spec.cta_strategy}</span>
+          </p>
+          {analysis.production_spec.production_notes?.length > 0 && (
+            <ul className="space-y-1.5 text-[11px] text-warroom-muted">
+              {analysis.production_spec.production_notes.map((note, idx) => (
+                <li key={`${idx}-${note.slice(0, 16)}`} className="flex gap-2">
+                  <span className="mt-[3px] h-1.5 w-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                  <span>{note}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ── Dossier Panel ─────────────────────────────────────── */
@@ -489,7 +765,7 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
 }
 
 export default function CompetitorIntel() {
-  const [activeTab, setActiveTab] = useState<"competitors" | "top-content" | "hooks" | "scripts">("competitors");
+  const [activeTab, setActiveTab] = useState<"competitors" | "top-content" | "hooks" | "scripts" | "profile-intel">("competitors");
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [topContent, setTopContent] = useState<TopContentPost[]>([]);
   const [hooks, setHooks] = useState<Hook[]>([]);
@@ -528,16 +804,21 @@ export default function CompetitorIntel() {
   const [notice, setNotice] = useState<string>("");
 
   // New state for upgraded Reports features
-  const [followerAnalysis, setFollowerAnalysis] = useState<FollowerAnalysis | null>(null);
-  const [loadingFollowerAnalysis, setLoadingFollowerAnalysis] = useState(false);
-  const [topVideos, setTopVideos] = useState<TopVideoItem[]>([]);
+  const [globalAudienceIntel, setGlobalAudienceIntel] = useState<AudienceIntel | null>(null);
+  const [loadingGlobalAudienceIntel, setLoadingGlobalAudienceIntel] = useState(false);
+  const [focusedTopVideos, setFocusedTopVideos] = useState<TopVideoItem[]>([]);
+  const [aggregateTopVideos, setAggregateTopVideos] = useState<TopVideoItem[]>([]);
+  const [instagramAdvice, setInstagramAdvice] = useState<InstagramProfileAdvice | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
   const [expandedPostId, setExpandedPostId] = useState<number | null>(null);
   const [expandedPostData, setExpandedPostData] = useState<any>(null);
   const [expandedPostTab, setExpandedPostTab] = useState<"overview" | "transcript" | "audience">("overview");
-  const [loadingTopVideos, setLoadingTopVideos] = useState(false);
+  const [loadingFocusedTopVideos, setLoadingFocusedTopVideos] = useState(false);
+  const [loadingAggregateTopVideos, setLoadingAggregateTopVideos] = useState(false);
+  const [loadingInstagramAdvice, setLoadingInstagramAdvice] = useState(false);
   const [hashtags, setHashtags] = useState<HashtagItem[]>([]);
   const [loadingHashtags, setLoadingHashtags] = useState(false);
+  const [contentTimeframeDays, setContentTimeframeDays] = useState<number>(30);
 
   // Fetch competitors
   const fetchCompetitors = async (): Promise<Competitor[]> => {
@@ -571,7 +852,7 @@ export default function CompetitorIntel() {
     try {
       setLoading(true);
       setError("");
-      const response = await authFetch(`${API}/api/content-intel/competitors/top-content`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/top-content?days=${contentTimeframeDays}`);
       if (response.ok) {
         const data = await response.json();
         const posts = Array.isArray(data) ? data : (data.posts || []);
@@ -598,7 +879,7 @@ export default function CompetitorIntel() {
     try {
       setLoading(true);
       setError("");
-      const response = await authFetch(`${API}/api/content-intel/competitors/hooks`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/hooks?days=${contentTimeframeDays}`);
       if (response.ok) {
         const data = await response.json();
         const nextHooks = Array.isArray(data) ? data : (data.hooks || []);
@@ -659,35 +940,67 @@ export default function CompetitorIntel() {
     }
   };
 
-  // Fetch follower analysis summary
-  const fetchFollowerAnalysis = async () => {
+  // Fetch aggregated audience intelligence across all competitors
+  const fetchGlobalAudienceIntel = async () => {
     try {
-      setLoadingFollowerAnalysis(true);
-      const response = await authFetch(`${API}/api/content-intel/competitors/follower-analysis`);
+      setLoadingGlobalAudienceIntel(true);
+      const response = await authFetch(`${API}/api/content-intel/competitors/audience-intel`);
       if (response.ok) {
-        setFollowerAnalysis(await response.json());
+        setGlobalAudienceIntel(await response.json());
       }
     } catch (err) {
-      console.error("Failed to fetch follower analysis", err);
+      console.error("Failed to fetch global audience intelligence", err);
     } finally {
-      setLoadingFollowerAnalysis(false);
+      setLoadingGlobalAudienceIntel(false);
     }
   };
 
-  // Fetch top videos for a competitor
-  const fetchTopVideos = async (competitorId: number) => {
+  const fetchInstagramAdvice = async () => {
     try {
-      setLoadingTopVideos(true);
-      const response = await authFetch(`${API}/api/content-intel/competitors/${competitorId}/top-videos?limit=5`);
+      setLoadingInstagramAdvice(true);
+      const response = await authFetch(`${API}/api/content-intel/instagram/account-advice`);
       if (response.ok) {
-        setTopVideos(await response.json());
+        setInstagramAdvice(await response.json());
       } else {
-        setTopVideos([]);
+        setInstagramAdvice(null);
       }
     } catch (err) {
-      setTopVideos([]);
+      setInstagramAdvice(null);
     } finally {
-      setLoadingTopVideos(false);
+      setLoadingInstagramAdvice(false);
+    }
+  };
+
+  const fetchAggregateTopVideos = async () => {
+    try {
+      setLoadingAggregateTopVideos(true);
+      const response = await authFetch(`${API}/api/content-intel/competitors/top-videos?days=${contentTimeframeDays}&limit=5`);
+      if (response.ok) {
+        setAggregateTopVideos(await response.json());
+      } else {
+        setAggregateTopVideos([]);
+      }
+    } catch (err) {
+      setAggregateTopVideos([]);
+    } finally {
+      setLoadingAggregateTopVideos(false);
+    }
+  };
+
+  // Fetch top videos for a focused competitor
+  const fetchFocusedTopVideos = async (competitorId: number) => {
+    try {
+      setLoadingFocusedTopVideos(true);
+      const response = await authFetch(`${API}/api/content-intel/competitors/${competitorId}/top-videos?limit=5`);
+      if (response.ok) {
+        setFocusedTopVideos(await response.json());
+      } else {
+        setFocusedTopVideos([]);
+      }
+    } catch (err) {
+      setFocusedTopVideos([]);
+    } finally {
+      setLoadingFocusedTopVideos(false);
     }
   };
 
@@ -711,7 +1024,7 @@ export default function CompetitorIntel() {
   const refreshFocusedCompetitorDetail = async (competitorId: number) => {
     await Promise.all([
       fetchCompetitorPosts(competitorId),
-      fetchTopVideos(competitorId),
+      fetchFocusedTopVideos(competitorId),
       fetchHashtags(competitorId),
     ]);
   };
@@ -719,7 +1032,9 @@ export default function CompetitorIntel() {
   const refreshIntelligenceViews = async () => {
     const nextCompetitors = await fetchCompetitors();
     await Promise.all([
-      fetchFollowerAnalysis(),
+      fetchGlobalAudienceIntel(),
+      fetchInstagramAdvice(),
+      fetchAggregateTopVideos(),
       fetchTopContent(),
       fetchHooks(),
       focusedCompetitor ? refreshFocusedCompetitorDetail(focusedCompetitor.id) : Promise.resolve(),
@@ -756,18 +1071,26 @@ export default function CompetitorIntel() {
   // Fetch all counts on mount so tab badges are accurate
   useEffect(() => {
     fetchCompetitors();
-    fetchFollowerAnalysis();
-    fetchTopContent();
-    fetchHooks();
+    fetchGlobalAudienceIntel();
+    fetchInstagramAdvice();
+    fetchAggregateTopVideos();
     fetchScripts();
   }, []);
+
+  useEffect(() => {
+    fetchTopContent();
+    fetchHooks();
+    fetchAggregateTopVideos();
+  }, [contentTimeframeDays]);
 
   // Fetch active tab data on tab change
   useEffect(() => {
     switch (activeTab) {
       case "competitors":
         fetchCompetitors();
-        fetchFollowerAnalysis();
+        fetchGlobalAudienceIntel();
+        fetchInstagramAdvice();
+        fetchAggregateTopVideos();
         break;
       case "top-content":
         fetchTopContent();
@@ -777,6 +1100,9 @@ export default function CompetitorIntel() {
         break;
       case "scripts":
         fetchScripts();
+        break;
+      case "profile-intel":
+        fetchInstagramAdvice();
         break;
     }
   }, [activeTab]);
@@ -1069,11 +1395,11 @@ export default function CompetitorIntel() {
   const focusOnCompetitor = (comp: Competitor) => {
     setFocusedCompetitor(comp);
     setCompetitorPosts([]);
-    setTopVideos([]);
+    setFocusedTopVideos([]);
     setHashtags([]);
     setAudienceIntel(null);
     fetchCompetitorPosts(comp.id);
-    fetchTopVideos(comp.id);
+    fetchFocusedTopVideos(comp.id);
     fetchHashtags(comp.id);
   };
 
@@ -1081,7 +1407,7 @@ export default function CompetitorIntel() {
   const unfocusCompetitor = () => {
     setFocusedCompetitor(null);
     setCompetitorPosts([]);
-    setTopVideos([]);
+    setFocusedTopVideos([]);
     setHashtags([]);
   };
 
@@ -1090,9 +1416,29 @@ export default function CompetitorIntel() {
     { id: "top-content" as const, label: "Top Content", icon: TrendingUp, count: topContent.length },
     { id: "hooks" as const, label: "Hooks", icon: Zap, count: hooks.length },
     { id: "scripts" as const, label: "Scripts", icon: BookOpen, count: scripts.length },
+    { id: "profile-intel" as const, label: "Profile Intel", icon: Sparkles },
   ];
 
   const selectedScript = scripts.find((script) => script.id === selectedScriptId) || scripts[0] || null;
+  const selectedTimeframeLabel = CONTENT_TIMEFRAME_OPTIONS.find((option) => option.days === contentTimeframeDays)?.label || `${contentTimeframeDays}d`;
+
+  const renderTimeframeControls = () => (
+    <div className="inline-flex items-center gap-1 rounded-xl border border-warroom-border bg-warroom-surface p-1">
+      {CONTENT_TIMEFRAME_OPTIONS.map((option) => {
+        const active = option.days === contentTimeframeDays;
+        return (
+          <button
+            key={option.days}
+            type="button"
+            onClick={() => setContentTimeframeDays(option.days)}
+            className={`px-3 py-1.5 text-xs rounded-lg transition ${active ? "bg-warroom-accent text-black font-medium" : "text-warroom-muted hover:text-warroom-text hover:bg-warroom-bg"}`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -1138,51 +1484,192 @@ export default function CompetitorIntel() {
                     <h3 className="text-sm font-semibold">Audience Intelligence</h3>
                   </div>
 
-                  {loadingFollowerAnalysis ? (
+                  {loadingGlobalAudienceIntel ? (
                     <div className="flex items-center gap-2 text-sm text-warroom-muted py-4">
                       <Loader2 size={16} className="animate-spin" /> Analyzing audience…
                     </div>
-                  ) : followerAnalysis ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Audience type + engagement style */}
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-1">Audience Type</p>
-                          <p className="text-sm font-medium text-warroom-text">{followerAnalysis.audience_type}</p>
+                  ) : globalAudienceIntel ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                          <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.posts_analyzed}</p>
+                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Posts analyzed</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-1">Engagement Style</p>
-                          <p className="text-sm font-medium text-warroom-text">{followerAnalysis.engagement_style}</p>
+                        <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                          <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.comments_analyzed.toLocaleString()}</p>
+                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Comments</p>
                         </div>
-                        {/* Key interests */}
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-1.5">Key Interests</p>
-                          <ul className="space-y-1">
-                            {followerAnalysis.key_interests.map((interest, i) => (
-                              <li key={i} className="text-xs text-warroom-text flex items-center gap-1.5">
-                                <Sparkles size={12} className="text-warroom-accent flex-shrink-0" />
-                                {interest}
-                              </li>
-                            ))}
-                          </ul>
+                        <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                          <p className={`text-lg font-bold capitalize ${AUDIENCE_SENTIMENT_COLORS[globalAudienceIntel.sentiment] || "text-warroom-text"}`}>
+                            {globalAudienceIntel.sentiment.replace(/_/g, " ")}
+                          </p>
+                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Sentiment</p>
+                        </div>
+                        <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                          <p className="text-lg font-bold text-warroom-accent">{globalAudienceIntel.sentiment_percentages.positive || 0}%</p>
+                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Positive</p>
                         </div>
                       </div>
 
-                      {/* Themes as badges */}
-                      <div>
-                        <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Content Themes</p>
-                        <div className="flex flex-wrap gap-2">
-                          {followerAnalysis.themes.map((theme, i) => (
-                            <span key={i} className="px-2.5 py-1 bg-warroom-accent/10 text-warroom-accent text-xs rounded-full font-medium">
-                              {theme}
-                            </span>
-                          ))}
+                      {Object.keys(globalAudienceIntel.content_formats || {}).length > 0 && (
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Content Formats</p>
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(globalAudienceIntel.content_formats).map(([format, count]) => (
+                              <span key={format} className="px-2.5 py-1 bg-warroom-bg border border-warroom-border text-xs rounded-full text-warroom-text">
+                                {format.replace(/_/g, " ")} <span className="text-warroom-muted">({count})</span>
+                              </span>
+                            ))}
+                          </div>
                         </div>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {globalAudienceIntel.themes.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Discussion Themes</p>
+                            <div className="flex flex-wrap gap-2">
+                              {globalAudienceIntel.themes.slice(0, 12).map((theme, i) => (
+                                <span key={i} className="px-2.5 py-1 bg-warroom-accent/10 text-warroom-accent text-xs rounded-full font-medium">
+                                  {theme.theme} ({theme.count})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {globalAudienceIntel.product_mentions.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Products Mentioned</p>
+                            <div className="flex flex-wrap gap-2">
+                              {globalAudienceIntel.product_mentions.slice(0, 10).map((product, i) => (
+                                <span key={i} className="px-2.5 py-1 bg-purple-400/10 text-purple-400 text-xs rounded-full font-medium">
+                                  {product.product} ({product.count})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {globalAudienceIntel.questions.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Top Questions</p>
+                            <div className="space-y-1.5">
+                              {globalAudienceIntel.questions.slice(0, 4).map((question, i) => (
+                                <div key={i} className="flex items-start gap-2 rounded-lg border border-blue-400/10 bg-blue-400/5 px-3 py-2">
+                                  <Sparkles size={12} className="text-blue-400 flex-shrink-0 mt-0.5" />
+                                  <p className="text-xs text-warroom-text flex-1">{question.question}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {globalAudienceIntel.pain_points.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Pain Points</p>
+                            <div className="space-y-1.5">
+                              {globalAudienceIntel.pain_points.slice(0, 4).map((painPoint, i) => (
+                                <div key={i} className="flex items-start gap-2 rounded-lg border border-red-400/10 bg-red-400/5 px-3 py-2">
+                                  <Sparkles size={12} className="text-red-400 flex-shrink-0 mt-0.5" />
+                                  <p className="text-xs text-warroom-text flex-1">{painPoint.pain}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
                     <p className="text-xs text-warroom-muted py-2">No audience data yet. Refresh competitor data to generate analysis.</p>
                   )}
+                </div>
+              )}
+
+              {!focusedCompetitor && (
+                <div>
+                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Film size={18} className="text-pink-400" />
+                        <div>
+                          <h3 className="text-sm font-semibold">Top Competitor Videos</h3>
+                          <p className="text-xs text-warroom-muted">One top video-style post per leading competitor for the selected window.</p>
+                        </div>
+                      </div>
+                      {renderTimeframeControls()}
+                    </div>
+
+                    {loadingAggregateTopVideos ? (
+                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-6">
+                        <Loader2 size={16} className="animate-spin" /> Ranking top competitor videos…
+                      </div>
+                    ) : aggregateTopVideos.length === 0 ? (
+                      <p className="text-xs text-warroom-muted py-4">No competitor videos available for this timeframe yet.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {aggregateTopVideos.map((vid, idx) => (
+                          <div
+                            key={`${vid.competitor_id || idx}-${vid.id || idx}`}
+                            className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
+                            onClick={() => vid.id && setSelectedPostId(vid.id)}
+                          >
+                            <div className="flex items-start justify-between gap-3 mb-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-[10px] uppercase tracking-wider text-warroom-muted">{vid.competitor_handle ? `@${vid.competitor_handle}` : "Competitor"}</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-400">{formatPlatformLabel(vid.platform || "instagram")}</span>
+                                </div>
+                                <p className="text-sm text-warroom-text font-medium line-clamp-2">{vid.title || "Untitled"}</p>
+                              </div>
+                              {(vid.media_type === "reel" || vid.media_type === "video") && <Film size={12} className="text-pink-400 flex-shrink-0" />}
+                            </div>
+
+                            {vid.hook && <p className="text-xs text-warroom-accent mb-2 line-clamp-2">🪝 {vid.hook}</p>}
+
+                            <div className="grid grid-cols-4 gap-2 text-center mb-3">
+                              <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
+                                <p className="text-xs font-semibold text-warroom-text">{formatNum(vid.likes)}</p>
+                                <p className="text-[10px] text-warroom-muted">Likes</p>
+                              </div>
+                              <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
+                                <p className="text-xs font-semibold text-warroom-text">{formatNum(vid.comments)}</p>
+                                <p className="text-[10px] text-warroom-muted">Comments</p>
+                              </div>
+                              <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
+                                <p className="text-xs font-semibold text-warroom-accent">{vid.engagement_score.toFixed(0)}</p>
+                                <p className="text-[10px] text-warroom-muted">Engage</p>
+                              </div>
+                              <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
+                                <p className="text-xs font-semibold text-pink-400">{vid.virality_score.toFixed(0)}</p>
+                                <p className="text-[10px] text-warroom-muted">Virality</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[10px] text-warroom-muted">
+                              <div className="flex items-center gap-2">
+                                {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
+                                {vid.has_transcript && <span className="text-emerald-400">Transcript</span>}
+                              </div>
+                              {vid.post_url && (
+                                <a
+                                  href={vid.post_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-warroom-muted hover:text-warroom-accent transition"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <ExternalLink size={12} />
+                                </a>
+                              )}
+                            </div>
+
+                            <TopVideoInsights video={vid} compact />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1267,17 +1754,17 @@ export default function CompetitorIntel() {
                       <h4 className="text-sm font-semibold">Top Performing Posts</h4>
                     </div>
 
-                    {loadingTopVideos ? (
+                    {loadingFocusedTopVideos ? (
                       <div className="flex items-center gap-2 text-sm text-warroom-muted py-6">
                         <Loader2 size={16} className="animate-spin" /> Loading top posts…
                       </div>
-                    ) : topVideos.length === 0 ? (
+                    ) : focusedTopVideos.length === 0 ? (
                       <p className="text-xs text-warroom-muted py-4">No top posts data available.</p>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {topVideos.map((vid, idx) => (
+                        {focusedTopVideos.map((vid, idx) => (
                           <div
-                            key={idx}
+                            key={vid.id ?? idx}
                             className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
                             onClick={() => vid.id && setSelectedPostId(vid.id)}
                           >
@@ -1304,12 +1791,15 @@ export default function CompetitorIntel() {
                                 {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
                                 {vid.post_url && (
                                   <a href={vid.post_url} target="_blank" rel="noopener noreferrer"
-                                    className="text-warroom-muted hover:text-warroom-accent transition">
+                                    className="text-warroom-muted hover:text-warroom-accent transition"
+                                    onClick={(event) => event.stopPropagation()}>
                                     <ExternalLink size={12} />
                                   </a>
                                 )}
                               </div>
                             </div>
+
+                            <TopVideoInsights video={vid} />
                           </div>
                         ))}
                       </div>
@@ -1861,7 +2351,10 @@ export default function CompetitorIntel() {
           {/* TOP CONTENT TAB */}
           {activeTab === "top-content" && (
             <div className="space-y-4">
-              <p className="text-sm text-warroom-muted">Top-performing posts across all tracked competitors, re-ranked by live virality and engagement on every refresh.</p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-warroom-muted">Top-performing posts across all tracked competitors for the selected {selectedTimeframeLabel.toLowerCase()} window, re-ranked by live virality and engagement on every refresh.</p>
+                {renderTimeframeControls()}
+              </div>
 
               {loading ? (
                 <div className="text-center py-16">
@@ -1877,14 +2370,24 @@ export default function CompetitorIntel() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {topContent.map((post, idx) => (
-                    <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-2xl p-4 hover:border-warroom-accent/30 transition">
+                    <div
+                      key={idx}
+                      className={`bg-warroom-surface border border-warroom-border rounded-2xl p-4 transition ${post.id ? "cursor-pointer hover:border-warroom-accent/30" : ""}`}
+                      onClick={() => post.id && setSelectedPostId(post.id)}
+                    >
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[post.platform] || "bg-gray-500/20 text-gray-400"}`}>{post.platform}</span>
                           <span className="text-xs text-warroom-muted">@{post.competitor_handle}</span>
                         </div>
                         {post.url && (
-                          <a href={post.url} target="_blank" rel="noopener noreferrer" className="text-warroom-muted hover:text-warroom-accent transition">
+                          <a
+                            href={post.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                            className="text-warroom-muted hover:text-warroom-accent transition"
+                          >
                             <ExternalLink size={14} />
                           </a>
                         )}
@@ -1927,7 +2430,10 @@ export default function CompetitorIntel() {
           {/* HOOKS TAB */}
           {activeTab === "hooks" && (
             <div className="space-y-4">
-              <p className="text-sm text-warroom-muted">Opening hook language pulled from the current top-performing competitor posts.</p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-warroom-muted">Opening hook language pulled from the current top-performing competitor posts in the selected {selectedTimeframeLabel.toLowerCase()} window.</p>
+                {renderTimeframeControls()}
+              </div>
 
               {loading ? (
                 <div className="text-center py-16">
@@ -2198,6 +2704,110 @@ export default function CompetitorIntel() {
                         </div>
                       );
                     })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* PROFILE INTEL TAB */}
+          {activeTab === "profile-intel" && (
+            <div className="space-y-6">
+              {loadingInstagramAdvice ? (
+                <div className="text-center py-16">
+                  <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
+                  <p className="text-sm text-warroom-muted">Analyzing your profile…</p>
+                </div>
+              ) : !instagramAdvice || !instagramAdvice.connected ? (
+                <div className="text-center py-16 text-warroom-muted">
+                  <User size={48} className="mx-auto mb-4 opacity-20" />
+                  <p className="text-sm font-medium">Connect your Instagram account</p>
+                  <p className="text-xs mt-1">Once connected and synced, War Room will analyze your profile and give you actionable advice.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Profile header */}
+                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-warroom-accent/10 flex items-center justify-center text-lg font-bold text-warroom-accent">
+                          {(instagramAdvice.username || "?").charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-base font-semibold text-warroom-text">{instagramAdvice.username ? `@${instagramAdvice.username}` : "Your Instagram"}</p>
+                          <p className="text-xs text-warroom-muted">{instagramAdvice.summary}</p>
+                        </div>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider ${instagramAdvice.connected ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+                        {instagramAdvice.status.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                    {instagramAdvice.last_synced && (
+                      <p className="text-[11px] text-warroom-muted">Last synced {timeAgo(instagramAdvice.last_synced)} · {instagramAdvice.days_analyzed} days analyzed</p>
+                    )}
+                  </div>
+
+                  {/* Actionable Intelligence Cards */}
+                  <div>
+                    <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">What to improve</h3>
+                    <div className="space-y-3">
+                      {instagramAdvice.recommendations.length > 0 ? instagramAdvice.recommendations.map((item, idx) => (
+                        <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/20 transition">
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-warroom-accent/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                              <Sparkles size={16} className="text-warroom-accent" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-warroom-text mb-1">{item.title}</p>
+                              <p className="text-sm text-warroom-muted leading-relaxed">{item.detail}</p>
+                              {item.metric && (
+                                <p className="text-xs text-warroom-accent mt-3 px-2.5 py-1 bg-warroom-accent/10 rounded-lg inline-block">{item.metric}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )) : (
+                        <div className="text-center py-10 text-warroom-muted">
+                          <Sparkles size={32} className="mx-auto mb-3 opacity-20" />
+                          <p className="text-sm">Sync your Instagram data to unlock profile intelligence</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick Stats - compact row at bottom */}
+                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                    <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Current metrics snapshot</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.follower_count)}</p>
+                        <p className="text-[10px] text-warroom-muted">Followers</p>
+                      </div>
+                      <div className="text-center">
+                        <p className={`text-lg font-bold ${instagramAdvice.net_followers >= 0 ? "text-emerald-400" : "text-red-400"}`}>{instagramAdvice.net_followers >= 0 ? "+" : ""}{formatNum(instagramAdvice.net_followers)}</p>
+                        <p className="text-[10px] text-warroom-muted">Net followers</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-accent">{formatPercent(instagramAdvice.avg_engagement_rate, 2)}</p>
+                        <p className="text-[10px] text-warroom-muted">Engagement</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_reach)}</p>
+                        <p className="text-[10px] text-warroom-muted">Avg reach</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_video_views)}</p>
+                        <p className="text-[10px] text-warroom-muted">Avg views</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_profile_views)}</p>
+                        <p className="text-[10px] text-warroom-muted">Profile views</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.total_link_clicks)}</p>
+                        <p className="text-[10px] text-warroom-muted">Link clicks</p>
+                      </div>
+                    </div>
                   </div>
                 </>
               )}

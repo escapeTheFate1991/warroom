@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Paperclip,
   Phone,
+  Pencil,
   Save,
   Target,
   User,
@@ -277,6 +278,29 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
     schedule_to: "",
   });
 
+  // Contact inline editing
+  const [isEditingContact, setIsEditingContact] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactEditForm, setContactEditForm] = useState({
+    personName: "",
+    personEmail: "",
+    personPhone: "",
+    orgName: "",
+    orgWebsite: "",
+  });
+
+  // Sync contact edit form when person/org load
+  useEffect(() => {
+    setContactEditForm({
+      personName: person?.name || deal?.person_name || "",
+      personEmail: getPrimaryValue(person?.emails),
+      personPhone: getPrimaryValue(person?.contact_numbers),
+      orgName: organization?.name || deal?.organization_name || "",
+      orgWebsite: normalizeAddress(organization?.address).website || "",
+    });
+    setIsEditingContact(false);
+  }, [person, organization, deal?.person_name, deal?.organization_name]);
+
   const showToast = useCallback((type: ToastState["type"], message: string) => {
     setToast({ type, message });
     window.setTimeout(() => {
@@ -320,6 +344,57 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
       if (!silent) setLoadingDeal(false);
     }
   }, [dealId]);
+
+  const handleSaveContact = useCallback(async () => {
+    if (!deal) return;
+    setSavingContact(true);
+    try {
+      if (person) {
+        const personPayload: Record<string, unknown> = {};
+        if (contactEditForm.personName && contactEditForm.personName !== person.name) {
+          personPayload.name = contactEditForm.personName;
+        }
+        const oldEmail = getPrimaryValue(person.emails);
+        if (contactEditForm.personEmail !== oldEmail && contactEditForm.personEmail !== "—") {
+          personPayload.emails = [{ value: contactEditForm.personEmail, label: "work" }];
+        }
+        const oldPhone = getPrimaryValue(person.contact_numbers);
+        if (contactEditForm.personPhone !== oldPhone && contactEditForm.personPhone !== "—") {
+          personPayload.contact_numbers = [{ value: contactEditForm.personPhone, label: "work" }];
+        }
+        if (Object.keys(personPayload).length > 0) {
+          await authFetch(`${API}/api/crm/persons/${person.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(personPayload),
+          });
+        }
+      }
+      if (organization) {
+        const orgPayload: Record<string, unknown> = {};
+        if (contactEditForm.orgName && contactEditForm.orgName !== organization.name) {
+          orgPayload.name = contactEditForm.orgName;
+        }
+        const oldWebsite = normalizeAddress(organization.address).website || "";
+        if (contactEditForm.orgWebsite !== oldWebsite) {
+          orgPayload.address = { ...normalizeAddress(organization.address), website: contactEditForm.orgWebsite || undefined };
+        }
+        if (Object.keys(orgPayload).length > 0) {
+          await authFetch(`${API}/api/crm/organizations/${organization.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(orgPayload),
+          });
+        }
+      }
+      await loadDealBundle(true);
+      setIsEditingContact(false);
+    } catch (err) {
+      console.error("Failed to save contact:", err);
+    } finally {
+      setSavingContact(false);
+    }
+  }, [deal, person, organization, contactEditForm, loadDealBundle]);
 
   const loadActivities = useCallback(async (silent = false) => {
     if (!silent) setLoadingActivities(true);
@@ -1061,9 +1136,45 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
         <aside className="w-full flex-shrink-0 overflow-y-auto border-l border-warroom-border bg-warroom-surface xl:w-[35%]">
           <div className="space-y-6 p-6">
             <div className={sectionClassName}>
-              <div className="border-b border-warroom-border px-5 py-4">
+              <div className="border-b border-warroom-border px-5 py-4 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-warroom-text">Contacts</h3>
+                <button
+                  onClick={() => {
+                    if (isEditingContact) { handleSaveContact(); }
+                    else { setIsEditingContact(true); }
+                  }}
+                  disabled={savingContact}
+                  className="text-warroom-muted hover:text-warroom-accent transition p-1"
+                  title={isEditingContact ? "Save changes" : "Edit contacts"}
+                >
+                  {savingContact ? <Loader2 size={14} className="animate-spin" /> : isEditingContact ? <Save size={14} /> : <Pencil size={14} />}
+                </button>
               </div>
+              {isEditingContact ? (
+              <div className="space-y-3 p-5 text-sm">
+                <div>
+                  <label className="text-xs uppercase tracking-wide text-warroom-muted">Person Name</label>
+                  <input value={contactEditForm.personName} onChange={(e) => setContactEditForm({ ...contactEditForm, personName: e.target.value })} className="mt-1 w-full bg-warroom-bg border border-warroom-border rounded px-2 py-1.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
+                </div>
+                <div>
+                  <label className="text-xs uppercase tracking-wide text-warroom-muted">Email</label>
+                  <input value={contactEditForm.personEmail === "—" ? "" : contactEditForm.personEmail} onChange={(e) => setContactEditForm({ ...contactEditForm, personEmail: e.target.value })} placeholder="email@example.com" className="mt-1 w-full bg-warroom-bg border border-warroom-border rounded px-2 py-1.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
+                </div>
+                <div>
+                  <label className="text-xs uppercase tracking-wide text-warroom-muted">Phone</label>
+                  <input value={contactEditForm.personPhone === "—" ? "" : contactEditForm.personPhone} onChange={(e) => setContactEditForm({ ...contactEditForm, personPhone: e.target.value })} placeholder="555-1234" className="mt-1 w-full bg-warroom-bg border border-warroom-border rounded px-2 py-1.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
+                </div>
+                <div>
+                  <label className="text-xs uppercase tracking-wide text-warroom-muted">Organization</label>
+                  <input value={contactEditForm.orgName} onChange={(e) => setContactEditForm({ ...contactEditForm, orgName: e.target.value })} className="mt-1 w-full bg-warroom-bg border border-warroom-border rounded px-2 py-1.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
+                </div>
+                <div>
+                  <label className="text-xs uppercase tracking-wide text-warroom-muted">Website</label>
+                  <input value={contactEditForm.orgWebsite} onChange={(e) => setContactEditForm({ ...contactEditForm, orgWebsite: e.target.value })} placeholder="https://..." className="mt-1 w-full bg-warroom-bg border border-warroom-border rounded px-2 py-1.5 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
+                </div>
+                <button onClick={() => setIsEditingContact(false)} className="text-xs text-warroom-muted hover:text-warroom-text transition">Cancel</button>
+              </div>
+              ) : (
               <div className="space-y-4 p-5 text-sm">
                 <div>
                   <div className="text-xs uppercase tracking-wide text-warroom-muted">Person</div>
@@ -1075,6 +1186,7 @@ export default function DealPage({ dealId, onBack }: { dealId: number; onBack: (
                   <div className="flex items-center gap-2"><Building2 size={14} />{organizationName}</div>
                 </div>
               </div>
+              )}
             </div>
 
             <AgentAssignmentCard

@@ -9,7 +9,7 @@ import {
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
   CalendarDays, FileSignature, DollarSign, PhoneCall,
-  BarChart2, PieChart, TrendingUp, UserPlus,
+  BarChart2, PieChart, TrendingUp, UserPlus, Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/navigation/Sidebar";
@@ -51,6 +51,7 @@ const UnifiedPipeline = dynamic(() => import("@/components/crm/UnifiedPipeline")
 const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsPanel"), { loading: PanelLoader });
 const CommunicationsConsole = dynamic(() => import("@/components/communications/CommunicationsConsole"), { loading: PanelLoader });
 const ProfilePage = dynamic(() => import("@/components/profile/ProfilePage"), { loading: PanelLoader });
+const AIStudioPanel = dynamic(() => import("@/components/ai-studio/AIStudioPanel"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -120,6 +121,7 @@ const SECTIONS = [
   {
     label: "TOOLS",
     items: [
+      { id: "ai-studio", label: "AI Studio", icon: Sparkles },
       { id: "workflows", label: "Workflows", icon: Bot },
       { id: "library", label: "Library", icon: BookOpen, children: [
         { id: "library-search", label: "Search", icon: Search },
@@ -139,7 +141,7 @@ type TabId =
   | "kanban" | "leadgen"
   | "pipeline-board" | "organizations" | "crm-contacts"
   | "library-search" | "library-educate"
-  | "workflows"
+  | "ai-studio" | "workflows"
   | "marketing-campaigns" | "marketing-templates"
   | "invoices" | "contracts"
   | "reports-overview" | "reports-revenue" | "reports-sales"
@@ -285,6 +287,7 @@ function WarRoom() {
           {activeTab === "reports-overview" && <ReportsOverview />}
           {activeTab === "reports-revenue" && <ComingSoon title="Revenue Reports" />}
           {activeTab === "reports-sales" && <ComingSoon title="Sales Activity" />}
+          {activeTab === "ai-studio" && <AIStudioPanel />}
           {activeTab === "settings" && <SettingsPanel />}
           {activeTab === "profile" && <ProfilePage />}
         </main>

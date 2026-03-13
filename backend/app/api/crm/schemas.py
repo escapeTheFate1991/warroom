@@ -112,6 +112,8 @@ class OrganizationResponse(BaseSchema):
     id: int
     name: str
     address: Optional[Dict[str, Any]] = None
+    emails: Optional[List[Dict[str, str]]] = None
+    contact_numbers: Optional[List[Dict[str, str]]] = None
     user_id: Optional[int] = None
     leadgen_lead_id: Optional[int] = None
     created_at: datetime
@@ -120,12 +122,16 @@ class OrganizationResponse(BaseSchema):
 class OrganizationCreate(BaseModel):
     name: str
     address: Optional[Dict[str, Any]] = None
+    emails: Optional[List[Dict[str, str]]] = None
+    contact_numbers: Optional[List[Dict[str, str]]] = None
     user_id: Optional[int] = None
     leadgen_lead_id: Optional[int] = None
 
 class OrganizationUpdate(BaseModel):
     name: Optional[str] = None
     address: Optional[Dict[str, Any]] = None
+    emails: Optional[List[Dict[str, str]]] = None
+    contact_numbers: Optional[List[Dict[str, str]]] = None
     user_id: Optional[int] = None
 
 class PersonSearchRequest(BaseModel):

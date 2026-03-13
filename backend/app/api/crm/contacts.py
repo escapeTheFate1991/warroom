@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.crm_db import get_crm_db
 from app.api.agent_assignment_helpers import load_assignment_summaries
+from app.models.crm.activity import Activity, PersonActivity
 from app.models.crm.contact import Person, Organization
 from app.models.crm.deal import Deal
 from app.models.crm.audit import AuditLog
@@ -114,6 +115,64 @@ def _serialize_crm_contact(row: Any, agent_assignments: Optional[List[Any]] = No
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+
+
+def _normalize_person_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(payload)
+    if "emails" in normalized:
+        normalized["email_addresses"] = _normalize_contact_items(normalized.pop("emails"))
+    if "contact_numbers" in normalized:
+        normalized["contact_numbers"] = _normalize_contact_items(normalized["contact_numbers"])
+    return normalized
+
+
+def _normalize_organization_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(payload)
+    if "emails" in normalized:
+        normalized["emails"] = _normalize_contact_items(normalized["emails"])
+    if "contact_numbers" in normalized:
+        normalized["contact_numbers"] = _normalize_contact_items(normalized["contact_numbers"])
+    return normalized
+
+
+def _serialize_person_instance(person: Person) -> Dict[str, Any]:
+    return {
+        "id": person.id,
+        "name": person.name,
+        "emails": _normalize_contact_items(getattr(person, "email_addresses", None)),
+        "contact_numbers": _normalize_contact_items(getattr(person, "contact_numbers", None)) or None,
+        "job_title": person.job_title,
+        "organization_id": person.organization_id,
+        "user_id": person.user_id,
+        "agent_assignments": [],
+        "created_at": person.created_at,
+        "updated_at": person.updated_at,
+    }
+
+
+async def _record_person_contact_correction_activity(
+    db: AsyncSession,
+    person: Person,
+    user_id: Optional[int],
+    changes: Dict[str, Dict[str, List[Dict[str, str]]]],
+):
+    if not changes:
+        return
+
+    changed_fields = ", ".join(field.replace("_", " ") for field in changes.keys())
+    activity = Activity(
+        title="Manual contact info correction",
+        type="note",
+        comment=f"Updated {changed_fields} for {person.name}.",
+        additional={
+            "change_type": "manual_contact_correction",
+            "changes": changes,
+        },
+        user_id=user_id,
+    )
+    db.add(activity)
+    await db.flush()
+    db.add(PersonActivity(person_id=person.id, activity_id=activity.id))
 
 
 async def _serialize_person_rows(db: AsyncSession, rows: List[Any]) -> List[Dict[str, Any]]:
@@ -229,14 +288,24 @@ async def get_person(person_id: int, db: AsyncSession = Depends(get_crm_db)):
 @router.post("/persons", response_model=PersonResponse)
 async def create_person(person_data: PersonCreate, db: AsyncSession = Depends(get_crm_db)):
     """Create a new person."""
-    person = Person(**person_data.model_dump(exclude_unset=True))
+    normalized_payload = _normalize_person_payload(person_data.model_dump(exclude_unset=True))
+    person = Person(**normalized_payload)
     db.add(person)
     await db.commit()
     await db.refresh(person)
+
+    audit_values = {
+        "name": person.name,
+        "emails": _normalize_contact_items(person.email_addresses),
+        "contact_numbers": _normalize_contact_items(person.contact_numbers),
+        "job_title": person.job_title,
+        "organization_id": person.organization_id,
+        "user_id": person.user_id,
+    }
     
     # Log audit
     await log_audit(db, "person", person.id, "created", person_data.user_id, 
-                   new_values=person_data.model_dump())
+                   new_values=audit_values)
     await db.commit()
 
     # Fire workflow triggers (non-blocking)
@@ -245,14 +314,14 @@ async def create_person(person_data: PersonCreate, db: AsyncSession = Depends(ge
         entity_type="person",
         event="created",
         entity_data={
-            **person_data.model_dump(),
+            **audit_values,
             "id": person.id,
             "event": "created",
         },
         entity_id=person.id,
     )
     
-    return person
+    return _serialize_person_instance(person)
 
 
 @router.put("/persons/{person_id}", response_model=PersonResponse)
@@ -266,24 +335,51 @@ async def update_person(person_id: int, person_data: PersonUpdate,
         raise HTTPException(status_code=404, detail="Person not found")
     
     # Store old values for audit
+    old_emails = _normalize_contact_items(person.email_addresses)
+    old_contact_numbers = _normalize_contact_items(person.contact_numbers)
     old_values = {
         "name": person.name,
-        "emails": person.email_addresses,
-        "contact_numbers": person.contact_numbers,
+        "emails": old_emails,
+        "contact_numbers": old_contact_numbers,
         "job_title": person.job_title,
-        "organization_id": person.organization_id
+        "organization_id": person.organization_id,
+        "user_id": person.user_id,
     }
     
     # Update fields
-    update_data = person_data.model_dump(exclude_unset=True)
+    request_data = person_data.model_dump(exclude_unset=True)
+    update_data = _normalize_person_payload(request_data)
+    correction_changes: Dict[str, Dict[str, List[Dict[str, str]]]] = {}
+
+    if "emails" in request_data:
+        new_emails = update_data.get("email_addresses", [])
+        if old_emails != new_emails:
+            correction_changes["emails"] = {"old": old_emails, "new": new_emails}
+
+    if "contact_numbers" in request_data:
+        new_contact_numbers = update_data.get("contact_numbers", [])
+        if old_contact_numbers != new_contact_numbers:
+            correction_changes["contact_numbers"] = {
+                "old": old_contact_numbers,
+                "new": new_contact_numbers,
+            }
+
     for field, value in update_data.items():
         setattr(person, field, value)
+
+    await _record_person_contact_correction_activity(db, person, person_data.user_id, correction_changes)
+
+    audit_update_data = dict(request_data)
+    if "emails" in audit_update_data:
+        audit_update_data["emails"] = _normalize_contact_items(audit_update_data["emails"])
+    if "contact_numbers" in audit_update_data:
+        audit_update_data["contact_numbers"] = _normalize_contact_items(audit_update_data["contact_numbers"])
     
     await db.commit()
     await db.refresh(person)
     
     # Log audit
-    await log_audit(db, "person", person.id, "updated", person_data.user_id, old_values, update_data)
+    await log_audit(db, "person", person.id, "updated", person_data.user_id, old_values, audit_update_data)
     await db.commit()
 
     # Fire workflow triggers (non-blocking)
@@ -292,7 +388,7 @@ async def update_person(person_id: int, person_data: PersonUpdate,
         entity_type="person",
         event="updated",
         entity_data={
-            **update_data,
+            **audit_update_data,
             "id": person.id,
             "old_values": old_values,
             "event": "updated",
@@ -300,7 +396,7 @@ async def update_person(person_id: int, person_data: PersonUpdate,
         entity_id=person.id,
     )
     
-    return person
+    return _serialize_person_instance(person)
 
 
 @router.delete("/persons/{person_id}")
@@ -450,14 +546,15 @@ async def get_organization(org_id: int, db: AsyncSession = Depends(get_crm_db)):
 @router.post("/organizations", response_model=OrganizationResponse)
 async def create_organization(org_data: OrganizationCreate, db: AsyncSession = Depends(get_crm_db)):
     """Create a new organization."""
-    org = Organization(**org_data.model_dump(exclude_unset=True))
+    normalized_payload = _normalize_organization_payload(org_data.model_dump(exclude_unset=True))
+    org = Organization(**normalized_payload)
     db.add(org)
     await db.commit()
     await db.refresh(org)
     
     # Log audit
     await log_audit(db, "organization", org.id, "created", org_data.user_id, 
-                   new_values=org_data.model_dump())
+                   new_values=normalized_payload)
     await db.commit()
     
     return org
@@ -477,11 +574,13 @@ async def update_organization(org_id: int, org_data: OrganizationUpdate,
     old_values = {
         "name": org.name,
         "address": org.address,
-        "user_id": org.user_id
+        "emails": _normalize_contact_items(getattr(org, "emails", None)),
+        "contact_numbers": _normalize_contact_items(getattr(org, "contact_numbers", None)),
+        "user_id": org.user_id,
     }
     
     # Update fields
-    update_data = org_data.model_dump(exclude_unset=True)
+    update_data = _normalize_organization_payload(org_data.model_dump(exclude_unset=True))
     for field, value in update_data.items():
         setattr(org, field, value)
     

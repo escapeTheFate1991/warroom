@@ -10,15 +10,18 @@ from collections import Counter, defaultdict
 import string
 
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.auth import get_current_user
 from app.db.crm_db import get_crm_db
 from app.models.crm.competitor import Competitor
 from app.models.crm.content_script import ContentScript
 from app.models.crm.social import SocialAccount
+from app.models.crm.user import User
 from app.api.scraper import (
     sync_instagram_competitor,
     sync_instagram_competitor_batch,
@@ -114,6 +117,7 @@ class TrendingTopicsResponse(BaseModel):
 
 class TopContentItem(BaseModel):
     """Top performing content item."""
+    id: Optional[int] = None
     text: str
     hook: str
     likes: int
@@ -147,6 +151,72 @@ class HooksResponse(BaseModel):
     """Response for hooks endpoint."""
     hooks: List[HookItem]
     total_hooks: int
+
+
+class AudienceQuestion(BaseModel):
+    question: str
+    likes: int = 0
+
+
+class AudiencePainPoint(BaseModel):
+    pain: str
+    likes: int = 0
+
+
+class AudienceTheme(BaseModel):
+    theme: str
+    count: int = 0
+
+
+class AudienceProductMention(BaseModel):
+    product: str
+    count: int = 0
+
+
+class AudienceCommenter(BaseModel):
+    username: str
+    count: int = 0
+
+
+class AudienceIntelResponse(BaseModel):
+    posts_analyzed: int = 0
+    comments_analyzed: int = 0
+    sentiment: str = "neutral"
+    sentiment_breakdown: Dict[str, int] = Field(default_factory=dict)
+    sentiment_percentages: Dict[str, float] = Field(default_factory=dict)
+    questions: List[AudienceQuestion] = Field(default_factory=list)
+    pain_points: List[AudiencePainPoint] = Field(default_factory=list)
+    themes: List[AudienceTheme] = Field(default_factory=list)
+    product_mentions: List[AudienceProductMention] = Field(default_factory=list)
+    top_commenters: List[AudienceCommenter] = Field(default_factory=list)
+    engagement_quality: Dict[str, int] = Field(default_factory=dict)
+    content_formats: Dict[str, int] = Field(default_factory=dict)
+
+
+class InstagramAdviceItem(BaseModel):
+    title: str
+    detail: str
+    metric: Optional[str] = None
+
+
+class InstagramProfileAdviceResponse(BaseModel):
+    connected: bool = False
+    platform: str = "instagram"
+    username: Optional[str] = None
+    status: str = "not_connected"
+    summary: str = ""
+    follower_count: int = 0
+    following_count: int = 0
+    post_count: int = 0
+    last_synced: Optional[datetime] = None
+    days_analyzed: int = 0
+    avg_engagement_rate: float = 0.0
+    avg_reach: int = 0
+    avg_profile_views: int = 0
+    avg_video_views: int = 0
+    total_link_clicks: int = 0
+    net_followers: int = 0
+    recommendations: List[InstagramAdviceItem] = Field(default_factory=list)
 
 
 class ScriptGenerationRequest(BaseModel):
@@ -1265,6 +1335,7 @@ async def get_top_content(
         top_content = []
         for post in top_posts:
             top_content.append(TopContentItem(
+                id=post.get('id'),
                 text=post.get('post_text', ''),
                 hook=post.get('hook', ''),
                 likes=post.get('likes', 0),
@@ -1749,17 +1820,67 @@ async def delete_script(
 class TopVideoItem(BaseModel):
     """Top-performing video/post for a competitor."""
     id: Optional[int] = None
+    competitor_id: Optional[int] = None
+    competitor_handle: Optional[str] = None
+    platform: Optional[str] = None
     post_url: Optional[str] = None
     title: str
     likes: int = 0
     comments: int = 0
     shares: int = 0
     engagement_score: float = 0.0
+    virality_score: float = 0.0
     posted_at: Optional[datetime] = None
     hook: Optional[str] = None
     media_type: Optional[str] = None
     has_transcript: bool = False
     has_comments: bool = False
+    analysis: "TopVideoAnalysis" = Field(default_factory=lambda: TopVideoAnalysis())
+
+
+class TopVideoSection(BaseModel):
+    """Timed chunk of a top-video analysis."""
+    text: str = ""
+    start: float = 0.0
+    end: float = 0.0
+
+
+class TopVideoStoryboardScene(BaseModel):
+    """Storyboard scene derived from the source video structure."""
+    scene: str
+    direction: str
+    goal: str
+    timing: Optional[str] = None
+
+
+class TopVideoProductionSpec(BaseModel):
+    """Reusable creative spec for future generation workflows."""
+    creative_angle: str = ""
+    pacing_label: str = "unknown"
+    pacing_notes: str = ""
+    scene_pattern: List[str] = Field(default_factory=list)
+    production_notes: List[str] = Field(default_factory=list)
+    cta_strategy: str = ""
+
+
+class TopVideoAnalysis(BaseModel):
+    """Derived structure analysis for a top-performing competitor video."""
+    content_format: Optional[str] = None
+    duration_seconds: float = 0.0
+    structure_score: float = 0.0
+    hook_type: Optional[str] = None
+    hook_strength: float = 0.0
+    cta_type: Optional[str] = None
+    cta_phrase: Optional[str] = None
+    pacing_label: str = "unknown"
+    pacing_reason: str = ""
+    key_points: List[str] = Field(default_factory=list)
+    scene_pattern: List[str] = Field(default_factory=list)
+    hook_window: TopVideoSection = Field(default_factory=TopVideoSection)
+    value_window: TopVideoSection = Field(default_factory=TopVideoSection)
+    cta_window: TopVideoSection = Field(default_factory=TopVideoSection)
+    storyboard: List[TopVideoStoryboardScene] = Field(default_factory=list)
+    production_spec: TopVideoProductionSpec = Field(default_factory=TopVideoProductionSpec)
 
 
 class FollowerAnalysisResponse(BaseModel):
@@ -1770,10 +1891,799 @@ class FollowerAnalysisResponse(BaseModel):
     key_interests: List[str]
 
 
+def _empty_audience_intel_response() -> AudienceIntelResponse:
+    return AudienceIntelResponse(
+        posts_analyzed=0,
+        comments_analyzed=0,
+        sentiment="neutral",
+        sentiment_breakdown={},
+        sentiment_percentages={},
+        questions=[],
+        pain_points=[],
+        themes=[],
+        product_mentions=[],
+        top_commenters=[],
+        engagement_quality={},
+        content_formats={},
+    )
+
+
+def _row_value(row: Any, index: int, key: str) -> Any:
+    if isinstance(row, dict):
+        return row.get(key)
+
+    mapping = getattr(row, "_mapping", None)
+    if mapping is not None and key in mapping:
+        return mapping[key]
+
+    value = getattr(row, key, None)
+    if value is not None:
+        return value
+
+    try:
+        return row[index]
+    except (IndexError, KeyError, TypeError):
+        return None
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _coerce_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _percent_change(current: float, previous: float) -> float:
+    if previous <= 0:
+        return 100.0 if current > 0 else 0.0
+    return ((current - previous) / previous) * 100.0
+
+
+def _build_instagram_profile_advice(
+    account_row: Any,
+    analytics_rows: List[Any],
+) -> InstagramProfileAdviceResponse:
+    username = str(_row_value(account_row, 1, "username") or "") or None
+    follower_count = _coerce_int(_row_value(account_row, 2, "follower_count"))
+    following_count = _coerce_int(_row_value(account_row, 3, "following_count"))
+    post_count = _coerce_int(_row_value(account_row, 4, "post_count"))
+    last_synced = _row_value(account_row, 5, "last_synced")
+
+    if not analytics_rows:
+        return InstagramProfileAdviceResponse(
+            connected=True,
+            username=username,
+            status="needs_sync",
+            summary=(
+                f"@{username or 'your account'} is connected, but there isn't enough synced Instagram analytics yet "
+                "to review your profile. Run a fresh sync and come back for profile-specific advice."
+            ),
+            follower_count=follower_count,
+            following_count=following_count,
+            post_count=post_count,
+            last_synced=last_synced,
+            recommendations=[
+                InstagramAdviceItem(
+                    title="Sync your Instagram analytics",
+                    detail="Pull at least a week of Instagram account analytics so War Room can review your profile performance instead of competitor data.",
+                )
+            ],
+        )
+
+    days_analyzed = len(analytics_rows)
+    avg_engagement_rate = round(
+        sum(_coerce_float(_row_value(row, 3, "engagement_rate")) for row in analytics_rows) / days_analyzed,
+        2,
+    )
+    avg_reach = int(round(sum(_coerce_int(_row_value(row, 2, "reach")) for row in analytics_rows) / days_analyzed))
+    avg_profile_views = int(round(sum(_coerce_int(_row_value(row, 6, "profile_views")) for row in analytics_rows) / days_analyzed))
+    avg_video_views = int(round(sum(_coerce_int(_row_value(row, 12, "video_views")) for row in analytics_rows) / days_analyzed))
+    total_link_clicks = sum(_coerce_int(_row_value(row, 7, "link_clicks")) for row in analytics_rows)
+    total_profile_views = sum(_coerce_int(_row_value(row, 6, "profile_views")) for row in analytics_rows)
+    total_saves = sum(_coerce_int(_row_value(row, 9, "saves")) for row in analytics_rows)
+    total_shares = sum(_coerce_int(_row_value(row, 8, "shares")) for row in analytics_rows)
+    net_followers = sum(
+        _coerce_int(_row_value(row, 4, "followers_gained")) - _coerce_int(_row_value(row, 5, "followers_lost"))
+        for row in analytics_rows
+    )
+
+    recent_rows = analytics_rows[:7]
+    prior_rows = analytics_rows[7:14]
+    recent_avg_engagement = (
+        sum(_coerce_float(_row_value(row, 3, "engagement_rate")) for row in recent_rows) / len(recent_rows)
+        if recent_rows else avg_engagement_rate
+    )
+    prior_avg_engagement = (
+        sum(_coerce_float(_row_value(row, 3, "engagement_rate")) for row in prior_rows) / len(prior_rows)
+        if prior_rows else recent_avg_engagement
+    )
+    engagement_trend = _percent_change(recent_avg_engagement, prior_avg_engagement)
+    profile_ctr = (total_link_clicks / total_profile_views) if total_profile_views > 0 else 0.0
+
+    recommendations: List[InstagramAdviceItem] = []
+
+    # ── Bio & Link Strategy ──
+    if total_profile_views > 0 and profile_ctr < 0.08:
+        recommendations.append(InstagramAdviceItem(
+            title="Rewrite your bio around one clear outcome",
+            detail=(
+                f"You're getting ~{avg_profile_views} profile views/day but only {profile_ctr * 100:.1f}% click your link. "
+                "Your bio should answer one question in under 5 words: 'What do I get by following?' "
+                "Remove filler lines, add a single CTA like 'Free guide ↓' or 'DM me KEYWORD', and make sure your link-in-bio "
+                "landing page matches that exact promise. Pin your best-performing post as proof."
+            ),
+            metric=f"{profile_ctr * 100:.1f}% profile → link click rate",
+        ))
+    elif total_profile_views > 0 and total_link_clicks == 0:
+        recommendations.append(InstagramAdviceItem(
+            title="Add a link and CTA to your bio",
+            detail=(
+                f"You had {total_profile_views} profile views in the last {days_analyzed} days but zero link clicks. "
+                "You're leaving traffic on the table. Add a Linktree or direct link, write a one-line CTA in your bio "
+                "explaining what's behind the link, and mention it in your next 3 posts."
+            ),
+            metric="0 link clicks",
+        ))
+
+    # ── Follower Growth Diagnosis ──
+    if net_followers < -5:
+        recent_lost = sum(_coerce_int(_row_value(row, 5, "followers_lost")) for row in recent_rows)
+        recommendations.append(InstagramAdviceItem(
+            title="You're losing followers — diagnose the content shift",
+            detail=(
+                f"You lost a net {abs(net_followers)} followers over the last {days_analyzed} days "
+                f"({recent_lost} lost in the last 7 days alone). "
+                "Common causes: posting off-topic content, inconsistent schedule, or a viral post that attracted the wrong audience. "
+                "Review your last 5 posts — if any topic was new or different from your usual niche, that's likely the trigger. "
+                "Double down on your proven topic for the next 7 posts before experimenting again."
+            ),
+            metric=f"{net_followers} net followers ({days_analyzed}d)",
+        ))
+    elif net_followers == 0:
+        recommendations.append(InstagramAdviceItem(
+            title="Break the follower plateau with a content series",
+            detail=(
+                "Your follower count hasn't moved. Single posts don't build follow-worthy profiles — series do. "
+                "Pick your best-performing topic and turn it into a numbered series (Part 1, Part 2…). "
+                "This gives new visitors a reason to follow: they want the next part."
+            ),
+            metric="0 net followers",
+        ))
+
+    # ── Engagement & Content Quality ──
+    if avg_engagement_rate < 2.0:
+        recommendations.append(InstagramAdviceItem(
+            title="Your content isn't stopping the scroll — fix the first frame",
+            detail=(
+                f"At {avg_engagement_rate:.2f}% engagement, most viewers are scrolling past. "
+                "The first 1-2 seconds decide everything. Use bold on-screen text with a surprising claim or question. "
+                "Start talking immediately (no intro), and make the opening visual pattern-interrupt (zoom, movement, face close-up). "
+                "Test rewriting just the hook on your last 3 reels and reposting — same content, different opener."
+            ),
+            metric=f"{avg_engagement_rate:.2f}% engagement rate",
+        ))
+    elif engagement_trend < -15:
+        recommendations.append(InstagramAdviceItem(
+            title="Engagement is dropping — your format may be going stale",
+            detail=(
+                f"Your engagement dropped {abs(engagement_trend):.0f}% compared to the previous week. "
+                "Instagram's algorithm deprioritizes repetitive formats. Try switching between talking head → B-roll → "
+                "screen recording → carousel within the same topic. Keep the subject, change the packaging."
+            ),
+            metric=f"{engagement_trend:.0f}% week-over-week engagement change",
+        ))
+
+    # ── Video Performance ──
+    if avg_video_views > 0 and avg_reach > 0:
+        view_to_reach = avg_video_views / max(avg_reach, 1)
+        if view_to_reach < 0.5:
+            recommendations.append(InstagramAdviceItem(
+                title="Your videos aren't being watched — shorten and front-load value",
+                detail=(
+                    f"You're reaching ~{avg_reach} people/day but only {avg_video_views} watch your videos. "
+                    "That means people see the thumbnail or first frame and skip. "
+                    "Keep reels under 30 seconds, put the payoff in the first 3 seconds, and use captions — "
+                    "most people watch on mute. If your average reel is over 60 seconds, cut it in half."
+                ),
+                metric=f"{view_to_reach * 100:.0f}% view-to-reach ratio",
+            ))
+        elif view_to_reach >= 1.0:
+            recommendations.append(InstagramAdviceItem(
+                title="Your reels are outperforming your reach — scale this format",
+                detail=(
+                    "Your video views exceed your follower reach, meaning Instagram is pushing your reels to non-followers. "
+                    "This is your growth lever. Post reels at least 4x/week in the same format, "
+                    "and add a verbal CTA ('follow for part 2') in the last 2 seconds of each."
+                ),
+                metric=f"{avg_video_views} views vs {avg_reach} reach/day",
+            ))
+
+    # ── Saves & Shares (virality signals) ──
+    if total_saves + total_shares < days_analyzed * 2:
+        recommendations.append(InstagramAdviceItem(
+            title="Make your posts worth saving — add frameworks and checklists",
+            detail=(
+                f"Only {total_saves + total_shares} saves + shares in {days_analyzed} days. "
+                "Saves and shares are the strongest algorithm signals. To earn them, end each post with a "
+                "downloadable-feeling takeaway: a 3-step framework, a before/after comparison, or a 'save this for later' checklist. "
+                "Carousels with actionable slides get 2-3x more saves than single images."
+            ),
+            metric=f"{total_saves + total_shares} saves + shares ({days_analyzed}d)",
+        ))
+
+    # ── Fallback ──
+    if not recommendations:
+        recommendations.append(InstagramAdviceItem(
+            title="Your profile is performing well — test one variable at a time",
+            detail=(
+                "Your metrics look solid. To keep growing, pick one thing to test each week: a new hook style, "
+                "posting time, or CTA format. Track which change moves saves and shares (not just likes). "
+                "Don't change your core topic — just refine the packaging."
+            ),
+            metric=f"{avg_engagement_rate:.2f}% engagement · {net_followers:+d} followers",
+        ))
+
+    trend_label = "up" if engagement_trend > 10 else "down" if engagement_trend < -10 else "steady"
+    growth_label = "growing" if net_followers > 0 else "flat" if net_followers == 0 else "slipping"
+
+    return InstagramProfileAdviceResponse(
+        connected=True,
+        username=username,
+        status="ready",
+        summary=(
+            f"Reviewing only @{username or 'your account'} using the last {days_analyzed} synced Instagram day(s). "
+            f"Engagement is {trend_label} and follower growth is {growth_label}."
+        ),
+        follower_count=follower_count,
+        following_count=following_count,
+        post_count=post_count,
+        last_synced=last_synced,
+        days_analyzed=days_analyzed,
+        avg_engagement_rate=avg_engagement_rate,
+        avg_reach=avg_reach,
+        avg_profile_views=avg_profile_views,
+        avg_video_views=avg_video_views,
+        total_link_clicks=total_link_clicks,
+        net_followers=net_followers,
+        recommendations=recommendations[:4],
+    )
+
+
+def _aggregate_audience_intel_rows(rows: List[Any]) -> AudienceIntelResponse:
+    if not rows:
+        return _empty_audience_intel_response()
+
+    total_analyzed = 0
+    sentiment_totals = {"positive": 0, "negative": 0, "neutral": 0}
+    all_questions: list[Dict[str, Any]] = []
+    all_pain_points: list[Dict[str, Any]] = []
+    all_themes: Counter = Counter()
+    all_products: Counter = Counter()
+    all_commenters: Counter = Counter()
+    total_engagement_quality = {"high": 0, "moderate": 0, "low": 0}
+    format_counts: Counter = Counter()
+
+    for row in rows:
+        comments_data = _row_value(row, 0, "comments_data")
+        content_analysis = _row_value(row, 1, "content_analysis")
+        engagement_score = _row_value(row, 2, "engagement_score")
+
+        data = json.loads(comments_data) if isinstance(comments_data, str) else comments_data
+        if not data:
+            continue
+
+        total_analyzed += data.get("analyzed", 0)
+
+        sentiment_breakdown = data.get("sentiment_breakdown", {})
+        sentiment_totals["positive"] += sentiment_breakdown.get("positive", 0)
+        sentiment_totals["negative"] += sentiment_breakdown.get("negative", 0)
+        sentiment_totals["neutral"] += sentiment_breakdown.get("neutral", 0)
+
+        weighted_engagement = float(engagement_score or 0)
+
+        for question in data.get("questions", []):
+            all_questions.append({
+                "question": question.get("question", ""),
+                "likes": question.get("likes", 0),
+                "weight": weighted_engagement,
+            })
+
+        for pain_point in data.get("pain_points", []):
+            all_pain_points.append({
+                "pain": pain_point.get("pain", ""),
+                "likes": pain_point.get("likes", 0),
+                "weight": weighted_engagement,
+            })
+
+        for theme in data.get("themes", []):
+            theme_name = theme.get("theme")
+            if theme_name:
+                all_themes[theme_name] += theme.get("count", 0)
+
+        for product in data.get("product_mentions", []):
+            product_name = product.get("product")
+            if product_name:
+                all_products[product_name] += product.get("count", 0)
+
+        for commenter in data.get("top_commenters", []):
+            username = commenter.get("username")
+            if username:
+                all_commenters[username] += commenter.get("count", 0)
+
+        engagement_quality = data.get("engagement_quality", "moderate")
+        total_engagement_quality[engagement_quality] = total_engagement_quality.get(engagement_quality, 0) + 1
+
+        analysis = json.loads(content_analysis) if isinstance(content_analysis, str) else content_analysis
+        if analysis:
+            format_name = analysis.get("content_format", "unknown")
+            format_counts[format_name] += 1
+
+    seen_questions = set()
+    unique_questions = []
+    for question in sorted(all_questions, key=lambda item: item["weight"] + item["likes"], reverse=True):
+        question_text = question.get("question", "")
+        question_key = question_text[:50].lower()
+        if question_text and question_key not in seen_questions:
+            seen_questions.add(question_key)
+            unique_questions.append({"question": question_text, "likes": question.get("likes", 0)})
+
+    seen_pain_points = set()
+    unique_pain_points = []
+    for pain_point in sorted(all_pain_points, key=lambda item: item["weight"] + item["likes"], reverse=True):
+        pain_text = pain_point.get("pain", "")
+        pain_key = pain_text[:50].lower()
+        if pain_text and pain_key not in seen_pain_points:
+            seen_pain_points.add(pain_key)
+            unique_pain_points.append({"pain": pain_text, "likes": pain_point.get("likes", 0)})
+
+    total_sentiment = sum(sentiment_totals.values()) or 1
+    positive_pct = sentiment_totals["positive"] / total_sentiment
+    negative_pct = sentiment_totals["negative"] / total_sentiment
+    if positive_pct > 0.6:
+        overall_sentiment = "very_positive"
+    elif positive_pct > 0.4:
+        overall_sentiment = "positive"
+    elif negative_pct > 0.6:
+        overall_sentiment = "very_negative"
+    elif negative_pct > 0.4:
+        overall_sentiment = "negative"
+    else:
+        overall_sentiment = "neutral"
+
+    return AudienceIntelResponse(
+        posts_analyzed=len(rows),
+        comments_analyzed=total_analyzed,
+        sentiment=overall_sentiment,
+        sentiment_breakdown=sentiment_totals,
+        sentiment_percentages={
+            "positive": round(positive_pct * 100, 1),
+            "negative": round(negative_pct * 100, 1),
+            "neutral": round((1 - positive_pct - negative_pct) * 100, 1),
+        },
+        questions=[AudienceQuestion(**item) for item in unique_questions[:15]],
+        pain_points=[AudiencePainPoint(**item) for item in unique_pain_points[:15]],
+        themes=[AudienceTheme(theme=theme, count=count) for theme, count in all_themes.most_common(20)],
+        product_mentions=[AudienceProductMention(product=product, count=count) for product, count in all_products.most_common(15)],
+        top_commenters=[AudienceCommenter(username=username, count=count) for username, count in all_commenters.most_common(15)],
+        engagement_quality=total_engagement_quality,
+        content_formats=dict(format_counts),
+    )
+
+
+@router.get("/competitors/audience-intel", response_model=AudienceIntelResponse)
+async def get_global_audience_intel(
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Aggregate audience intelligence across all tracked competitor posts."""
+    try:
+        result = await db.execute(
+            text("""
+                SELECT comments_data, content_analysis, engagement_score
+                FROM crm.competitor_posts
+                WHERE comments_data IS NOT NULL
+                  AND (comments_data->>'analyzed')::int > 0
+                ORDER BY engagement_score DESC
+            """)
+        )
+        return _aggregate_audience_intel_rows(result.fetchall())
+    except Exception as e:
+        logger.error("Failed to aggregate global audience intelligence: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to aggregate audience intelligence")
+
+
 class HashtagItem(BaseModel):
     """A hashtag with its frequency count."""
     tag: str
     count: int
+
+
+def _is_video_like_post(post: Dict[str, Any]) -> bool:
+    media_type = str(post.get("media_type") or "").strip().lower()
+    if media_type in {"video", "reel", "igtv", "short", "shorts"}:
+        return True
+    if post.get("transcript"):
+        return True
+    return _coerce_int(post.get("video_views")) > 0
+
+
+def _json_dict(value: Any) -> Dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _humanize_token(token: Any) -> str:
+    text_value = str(token or "").replace("_", " ").strip()
+    return text_value.title() if text_value else ""
+
+
+def _clip_text(text_value: Any, limit: int = 180) -> str:
+    text_value = str(text_value or "").strip()
+    if len(text_value) <= limit:
+        return text_value
+    return text_value[: max(limit - 1, 0)].rstrip() + "…"
+
+
+def _extract_caption_key_points(text_value: Any, limit: int = 3) -> List[str]:
+    text_value = str(text_value or "").strip()
+    if not text_value:
+        return []
+
+    seen: set[str] = set()
+    points: List[str] = []
+    for sentence in re.split(r"[.!?\n]+", text_value):
+        sentence = sentence.strip(" -•\t")
+        if len(sentence) < 15:
+            continue
+        key = sentence.lower()[:80]
+        if key in seen:
+            continue
+        seen.add(key)
+        points.append(_clip_text(sentence, 180))
+        if len(points) >= limit:
+            break
+    return points
+
+
+def _estimate_video_duration_seconds(post: Dict[str, Any], analysis: Dict[str, Any]) -> float:
+    explicit_duration = _coerce_float(analysis.get("total_duration"))
+    if explicit_duration > 0:
+        return round(explicit_duration, 1)
+
+    full_script = str(analysis.get("full_script") or post.get("post_text") or _post_hook(post) or "").strip()
+    word_count = len(full_script.split())
+    if word_count <= 0:
+        return 0.0
+
+    estimated = min(max(word_count * 0.45, 12.0), 90.0)
+    return round(estimated, 1)
+
+
+def _window_from_payload(payload: Dict[str, Any], default_text: str, default_start: float, default_end: float) -> TopVideoSection:
+    start = round(_coerce_float(payload.get("start", default_start)), 1)
+    end = round(max(_coerce_float(payload.get("end", default_end)), start), 1)
+    return TopVideoSection(
+        text=_clip_text(payload.get("text") or default_text, 240),
+        start=start,
+        end=end,
+    )
+
+
+def _format_storyboard_timing(start: float, end: float) -> Optional[str]:
+    if end <= 0 and start <= 0:
+        return None
+    return f"{round(start, 1):.1f}s-{round(max(end, start), 1):.1f}s"
+
+
+def _derive_pacing(duration_seconds: float, beat_count: int, structure_score: float, content_format: str) -> Tuple[str, str]:
+    if duration_seconds <= 0:
+        return "unknown", "Precise pacing needs transcript timing or richer post analysis."
+
+    if content_format == "text_overlay" or duration_seconds < 15:
+        return "rapid", f"A {duration_seconds:.0f}s clip that lands the payoff almost immediately."
+
+    if beat_count >= 5 and duration_seconds <= 45:
+        return "fast", f"Roughly {beat_count} beats are compressed into {duration_seconds:.0f}s, so the edit cadence stays quick."
+
+    if structure_score >= 0.75 and duration_seconds <= 90:
+        return "balanced", "Clear hook-to-value-to-CTA sequencing with enough space for each beat to land."
+
+    return "deliberate", "Longer runtime gives each section more breathing room than a fast-cut short-form reel."
+
+
+def _storyboard_scene(scene: str, direction: str, goal: str, start: float, end: float) -> TopVideoStoryboardScene:
+    return TopVideoStoryboardScene(
+        scene=scene,
+        direction=_clip_text(direction, 220),
+        goal=goal,
+        timing=_format_storyboard_timing(start, end),
+    )
+
+
+def _build_top_video_analysis(post: Dict[str, Any]) -> TopVideoAnalysis:
+    analysis = _json_dict(post.get("content_analysis"))
+    duration_seconds = _estimate_video_duration_seconds(post, analysis)
+
+    raw_hook = _json_dict(analysis.get("hook"))
+    raw_value = _json_dict(analysis.get("value"))
+    raw_cta = _json_dict(analysis.get("cta"))
+
+    hook_text = str(raw_hook.get("text") or _post_hook(post) or "").strip()
+    hook_end = _coerce_float(raw_hook.get("end")) or min(duration_seconds or 3.0, 3.0)
+    hook_window = _window_from_payload(raw_hook, hook_text, 0.0, hook_end)
+
+    value_text = str(raw_value.get("text") or post.get("post_text") or "").strip()
+    value_start_default = hook_window.end if hook_window.end > 0 else 0.0
+    value_end_default = max(duration_seconds - min(5.0, duration_seconds * 0.2), value_start_default)
+    value_window = _window_from_payload(raw_value, value_text, value_start_default, value_end_default)
+
+    cta_text = str(raw_cta.get("text") or "").strip()
+    cta_start_default = max(duration_seconds - min(5.0, duration_seconds * 0.2), value_window.end)
+    cta_window = _window_from_payload(raw_cta, cta_text, cta_start_default, duration_seconds)
+
+    duration_seconds = max(duration_seconds, hook_window.end, value_window.end, cta_window.end)
+    if duration_seconds > 0:
+        duration_seconds = round(duration_seconds, 1)
+
+    key_points = [
+        _clip_text(point, 180)
+        for point in raw_value.get("key_points", [])
+        if str(point or "").strip()
+    ]
+    if not key_points:
+        key_points = _extract_caption_key_points(value_window.text)
+
+    content_format = str(analysis.get("content_format") or "").strip().lower()
+    if not content_format:
+        media_type = str(post.get("media_type") or "").strip().lower()
+        content_format = "short_form" if media_type in {"reel", "video", "igtv", "short", "shorts"} else media_type or "unknown"
+
+    hook_type = str(raw_hook.get("type") or ("statement" if hook_window.text else "none"))
+    cta_type = str(raw_cta.get("type") or ("soft" if cta_window.text else "none"))
+    cta_phrase = str(raw_cta.get("phrase") or "").strip() or None
+    structure_score = round(_coerce_float(analysis.get("structure_score")), 2)
+    hook_strength = round(_coerce_float(raw_hook.get("strength")), 2)
+
+    scene_pattern: List[str] = []
+    if hook_window.text:
+        scene_pattern.append(f"{_humanize_token(hook_type) or 'Opening'} hook")
+    if content_format == "text_overlay":
+        scene_pattern.append("Text-overlay payoff")
+    if key_points:
+        scene_pattern.append(f"{len(key_points)}-beat value stack")
+    elif value_window.text:
+        scene_pattern.append("Single value explanation")
+    if cta_type != "none":
+        scene_pattern.append(f"{_humanize_token(cta_type) or 'Closing'} CTA")
+    elif cta_window.text:
+        scene_pattern.append("Soft CTA")
+    if not scene_pattern:
+        scene_pattern = ["Hook", "Value", "Close"]
+
+    beat_count = (1 if hook_window.text else 0) + max(len(key_points), 1 if value_window.text else 0) + (1 if cta_type != "none" or cta_window.text else 0)
+    pacing_label, pacing_reason = _derive_pacing(duration_seconds, beat_count, structure_score, content_format)
+
+    storyboard: List[TopVideoStoryboardScene] = []
+    if hook_window.text:
+        storyboard.append(_storyboard_scene(
+            "Hook",
+            hook_window.text,
+            f"Pattern interrupt with a {_humanize_token(hook_type).lower() or 'strong'} opening.",
+            hook_window.start,
+            hook_window.end,
+        ))
+
+    if key_points:
+        span = max(value_window.end - value_window.start, 0.0)
+        chunk = span / len(key_points) if span > 0 else 0.0
+        for index, point in enumerate(key_points, start=1):
+            scene_start = value_window.start + (chunk * (index - 1)) if chunk else value_window.start
+            scene_end = value_window.start + (chunk * index) if chunk else value_window.end
+            storyboard.append(_storyboard_scene(
+                f"Value beat {index}",
+                point,
+                "Deliver a concrete lesson, example, or demonstration before moving to the next point.",
+                scene_start,
+                scene_end,
+            ))
+    elif value_window.text:
+        storyboard.append(_storyboard_scene(
+            "Value",
+            value_window.text,
+            "Deliver the core teaching, proof, or demo segment.",
+            value_window.start,
+            value_window.end,
+        ))
+
+    if cta_type != "none" or cta_window.text:
+        storyboard.append(_storyboard_scene(
+            "CTA",
+            cta_phrase or cta_window.text or "Restate the payoff and invite the next action.",
+            "Convert attention into a reply, click, save, share, or follow.",
+            cta_window.start,
+            cta_window.end,
+        ))
+
+    production_notes = [
+        f"Edit for a {_humanize_token(content_format).lower() or 'short-form'} delivery pattern.",
+        f"Use a {pacing_label} cadence so each beat lands without dead air.",
+    ]
+    if key_points:
+        production_notes.append(f"Give each of the {len(key_points)} value beat(s) a distinct visual, caption, or proof point.")
+    if post.get("transcript"):
+        production_notes.append("Transcript timing is available, so these windows can be used as a storyboard baseline.")
+    else:
+        production_notes.append("Transcript timing is estimated from captions, so refine the beats after a fresh sync/transcription pass.")
+
+    if _coerce_float(post.get("virality_score") or _post_virality_score(post)) >= 70:
+        production_notes.append("The performance signals suggest this angle is already earning broad distribution, so preserve the opening premise.")
+
+    cta_strategy = (
+        f"Close with a {_humanize_token(cta_type).lower()} CTA using '{cta_phrase}' as the anchor phrase."
+        if cta_phrase and cta_type != "none"
+        else f"Close with a {_humanize_token(cta_type).lower()} CTA that restates the promised payoff."
+        if cta_type != "none"
+        else "Restate the promised outcome, then ask for the lowest-friction next step (reply, save, share, or follow)."
+    )
+
+    creative_angle = _clip_text(hook_window.text or value_window.text or post.get("post_text") or "", 180)
+
+    return TopVideoAnalysis(
+        content_format=content_format,
+        duration_seconds=duration_seconds,
+        structure_score=structure_score,
+        hook_type=hook_type,
+        hook_strength=hook_strength,
+        cta_type=cta_type,
+        cta_phrase=cta_phrase,
+        pacing_label=pacing_label,
+        pacing_reason=pacing_reason,
+        key_points=key_points,
+        scene_pattern=scene_pattern,
+        hook_window=hook_window,
+        value_window=value_window,
+        cta_window=cta_window,
+        storyboard=storyboard,
+        production_spec=TopVideoProductionSpec(
+            creative_angle=creative_angle,
+            pacing_label=pacing_label,
+            pacing_notes=pacing_reason,
+            scene_pattern=scene_pattern,
+            production_notes=production_notes[:5],
+            cta_strategy=cta_strategy,
+        ),
+    )
+
+
+def _top_video_item_from_post(post: Dict[str, Any]) -> TopVideoItem:
+    return TopVideoItem(
+        id=post.get("id"),
+        competitor_id=post.get("competitor_id"),
+        competitor_handle=post.get("handle"),
+        platform=post.get("platform"),
+        post_url=post.get("post_url", ""),
+        title=((post.get("post_text") or _post_hook(post) or "Untitled")[:100]).strip(),
+        likes=_coerce_int(post.get("likes")),
+        comments=_coerce_int(post.get("comments")),
+        shares=_coerce_int(post.get("shares")),
+        engagement_score=round(_post_engagement_score(post), 1),
+        virality_score=round(_post_virality_score(post), 1),
+        posted_at=post.get("posted_at"),
+        hook=_post_hook(post) or None,
+        media_type=post.get("media_type"),
+        has_transcript=bool(post.get("transcript")),
+        has_comments=bool(post.get("comments_data")),
+        analysis=_build_top_video_analysis(post),
+    )
+
+
+@router.get("/instagram/account-advice", response_model=InstagramProfileAdviceResponse)
+async def get_instagram_account_advice(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Review only the authenticated user's connected Instagram account."""
+    try:
+        account_result = await db.execute(
+            text("""
+                SELECT id, username, follower_count, following_count, post_count, last_synced, status
+                FROM crm.social_accounts
+                WHERE user_id = :user_id
+                  AND lower(platform) = 'instagram'
+                ORDER BY COALESCE(last_synced, connected_at) DESC NULLS LAST, id DESC
+                LIMIT 1
+            """),
+            {"user_id": user.id},
+        )
+        account_row = account_result.mappings().first()
+
+        if not account_row:
+            return InstagramProfileAdviceResponse(
+                connected=False,
+                status="not_connected",
+                summary="Connect your Instagram account to get profile-specific advice for your own profile.",
+                recommendations=[
+                    InstagramAdviceItem(
+                        title="Connect your Instagram account",
+                        detail="Once your account is connected and synced, War Room will review only your Instagram profile instead of competitor accounts.",
+                    )
+                ],
+            )
+
+        analytics_result = await db.execute(
+            text("""
+                SELECT metric_date, impressions, reach, engagement_rate, followers_gained, followers_lost,
+                       profile_views, link_clicks, shares, saves, comments, likes, video_views
+                FROM crm.social_analytics
+                WHERE account_id = :account_id
+                ORDER BY metric_date DESC
+                LIMIT 30
+            """),
+            {"account_id": _row_value(account_row, 0, "id")},
+        )
+        analytics_rows = analytics_result.fetchall()
+        return _build_instagram_profile_advice(account_row, analytics_rows)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to build Instagram account advice for user %s: %s", user.id, e)
+        raise HTTPException(status_code=500, detail="Failed to review Instagram account")
+
+
+@router.get("/competitors/top-videos", response_model=List[TopVideoItem])
+async def get_top_competitor_videos(
+    days: int = 30,
+    limit: int = 5,
+    db: AsyncSession = Depends(get_crm_db),
+):
+    """Return one top video-like post per leading Instagram competitor."""
+    try:
+        result = await db.execute(
+            select(Competitor).where(Competitor.platform == "instagram")
+        )
+        competitors = sorted(
+            result.scalars().all(),
+            key=lambda comp: (
+                getattr(comp, "followers", 0) or 0,
+                _coerce_float(getattr(comp, "avg_engagement_rate", 0)),
+            ),
+            reverse=True,
+        )
+
+        top_videos: List[TopVideoItem] = []
+        for competitor in competitors[: max(limit * 3, limit)]:
+            cached_posts, _ = await _ensure_competitor_cached_posts(db, competitor, days=days)
+            video_posts = [post for post in cached_posts if _is_video_like_post(post)]
+            if not video_posts:
+                continue
+
+            best_post = _sorted_posts_for_analysis(video_posts)[0]
+            top_videos.append(_top_video_item_from_post(best_post))
+            if len(top_videos) >= limit:
+                break
+
+        return sorted(
+            top_videos,
+            key=lambda item: (item.virality_score, item.engagement_score),
+            reverse=True,
+        )[:limit]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get aggregate top competitor videos: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get top competitor videos")
 
 
 @router.get("/competitors/{competitor_id}/top-videos", response_model=List[TopVideoItem])
@@ -1791,28 +2701,11 @@ async def get_competitor_top_videos(
             days=None,
         )
 
-        return [
-            TopVideoItem(
-                id=post.get("id"),
-                post_url=post.get("post_url", ""),
-                title=(post.get("post_text") or "")[:100],
-                likes=post.get("likes", 0) or 0,
-                comments=post.get("comments", 0) or 0,
-                shares=post.get("shares", 0) or 0,
-                engagement_score=calculate_competitor_engagement_score(
-                    post.get("likes", 0),
-                    post.get("comments", 0),
-                    post.get("shares", 0),
-                    platform=post.get("platform"),
-                ),
-                posted_at=post.get("posted_at"),
-                hook=post.get("hook"),
-                media_type=post.get("media_type"),
-                has_transcript=bool(post.get("transcript")),
-                has_comments=bool(post.get("comments_data")),
-            )
-            for post in cached_posts[:limit]
-        ]
+        ranked_posts = [post for post in cached_posts if _is_video_like_post(post)]
+        if not ranked_posts:
+            ranked_posts = cached_posts
+
+        return [_top_video_item_from_post(post) for post in _sorted_posts_for_analysis(ranked_posts)[:limit]]
     except HTTPException:
         raise
     except Exception as e:
@@ -1948,7 +2841,7 @@ async def get_competitor_hashtags(
         raise HTTPException(status_code=500, detail="Failed to get hashtags")
 
 
-@router.get("/competitors/{competitor_id}/audience-intel")
+@router.get("/competitors/{competitor_id}/audience-intel", response_model=AudienceIntelResponse)
 async def get_aggregated_audience_intel(
     competitor_id: int,
     db: AsyncSession = Depends(get_crm_db),
@@ -1976,125 +2869,7 @@ async def get_aggregated_audience_intel(
             """),
             {"cid": competitor_id},
         )
-        rows = result.fetchall()
-        
-        if not rows:
-            return {"posts_analyzed": 0, "comments_analyzed": 0, "sentiment": "neutral", "sentiment_breakdown": {}, "sentiment_percentages": {}, "questions": [], "pain_points": [], "themes": [], "product_mentions": [], "top_commenters": [], "engagement_quality": {}, "content_formats": {}}
-        
-        # Aggregate across all posts
-        total_analyzed = 0
-        sentiment_totals = {"positive": 0, "negative": 0, "neutral": 0}
-        all_questions: list = []
-        all_pain_points: list = []
-        all_themes: Counter = Counter()
-        all_products: Counter = Counter()
-        all_commenters: Counter = Counter()
-        total_engagement_quality = {"high": 0, "moderate": 0, "low": 0}
-        format_counts: Counter = Counter()
-        
-        for row in rows:
-            data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
-            if not data:
-                continue
-            
-            total_analyzed += data.get("analyzed", 0)
-            
-            # Sentiment
-            sb = data.get("sentiment_breakdown", {})
-            sentiment_totals["positive"] += sb.get("positive", 0)
-            sentiment_totals["negative"] += sb.get("negative", 0)
-            sentiment_totals["neutral"] += sb.get("neutral", 0)
-            
-            # Questions — weight by post engagement
-            eng_score = float(row[2] or 0)
-            for q in data.get("questions", []):
-                all_questions.append({
-                    "question": q["question"],
-                    "likes": q.get("likes", 0),
-                    "weight": eng_score,
-                })
-            
-            # Pain points
-            for p in data.get("pain_points", []):
-                all_pain_points.append({
-                    "pain": p["pain"],
-                    "likes": p.get("likes", 0),
-                    "weight": eng_score,
-                })
-            
-            # Themes
-            for t in data.get("themes", []):
-                all_themes[t["theme"]] += t["count"]
-            
-            # Products
-            for p in data.get("product_mentions", []):
-                all_products[p["product"]] += p["count"]
-            
-            # Top commenters
-            for c in data.get("top_commenters", []):
-                all_commenters[c["username"]] += c["count"]
-            
-            # Engagement quality
-            eq = data.get("engagement_quality", "moderate")
-            total_engagement_quality[eq] = total_engagement_quality.get(eq, 0) + 1
-            
-            # Content format from analysis
-            ca = json.loads(row[1]) if isinstance(row[1], str) else row[1]
-            if ca:
-                fmt = ca.get("content_format", "unknown")
-                format_counts[fmt] += 1
-        
-        # Deduplicate questions by text similarity
-        seen_q = set()
-        unique_questions = []
-        for q in sorted(all_questions, key=lambda x: x["weight"] + x["likes"], reverse=True):
-            q_key = q["question"][:50].lower()
-            if q_key not in seen_q:
-                seen_q.add(q_key)
-                unique_questions.append({"question": q["question"], "likes": q["likes"]})
-        
-        # Deduplicate pain points
-        seen_p = set()
-        unique_pain_points = []
-        for p in sorted(all_pain_points, key=lambda x: x["weight"] + x["likes"], reverse=True):
-            p_key = p["pain"][:50].lower()
-            if p_key not in seen_p:
-                seen_p.add(p_key)
-                unique_pain_points.append({"pain": p["pain"], "likes": p["likes"]})
-        
-        # Overall sentiment
-        total_sent = sum(sentiment_totals.values()) or 1
-        pos_pct = sentiment_totals["positive"] / total_sent
-        neg_pct = sentiment_totals["negative"] / total_sent
-        if pos_pct > 0.6:
-            overall_sentiment = "very_positive"
-        elif pos_pct > 0.4:
-            overall_sentiment = "positive"
-        elif neg_pct > 0.4:
-            overall_sentiment = "negative"
-        elif neg_pct > 0.6:
-            overall_sentiment = "very_negative"
-        else:
-            overall_sentiment = "neutral"
-        
-        return {
-            "posts_analyzed": len(rows),
-            "comments_analyzed": total_analyzed,
-            "sentiment": overall_sentiment,
-            "sentiment_breakdown": sentiment_totals,
-            "sentiment_percentages": {
-                "positive": round(pos_pct * 100, 1),
-                "negative": round(neg_pct * 100, 1),
-                "neutral": round((1 - pos_pct - neg_pct) * 100, 1),
-            },
-            "questions": unique_questions[:15],
-            "pain_points": unique_pain_points[:15],
-            "themes": [{"theme": t, "count": c} for t, c in all_themes.most_common(20)],
-            "product_mentions": [{"product": p, "count": c} for p, c in all_products.most_common(15)],
-            "top_commenters": [{"username": u, "count": c} for u, c in all_commenters.most_common(15)],
-            "engagement_quality": total_engagement_quality,
-            "content_formats": dict(format_counts),
-        }
+        return _aggregate_audience_intel_rows(result.fetchall())
     
     except Exception as e:
         logger.error("Failed to aggregate audience intel for competitor %s: %s", competitor_id, e)
@@ -2159,44 +2934,45 @@ async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_
     # Fallback: v1 rule-based (for when index hasn't been built yet)
     try:
         result = await db.execute(
-            select(Competitor).where(Competitor.platform == "instagram")
+            select(Competitor).where(Competitor.platform == platform)
         )
         competitors = result.scalars().all()
 
         if not competitors:
             return {"recommendations": [], "message": "No competitors found. Add competitors first."}
 
-        all_posts = []
-        for comp in competitors:
-            posts = await load_cached_posts(db, comp.id, limit=20)
-            for p in posts:
-                p["competitor_handle"] = comp.handle
-                p["competitor_id"] = comp.id
-            all_posts.extend(posts)
+        all_posts = await load_cached_posts(db, platform=platform, days=45)
 
         if not all_posts:
             return {"recommendations": [], "message": "No competitor content cached. Sync competitors first."}
 
         ranked = _sorted_posts_for_analysis(all_posts)[:30]
-        candidate_topics = _collect_candidate_topics(ranked, topic)
-        business = await _get_business_settings(db)
+        trending_topics = await analyze_trending_topics(ranked, enable_clustering=False)
+        business = await _get_business_settings()
+        source_handles = list(dict.fromkeys(
+            post.get("handle", "unknown") for post in ranked if post.get("handle")
+        ))
+        combined_handle = ", ".join(source_handles[:5]) or "all competitors"
 
-        scripts = []
-        for i, post in enumerate(ranked[:count]):
-            t = candidate_topics[i % len(candidate_topics)] if candidate_topics else _derive_topic_label(post)
-            script = generate_script_content(
-                post=post,
-                topic=t,
-                business_settings=business,
-                all_posts=ranked,
-            )
-            scripts.append(script)
+        scripts = build_competitor_script_ideas(
+            competitor_handle=combined_handle,
+            platform=platform,
+            posts=ranked,
+            business_settings=business,
+            count=count,
+            requested_topic=topic,
+            trending_topics=[t.topic for t in trending_topics],
+        )
+
+        for script in scripts:
+            if not script.source_competitors or script.source_competitors == [combined_handle]:
+                script.source_competitors = source_handles[:8]
 
         return {
-            "recommendations": scripts,
+            "recommendations": jsonable_encoder(scripts),
             "competitors_analyzed": len(competitors),
             "posts_analyzed": len(all_posts),
-            "top_topics": candidate_topics[:5],
+            "top_topics": [topic.topic for topic in trending_topics[:5]],
             "engine": "v1_fallback",
             "message": "Using rule-based engine. Run POST /index-content to enable v2 embedding-based recommendations.",
         }

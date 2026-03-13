@@ -419,6 +419,7 @@ export default function UnifiedPipeline() {
             setSelectedDeal(null);
             setGateModal({ deal, fromStage, toStage });
           }}
+          onEditDeal={(dealId) => setSelectedDealId(dealId)}
         />
       )}
 

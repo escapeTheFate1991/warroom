@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS crm.organizations (
     id SERIAL PRIMARY KEY,
     name TEXT UNIQUE NOT NULL,
     address JSONB,
+    emails JSONB DEFAULT '[]'::jsonb,
+    contact_numbers JSONB DEFAULT '[]'::jsonb,
     user_id INTEGER REFERENCES crm.users(id) ON DELETE SET NULL,
     -- Link to leadgen business if originated from lead gen
     leadgen_lead_id INTEGER,

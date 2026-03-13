@@ -31,6 +31,23 @@ async def _competitor_sync_job():
         logger.error("Scheduled competitor sync failed: %s", e)
 
 
+async def _social_sync_job():
+    """Sync all connected social accounts. Called by the scheduler."""
+    from app.db.crm_db import crm_session
+    from app.api.social_sync import sync_all
+
+    logger.info("Scheduled social sync starting")
+    try:
+        async with crm_session() as db:
+            result = await sync_all(db)
+            logger.info(
+                "Scheduled social sync complete: %d account results",
+                len(result.get("results", [])),
+            )
+    except Exception as e:
+        logger.error("Scheduled social sync failed: %s", e)
+
+
 async def _audience_refresh_job():
     """Re-run audience intelligence analysis after sync."""
     logger.info("Scheduled audience refresh — placeholder for future implementation")
@@ -87,9 +104,17 @@ async def start_scheduler():
     afternoon = asyncio.create_task(
         _daily_loop("competitor-sync-pm", _competitor_sync_job, 16, 20)
     )
+    social_morning = asyncio.create_task(
+        _daily_loop("social-sync-am", _social_sync_job, 8, 12)
+    )
+    social_afternoon = asyncio.create_task(
+        _daily_loop("social-sync-pm", _social_sync_job, 13, 17)
+    )
 
-    _running_tasks.extend([morning, afternoon])
-    logger.info("Scheduler started: 2 competitor sync jobs (AM 6-10, PM 4-8 EST)")
+    _running_tasks.extend([morning, afternoon, social_morning, social_afternoon])
+    logger.info(
+        "Scheduler started: competitor sync jobs (AM 6-10, PM 4-8 EST) and social sync jobs (AM 8-12, PM 1-5 EST)"
+    )
 
 
 async def stop_scheduler():

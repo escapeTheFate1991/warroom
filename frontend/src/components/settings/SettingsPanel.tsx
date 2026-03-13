@@ -44,7 +44,7 @@ const CATEGORY_META: Record<string, { label: string; icon: typeof Key; descripti
 const API_KEY_GROUPS: Record<string, { label: string; keys: string[] }> = {
   google: {
     label: "Google",
-    keys: ["google_maps_api_key", "google_oauth_client_id", "google_oauth_client_secret"],
+    keys: ["google_maps_api_key", "google_oauth_client_id", "google_oauth_client_secret", "google_ai_studio_api_key"],
   },
   meta: {
     label: "Meta (Facebook / Instagram / Threads)",
@@ -68,6 +68,7 @@ const KEY_LABELS: Record<string, string> = {
   google_maps_api_key: "Google Maps API Key",
   google_oauth_client_id: "OAuth Client ID (YouTube + Calendar)",
   google_oauth_client_secret: "OAuth Client Secret (YouTube + Calendar)",
+  google_ai_studio_api_key: "Google AI Studio (Gemini) API Key",
   serp_api_key: "SerpAPI Key",
   openclaw_auth_token: "OpenClaw Auth Token",
   meta_app_id: "App ID",

@@ -29,6 +29,33 @@ from app.services.notify import send_notification
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_LEAD_CONTACT_HISTORY_FIELDS = ("phone", "emails")
+
+
+def _build_contact_edit_history_entry(lead: Lead, update_data: dict) -> dict | None:
+    """Build a contact-history entry for manual phone/email edits."""
+    changes = {}
+    for field in _LEAD_CONTACT_HISTORY_FIELDS:
+        if field not in update_data:
+            continue
+        old_value = getattr(lead, field, None)
+        new_value = update_data[field]
+        if old_value != new_value:
+            changes[field] = {"old": old_value, "new": new_value}
+
+    if not changes:
+        return None
+
+    changed_fields = ", ".join(changes.keys())
+    return {
+        "date": datetime.now(timezone.utc).isoformat(),
+        "by": "manual_update",
+        "outcome": "contact_info_updated",
+        "method": "manual_edit",
+        "notes": f"Updated contact fields: {changed_fields}",
+        "changes": changes,
+    }
+
 
 # ---------------------------------------------------------------------------
 # Ensure enrichment_error column exists (idempotent ALTER TABLE)
@@ -690,6 +717,42 @@ async def get_lead(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
         raise HTTPException(status_code=500, detail=f"Failed to load lead: {str(exc)[:200]}")
 
 
+@router.patch("/leads/{lead_id}", response_model=LeadResponse)
+async def update_lead(lead_id: int, body: LeadUpdate, db: AsyncSession = Depends(get_leadgen_db)):
+    """Update editable fields on a lead."""
+    try:
+        result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        lead = result.scalar_one_or_none()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        update_data = body.model_dump(exclude_unset=True)
+        history_entry = _build_contact_edit_history_entry(lead, update_data)
+
+        for field, value in update_data.items():
+            setattr(lead, field, value)
+
+        if history_entry:
+            history = list(lead.contact_history or [])
+            history.append(history_entry)
+            lead.contact_history = history
+
+        await db.commit()
+        await db.refresh(lead)
+
+        assignment_map = await load_assignment_summaries(
+            db, entity_type="leadgen_lead", entity_ids=[lead.id],
+        )
+        return LeadResponse.model_validate(lead).model_copy(
+            update={"agent_assignments": assignment_map.get(str(lead.id), [])}
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to update lead %d: %s", lead_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update lead: {str(exc)[:200]}")
+
+
 @router.post("/leads/{lead_id}/audit", response_model=WebsiteAuditResult)
 async def trigger_website_audit(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
     """Trigger website audit for a lead."""
@@ -861,6 +924,7 @@ async def log_contact(lead_id: int, body: ContactLogRequest, db: AsyncSession = 
             "date": now.isoformat(),
             "by": body.contacted_by,
             "outcome": body.outcome,
+            "method": body.contact_method or "call",
             "notes": body.notes or "",
             "who_answered": body.who_answered or "",
         })
@@ -874,6 +938,12 @@ async def log_contact(lead_id: int, body: ContactLogRequest, db: AsyncSession = 
             lead.outreach_status = "in_progress"
         else:
             lead.outreach_status = "contacted"
+
+        # Sync linked CRM deal when lead status changes to won/lost
+        if lead.outreach_status in ("won", "lost"):
+            from app.services.lead_deal_sync import sync_deal_from_lead
+            await sync_deal_from_lead(db, lead_id, lead.outreach_status,
+                                       lost_reason=body.notes)
 
         await db.commit()
         await db.refresh(lead)

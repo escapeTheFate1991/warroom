@@ -114,6 +114,11 @@ async def advance_deal(
         if req.lost_reason:
             deal.lost_reason = req.lost_reason
 
+    # Sync linked leadgen lead when deal is won/lost
+    if deal.status is not None:
+        from app.services.lead_deal_sync import sync_lead_from_deal
+        await sync_lead_from_deal(db, deal_id, deal.status, lost_reason=req.lost_reason)
+
     # Audit log
     audit = AuditLog(
         entity_type="deal",

@@ -218,6 +218,9 @@ class FakeResult:
     def all(self):
         return self._items
 
+    def fetchall(self):
+        return self._items
+
     def scalar_one_or_none(self):
         return self._scalar_value
 
@@ -290,6 +293,10 @@ def make_fake_lead(**overrides):
         website_audit_top_fixes=["Add SSL", "Improve speed"],
         website_audit_date=datetime.now(timezone.utc),
         audit_lite_flags=["no-ssl", "slow-load"],
+        deep_audit_results=None,
+        deep_audit_score=None,
+        deep_audit_grade=None,
+        deep_audit_date=None,
         bbb_url=None,
         bbb_rating=None,
         bbb_accredited=None,
@@ -795,6 +802,71 @@ class TestLogContact:
             json={"contacted_by": "Eddy", "outcome": "won"},
         )
         assert resp.status_code == 401
+
+
+# =====================================================================
+# TESTS: Lead Manual Edit History
+# =====================================================================
+
+class TestUpdateLead:
+    """PATCH /api/leadgen/leads/{id}"""
+
+    @pytest.mark.asyncio
+    async def test_manual_phone_and_email_edit_appends_contact_history(self, client, auth_headers):
+        db = client._mock_db
+        lead = make_fake_lead(
+            id=5,
+            phone="305-555-0100",
+            emails=["old@testplumbing.com"],
+            contact_history=[],
+        )
+        db.execute.return_value = FakeResult(scalar_value=lead)
+        db.refresh = AsyncMock()
+
+        resp = await client.patch(
+            "/api/leadgen/leads/5",
+            json={"phone": "305-555-0111", "emails": ["new@testplumbing.com"]},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["phone"] == "305-555-0111"
+        assert data["emails"] == ["new@testplumbing.com"]
+        assert len(data["contact_history"]) == 1
+        history_entry = data["contact_history"][0]
+        assert history_entry["outcome"] == "contact_info_updated"
+        assert history_entry["method"] == "manual_edit"
+        assert history_entry["changes"]["phone"] == {
+            "old": "305-555-0100",
+            "new": "305-555-0111",
+        }
+        assert history_entry["changes"]["emails"] == {
+            "old": ["old@testplumbing.com"],
+            "new": ["new@testplumbing.com"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_noop_manual_edit_does_not_add_history_noise(self, client, auth_headers):
+        db = client._mock_db
+        lead = make_fake_lead(
+            id=5,
+            phone="305-555-0100",
+            emails=["same@testplumbing.com"],
+            contact_history=[],
+        )
+        db.execute.return_value = FakeResult(scalar_value=lead)
+        db.refresh = AsyncMock()
+
+        resp = await client.patch(
+            "/api/leadgen/leads/5",
+            json={"phone": "305-555-0100", "emails": ["same@testplumbing.com"]},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["contact_history"] == []
 
 
 # =====================================================================
