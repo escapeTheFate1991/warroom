@@ -27,6 +27,7 @@ from app.api.scraper import (
     sync_instagram_competitor_batch,
     calculate_competitor_engagement_score,
 )
+from app.services.instagram_scraper import scrape_profile, ScrapedProfile
 from app.api.contracts import _get_business_settings
 
 # Import NLP libraries for better text processing
@@ -197,6 +198,20 @@ class InstagramAdviceItem(BaseModel):
     title: str
     detail: str
     metric: Optional[str] = None
+    category: Optional[str] = None  # bio, content, growth, profile, engagement
+
+
+class ProfilePostSummary(BaseModel):
+    """Lightweight summary of a recent post for the frontend."""
+    shortcode: str = ""
+    caption_preview: str = ""
+    hook: str = ""
+    likes: int = 0
+    comments: int = 0
+    views: int = 0
+    media_type: str = "image"
+    posted_at: Optional[datetime] = None
+    engagement_score: float = 0.0
 
 
 class InstagramProfileAdviceResponse(BaseModel):
@@ -216,6 +231,15 @@ class InstagramProfileAdviceResponse(BaseModel):
     avg_video_views: int = 0
     total_link_clicks: int = 0
     net_followers: int = 0
+    # Scraped profile data
+    bio: Optional[str] = None
+    external_url: Optional[str] = None
+    bio_links: List[Dict[str, str]] = Field(default_factory=list)
+    profile_pic_url: Optional[str] = None
+    is_verified: bool = False
+    category: Optional[str] = None
+    posting_frequency: Optional[str] = None
+    recent_posts: List[ProfilePostSummary] = Field(default_factory=list)
     recommendations: List[InstagramAdviceItem] = Field(default_factory=list)
 
 
@@ -1949,6 +1973,7 @@ def _percent_change(current: float, previous: float) -> float:
 def _build_instagram_profile_advice(
     account_row: Any,
     analytics_rows: List[Any],
+    scraped: Optional[ScrapedProfile] = None,
 ) -> InstagramProfileAdviceResponse:
     username = str(_row_value(account_row, 1, "username") or "") or None
     follower_count = _coerce_int(_row_value(account_row, 2, "follower_count"))
@@ -2118,6 +2143,132 @@ def _build_instagram_profile_advice(
             metric=f"{total_saves + total_shares} saves + shares ({days_analyzed}d)",
         ))
 
+    # ── Scraped-profile-based recommendations ──
+    bio_text = ""
+    external_url = ""
+    bio_links: List[Dict[str, str]] = []
+    profile_pic_url = ""
+    is_verified = False
+    category_str = ""
+    posting_frequency = ""
+    recent_posts_summary: List[ProfilePostSummary] = []
+
+    if scraped:
+        bio_text = scraped.bio or ""
+        external_url = scraped.external_url or ""
+        bio_links = scraped.bio_links or []
+        profile_pic_url = scraped.profile_pic_url or ""
+        is_verified = scraped.is_verified
+        category_str = scraped.category or ""
+
+        # Posting frequency estimation
+        if scraped.posts:
+            dates = [p.posted_at for p in scraped.posts if p.posted_at]
+            if len(dates) >= 2:
+                span_days = max((max(dates) - min(dates)).days, 1)
+                posts_per_week = round(len(dates) / span_days * 7, 1)
+                posting_frequency = f"~{posts_per_week} posts/week"
+
+        # Recent posts summaries for frontend
+        for p in scraped.posts[:6]:
+            recent_posts_summary.append(ProfilePostSummary(
+                shortcode=p.shortcode,
+                caption_preview=(p.caption or "")[:120],
+                hook=p.hook or "",
+                likes=p.likes,
+                comments=p.comments,
+                views=p.views,
+                media_type=p.media_type,
+                posted_at=p.posted_at,
+                engagement_score=p.engagement_score,
+            ))
+
+        # ── Bio quality ──
+        if not bio_text.strip():
+            recommendations.append(InstagramAdviceItem(
+                title="Your bio is empty — you're invisible to new visitors",
+                detail=(
+                    "Every profile visit without a bio is a missed follow. Write 2-3 lines that answer: "
+                    "who you are, what you post about, and why someone should follow. "
+                    "Include one emoji-led CTA line like '📩 DM me KEYWORD for [thing]' or '⬇️ Free [resource]'."
+                ),
+                category="bio",
+            ))
+        else:
+            bio_lower = bio_text.lower()
+            has_cta = any(kw in bio_lower for kw in ["dm", "link", "tap", "click", "free", "get", "download", "join", "sign up", "⬇", "👇", "📩"])
+            if not has_cta:
+                recommendations.append(InstagramAdviceItem(
+                    title="Your bio is missing a call-to-action",
+                    detail=(
+                        f"Current bio: \"{bio_text[:100]}{'…' if len(bio_text) > 100 else ''}\"\n\n"
+                        "There's no clear CTA telling visitors what to do next. Add a line like "
+                        "'⬇️ Grab my free [resource]' or '📩 DM me GROWTH for a free audit'. "
+                        "Bios with a CTA convert 30-50% more profile visitors into followers or link clicks."
+                    ),
+                    category="bio",
+                    metric=f"{avg_profile_views} profile views/day with no CTA",
+                ))
+            bio_word_count = len(bio_text.split())
+            if bio_word_count > 25:
+                recommendations.append(InstagramAdviceItem(
+                    title="Your bio is too long — tighten it to under 20 words",
+                    detail=(
+                        f"Current bio ({bio_word_count} words): \"{bio_text[:120]}{'…' if len(bio_text) > 120 else ''}\"\n\n"
+                        "Instagram bios get scanned in 2 seconds. Cut filler words, use line breaks, "
+                        "and lead with the strongest identity statement. Format: Line 1 = who you are, "
+                        "Line 2 = what you share, Line 3 = CTA."
+                    ),
+                    category="bio",
+                ))
+
+        # ── Links ──
+        if not external_url and not bio_links:
+            recommendations.append(InstagramAdviceItem(
+                title="You have no link in your profile — add one now",
+                detail=(
+                    "You're getting profile visits but there's nowhere for people to go. "
+                    "Add a Linktree, Stan Store, or direct URL. Then mention 'link in bio' in your next 3 post captions. "
+                    "Even a simple link to your best content or a free resource will start converting visitors."
+                ),
+                category="profile",
+                metric=f"{total_profile_views} profile views with no link",
+            ))
+
+        # ── Content hooks quality ──
+        if scraped.posts:
+            hooks = [p.hook for p in scraped.posts if p.hook]
+            weak_hooks = [h for h in hooks if len(h.split()) < 4 or h.lower().startswith(("hey", "so", "um", "today", "hi"))]
+            if len(weak_hooks) > len(hooks) * 0.5 and len(hooks) >= 3:
+                examples = weak_hooks[:2]
+                recommendations.append(InstagramAdviceItem(
+                    title="Most of your hooks are weak — rewrite the first line",
+                    detail=(
+                        f"Examples from your recent posts: \"{examples[0]}\"" +
+                        (f", \"{examples[1]}\"" if len(examples) > 1 else "") +
+                        ".\n\nStrong hooks use specificity, curiosity, or controversy: "
+                        "'I gained 10K followers in 30 days doing this one thing' or "
+                        "'Stop doing [common mistake] — here's why'. "
+                        "Rewrite just the first sentence of your next post and watch saves go up."
+                    ),
+                    category="content",
+                ))
+
+            # Reel vs non-reel ratio
+            reels = [p for p in scraped.posts if p.is_reel or p.media_type == "reel"]
+            if len(reels) < len(scraped.posts) * 0.5 and len(scraped.posts) >= 4:
+                recommendations.append(InstagramAdviceItem(
+                    title="You're not posting enough Reels — Instagram is pushing them",
+                    detail=(
+                        f"Only {len(reels)} of your last {len(scraped.posts)} posts are Reels. "
+                        "Instagram's algorithm currently gives Reels 2-3x more reach than static posts or carousels. "
+                        "Aim for at least 60-70% Reels in your content mix. Repurpose your best carousel ideas as "
+                        "short talking-head or text-overlay Reels."
+                    ),
+                    category="content",
+                    metric=f"{len(reels)}/{len(scraped.posts)} posts are Reels",
+                ))
+
     # ── Fallback ──
     if not recommendations:
         recommendations.append(InstagramAdviceItem(
@@ -2128,6 +2279,7 @@ def _build_instagram_profile_advice(
                 "Don't change your core topic — just refine the packaging."
             ),
             metric=f"{avg_engagement_rate:.2f}% engagement · {net_followers:+d} followers",
+            category="engagement",
         ))
 
     trend_label = "up" if engagement_trend > 10 else "down" if engagement_trend < -10 else "steady"
@@ -2138,8 +2290,9 @@ def _build_instagram_profile_advice(
         username=username,
         status="ready",
         summary=(
-            f"Reviewing only @{username or 'your account'} using the last {days_analyzed} synced Instagram day(s). "
-            f"Engagement is {trend_label} and follower growth is {growth_label}."
+            f"Reviewing @{username or 'your account'} using {days_analyzed} days of analytics"
+            + (f" + a live profile scan" if scraped else "")
+            + f". Engagement is {trend_label}, follower growth is {growth_label}."
         ),
         follower_count=follower_count,
         following_count=following_count,
@@ -2152,7 +2305,15 @@ def _build_instagram_profile_advice(
         avg_video_views=avg_video_views,
         total_link_clicks=total_link_clicks,
         net_followers=net_followers,
-        recommendations=recommendations[:4],
+        bio=bio_text or None,
+        external_url=external_url or None,
+        bio_links=bio_links,
+        profile_pic_url=profile_pic_url or None,
+        is_verified=is_verified,
+        category=category_str or None,
+        posting_frequency=posting_frequency or None,
+        recent_posts=recent_posts_summary,
+        recommendations=recommendations[:6],
     )
 
 
@@ -2632,7 +2793,20 @@ async def get_instagram_account_advice(
             {"account_id": _row_value(account_row, 0, "id")},
         )
         analytics_rows = analytics_result.fetchall()
-        return _build_instagram_profile_advice(account_row, analytics_rows)
+
+        # Scrape the user's own public profile for bio, links, posts, etc.
+        username = str(_row_value(account_row, 1, "username") or "")
+        scraped: Optional[ScrapedProfile] = None
+        if username:
+            try:
+                scraped = await scrape_profile(username)
+                if scraped and scraped.error:
+                    logger.warning("Scrape of own profile @%s failed: %s", username, scraped.error)
+                    scraped = None
+            except Exception as e:
+                logger.warning("Could not scrape own profile @%s: %s", username, e)
+
+        return _build_instagram_profile_advice(account_row, analytics_rows, scraped)
 
     except HTTPException:
         raise
