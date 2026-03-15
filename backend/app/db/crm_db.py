@@ -60,9 +60,11 @@ async def get_tenant_db(request: Request):
         await session.execute(text("SET search_path TO crm, public"))
         if org_id:
             # SET LOCAL scopes to current transaction — no cross-request leakage
+            # NOTE: SET cannot use parameterized queries in asyncpg, so we
+            # sanitize by casting to int first (prevents SQL injection)
+            safe_org_id = int(org_id)
             await session.execute(
-                text("SET LOCAL app.current_org_id = :org_id"),
-                {"org_id": str(org_id)},
+                text(f"SET LOCAL app.current_org_id = '{safe_org_id}'")
             )
         yield session
 
