@@ -18,10 +18,10 @@ router = APIRouter()
 # Helpers
 # ═══════════════════════════════════════════════════════════
 
-async def _get_account(db: AsyncSession, platform: str):
+async def _get_account(db: AsyncSession, platform: str, org_id: int):
     r = await db.execute(
-        text("SELECT id, access_token, refresh_token, username FROM crm.social_accounts WHERE platform = :p AND status = 'connected' LIMIT 1"),
-        {"p": platform},
+        text("SELECT id, access_token, refresh_token, username FROM crm.social_accounts WHERE platform = :p AND status = 'connected' AND org_id = :org_id LIMIT 1"),
+        {"p": platform, "org_id": org_id},
     )
     row = r.fetchone()
     if not row:

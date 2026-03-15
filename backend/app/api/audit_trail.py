@@ -11,7 +11,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.crm_db import get_tenant_db
-from app.services.tenant import get_org_id, require_superadmin
+from app.services.tenant import get_org_id
+from app.api.auth import require_superadmin
 from app.services.audit_trail import get_audit_log, get_audit_summary
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ async def list_audit_entries(
     from_date: Optional[date] = Query(alias="from", default=None),
     to_date: Optional[date] = Query(alias="to", default=None),
     db: AsyncSession = Depends(get_tenant_db),
-    _: dict = Depends(require_superadmin)
+    _: dict = Depends(require_superadmin())
 ):
     """
     List audit trail entries with filtering and pagination.
@@ -71,7 +72,7 @@ async def audit_summary(
     request: Request,
     days_back: int = Query(default=30, ge=1, le=365),
     db: AsyncSession = Depends(get_tenant_db),
-    _: dict = Depends(require_superadmin)
+    _: dict = Depends(require_superadmin())
 ):
     """
     Get aggregated audit statistics.
@@ -105,7 +106,7 @@ async def export_audit_log(
     action: Optional[str] = Query(default=None),
     resource_type: Optional[str] = Query(default=None),
     db: AsyncSession = Depends(get_tenant_db),
-    _: dict = Depends(require_superadmin)
+    _: dict = Depends(require_superadmin())
 ):
     """
     Export audit log as CSV.
@@ -184,7 +185,7 @@ async def export_audit_log(
 async def get_available_actions(
     request: Request,
     db: AsyncSession = Depends(get_tenant_db),
-    _: dict = Depends(require_superadmin)
+    _: dict = Depends(require_superadmin())
 ):
     """
     Get list of available audit actions for filtering.
@@ -221,7 +222,7 @@ async def get_available_actions(
 async def get_available_resource_types(
     request: Request,
     db: AsyncSession = Depends(get_tenant_db),
-    _: dict = Depends(require_superadmin)
+    _: dict = Depends(require_superadmin())
 ):
     """
     Get list of available resource types for filtering.

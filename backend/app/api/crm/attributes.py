@@ -18,7 +18,8 @@ router = APIRouter()
 
 
 async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: str, 
-                   user_id: Optional[int] = None, old_values: dict = None, new_values: dict = None):
+                   user_id: Optional[int] = None, old_values: dict = None, new_values: dict = None,
+                   org_id: Optional[int] = None):
     """Log audit trail for CRM operations."""
     audit_log = AuditLog(
         entity_type=entity_type,
@@ -26,7 +27,8 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
         action=action,
         user_id=user_id,
         old_values=old_values,
-        new_values=new_values
+        new_values=new_values,
+        org_id=org_id
     )
     db.add(audit_log)
 
@@ -41,6 +43,9 @@ async def list_attributes(
     org_id = get_org_id(request)
     query = select(Attribute)
     
+    if org_id:
+        query = query.where(Attribute.org_id == org_id)
+    
     if entity_type:
         query = query.where(Attribute.entity_type == entity_type)
     
@@ -54,9 +59,10 @@ async def list_attributes(
 async def get_attribute(request: Request, attribute_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single attribute."""
     org_id = get_org_id(request)
-    result = await db.execute(
-        select(Attribute).where(Attribute.id == attribute_id)
-    )
+    query = select(Attribute).where(Attribute.id == attribute_id)
+    if org_id:
+        query = query.where(Attribute.org_id == org_id)
+    result = await db.execute(query)
     attribute = result.scalar_one_or_none()
     
     if not attribute:
@@ -71,23 +77,24 @@ async def create_attribute(request: Request, attribute_data: AttributeCreate, us
     """Create custom attribute."""
     org_id = get_org_id(request)
     # Check for duplicate code within same entity type
-    existing = await db.execute(
-        select(Attribute).where(
-            Attribute.code == attribute_data.code,
-            Attribute.entity_type == attribute_data.entity_type
-        )
+    query = select(Attribute).where(
+        Attribute.code == attribute_data.code,
+        Attribute.entity_type == attribute_data.entity_type
     )
+    if org_id:
+        query = query.where(Attribute.org_id == org_id)
+    existing = await db.execute(query)
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Attribute code already exists for this entity type")
     
-    attribute = Attribute(**attribute_data.model_dump(exclude_unset=True))
+    attribute = Attribute(**attribute_data.model_dump(exclude_unset=True), org_id=org_id)
     db.add(attribute)
     await db.commit()
     await db.refresh(attribute)
     
     # Log audit
     await log_audit(db, "attribute", attribute.id, "created", user_id, 
-                   new_values=attribute_data.model_dump())
+                   new_values=attribute_data.model_dump(), org_id=org_id)
     await db.commit()
     
     return attribute
@@ -98,7 +105,10 @@ async def update_attribute(request: Request, attribute_id: int, attribute_data: 
                           user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update custom attribute."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Attribute).where(Attribute.id == attribute_id))
+    query = select(Attribute).where(Attribute.id == attribute_id)
+    if org_id:
+        query = query.where(Attribute.org_id == org_id)
+    result = await db.execute(query)
     attribute = result.scalar_one_or_none()
     
     if not attribute:
@@ -106,13 +116,14 @@ async def update_attribute(request: Request, attribute_id: int, attribute_data: 
     
     # Check for duplicate code if changing
     if attribute_data.code != attribute.code:
-        existing = await db.execute(
-            select(Attribute).where(
-                Attribute.code == attribute_data.code,
-                Attribute.entity_type == attribute_data.entity_type,
-                Attribute.id != attribute_id
-            )
+        check_query = select(Attribute).where(
+            Attribute.code == attribute_data.code,
+            Attribute.entity_type == attribute_data.entity_type,
+            Attribute.id != attribute_id
         )
+        if org_id:
+            check_query = check_query.where(Attribute.org_id == org_id)
+        existing = await db.execute(check_query)
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Attribute code already exists for this entity type")
     
@@ -133,7 +144,7 @@ async def update_attribute(request: Request, attribute_id: int, attribute_data: 
     await db.refresh(attribute)
     
     # Log audit
-    await log_audit(db, "attribute", attribute.id, "updated", user_id, old_values, update_data)
+    await log_audit(db, "attribute", attribute.id, "updated", user_id, old_values, update_data, org_id=org_id)
     await db.commit()
     
     return attribute
@@ -144,7 +155,10 @@ async def delete_attribute(request: Request, attribute_id: int, user_id: Optiona
                           db: AsyncSession = Depends(get_tenant_db)):
     """Delete custom attribute."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Attribute).where(Attribute.id == attribute_id))
+    query = select(Attribute).where(Attribute.id == attribute_id)
+    if org_id:
+        query = query.where(Attribute.org_id == org_id)
+    result = await db.execute(query)
     attribute = result.scalar_one_or_none()
     
     if not attribute:
@@ -160,11 +174,18 @@ async def delete_attribute(request: Request, attribute_id: int, user_id: Optiona
     }
     
     # Delete all attribute values first (cascade should handle this, but being explicit)
-    await db.execute(delete(AttributeValue).where(AttributeValue.attribute_id == attribute_id))
-    await db.execute(delete(Attribute).where(Attribute.id == attribute_id))
+    delete_values_query = delete(AttributeValue).where(AttributeValue.attribute_id == attribute_id)
+    if org_id:
+        delete_values_query = delete_values_query.where(AttributeValue.org_id == org_id)
+    await db.execute(delete_values_query)
+    
+    delete_attr_query = delete(Attribute).where(Attribute.id == attribute_id)
+    if org_id:
+        delete_attr_query = delete_attr_query.where(Attribute.org_id == org_id)
+    await db.execute(delete_attr_query)
     
     # Log audit
-    await log_audit(db, "attribute", attribute_id, "deleted", user_id, old_values)
+    await log_audit(db, "attribute", attribute_id, "deleted", user_id, old_values, org_id=org_id)
     await db.commit()
     
     return {"status": "deleted", "attribute_id": attribute_id}

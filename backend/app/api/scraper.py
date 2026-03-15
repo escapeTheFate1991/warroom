@@ -372,10 +372,10 @@ async def _save_posts_to_cache(
                         INSERT INTO crm.competitor_posts 
                         (competitor_id, platform, post_text, likes, comments, shares,
                          engagement_score, hook, post_url, posted_at, fetched_at,
-                         media_type, media_url, thumbnail_url, shortcode)
+                         media_type, media_url, thumbnail_url, shortcode, org_id)
                         VALUES (:cid, :platform, :text, :likes, :comments, :shares,
                                 :score, :hook, :url, :posted_at, NOW(),
-                                :media_type, :media_url, :thumbnail_url, :shortcode)
+                                :media_type, :media_url, :thumbnail_url, :shortcode, :org_id)
                     """),
                     {
                         "cid": competitor_id,
@@ -392,6 +392,7 @@ async def _save_posts_to_cache(
                         "hook": post.hook,
                         "url": post.post_url,
                         "posted_at": post.posted_at,
+                        "org_id": org_id,
                     },
                 )
                 saved += 1
@@ -420,12 +421,13 @@ def _instagram_sync_running() -> bool:
     return _instagram_sync_task is not None and not _instagram_sync_task.done()
 
 
-async def _load_instagram_competitors(db: AsyncSession) -> List[Competitor]:
+async def _load_instagram_competitors(db: AsyncSession, org_id: int) -> List[Competitor]:
     """Load Instagram competitors that are enabled for auto sync."""
     result = await db.execute(
         select(Competitor)
         .where(Competitor.platform == "instagram")
         .where(Competitor.auto_sync_enabled == True)
+        .where(Competitor.org_id == org_id)
     )
     return result.scalars().all()
 
@@ -433,6 +435,7 @@ async def _load_instagram_competitors(db: AsyncSession) -> List[Competitor]:
 async def sync_instagram_competitor(
     db: AsyncSession,
     competitor: Competitor,
+    org_id: int,
     cache_available: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Scrape and persist a single Instagram competitor without committing."""
@@ -459,7 +462,7 @@ async def sync_instagram_competitor(
     posts_saved = 0
     if cache_available:
         posts_saved = await _save_posts_to_cache(
-            db, competitor.id, "instagram", profile.posts
+            db, competitor.id, "instagram", profile.posts, org_id
         )
 
     return {
@@ -473,6 +476,7 @@ async def sync_instagram_competitor(
 async def sync_instagram_competitor_batch(
     db: AsyncSession,
     competitors: List[Competitor],
+    org_id: int,
 ) -> BulkScrapeResponse:
     """Scrape and persist a batch of Instagram competitors without committing."""
     if not competitors:
@@ -505,7 +509,7 @@ async def sync_instagram_competitor_batch(
                 await _save_profile_to_competitor(db, competitor, profile)
                 if cache_available:
                     posts_saved = await _save_posts_to_cache(
-                        db, competitor.id, "instagram", profile.posts
+                        db, competitor.id, "instagram", profile.posts, org_id
                     )
                     total_posts_saved += posts_saved
 
@@ -520,10 +524,10 @@ async def sync_instagram_competitor_batch(
     )
 
 
-async def _execute_instagram_sync(db: AsyncSession) -> BulkScrapeResponse:
+async def _execute_instagram_sync(db: AsyncSession, org_id: int) -> BulkScrapeResponse:
     """Run the full Instagram sync and return the API response payload."""
-    competitors = await _load_instagram_competitors(db)
-    return await sync_instagram_competitor_batch(db, competitors)
+    competitors = await _load_instagram_competitors(db, org_id)
+    return await sync_instagram_competitor_batch(db, competitors, org_id)
 
 
 async def _run_instagram_sync_in_background() -> None:
@@ -577,7 +581,7 @@ async def sync_all_instagram_competitors(
     global _instagram_sync_task
 
     try:
-        competitors = await _load_instagram_competitors(db)
+        competitors = await _load_instagram_competitors(db, org_id)
         if not competitors:
             raise HTTPException(status_code=404, detail="No Instagram competitors to sync")
 
@@ -607,7 +611,7 @@ async def sync_all_instagram_competitors(
                 ),
             )
 
-        result = await _execute_instagram_sync(db)
+        result = await _execute_instagram_sync(db, org_id)
         await db.commit()
         return result
     except HTTPException:
@@ -632,7 +636,7 @@ async def bulk_scrape_instagram(
     else:
         # Scrape all tracked Instagram competitors
         result = await db.execute(
-            select(Competitor.handle).where(Competitor.platform == "instagram")
+            select(Competitor.handle).where(Competitor.platform == "instagram").where(Competitor.org_id == org_id)
         )
         handles = [row[0] for row in result.fetchall()]
     
@@ -661,7 +665,7 @@ async def get_scrape_status(request: Request, db: AsyncSession = Depends(get_ten
     
     # Total competitors
     comp_result = await db.execute(
-        select(Competitor).where(Competitor.platform == "instagram")
+        select(Competitor).where(Competitor.platform == "instagram").where(Competitor.org_id == org_id)
     )
     competitors = comp_result.scalars().all()
     
@@ -680,12 +684,14 @@ async def get_scrape_status(request: Request, db: AsyncSession = Depends(get_ten
 
     try:
         post_count = await db.execute(
-            text("SELECT COUNT(*) FROM crm.competitor_posts")
+            text("SELECT COUNT(*) FROM crm.competitor_posts WHERE org_id = :org_id"),
+            {"org_id": org_id}
         )
         total_posts = post_count.scalar() or 0
 
         last_scrape_result = await db.execute(
-            text("SELECT MAX(fetched_at) FROM crm.competitor_posts")
+            text("SELECT MAX(fetched_at) FROM crm.competitor_posts WHERE org_id = :org_id"),
+            {"org_id": org_id}
         )
         last_scrape = last_scrape_result.scalar()
 
@@ -693,9 +699,9 @@ async def get_scrape_status(request: Request, db: AsyncSession = Depends(get_ten
             cp_result = await db.execute(
                 text(
                     "SELECT COUNT(*), MAX(fetched_at) FROM crm.competitor_posts "
-                    "WHERE competitor_id = :cid"
+                    "WHERE competitor_id = :cid AND org_id = :org_id"
                 ),
-                {"cid": c.id},
+                {"cid": c.id, "org_id": org_id},
             )
             row = cp_result.fetchone()
 
@@ -748,7 +754,7 @@ async def transcribe_competitor_videos_endpoint(
     from app.services.video_transcriber import transcribe_competitor_videos
     
     # Verify competitor exists
-    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id).where(Competitor.org_id == org_id))
     competitor = result.scalar_one_or_none()
     if not competitor:
         raise HTTPException(status_code=404, detail="Competitor not found")
@@ -776,7 +782,7 @@ async def scrape_competitor_comments_endpoint(
     org_id = get_org_id(request)
     from app.services.comment_scraper import scrape_competitor_comments
     
-    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id).where(Competitor.org_id == org_id))
     competitor = result.scalar_one_or_none()
     if not competitor:
         raise HTTPException(status_code=404, detail="Competitor not found")
@@ -802,9 +808,9 @@ async def get_post_detail(
             SELECT cp.*, c.handle
             FROM crm.competitor_posts cp
             JOIN crm.competitors c ON c.id = cp.competitor_id
-            WHERE cp.id = :pid
+            WHERE cp.id = :pid AND cp.org_id = :org_id AND c.org_id = :org_id
         """),
-        {"pid": post_id},
+        {"pid": post_id, "org_id": org_id},
     )
     row = result.first()
     if not row:
@@ -826,10 +832,10 @@ async def get_post_by_shortcode(
             SELECT cp.*, c.handle
             FROM crm.competitor_posts cp
             JOIN crm.competitors c ON c.id = cp.competitor_id
-            WHERE cp.shortcode = :sc
+            WHERE cp.shortcode = :sc AND cp.org_id = :org_id AND c.org_id = :org_id
             LIMIT 1
         """),
-        {"sc": shortcode},
+        {"sc": shortcode, "org_id": org_id},
     )
     row = result.first()
     if not row:

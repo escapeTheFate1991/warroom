@@ -147,7 +147,7 @@ async def update_product(request: Request, product_id: int, product_data: Produc
     await db.refresh(product)
     
     # Log audit
-    await log_audit(db, "product", product.id, "updated", user_id, old_values, update_data)
+    await log_audit(db, "product", product.id, "updated", user_id, old_values, update_data, org_id=org_id)
     await db.commit()
     
     return product
@@ -158,7 +158,10 @@ async def delete_product(request: Request, product_id: int, user_id: Optional[in
                         db: AsyncSession = Depends(get_tenant_db)):
     """Delete a product."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Product).where(Product.id == product_id))
+    query = select(Product).where(Product.id == product_id)
+    if org_id:
+        query = query.where(Product.org_id == org_id)
+    result = await db.execute(query)
     product = result.scalar_one_or_none()
     
     if not product:
@@ -166,9 +169,10 @@ async def delete_product(request: Request, product_id: int, user_id: Optional[in
     
     # Check if product is used in any deals
     from app.models.crm.deal import DealProduct
-    deal_usage = await db.execute(
-        select(DealProduct).where(DealProduct.product_id == product_id)
-    )
+    deal_query = select(DealProduct).where(DealProduct.product_id == product_id)
+    if org_id:
+        deal_query = deal_query.where(DealProduct.org_id == org_id)
+    deal_usage = await db.execute(deal_query)
     if deal_usage.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Cannot delete product that is used in deals")
     
@@ -178,10 +182,13 @@ async def delete_product(request: Request, product_id: int, user_id: Optional[in
         "price": str(product.price) if product.price else None
     }
     
-    await db.execute(delete(Product).where(Product.id == product_id))
+    delete_query = delete(Product).where(Product.id == product_id)
+    if org_id:
+        delete_query = delete_query.where(Product.org_id == org_id)
+    await db.execute(delete_query)
     
     # Log audit
-    await log_audit(db, "product", product_id, "deleted", user_id, old_values)
+    await log_audit(db, "product", product_id, "deleted", user_id, old_values, org_id=org_id)
     await db.commit()
     
     return {"status": "deleted", "product_id": product_id}
@@ -200,7 +207,12 @@ async def search_products(
         Product.name.ilike(f"%{q}%") |
         Product.sku.ilike(f"%{q}%") |
         Product.description.ilike(f"%{q}%")
-    ).order_by(Product.name).limit(limit)
+    )
+    
+    if org_id:
+        query = query.where(Product.org_id == org_id)
+    
+    query = query.order_by(Product.name).limit(limit)
     
     result = await db.execute(query)
     products = result.scalars().all()

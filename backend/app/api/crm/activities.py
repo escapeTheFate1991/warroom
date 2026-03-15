@@ -166,6 +166,7 @@ def serialize_email_history_item(email: Email) -> CommunicationHistoryItem:
 async def resolve_communication_scope(
     db: AsyncSession,
     *,
+    org_id: int,
     person_id: int | None = None,
     deal_id: int | None = None,
     prospect_id: str | None = None,
@@ -176,15 +177,15 @@ async def resolve_communication_scope(
     leadgen_lead_id: int | None = None
 
     if person_id is not None:
-        result = await db.execute(select(Person.id).where(Person.id == person_id).limit(1))
+        result = await db.execute(select(Person.id).where(Person.id == person_id, Person.org_id == org_id).limit(1))
         if result.scalar_one_or_none() is None:
             raise HTTPException(status_code=404, detail="Person not found")
         person_ids.add(person_id)
-        person_deal_ids = await db.execute(select(Deal.id).where(Deal.person_id == person_id))
+        person_deal_ids = await db.execute(select(Deal.id).where(Deal.person_id == person_id, Deal.org_id == org_id))
         deal_ids.update(person_deal_ids.scalars().all())
 
     if deal_id is not None:
-        result = await db.execute(select(Deal.id, Deal.person_id).where(Deal.id == deal_id).limit(1))
+        result = await db.execute(select(Deal.id, Deal.person_id).where(Deal.id == deal_id, Deal.org_id == org_id).limit(1))
         row = result.first()
         if row is None:
             raise HTTPException(status_code=404, detail="Deal not found")
@@ -194,7 +195,7 @@ async def resolve_communication_scope(
 
     if prospect_id is not None:
         leadgen_lead_id = parse_leadgen_prospect_id(prospect_id)
-        result = await db.execute(select(Deal.id, Deal.person_id).where(Deal.leadgen_lead_id == leadgen_lead_id))
+        result = await db.execute(select(Deal.id, Deal.person_id).where(Deal.leadgen_lead_id == leadgen_lead_id, Deal.org_id == org_id))
         for row in result.all():
             deal_ids.add(row.id)
             if row.person_id is not None:
@@ -211,6 +212,7 @@ async def load_history_activities(
     db: AsyncSession,
     scope: CommunicationHistoryScope,
     *,
+    org_id: int,
     limit: int,
 ) -> list[Activity]:
     """Load activity-backed communication records for the resolved scope."""
@@ -233,7 +235,7 @@ async def load_history_activities(
             selectinload(Activity.persons),
             selectinload(Activity.deals),
         )
-        .where(or_(*filters))
+        .where(Activity.org_id == org_id, or_(*filters))
         .distinct()
         .order_by(Activity.schedule_from.desc().nulls_last(), Activity.created_at.desc())
         .limit(limit)
@@ -245,6 +247,7 @@ async def load_history_emails(
     db: AsyncSession,
     scope: CommunicationHistoryScope,
     *,
+    org_id: int,
     limit: int,
 ) -> list[Email]:
     """Load email communication records for the resolved scope."""
@@ -259,7 +262,7 @@ async def load_history_emails(
     result = await db.execute(
         select(Email)
         .options(selectinload(Email.attachments))
-        .where(or_(*filters))
+        .where(Email.org_id == org_id, or_(*filters))
         .order_by(Email.created_at.desc())
         .limit(limit)
     )
@@ -282,7 +285,7 @@ async def list_activities(
 ):
     """List activities with filtering options."""
     org_id = get_org_id(request)
-    query = select(Activity).options(selectinload(Activity.participants))
+    query = select(Activity).options(selectinload(Activity.participants)).where(Activity.org_id == org_id)
 
     if deal_id:
         query = query.join(DealActivity, DealActivity.activity_id == Activity.id).where(DealActivity.deal_id == deal_id)
@@ -340,6 +343,7 @@ async def get_upcoming_activities(
 
     query = select(Activity).where(
         and_(
+            Activity.org_id == org_id,
             Activity.is_done == False,
             Activity.schedule_from >= now,
             Activity.schedule_from <= future_date
@@ -416,6 +420,7 @@ async def get_communications_history(
     try:
         scope = await resolve_communication_scope(
             db,
+            org_id=org_id,
             person_id=person_id,
             deal_id=deal_id,
             prospect_id=prospect_id,
@@ -423,8 +428,8 @@ async def get_communications_history(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    activities = await load_history_activities(db, scope, limit=limit)
-    emails = await load_history_emails(db, scope, limit=limit)
+    activities = await load_history_activities(db, scope, org_id=org_id, limit=limit)
+    emails = await load_history_emails(db, scope, org_id=org_id, limit=limit)
     items = [serialize_activity_history_item(activity) for activity in activities]
     items.extend(serialize_email_history_item(email) for email in emails)
     items.sort(key=history_item_sort_timestamp, reverse=True)
@@ -443,7 +448,7 @@ async def get_activity(request: Request, activity_id: int, db: AsyncSession = De
     result = await db.execute(
         select(Activity)
         .options(selectinload(Activity.participants))
-        .where(Activity.id == activity_id)
+        .where(Activity.id == activity_id, Activity.org_id == org_id)
     )
     activity = result.scalar_one_or_none()
     
@@ -457,7 +462,9 @@ async def get_activity(request: Request, activity_id: int, db: AsyncSession = De
 async def create_activity(request: Request, activity_data: ActivityCreate, db: AsyncSession = Depends(get_tenant_db)):
     """Create a new activity."""
     org_id = get_org_id(request)
-    activity = Activity(**activity_data.model_dump(exclude_unset=True))
+    activity_payload = activity_data.model_dump(exclude_unset=True)
+    activity_payload["org_id"] = org_id
+    activity = Activity(**activity_payload)
     db.add(activity)
     await db.commit()
     await db.refresh(activity)
