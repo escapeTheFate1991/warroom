@@ -178,6 +178,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Multi-tenant migration error: %s", e)
 
+    # OAuth scoping migration (adds visibility_type to social_accounts)
+    try:
+        from app.db.crm_db import run_oauth_scoping_migration
+        oauth_ok = await run_oauth_scoping_migration()
+        if oauth_ok:
+            logger.info("OAuth scoping migration applied")
+        else:
+            logger.warning("OAuth scoping migration skipped or failed")
+    except Exception as e:
+        logger.error("OAuth scoping migration error: %s", e)
+
     # Start background scheduler (competitor syncs, etc.)
     from app.services.scheduler import start_scheduler, stop_scheduler
     await start_scheduler()

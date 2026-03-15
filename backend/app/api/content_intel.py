@@ -1283,9 +1283,10 @@ async def get_competitor_content(
                 posts = _scraped_profile_to_posts(synced_profile)
 
         elif platform == "x":
-            token = await get_social_account_token(db, org_id, "x")
+            user_id = get_user_id(request)
+            token = await get_social_account_token(db, user_id, org_id, "x")
             if not token:
-                raise HTTPException(status_code=422, detail="X account not connected")
+                raise HTTPException(status_code=422, detail="X account not connected or not accessible")
             posts = await fetch_x_content(handle, token)
             if posts:
                 await save_competitor_posts(db, competitor_id, org_id, platform, posts)
@@ -1496,7 +1497,8 @@ async def refresh_competitor_content(
                 
                 posts = []
                 if platform_name == "x":
-                    token = await get_social_account_token(db, "x")
+                    user_id = get_user_id(request)
+                    token = await get_social_account_token(db, user_id, org_id, "x")
                     if token:
                         posts = await fetch_x_content(handle, token)
                 elif platform_name == "youtube":
