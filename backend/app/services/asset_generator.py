@@ -26,8 +26,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Asset storage directory
-ASSET_DIR = Path("/home/eddy/Development/warroom/backend/generated_assets")
-ASSET_DIR.mkdir(exist_ok=True)
+ASSET_DIR = Path("/app/generated_assets") if Path("/app").exists() else Path("/home/eddy/Development/warroom/backend/generated_assets")
+ASSET_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass

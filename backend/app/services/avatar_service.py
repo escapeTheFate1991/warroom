@@ -34,10 +34,11 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Asset storage
-AVATAR_DIR = Path("/home/eddy/Development/warroom/backend/generated_assets/avatars")
-AVATAR_DIR.mkdir(exist_ok=True)
-VOICE_DIR = Path("/home/eddy/Development/warroom/backend/generated_assets/voice") 
-VOICE_DIR.mkdir(exist_ok=True)
+_BASE = Path("/app/generated_assets") if Path("/app").exists() else Path("/home/eddy/Development/warroom/backend/generated_assets")
+AVATAR_DIR = _BASE / "avatars"
+AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+VOICE_DIR = _BASE / "voice" 
+VOICE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
