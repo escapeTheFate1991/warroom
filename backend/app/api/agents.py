@@ -128,6 +128,22 @@ MIGRATE_SOUL_MD = """
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS soul_md TEXT DEFAULT '';
 """
 
+# ── Multi-tenant: org_id columns ─────────────────────────────────
+
+ADD_ORG_ID_AGENTS = "ALTER TABLE agents ADD COLUMN IF NOT EXISTS org_id INTEGER;"
+ADD_ORG_ID_ASSIGNMENTS = "ALTER TABLE agent_assignments ADD COLUMN IF NOT EXISTS org_id INTEGER;"
+ADD_ORG_ID_TASK_ASSIGNMENTS = "ALTER TABLE agent_task_assignments ADD COLUMN IF NOT EXISTS org_id INTEGER;"
+
+CREATE_ORG_ID_INDEX_AGENTS = (
+    "CREATE INDEX IF NOT EXISTS idx_agents_org_id ON agents(org_id)"
+)
+CREATE_ORG_ID_INDEX_ASSIGNMENTS = (
+    "CREATE INDEX IF NOT EXISTS idx_agent_assignments_org_id ON agent_assignments(org_id)"
+)
+CREATE_ORG_ID_INDEX_TASK_ASSIGNMENTS = (
+    "CREATE INDEX IF NOT EXISTS idx_agent_task_assignments_org_id ON agent_task_assignments(org_id)"
+)
+
 
 _tables_ready = False
 
@@ -145,6 +161,13 @@ async def ensure_tables(db):
         await db.execute(text(CREATE_ASSIGNMENTS_STATUS_INDEX))
         await db.execute(text(MIGRATE_LEGACY_TASK_ASSIGNMENTS))
         await db.execute(text(MIGRATE_SOUL_MD))
+        # Multi-tenant org_id columns + indexes
+        await db.execute(text(ADD_ORG_ID_AGENTS))
+        await db.execute(text(ADD_ORG_ID_ASSIGNMENTS))
+        await db.execute(text(ADD_ORG_ID_TASK_ASSIGNMENTS))
+        await db.execute(text(CREATE_ORG_ID_INDEX_AGENTS))
+        await db.execute(text(CREATE_ORG_ID_INDEX_ASSIGNMENTS))
+        await db.execute(text(CREATE_ORG_ID_INDEX_TASK_ASSIGNMENTS))
         await db.commit()
         _tables_ready = True
     except Exception as e:
@@ -177,22 +200,25 @@ def _normalize_assignment_row(row) -> dict[str, Any]:
     return assignment
 
 
-async def _ensure_agent_exists(db, agent_id: str):
-    existing = await db.execute(text("SELECT id FROM agents WHERE id = :id"), {"id": agent_id})
+async def _ensure_agent_exists(db, agent_id: str, org_id: int):
+    existing = await db.execute(
+        text("SELECT id FROM agents WHERE id = :id AND org_id = :org_id"),
+        {"id": agent_id, "org_id": org_id},
+    )
     if not existing.first():
         raise HTTPException(status_code=404, detail="Agent not found")
 
 
-async def _create_assignment_record(db, agent_id: str, body: AgentAssignmentCreate) -> dict[str, Any]:
-    await _ensure_agent_exists(db, agent_id)
+async def _create_assignment_record(db, agent_id: str, body: AgentAssignmentCreate, org_id: int) -> dict[str, Any]:
+    await _ensure_agent_exists(db, agent_id, org_id)
 
     assignment_id = str(uuid.uuid4())[:12]
     result = await db.execute(text("""
         INSERT INTO agent_assignments (
-            id, agent_id, entity_type, entity_id, title, priority, status, metadata
+            id, agent_id, entity_type, entity_id, title, priority, status, metadata, org_id
         )
         VALUES (
-            :id, :agent_id, :entity_type, :entity_id, :title, :priority, :status, :metadata
+            :id, :agent_id, :entity_type, :entity_id, :title, :priority, :status, :metadata, :org_id
         )
         RETURNING *
     """), {
@@ -204,6 +230,7 @@ async def _create_assignment_record(db, agent_id: str, body: AgentAssignmentCrea
         "priority": body.priority,
         "status": body.status,
         "metadata": json.dumps(body.metadata),
+        "org_id": org_id,
     })
     await db.commit()
 
@@ -218,12 +245,13 @@ async def _update_assignment_record(
     agent_id: str,
     assignment_id: str,
     body: AgentAssignmentUpdate,
+    org_id: int,
     entity_type: Optional[str] = None,
 ) -> dict[str, Any]:
-    await _ensure_agent_exists(db, agent_id)
+    await _ensure_agent_exists(db, agent_id, org_id)
 
     updates = []
-    params = {"id": assignment_id, "agent_id": agent_id}
+    params = {"id": assignment_id, "agent_id": agent_id, "org_id": org_id}
 
     if body.title is not None:
         updates.append("title = :title")
@@ -249,7 +277,7 @@ async def _update_assignment_record(
         raise HTTPException(status_code=400, detail="No assignment fields to update")
 
     updates.append("updated_at = NOW()")
-    where_clause = "WHERE id = :id AND agent_id = :agent_id"
+    where_clause = "WHERE id = :id AND agent_id = :agent_id AND org_id = :org_id"
     if entity_type is not None:
         where_clause += " AND entity_type = :entity_type"
         params["entity_type"] = entity_type
@@ -269,11 +297,12 @@ async def _delete_assignment_record(
     db,
     agent_id: str,
     assignment_id: str,
+    org_id: int,
     entity_type: Optional[str] = None,
 ):
-    await _ensure_agent_exists(db, agent_id)
-    params = {"id": assignment_id, "agent_id": agent_id}
-    query = "DELETE FROM agent_assignments WHERE id = :id AND agent_id = :agent_id"
+    await _ensure_agent_exists(db, agent_id, org_id)
+    params = {"id": assignment_id, "agent_id": agent_id, "org_id": org_id}
+    query = "DELETE FROM agent_assignments WHERE id = :id AND agent_id = :agent_id AND org_id = :org_id"
     if entity_type is not None:
         query += " AND entity_type = :entity_type"
         params["entity_type"] = entity_type
@@ -323,8 +352,8 @@ async def list_agents(request: Request, db=Depends(get_tenant_db)):
     org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
-        "SELECT * FROM agents ORDER BY created_at ASC"
-    ))
+        "SELECT * FROM agents WHERE org_id = :org_id ORDER BY created_at ASC"
+    ), {"org_id": org_id})
     rows = result.mappings().all()
     agents = []
     for row in rows:
@@ -336,8 +365,8 @@ async def list_agents(request: Request, db=Depends(get_tenant_db)):
                     WHERE entity_type = :task_entity_type AND status IN ('queued', 'running')
                 ) AS active_tasks
             FROM agent_assignments
-            WHERE agent_id = :agent_id
-        """), {"agent_id": agent["id"], "task_entity_type": TASK_ASSIGNMENT_ENTITY_TYPE})
+            WHERE agent_id = :agent_id AND org_id = :org_id
+        """), {"agent_id": agent["id"], "task_entity_type": TASK_ASSIGNMENT_ENTITY_TYPE, "org_id": org_id})
         counts = counts_result.mappings().first() or {}
         agent["active_assignments"] = counts.get("active_assignments") or 0
         agent["active_tasks"] = counts.get("active_tasks") or 0
@@ -375,9 +404,9 @@ async def list_assignments(
         SELECT aa.*, a.name AS agent_name, a.emoji AS agent_emoji, a.role AS agent_role
         FROM agent_assignments aa
         JOIN agents a ON a.id = aa.agent_id
-        WHERE 1 = 1
+        WHERE aa.org_id = :org_id
     """
-    params: dict[str, Any] = {"limit": limit}
+    params: dict[str, Any] = {"limit": limit, "org_id": org_id}
 
     if agent_id:
         query += " AND aa.agent_id = :agent_id"
@@ -402,8 +431,8 @@ async def get_agent(request: Request, agent_id: str, db=Depends(get_tenant_db)):
     org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
-        "SELECT * FROM agents WHERE id = :id"
-    ), {"id": agent_id})
+        "SELECT * FROM agents WHERE id = :id AND org_id = :org_id"
+    ), {"id": agent_id, "org_id": org_id})
     row = result.mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -411,8 +440,8 @@ async def get_agent(request: Request, agent_id: str, db=Depends(get_tenant_db)):
     agent = _normalize_agent_row(row)
 
     assignments = await db.execute(text(
-        "SELECT * FROM agent_assignments WHERE agent_id = :aid ORDER BY priority DESC, assigned_at ASC"
-    ), {"aid": agent_id})
+        "SELECT * FROM agent_assignments WHERE agent_id = :aid AND org_id = :org_id ORDER BY priority DESC, assigned_at ASC"
+    ), {"aid": agent_id, "org_id": org_id})
     agent_assignments = [_normalize_assignment_row(t) for t in assignments.mappings().all()]
     agent["assignments"] = agent_assignments
     agent["task_assignments"] = [
@@ -433,8 +462,8 @@ async def create_agent(request: Request, body: AgentCreate, db=Depends(get_tenan
     slug = body.name.lower().replace(" ", "-").replace("_", "-")
 
     await db.execute(text("""
-        INSERT INTO agents (id, name, emoji, role, description, model, skills, config, soul_md)
-        VALUES (:id, :name, :emoji, :role, :description, :model, :skills, :config, :soul_md)
+        INSERT INTO agents (id, name, emoji, role, description, model, skills, config, soul_md, org_id)
+        VALUES (:id, :name, :emoji, :role, :description, :model, :skills, :config, :soul_md, :org_id)
     """), {
         "id": agent_id,
         "name": body.name,
@@ -445,6 +474,7 @@ async def create_agent(request: Request, body: AgentCreate, db=Depends(get_tenan
         "skills": json.dumps(body.skills),
         "config": json.dumps(body.config),
         "soul_md": body.soul_md,
+        "org_id": org_id,
     })
     await db.commit()
 
@@ -458,12 +488,12 @@ async def update_agent(request: Request, agent_id: str, body: AgentUpdate, db=De
     await ensure_tables(db)
 
     # Check exists
-    existing = await db.execute(text("SELECT id FROM agents WHERE id = :id"), {"id": agent_id})
+    existing = await db.execute(text("SELECT id FROM agents WHERE id = :id AND org_id = :org_id"), {"id": agent_id, "org_id": org_id})
     if not existing.first():
         raise HTTPException(status_code=404, detail="Agent not found")
 
     updates = []
-    params = {"id": agent_id}
+    params = {"id": agent_id, "org_id": org_id}
 
     for field in ["name", "emoji", "role", "description", "model", "status", "soul_md"]:
         val = getattr(body, field, None)
@@ -483,7 +513,7 @@ async def update_agent(request: Request, agent_id: str, body: AgentUpdate, db=De
         raise HTTPException(status_code=400, detail="No fields to update")
 
     updates.append("updated_at = NOW()")
-    query = f"UPDATE agents SET {', '.join(updates)} WHERE id = :id"
+    query = f"UPDATE agents SET {', '.join(updates)} WHERE id = :id AND org_id = :org_id"
     await db.execute(text(query), params)
     await db.commit()
 
@@ -495,7 +525,7 @@ async def delete_agent(request: Request, agent_id: str, db=Depends(get_tenant_db
     org_id = get_org_id(request)
     await ensure_tables(db)
 
-    result = await db.execute(text("DELETE FROM agents WHERE id = :id RETURNING id"), {"id": agent_id})
+    result = await db.execute(text("DELETE FROM agents WHERE id = :id AND org_id = :org_id RETURNING id"), {"id": agent_id, "org_id": org_id})
     if not result.first():
         raise HTTPException(status_code=404, detail="Agent not found")
     await db.commit()
@@ -514,8 +544,8 @@ async def assign_skills(request: Request, agent_id: str, body: dict, db=Depends(
 
     skills = body.get("skills", [])
     await db.execute(text(
-        "UPDATE agents SET skills = :skills, updated_at = NOW() WHERE id = :id"
-    ), {"id": agent_id, "skills": json.dumps(skills)})
+        "UPDATE agents SET skills = :skills, updated_at = NOW() WHERE id = :id AND org_id = :org_id"
+    ), {"id": agent_id, "skills": json.dumps(skills), "org_id": org_id})
     await db.commit()
 
     return {"id": agent_id, "skills": skills}
@@ -525,7 +555,7 @@ async def assign_skills(request: Request, agent_id: str, body: dict, db=Depends(
 async def create_assignment(request: Request, agent_id: str, body: AgentAssignmentCreate, db=Depends(get_tenant_db)):
     org_id = get_org_id(request)
     await ensure_tables(db)
-    return await _create_assignment_record(db, agent_id, body)
+    return await _create_assignment_record(db, agent_id, body, org_id)
 
 
 @router.get("/agents/{agent_id}/assignments")
@@ -538,15 +568,15 @@ async def get_agent_assignments(
 ):
     org_id = get_org_id(request)
     await ensure_tables(db)
-    await _ensure_agent_exists(db, agent_id)
+    await _ensure_agent_exists(db, agent_id, org_id)
 
     if entity_type is not None and entity_type not in ASSIGNABLE_ENTITY_TYPES:
         raise HTTPException(status_code=400, detail="Unsupported entity_type")
     if status is not None and status not in ASSIGNMENT_STATUSES:
         raise HTTPException(status_code=400, detail="Unsupported assignment status")
 
-    query = "SELECT * FROM agent_assignments WHERE agent_id = :aid"
-    params: dict[str, Any] = {"aid": agent_id}
+    query = "SELECT * FROM agent_assignments WHERE agent_id = :aid AND org_id = :org_id"
+    params: dict[str, Any] = {"aid": agent_id, "org_id": org_id}
     if entity_type:
         query += " AND entity_type = :entity_type"
         params["entity_type"] = entity_type
@@ -569,14 +599,14 @@ async def update_assignment(
 ):
     org_id = get_org_id(request)
     await ensure_tables(db)
-    return await _update_assignment_record(db, agent_id, assignment_id, body)
+    return await _update_assignment_record(db, agent_id, assignment_id, body, org_id)
 
 
 @router.delete("/agents/{agent_id}/assignments/{assignment_id}")
 async def remove_assignment(request: Request, agent_id: str, assignment_id: str, db=Depends(get_tenant_db)):
     org_id = get_org_id(request)
     await ensure_tables(db)
-    await _delete_assignment_record(db, agent_id, assignment_id)
+    await _delete_assignment_record(db, agent_id, assignment_id, org_id)
     return {"deleted": True}
 
 
@@ -594,7 +624,7 @@ async def assign_task(request: Request, agent_id: str, body: TaskAssignment, db=
         title=body.title,
         priority=body.priority,
         metadata=body.metadata,
-    ))
+    ), org_id)
     return {
         "assignment_id": assignment["id"],
         "agent_id": agent_id,
@@ -610,10 +640,11 @@ async def get_agent_tasks(request: Request, agent_id: str, db=Depends(get_tenant
     org_id = get_org_id(request)
     await ensure_tables(db)
 
+    await _ensure_agent_exists(db, agent_id, org_id)
     result = await db.execute(text(
-        "SELECT * FROM agent_assignments WHERE agent_id = :aid AND entity_type = :entity_type "
+        "SELECT * FROM agent_assignments WHERE agent_id = :aid AND entity_type = :entity_type AND org_id = :org_id "
         "ORDER BY priority DESC, assigned_at ASC"
-    ), {"aid": agent_id, "entity_type": TASK_ASSIGNMENT_ENTITY_TYPE})
+    ), {"aid": agent_id, "entity_type": TASK_ASSIGNMENT_ENTITY_TYPE, "org_id": org_id})
     return [_normalize_assignment_row(r) for r in result.mappings().all()]
 
 
@@ -632,7 +663,7 @@ async def update_task_assignment(request: Request, agent_id: str, assignment_id:
         title=body.get("title"),
         priority=body.get("priority"),
         metadata=body.get("metadata"),
-    ), entity_type=TASK_ASSIGNMENT_ENTITY_TYPE)
+    ), org_id, entity_type=TASK_ASSIGNMENT_ENTITY_TYPE)
     return {"assignment_id": assignment_id, "status": assignment["status"]}
 
 
@@ -641,7 +672,7 @@ async def remove_task_assignment(request: Request, agent_id: str, assignment_id:
     org_id = get_org_id(request)
     await ensure_tables(db)
 
-    await _delete_assignment_record(db, agent_id, assignment_id, entity_type=TASK_ASSIGNMENT_ENTITY_TYPE)
+    await _delete_assignment_record(db, agent_id, assignment_id, org_id, entity_type=TASK_ASSIGNMENT_ENTITY_TYPE)
 
     return {"deleted": True}
 
@@ -657,8 +688,8 @@ async def get_agent_soul(request: Request, agent_id: str, db=Depends(get_tenant_
     org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
-        "SELECT soul_md FROM agents WHERE id = :id"
-    ), {"id": agent_id})
+        "SELECT soul_md FROM agents WHERE id = :id AND org_id = :org_id"
+    ), {"id": agent_id, "org_id": org_id})
     row = result.mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -670,8 +701,8 @@ async def update_agent_soul(request: Request, agent_id: str, body: AgentSoulUpda
     org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
-        "UPDATE agents SET soul_md = :soul_md, updated_at = NOW() WHERE id = :id RETURNING id"
-    ), {"id": agent_id, "soul_md": body.soul_md})
+        "UPDATE agents SET soul_md = :soul_md, updated_at = NOW() WHERE id = :id AND org_id = :org_id RETURNING id"
+    ), {"id": agent_id, "soul_md": body.soul_md, "org_id": org_id})
     await db.commit()
     if not result.first():
         raise HTTPException(status_code=404, detail="Agent not found")
