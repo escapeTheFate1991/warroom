@@ -18,7 +18,8 @@ router = APIRouter()
 
 
 async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: str, 
-                   user_id: Optional[int] = None, old_values: dict = None, new_values: dict = None):
+                   user_id: Optional[int] = None, old_values: dict = None, new_values: dict = None,
+                   org_id: Optional[int] = None):
     """Log audit trail for CRM operations."""
     audit_log = AuditLog(
         entity_type=entity_type,
@@ -26,7 +27,8 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
         action=action,
         user_id=user_id,
         old_values=old_values,
-        new_values=new_values
+        new_values=new_values,
+        org_id=org_id
     )
     db.add(audit_log)
 
@@ -43,6 +45,9 @@ async def list_products(
     """List products with filtering."""
     org_id = get_org_id(request)
     query = select(Product)
+    
+    if org_id:
+        query = query.where(Product.org_id == org_id)
     
     if search:
         query = query.where(
@@ -62,7 +67,10 @@ async def list_products(
 async def get_product(request: Request, product_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single product by ID."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Product).where(Product.id == product_id))
+    query = select(Product).where(Product.id == product_id)
+    if org_id:
+        query = query.where(Product.org_id == org_id)
+    result = await db.execute(query)
     product = result.scalar_one_or_none()
     
     if not product:
@@ -78,20 +86,21 @@ async def create_product(request: Request, product_data: ProductCreate, user_id:
     org_id = get_org_id(request)
     # Check for duplicate SKU if provided
     if product_data.sku:
-        existing = await db.execute(
-            select(Product).where(Product.sku == product_data.sku)
-        )
+        query = select(Product).where(Product.sku == product_data.sku)
+        if org_id:
+            query = query.where(Product.org_id == org_id)
+        existing = await db.execute(query)
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Product with this SKU already exists")
     
-    product = Product(**product_data.model_dump(exclude_unset=True))
+    product = Product(**product_data.model_dump(exclude_unset=True), org_id=org_id)
     db.add(product)
     await db.commit()
     await db.refresh(product)
     
     # Log audit
     await log_audit(db, "product", product.id, "created", user_id, 
-                   new_values=product_data.model_dump())
+                   new_values=product_data.model_dump(), org_id=org_id)
     await db.commit()
     
     return product
@@ -102,7 +111,10 @@ async def update_product(request: Request, product_id: int, product_data: Produc
                         user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing product."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Product).where(Product.id == product_id))
+    query = select(Product).where(Product.id == product_id)
+    if org_id:
+        query = query.where(Product.org_id == org_id)
+    result = await db.execute(query)
     product = result.scalar_one_or_none()
     
     if not product:
@@ -110,9 +122,10 @@ async def update_product(request: Request, product_id: int, product_data: Produc
     
     # Check for duplicate SKU if changing
     if product_data.sku and product_data.sku != product.sku:
-        existing = await db.execute(
-            select(Product).where(Product.sku == product_data.sku, Product.id != product_id)
-        )
+        sku_query = select(Product).where(Product.sku == product_data.sku, Product.id != product_id)
+        if org_id:
+            sku_query = sku_query.where(Product.org_id == org_id)
+        existing = await db.execute(sku_query)
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Product with this SKU already exists")
     

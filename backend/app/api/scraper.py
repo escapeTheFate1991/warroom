@@ -305,7 +305,7 @@ async def _save_profile_to_competitor(
 
 
 async def _save_posts_to_cache(
-    db: AsyncSession, competitor_id: int, platform: str, posts: List[ScrapedPost]
+    db: AsyncSession, competitor_id: int, platform: str, posts: List[ScrapedPost], org_id: int
 ) -> int:
     """Save scraped posts to competitor_posts cache table using UPSERT.
     
@@ -332,8 +332,8 @@ async def _save_posts_to_cache(
 
             # Check if post exists
             existing = await db.execute(
-                text(f"SELECT id FROM crm.competitor_posts WHERE competitor_id = :cid AND {upsert_key} = :key LIMIT 1"),
-                {"cid": competitor_id, "key": upsert_val},
+                text(f"SELECT id FROM crm.competitor_posts WHERE competitor_id = :cid AND {upsert_key} = :key AND org_id = :org_id LIMIT 1"),
+                {"cid": competitor_id, "key": upsert_val, "org_id": org_id},
             )
             row = existing.fetchone()
 
@@ -348,7 +348,7 @@ async def _save_posts_to_cache(
                             thumbnail_url = COALESCE(NULLIF(:thumbnail_url, ''), thumbnail_url),
                             shortcode = COALESCE(NULLIF(:shortcode, ''), shortcode),
                             fetched_at = NOW()
-                        WHERE id = :id
+                        WHERE id = :id AND org_id = :org_id
                     """),
                     {
                         "id": row[0],
@@ -362,6 +362,7 @@ async def _save_posts_to_cache(
                         "media_url": post.media_url,
                         "thumbnail_url": post.thumbnail_url,
                         "shortcode": post.shortcode,
+                        "org_id": org_id,
                     },
                 )
             else:

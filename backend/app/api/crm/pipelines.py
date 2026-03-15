@@ -24,7 +24,8 @@ router = APIRouter()
 
 
 async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: str, 
-                   user_id: Optional[int] = None, old_values: dict = None, new_values: dict = None):
+                   user_id: Optional[int] = None, old_values: dict = None, new_values: dict = None, 
+                   org_id: Optional[int] = None):
     """Log audit trail for CRM operations."""
     audit_log = AuditLog(
         entity_type=entity_type,
@@ -32,7 +33,8 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
         action=action,
         user_id=user_id,
         old_values=old_values,
-        new_values=new_values
+        new_values=new_values,
+        org_id=org_id
     )
     db.add(audit_log)
 
@@ -43,11 +45,10 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
 async def list_pipelines(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """List all pipelines."""
     org_id = get_org_id(request)
-    result = await db.execute(
-        select(Pipeline)
-        .options(selectinload(Pipeline.stages))
-        .order_by(Pipeline.is_default.desc(), Pipeline.name)
-    )
+    query = select(Pipeline).options(selectinload(Pipeline.stages)).order_by(Pipeline.is_default.desc(), Pipeline.name)
+    if org_id:
+        query = query.where(Pipeline.org_id == org_id)
+    result = await db.execute(query)
     return result.scalars().all()
 
 
@@ -55,11 +56,10 @@ async def list_pipelines(request: Request, db: AsyncSession = Depends(get_tenant
 async def get_pipeline(request: Request, pipeline_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single pipeline with stages."""
     org_id = get_org_id(request)
-    result = await db.execute(
-        select(Pipeline)
-        .options(selectinload(Pipeline.stages))
-        .where(Pipeline.id == pipeline_id)
-    )
+    query = select(Pipeline).options(selectinload(Pipeline.stages)).where(Pipeline.id == pipeline_id)
+    if org_id:
+        query = query.where(Pipeline.org_id == org_id)
+    result = await db.execute(query)
     pipeline = result.scalar_one_or_none()
     
     if not pipeline:
@@ -75,11 +75,12 @@ async def create_pipeline(request: Request, pipeline_data: PipelineCreate, user_
     org_id = get_org_id(request)
     # If this is set as default, unset other defaults
     if pipeline_data.is_default:
-        await db.execute(
-            update(Pipeline).where(Pipeline.is_default == True).values(is_default=False)
-        )
+        query = update(Pipeline).where(Pipeline.is_default == True).values(is_default=False)
+        if org_id:
+            query = query.where(Pipeline.org_id == org_id)
+        await db.execute(query)
     
-    pipeline = Pipeline(**pipeline_data.model_dump(exclude_unset=True))
+    pipeline = Pipeline(**pipeline_data.model_dump(exclude_unset=True), org_id=org_id)
     db.add(pipeline)
     await db.commit()
     await db.refresh(pipeline)
@@ -104,7 +105,7 @@ async def create_pipeline(request: Request, pipeline_data: PipelineCreate, user_
     
     # Log audit
     await log_audit(db, "pipeline", pipeline.id, "created", user_id, 
-                   new_values=pipeline_data.model_dump())
+                   new_values=pipeline_data.model_dump(), org_id=org_id)
     await db.commit()
     
     return pipeline
@@ -115,7 +116,10 @@ async def update_pipeline(request: Request, pipeline_id: int, pipeline_data: Pip
                          user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing pipeline."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
+    query = select(Pipeline).where(Pipeline.id == pipeline_id)
+    if org_id:
+        query = query.where(Pipeline.org_id == org_id)
+    result = await db.execute(query)
     pipeline = result.scalar_one_or_none()
     
     if not pipeline:
@@ -130,9 +134,10 @@ async def update_pipeline(request: Request, pipeline_id: int, pipeline_data: Pip
     
     # If setting as default, unset other defaults
     if pipeline_data.is_default and not pipeline.is_default:
-        await db.execute(
-            update(Pipeline).where(Pipeline.id != pipeline_id).values(is_default=False)
-        )
+        query = update(Pipeline).where(Pipeline.id != pipeline_id).values(is_default=False)
+        if org_id:
+            query = query.where(Pipeline.org_id == org_id)
+        await db.execute(query)
     
     # Update fields
     update_data = pipeline_data.model_dump(exclude_unset=True)
@@ -144,7 +149,7 @@ async def update_pipeline(request: Request, pipeline_id: int, pipeline_data: Pip
     await db.refresh(pipeline)
     
     # Log audit
-    await log_audit(db, "pipeline", pipeline.id, "updated", user_id, old_values, update_data)
+    await log_audit(db, "pipeline", pipeline.id, "updated", user_id, old_values, update_data, org_id=org_id)
     await db.commit()
     
     return pipeline
@@ -155,7 +160,10 @@ async def delete_pipeline(request: Request, pipeline_id: int, user_id: Optional[
                          db: AsyncSession = Depends(get_tenant_db)):
     """Delete a pipeline."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
+    query = select(Pipeline).where(Pipeline.id == pipeline_id)
+    if org_id:
+        query = query.where(Pipeline.org_id == org_id)
+    result = await db.execute(query)
     pipeline = result.scalar_one_or_none()
     
     if not pipeline:
@@ -166,15 +174,21 @@ async def delete_pipeline(request: Request, pipeline_id: int, user_id: Optional[
     
     # Check if pipeline has deals
     from app.models.crm.deal import Deal
-    deals_count = await db.execute(select(Deal).where(Deal.pipeline_id == pipeline_id))
+    deals_query = select(Deal).where(Deal.pipeline_id == pipeline_id)
+    if org_id:
+        deals_query = deals_query.where(Deal.org_id == org_id)
+    deals_count = await db.execute(deals_query)
     if deals_count.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Cannot delete pipeline with existing deals")
     
     old_values = {"name": pipeline.name, "is_default": pipeline.is_default}
-    await db.execute(delete(Pipeline).where(Pipeline.id == pipeline_id))
+    delete_query = delete(Pipeline).where(Pipeline.id == pipeline_id)
+    if org_id:
+        delete_query = delete_query.where(Pipeline.org_id == org_id)
+    await db.execute(delete_query)
     
     # Log audit
-    await log_audit(db, "pipeline", pipeline_id, "deleted", user_id, old_values)
+    await log_audit(db, "pipeline", pipeline_id, "deleted", user_id, old_values, org_id=org_id)
     await db.commit()
     
     return {"status": "deleted", "pipeline_id": pipeline_id}
@@ -187,7 +201,10 @@ async def list_pipeline_stages(request: Request, pipeline_id: int, db: AsyncSess
     """List stages for a pipeline."""
     org_id = get_org_id(request)
     # Verify pipeline exists
-    pipeline_result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
+    pipeline_query = select(Pipeline).where(Pipeline.id == pipeline_id)
+    if org_id:
+        pipeline_query = pipeline_query.where(Pipeline.org_id == org_id)
+    pipeline_result = await db.execute(pipeline_query)
     if not pipeline_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Pipeline not found")
     
@@ -205,7 +222,10 @@ async def create_pipeline_stage(request: Request, pipeline_id: int, stage_data: 
     """Create a new stage in a pipeline."""
     org_id = get_org_id(request)
     # Verify pipeline exists
-    pipeline_result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
+    pipeline_query = select(Pipeline).where(Pipeline.id == pipeline_id)
+    if org_id:
+        pipeline_query = pipeline_query.where(Pipeline.org_id == org_id)
+    pipeline_result = await db.execute(pipeline_query)
     if not pipeline_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Pipeline not found")
     
@@ -226,7 +246,7 @@ async def create_pipeline_stage(request: Request, pipeline_id: int, stage_data: 
     
     # Log audit
     await log_audit(db, "pipeline_stage", stage.id, "created", user_id, 
-                   new_values={**stage_data.model_dump(), "pipeline_id": pipeline_id})
+                   new_values={**stage_data.model_dump(), "pipeline_id": pipeline_id}, org_id=org_id)
     await db.commit()
     
     return stage
@@ -237,10 +257,16 @@ async def update_pipeline_stage(request: Request, stage_id: int, stage_data: Pip
                                user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing pipeline stage."""
     org_id = get_org_id(request)
-    result = await db.execute(select(PipelineStage).where(PipelineStage.id == stage_id))
+    # Get stage with pipeline to verify org_id
+    query = select(PipelineStage).options(selectinload(PipelineStage.pipeline)).where(PipelineStage.id == stage_id)
+    result = await db.execute(query)
     stage = result.scalar_one_or_none()
     
     if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    # Verify stage belongs to user's org through its pipeline
+    if org_id and stage.pipeline and stage.pipeline.org_id != org_id:
         raise HTTPException(status_code=404, detail="Stage not found")
     
     # Store old values for audit
@@ -283,7 +309,7 @@ async def update_pipeline_stage(request: Request, stage_id: int, stage_data: Pip
     await db.refresh(stage)
     
     # Log audit
-    await log_audit(db, "pipeline_stage", stage.id, "updated", user_id, old_values, update_data)
+    await log_audit(db, "pipeline_stage", stage.id, "updated", user_id, old_values, update_data, org_id=org_id)
     await db.commit()
     
     return stage
@@ -294,15 +320,24 @@ async def delete_pipeline_stage(request: Request, stage_id: int, user_id: Option
                                db: AsyncSession = Depends(get_tenant_db)):
     """Delete a pipeline stage."""
     org_id = get_org_id(request)
-    result = await db.execute(select(PipelineStage).where(PipelineStage.id == stage_id))
+    # Get stage with pipeline to verify org_id
+    query = select(PipelineStage).options(selectinload(PipelineStage.pipeline)).where(PipelineStage.id == stage_id)
+    result = await db.execute(query)
     stage = result.scalar_one_or_none()
     
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
     
+    # Verify stage belongs to user's org through its pipeline
+    if org_id and stage.pipeline and stage.pipeline.org_id != org_id:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
     # Check if stage has deals
     from app.models.crm.deal import Deal
-    deals_count = await db.execute(select(Deal).where(Deal.stage_id == stage_id))
+    deals_query = select(Deal).where(Deal.stage_id == stage_id)
+    if org_id:
+        deals_query = deals_query.where(Deal.org_id == org_id)
+    deals_count = await db.execute(deals_query)
     if deals_count.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Cannot delete stage with existing deals")
     
@@ -315,7 +350,7 @@ async def delete_pipeline_stage(request: Request, stage_id: int, user_id: Option
     await db.execute(delete(PipelineStage).where(PipelineStage.id == stage_id))
     
     # Log audit
-    await log_audit(db, "pipeline_stage", stage_id, "deleted", user_id, old_values)
+    await log_audit(db, "pipeline_stage", stage_id, "deleted", user_id, old_values, org_id=org_id)
     await db.commit()
     
     return {"status": "deleted", "stage_id": stage_id}
@@ -327,7 +362,10 @@ async def reorder_stages(request: Request, pipeline_id: int, reorder_data: Stage
     """Reorder stages in a pipeline."""
     org_id = get_org_id(request)
     # Verify pipeline exists
-    pipeline_result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
+    pipeline_query = select(Pipeline).where(Pipeline.id == pipeline_id)
+    if org_id:
+        pipeline_query = pipeline_query.where(Pipeline.org_id == org_id)
+    pipeline_result = await db.execute(pipeline_query)
     if not pipeline_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Pipeline not found")
     
@@ -347,7 +385,7 @@ async def reorder_stages(request: Request, pipeline_id: int, reorder_data: Stage
     
     # Log audit
     await log_audit(db, "pipeline", pipeline_id, "stages_reordered", user_id, 
-                   new_values={"stage_orders": reorder_data.stage_orders})
+                   new_values={"stage_orders": reorder_data.stage_orders}, org_id=org_id)
     await db.commit()
     
     return {"status": "reordered", "pipeline_id": pipeline_id}

@@ -22,10 +22,10 @@ router = APIRouter()
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-async def _get_accounts(db: AsyncSession, platform: Optional[str] = None):
+async def _get_accounts(db: AsyncSession, org_id: int, platform: Optional[str] = None):
     """Get connected accounts, optionally filtered by platform."""
-    q = "SELECT id, platform, username, access_token, refresh_token FROM crm.social_accounts WHERE status = 'connected'"
-    params = {}
+    q = "SELECT id, platform, username, access_token, refresh_token FROM crm.social_accounts WHERE status = 'connected' AND org_id = :org_id"
+    params = {"org_id": org_id}
     if platform:
         q += " AND platform = :p"
         params["p"] = platform
@@ -34,13 +34,13 @@ async def _get_accounts(db: AsyncSession, platform: Optional[str] = None):
 
 
 async def _upsert_daily_analytics(
-    db: AsyncSession, account_id: int, metric_date: date, **metrics
+    db: AsyncSession, account_id: int, metric_date: date, org_id: int, **metrics
 ):
     """Insert or update daily analytics row (one per account per day)."""
     # Check if row exists
     r = await db.execute(text(
-        "SELECT id FROM crm.social_analytics WHERE account_id = :aid AND metric_date = :d"
-    ), {"aid": account_id, "d": metric_date})
+        "SELECT id FROM crm.social_analytics WHERE account_id = :aid AND metric_date = :d AND org_id = :org_id"
+    ), {"aid": account_id, "d": metric_date, "org_id": org_id})
     existing = r.fetchone()
 
     # Build SET clause from non-None metrics
@@ -51,29 +51,29 @@ async def _upsert_daily_analytics(
     if existing:
         sets = ", ".join(f"{k} = :{k}" for k in fields)
         await db.execute(text(
-            f"UPDATE crm.social_analytics SET {sets} WHERE id = :id"
-        ), {**fields, "id": existing[0]})
+            f"UPDATE crm.social_analytics SET {sets} WHERE id = :id AND org_id = :org_id"
+        ), {**fields, "id": existing[0], "org_id": org_id})
     else:
-        cols = ", ".join(["account_id", "metric_date"] + list(fields.keys()))
-        vals = ", ".join([":aid", ":d"] + [f":{k}" for k in fields])
+        cols = ", ".join(["account_id", "metric_date", "org_id"] + list(fields.keys()))
+        vals = ", ".join([":aid", ":d", ":org_id"] + [f":{k}" for k in fields])
         await db.execute(text(
             f"INSERT INTO crm.social_analytics ({cols}) VALUES ({vals})"
-        ), {"aid": account_id, "d": metric_date, **fields})
+        ), {"aid": account_id, "d": metric_date, "org_id": org_id, **fields})
 
 
-async def _update_account_stats(db: AsyncSession, account_id: int, **stats):
+async def _update_account_stats(db: AsyncSession, account_id: int, org_id: int, **stats):
     """Update follower/following/post counts and last_synced."""
     fields = {k: v for k, v in stats.items() if v is not None}
     fields["last_synced"] = datetime.now(timezone.utc)
     sets = ", ".join(f"{k} = :{k}" for k in fields)
     await db.execute(text(
-        f"UPDATE crm.social_accounts SET {sets} WHERE id = :id"
-    ), {**fields, "id": account_id})
+        f"UPDATE crm.social_accounts SET {sets} WHERE id = :id AND org_id = :org_id"
+    ), {**fields, "id": account_id, "org_id": org_id})
 
 
 # ── Token Refresh ────────────────────────────────────────────────────
 
-async def _try_refresh_token(db: AsyncSession, acc: dict) -> Optional[str]:
+async def _try_refresh_token(db: AsyncSession, acc: dict, org_id: int) -> Optional[str]:
     """Attempt to refresh an expired token using raw SQL + platform-specific refresh. Returns new token or None."""
     if not acc.get("refresh"):
         return None
@@ -117,8 +117,8 @@ async def _try_refresh_token(db: AsyncSession, acc: dict) -> Optional[str]:
                 new_token = data["access_token"]
                 # X rotates refresh tokens
                 if data.get("refresh_token"):
-                    await db.execute(text("UPDATE crm.social_accounts SET refresh_token = :rt WHERE id = :id"),
-                                     {"rt": data["refresh_token"], "id": account_id})
+                    await db.execute(text("UPDATE crm.social_accounts SET refresh_token = :rt WHERE id = :id AND org_id = :org_id"),
+                                     {"rt": data["refresh_token"], "id": account_id, "org_id": org_id})
 
         elif platform in ("facebook", "instagram"):
             app_id = await _get_setting("meta_app_id")
@@ -136,8 +136,8 @@ async def _try_refresh_token(db: AsyncSession, acc: dict) -> Optional[str]:
             return None
 
         if new_token:
-            await db.execute(text("UPDATE crm.social_accounts SET access_token = :t, status = 'connected' WHERE id = :id"),
-                             {"t": new_token, "id": account_id})
+            await db.execute(text("UPDATE crm.social_accounts SET access_token = :t, status = 'connected' WHERE id = :id AND org_id = :org_id"),
+                             {"t": new_token, "id": account_id, "org_id": org_id})
             logger.info("Token refreshed for %s/@%s", platform, acc["username"])
             return new_token
 
@@ -146,7 +146,7 @@ async def _try_refresh_token(db: AsyncSession, acc: dict) -> Optional[str]:
         try:
             await db.rollback()
             await db.execute(text("SET search_path TO crm, public"))
-            await db.execute(text("UPDATE social_accounts SET status = 'expired' WHERE id = :id"), {"id": account_id})
+            await db.execute(text("UPDATE social_accounts SET status = 'expired' WHERE id = :id AND org_id = :org_id"), {"id": account_id, "org_id": org_id})
             await db.commit()
         except Exception:
             pass
@@ -155,7 +155,7 @@ async def _try_refresh_token(db: AsyncSession, acc: dict) -> Optional[str]:
 
 # ── Platform Sync Functions ──────────────────────────────────────────
 
-async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
+async def _sync_instagram(db: AsyncSession, acc: dict, org_id: int) -> dict:
     """Sync Instagram: profile stats + per-media insights + account insights.
 
     Per-media metrics (Reels): views, reach, likes, comments, shares, saves,
@@ -173,7 +173,7 @@ async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
         })
         if profile.status_code == 200:
             p = profile.json()
-            await _update_account_stats(db, acc["id"],
+            await _update_account_stats(db, acc["id"], org_id,
                 follower_count=p.get("followers_count", 0),
                 following_count=p.get("follows_count", 0),
                 post_count=p.get("media_count", 0),
@@ -249,8 +249,8 @@ async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
 
                     # Snapshot for engagement velocity tracking
                     await db.execute(text(
-                        "INSERT INTO social_snapshots (account_id, media_ig_id, views, likes, comments, shares, saves, reach, total_interactions, avg_watch_time_ms) "
-                        "VALUES (:aid, :mid, :views, :likes, :comments, :shares, :saves, :reach, :interactions, :awt)"
+                        "INSERT INTO social_snapshots (account_id, media_ig_id, views, likes, comments, shares, saves, reach, total_interactions, avg_watch_time_ms, org_id) "
+                        "VALUES (:aid, :mid, :views, :likes, :comments, :shares, :saves, :reach, :interactions, :awt, :org_id)"
                     ), {
                         "aid": acc["id"], "mid": mid,
                         "views": post_data.get("views", 0),
@@ -261,6 +261,7 @@ async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
                         "reach": post_data.get("reach", 0),
                         "interactions": post_data.get("total_interactions", 0),
                         "awt": post_data.get("ig_reels_avg_watch_time", 0),
+                        "org_id": org_id,
                     })
                 except Exception as e:
                     logger.debug("Insights failed for %s: %s", mid, e)
@@ -273,7 +274,7 @@ async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
             # Engagement = likes + comments + shares + saves
             total_engagement = totals["likes"] + totals["comments"] + totals["shares"] + totals["saves"]
 
-            await _upsert_daily_analytics(db, acc["id"], date.today(),
+            await _upsert_daily_analytics(db, acc["id"], date.today(), org_id,
                 likes=totals["likes"],
                 comments=totals["comments"],
                 shares=totals["shares"],
@@ -302,14 +303,14 @@ async def _sync_instagram(db: AsyncSession, acc: dict) -> dict:
                     if vals:
                         val = vals[-1].get("value", 0)
                         if m["name"] == "reach" and val > totals["reach"]:
-                            await _upsert_daily_analytics(db, acc["id"], date.today(), reach=val)
+                            await _upsert_daily_analytics(db, acc["id"], date.today(), org_id, reach=val)
         except Exception as e:
             logger.debug("Account insights error: %s", e)
 
     return results
 
 
-async def _sync_youtube(db: AsyncSession, acc: dict) -> dict:
+async def _sync_youtube(db: AsyncSession, acc: dict, org_id: int) -> dict:
     """Sync YouTube: channel stats + video metrics."""
     results = {"platform": "youtube", "username": acc["username"], "status": "ok", "videos_synced": 0}
     headers = {"Authorization": f"Bearer {acc['token']}"}
@@ -337,7 +338,7 @@ async def _sync_youtube(db: AsyncSession, acc: dict) -> dict:
         views = int(stats.get("viewCount", 0))
         vids = int(stats.get("videoCount", 0))
 
-        await _update_account_stats(db, acc["id"],
+        await _update_account_stats(db, acc["id"], org_id,
             follower_count=subs,
             post_count=vids,
             username=ch["snippet"]["title"],
@@ -375,7 +376,7 @@ async def _sync_youtube(db: AsyncSession, acc: dict) -> dict:
                             total_comments += int(s.get("commentCount", 0))
 
                         results["videos_synced"] = len(video_ids)
-                        await _upsert_daily_analytics(db, acc["id"], date.today(),
+                        await _upsert_daily_analytics(db, acc["id"], date.today(), org_id,
                             video_views=total_views,
                             likes=total_likes,
                             comments=total_comments,
@@ -384,12 +385,12 @@ async def _sync_youtube(db: AsyncSession, acc: dict) -> dict:
                         )
 
         # Store total channel views as reach
-        await _upsert_daily_analytics(db, acc["id"], date.today(), reach=views)
+        await _upsert_daily_analytics(db, acc["id"], date.today(), org_id, reach=views)
 
     return results
 
 
-async def _sync_facebook(db: AsyncSession, acc: dict) -> dict:
+async def _sync_facebook(db: AsyncSession, acc: dict, org_id: int) -> dict:
     """Sync Facebook: post engagement metrics."""
     results = {"platform": "facebook", "username": acc["username"], "status": "ok", "posts_synced": 0}
 
@@ -415,9 +416,9 @@ async def _sync_facebook(db: AsyncSession, acc: dict) -> dict:
             total_shares += p.get("shares", {}).get("count", 0)
 
         results["posts_synced"] = len(posts)
-        await _update_account_stats(db, acc["id"], post_count=len(posts))
+        await _update_account_stats(db, acc["id"], org_id, post_count=len(posts))
 
-        await _upsert_daily_analytics(db, acc["id"], date.today(),
+        await _upsert_daily_analytics(db, acc["id"], date.today(), org_id,
             likes=total_likes,
             comments=total_comments,
             shares=total_shares,
@@ -427,7 +428,7 @@ async def _sync_facebook(db: AsyncSession, acc: dict) -> dict:
     return results
 
 
-async def _sync_x(db: AsyncSession, acc: dict) -> dict:
+async def _sync_x(db: AsyncSession, acc: dict, org_id: int) -> dict:
     """Sync X/Twitter: profile metrics + tweet engagement."""
     results = {"platform": "x", "username": acc["username"], "status": "ok", "tweets_synced": 0}
     headers = {"Authorization": f"Bearer {acc['token']}"}
@@ -441,7 +442,7 @@ async def _sync_x(db: AsyncSession, acc: dict) -> dict:
         if me_resp.status_code == 200:
             me = me_resp.json().get("data", {})
             metrics = me.get("public_metrics", {})
-            await _update_account_stats(db, acc["id"],
+            await _update_account_stats(db, acc["id"], org_id,
                 follower_count=metrics.get("followers_count", 0),
                 following_count=metrics.get("following_count", 0),
                 post_count=metrics.get("tweet_count", 0),
@@ -472,7 +473,7 @@ async def _sync_x(db: AsyncSession, acc: dict) -> dict:
                         total_impressions += pm.get("impression_count", 0)
 
                     results["tweets_synced"] = len(tweets)
-                    await _upsert_daily_analytics(db, acc["id"], date.today(),
+                    await _upsert_daily_analytics(db, acc["id"], date.today(), org_id,
                         likes=total_likes,
                         shares=total_retweets,
                         comments=total_replies,
@@ -502,7 +503,7 @@ SYNC_MAP = {
 async def sync_all(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Sync all connected social accounts."""
     org_id = get_org_id(request)
-    accounts = await _get_accounts(db)
+    accounts = await _get_accounts(db, org_id)
     if not accounts:
         return {"status": "no_accounts", "results": []}
 
@@ -511,13 +512,13 @@ async def sync_all(request: Request, db: AsyncSession = Depends(get_tenant_db)):
         syncer = SYNC_MAP.get(acc["platform"])
         if syncer:
             try:
-                r = await syncer(db, acc)
+                r = await syncer(db, acc, org_id)
                 # If sync got errors (likely 401), try refreshing token and retry
                 if r.get("status") == "error":
-                    new_token = await _try_refresh_token(db, acc)
+                    new_token = await _try_refresh_token(db, acc, org_id)
                     if new_token:
                         acc["token"] = new_token
-                        r = await syncer(db, acc)
+                        r = await syncer(db, acc, org_id)
                         if r.get("status") != "error":
                             r["token_refreshed"] = True
                 results.append(r)
@@ -537,19 +538,19 @@ async def sync_platform(request: Request, platform: str, db: AsyncSession = Depe
     if not syncer:
         raise HTTPException(400, f"Unknown platform: {platform}")
 
-    accounts = await _get_accounts(db, platform)
+    accounts = await _get_accounts(db, org_id, platform)
     if not accounts:
         raise HTTPException(404, f"No connected {platform} account")
 
     results = []
     for acc in accounts:
         try:
-            r = await syncer(db, acc)
+            r = await syncer(db, acc, org_id)
             if r.get("status") == "error":
-                new_token = await _try_refresh_token(db, acc)
+                new_token = await _try_refresh_token(db, acc, org_id)
                 if new_token:
                     acc["token"] = new_token
-                    r = await syncer(db, acc)
+                    r = await syncer(db, acc, org_id)
                     if r.get("status") != "error":
                         r["token_refreshed"] = True
             results.append(r)

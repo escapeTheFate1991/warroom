@@ -203,6 +203,7 @@ async def _serialize_crm_contacts(db: AsyncSession, rows: List[Any]) -> List[Dic
 async def _query_person_rows(
     db: AsyncSession,
     *,
+    org_id: int,
     organization_id: Optional[int] = None,
     person_id: Optional[int] = None,
     search: Optional[str] = None,
@@ -230,9 +231,10 @@ async def _query_person_rows(
             p.created_at,
             p.updated_at
         FROM crm.persons p
-        LEFT JOIN crm.organizations o ON o.id = p.organization_id
+        LEFT JOIN crm.organizations o ON o.id = p.organization_id AND o.org_id = :org_id
         LEFT JOIN crm.users u ON u.id = p.user_id
-        WHERE (CAST(:organization_id AS INTEGER) IS NULL OR p.organization_id = :organization_id)
+        WHERE p.org_id = :org_id
+          AND (CAST(:organization_id AS INTEGER) IS NULL OR p.organization_id = :organization_id)
           AND (CAST(:person_id AS INTEGER) IS NULL OR p.id = :person_id)
           AND (CAST(:search_like AS TEXT) IS NULL OR ({search_clause}))
         ORDER BY p.name
@@ -244,6 +246,7 @@ async def _query_person_rows(
     result = await db.execute(
         query,
         {
+            "org_id": org_id,
             "organization_id": organization_id,
             "person_id": person_id,
             "search_like": _search_like(search),
@@ -269,6 +272,7 @@ async def list_persons(
     org_id = get_org_id(request)
     rows = await _query_person_rows(
         db,
+        org_id=org_id,
         organization_id=organization_id,
         search=search,
         limit=limit,
@@ -281,7 +285,7 @@ async def list_persons(
 async def get_person(request: Request, person_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single person by ID."""
     org_id = get_org_id(request)
-    rows = await _query_person_rows(db, person_id=person_id, limit=1)
+    rows = await _query_person_rows(db, org_id=org_id, person_id=person_id, limit=1)
     if not rows:
         raise HTTPException(status_code=404, detail="Person not found")
 
@@ -294,6 +298,7 @@ async def create_person(request: Request, person_data: PersonCreate, db: AsyncSe
     """Create a new person."""
     org_id = get_org_id(request)
     normalized_payload = _normalize_person_payload(person_data.model_dump(exclude_unset=True))
+    normalized_payload["org_id"] = org_id
     person = Person(**normalized_payload)
     db.add(person)
     await db.commit()
@@ -334,7 +339,7 @@ async def update_person(request: Request, person_id: int, person_data: PersonUpd
                        db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing person."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Person).where(Person.id == person_id))
+    result = await db.execute(select(Person).where(Person.id == person_id, Person.org_id == org_id))
     person = result.scalar_one_or_none()
     
     if not person:
@@ -410,14 +415,14 @@ async def delete_person(request: Request, person_id: int, user_id: Optional[int]
                        db: AsyncSession = Depends(get_tenant_db)):
     """Delete a person."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Person).where(Person.id == person_id))
+    result = await db.execute(select(Person).where(Person.id == person_id, Person.org_id == org_id))
     person = result.scalar_one_or_none()
     
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
     
     old_values = {"name": person.name, "emails": person.email_addresses}
-    await db.execute(delete(Person).where(Person.id == person_id))
+    await db.execute(delete(Person).where(Person.id == person_id, Person.org_id == org_id))
     
     # Log audit
     await log_audit(db, "person", person_id, "deleted", user_id, old_values)
@@ -433,7 +438,7 @@ async def get_person_deals(request: Request, person_id: int, db: AsyncSession = 
     result = await db.execute(
         select(Deal)
         .options(selectinload(Deal.pipeline), selectinload(Deal.stage))
-        .where(Deal.person_id == person_id)
+        .where(Deal.person_id == person_id, Deal.org_id == org_id)
         .order_by(Deal.created_at.desc())
     )
     return result.scalars().all()
@@ -449,6 +454,7 @@ async def search_persons(request: Request, search_request: PersonSearchRequest, 
 
     rows = await _query_person_rows(
         db,
+        org_id=org_id,
         search=search_request.query,
         search_fields=search_fields,
         limit=50,
@@ -466,7 +472,7 @@ async def list_contacts(
 ):
     """List flattened CRM contacts for the contacts manager."""
     org_id = get_org_id(request)
-    rows = await _query_person_rows(db, search=search, limit=limit, offset=offset)
+    rows = await _query_person_rows(db, org_id=org_id, search=search, limit=limit, offset=offset)
     return await _serialize_crm_contacts(db, rows)
 
 
@@ -483,6 +489,7 @@ async def list_contact_persons(
     org_id = get_org_id(request)
     rows = await _query_person_rows(
         db,
+        org_id=org_id,
         organization_id=organization_id,
         search=search,
         limit=limit,
@@ -500,7 +507,7 @@ async def search_contact_persons(
 ):
     """Compatibility GET search endpoint for person lookups."""
     org_id = get_org_id(request)
-    rows = await _query_person_rows(db, search=q, limit=limit)
+    rows = await _query_person_rows(db, org_id=org_id, search=q, limit=limit)
     return await _serialize_person_rows(db, rows)
 
 
@@ -516,7 +523,7 @@ async def list_organizations(
 ):
     """List organizations with filtering."""
     org_id = get_org_id(request)
-    query = select(Organization)
+    query = select(Organization).where(Organization.org_id == org_id)
     
     if search:
         query = query.where(Organization.name.ilike(f"%{search}%"))
@@ -537,7 +544,7 @@ async def list_contact_organizations(
 ):
     """Compatibility wrapper for organization lookup under /contacts."""
     org_id = get_org_id(request)
-    return await list_organizations(search=search, limit=limit, offset=offset, db=db)
+    return await list_organizations(request, search=search, limit=limit, offset=offset, db=db)
 
 
 @router.get("/contacts/organizations/search", response_model=List[OrganizationResponse])
@@ -549,14 +556,14 @@ async def search_contact_organizations(
 ):
     """Compatibility GET search endpoint for organization lookups."""
     org_id = get_org_id(request)
-    return await list_organizations(search=q, limit=limit, offset=0, db=db)
+    return await list_organizations(request, search=q, limit=limit, offset=0, db=db)
 
 
 @router.get("/organizations/{org_id}", response_model=OrganizationResponse)
 async def get_organization(request: Request, org_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single organization by ID."""
-    org_id = get_org_id(request)
-    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    tenant_org_id = get_org_id(request)
+    result = await db.execute(select(Organization).where(Organization.id == org_id, Organization.org_id == tenant_org_id))
     org = result.scalar_one_or_none()
     
     if not org:
@@ -570,6 +577,7 @@ async def create_organization(request: Request, org_data: OrganizationCreate, db
     """Create a new organization."""
     org_id = get_org_id(request)
     normalized_payload = _normalize_organization_payload(org_data.model_dump(exclude_unset=True))
+    normalized_payload["org_id"] = org_id
     org = Organization(**normalized_payload)
     db.add(org)
     await db.commit()
@@ -587,8 +595,8 @@ async def create_organization(request: Request, org_data: OrganizationCreate, db
 async def update_organization(request: Request, org_id: int, org_data: OrganizationUpdate, 
                             db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing organization."""
-    org_id = get_org_id(request)
-    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    tenant_org_id = get_org_id(request)
+    result = await db.execute(select(Organization).where(Organization.id == org_id, Organization.org_id == tenant_org_id))
     org = result.scalar_one_or_none()
     
     if not org:
@@ -622,15 +630,15 @@ async def update_organization(request: Request, org_id: int, org_data: Organizat
 async def delete_organization(request: Request, org_id: int, user_id: Optional[int] = None, 
                             db: AsyncSession = Depends(get_tenant_db)):
     """Delete an organization."""
-    org_id = get_org_id(request)
-    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    tenant_org_id = get_org_id(request)
+    result = await db.execute(select(Organization).where(Organization.id == org_id, Organization.org_id == tenant_org_id))
     org = result.scalar_one_or_none()
     
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     
     old_values = {"name": org.name, "address": org.address}
-    await db.execute(delete(Organization).where(Organization.id == org_id))
+    await db.execute(delete(Organization).where(Organization.id == org_id, Organization.org_id == tenant_org_id))
     
     # Log audit
     await log_audit(db, "organization", org_id, "deleted", user_id, old_values)
@@ -642,6 +650,6 @@ async def delete_organization(request: Request, org_id: int, user_id: Optional[i
 @router.get("/organizations/{org_id}/persons", response_model=List[PersonResponse])
 async def get_organization_persons(request: Request, org_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get persons in an organization."""
-    org_id = get_org_id(request)
-    rows = await _query_person_rows(db, organization_id=org_id, limit=500)
+    tenant_org_id = get_org_id(request)
+    rows = await _query_person_rows(db, org_id=tenant_org_id, organization_id=org_id, limit=500)
     return await _serialize_person_rows(db, rows)
