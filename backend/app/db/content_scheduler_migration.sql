@@ -65,51 +65,13 @@ CREATE INDEX IF NOT EXISTS idx_content_metrics_viral ON public.content_metrics(o
 CREATE INDEX IF NOT EXISTS idx_content_metrics_time ON public.content_metrics(snapshot_at);
 
 -- ═══════════════════════════════════════════════════════════════════
--- Video Storyboards Table (for future Video Copycat pipeline)
--- ═══════════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS public.video_storyboards (
-    id SERIAL PRIMARY KEY,
-    org_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT DEFAULT '',
-    
-    -- Storyboard configuration
-    scenes JSONB DEFAULT '[]',           -- Array of scene objects
-    duration NUMERIC(8,2) DEFAULT 0,    -- Total duration in seconds
-    style TEXT DEFAULT 'hormozi',       -- Style template
-    
-    -- Video composition settings
-    width INTEGER DEFAULT 1080,
-    height INTEGER DEFAULT 1920,
-    fps INTEGER DEFAULT 30,
-    caption_style TEXT DEFAULT 'hormozi' CHECK (caption_style IN ('hormozi', 'minimal', 'animated')),
-    
-    -- Generation status
-    status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'generating', 'completed', 'failed')),
-    progress JSONB DEFAULT '{}',         -- Generation progress tracking
-    
-    -- Asset paths
-    assets JSONB DEFAULT '[]',           -- Generated assets (avatar videos, backgrounds, etc.)
-    final_video_path TEXT,               -- Path to final composed video
-    
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- Indexes for storyboard queries
-CREATE INDEX IF NOT EXISTS idx_video_storyboards_org ON public.video_storyboards(org_id);
-CREATE INDEX IF NOT EXISTS idx_video_storyboards_user ON public.video_storyboards(user_id);
-CREATE INDEX IF NOT EXISTS idx_video_storyboards_status ON public.video_storyboards(status);
-
--- ═══════════════════════════════════════════════════════════════════
--- Video Compositions Table (Remotion configs)
+-- NOTE: video_storyboards table is owned by video_copycat_migration.sql
+-- Video Compositions Table (Remotion configs) — references video_storyboards
 -- ═══════════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS public.video_compositions (
     id SERIAL PRIMARY KEY,
-    storyboard_id INTEGER NOT NULL REFERENCES public.video_storyboards(id) ON DELETE CASCADE,
+    storyboard_id INTEGER NOT NULL,  -- FK to video_storyboards (created by video_copycat migration)
     
     -- Composition metadata
     composition_name TEXT NOT NULL,
@@ -175,11 +137,6 @@ $$ language 'plpgsql';
 DROP TRIGGER IF EXISTS update_scheduled_posts_updated_at ON public.scheduled_posts;
 CREATE TRIGGER update_scheduled_posts_updated_at
     BEFORE UPDATE ON public.scheduled_posts
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_video_storyboards_updated_at ON public.video_storyboards;
-CREATE TRIGGER update_video_storyboards_updated_at
-    BEFORE UPDATE ON public.video_storyboards  
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_video_compositions_updated_at ON public.video_compositions;

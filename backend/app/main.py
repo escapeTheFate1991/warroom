@@ -184,7 +184,14 @@ async def lifespan(app: FastAPI):
         else:
             logger.warning("Audit trail table initialization failed")
         
-        # Content Scheduler tables (public schema) — video copycat + social media scheduling
+        # Video Copycat tables — must run before content scheduler (compositions FK → storyboards)
+        try:
+            await video_copycat.init_video_copycat_tables()
+            logger.info("Video Copycat tables initialized")
+        except Exception as e:
+            logger.error("Failed to initialize Video Copycat tables: %s", e)
+
+        # Content Scheduler tables (public schema) — compositions + scheduling
         await _init_content_scheduler_tables(leadgen_engine)
         logger.info("Content scheduler tables initialized")
 
@@ -206,13 +213,6 @@ async def lifespan(app: FastAPI):
         logger.info("Video Editor tables initialized")
     except Exception as e:
         logger.error("Failed to initialize Video Editor tables: %s", e)
-
-    # Video Copycat tables — isolated
-    try:
-        await video_copycat.init_video_copycat_tables()
-        logger.info("Video Copycat tables initialized")
-    except Exception as e:
-        logger.error("Failed to initialize Video Copycat tables: %s", e)
 
     # Video Assets tables (assets + digital copies) — isolated
     try:
