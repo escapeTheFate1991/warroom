@@ -13,6 +13,8 @@ class Role(CrmBase):
     __tablename__ = "roles"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)  # admin, manager, member, viewer
     description = Column(Text)
@@ -34,6 +36,8 @@ class Group(CrmBase):
     __tablename__ = "groups"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, unique=True, nullable=False)
     description = Column(Text)

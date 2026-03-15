@@ -14,6 +14,8 @@ class CallLog(CrmBase):
     __tablename__ = "call_logs"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     call_session_id = Column(Text, unique=True, index=True)
     call_control_id = Column(Text, index=True)

@@ -13,6 +13,8 @@ class MarketingEvent(CrmBase):
     __tablename__ = "marketing_events"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     description = Column(Text)
@@ -28,6 +30,8 @@ class MarketingCampaign(CrmBase):
     __tablename__ = "marketing_campaigns"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     channel = Column(Text, nullable=False, default="email", server_default="email")

@@ -12,6 +12,8 @@ class Competitor(CrmBase):
     __tablename__ = "competitors"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True, index=True)
     handle = Column(String, nullable=False)
     platform = Column(String, nullable=False)  # instagram, x, youtube, tiktok, facebook, threads

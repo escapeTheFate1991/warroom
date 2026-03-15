@@ -13,6 +13,8 @@ class Email(CrmBase):
     __tablename__ = "emails"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     subject = Column(Text)
     source = Column(Text, nullable=False)  # web, imap
@@ -46,6 +48,8 @@ class EmailAttachment(CrmBase):
     __tablename__ = "email_attachments"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     email_id = Column(Integer, ForeignKey("crm.emails.id", ondelete="CASCADE"))
     name = Column(Text)
@@ -63,6 +67,8 @@ class EmailTemplate(CrmBase):
     __tablename__ = "email_templates"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     description = Column(Text)

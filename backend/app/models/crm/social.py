@@ -11,6 +11,8 @@ class SocialAccount(CrmBase):
     __tablename__ = "social_accounts"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("crm.users.id", ondelete="CASCADE"))
     platform = Column(String, nullable=False)  # instagram, facebook, threads, youtube, x
@@ -34,6 +36,8 @@ class SocialAnalytics(CrmBase):
     __tablename__ = "social_analytics"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True, index=True)
     account_id = Column(Integer, ForeignKey("crm.social_accounts.id", ondelete="CASCADE"))
     metric_date = Column(Date, nullable=False)

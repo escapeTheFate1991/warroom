@@ -11,6 +11,8 @@ class ContentScript(CrmBase):
     __tablename__ = "content_scripts"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True, index=True)
     competitor_id = Column(Integer, ForeignKey("crm.competitors.id"), nullable=True)
     platform = Column(String, nullable=False)  # instagram, youtube, x, tiktok, facebook

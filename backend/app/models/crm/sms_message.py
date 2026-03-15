@@ -14,6 +14,8 @@ class SMSMessage(CrmBase):
     __tablename__ = "sms_messages"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     telnyx_message_id = Column(Text, unique=True, index=True)
     direction = Column(Text)

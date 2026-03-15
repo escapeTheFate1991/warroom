@@ -17,6 +17,7 @@ class Attribute(CrmBase):
     )
 
     id = Column(Integer, primary_key=True)
+    org_id = Column(Integer)
     code = Column(Text, nullable=False)
     name = Column(Text, nullable=False)
     type = Column(Text, nullable=False)  # text, textarea, boolean, number, date, datetime, select, multiselect, email, phone, lookup
@@ -41,6 +42,7 @@ class AttributeOption(CrmBase):
     __table_args__ = {"schema": "crm"}
 
     id = Column(Integer, primary_key=True)
+    org_id = Column(Integer)
     attribute_id = Column(Integer, ForeignKey("crm.attributes.id", ondelete="CASCADE"))
     name = Column(Text)
     sort_order = Column(Integer)
@@ -58,6 +60,7 @@ class AttributeValue(CrmBase):
     )
 
     id = Column(Integer, primary_key=True)
+    org_id = Column(Integer)
     entity_type = Column(Text, default='deals')
     entity_id = Column(Integer, nullable=False)
     attribute_id = Column(Integer, ForeignKey("crm.attributes.id", ondelete="CASCADE"))

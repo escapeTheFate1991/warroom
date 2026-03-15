@@ -12,6 +12,8 @@ class Product(CrmBase):
     __tablename__ = "products"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     sku = Column(Text, unique=True)
     name = Column(Text, nullable=False)

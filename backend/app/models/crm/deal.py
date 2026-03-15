@@ -13,6 +13,8 @@ class Pipeline(CrmBase):
     __tablename__ = "pipelines"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     is_default = Column(Boolean, default=False)
@@ -30,6 +32,8 @@ class PipelineStage(CrmBase):
     __tablename__ = "pipeline_stages"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     code = Column(Text, nullable=False)
     name = Column(Text, nullable=False)
@@ -47,6 +51,8 @@ class LeadSource(CrmBase):
     __tablename__ = "lead_sources"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
@@ -60,6 +66,8 @@ class LeadType(CrmBase):
     __tablename__ = "lead_types"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
@@ -73,6 +81,8 @@ class Deal(CrmBase):
     __tablename__ = "deals"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     title = Column(Text, nullable=False)
     description = Column(Text)
@@ -122,6 +132,8 @@ class DealProduct(CrmBase):
     __tablename__ = "deal_products"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     deal_id = Column(Integer, ForeignKey("crm.deals.id", ondelete="CASCADE"))
     product_id = Column(Integer, ForeignKey("crm.products.id", ondelete="CASCADE"))

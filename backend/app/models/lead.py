@@ -16,6 +16,7 @@ class SearchJob(Base):
     __table_args__ = {"schema": "leadgen"}
 
     id = Column(Integer, primary_key=True)
+    org_id = Column(Integer)
     query = Column(Text, nullable=False)
     location = Column(Text, nullable=False)
     radius_km = Column(Integer, default=25)
@@ -34,6 +35,7 @@ class Lead(Base):
     __table_args__ = {"schema": "leadgen"}
 
     id = Column(Integer, primary_key=True)
+    org_id = Column(Integer)
     search_job_id = Column(Integer, ForeignKey("leadgen.search_jobs.id", ondelete="SET NULL"))
 
     # Google Maps data

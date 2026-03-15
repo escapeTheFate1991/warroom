@@ -13,6 +13,8 @@ class AuditLog(CrmBase):
     __tablename__ = "audit_log"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     entity_type = Column(Text, nullable=False)
     entity_id = Column(Integer, nullable=False)
@@ -31,6 +33,8 @@ class Import(CrmBase):
     __tablename__ = "imports"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     entity_type = Column(Text, nullable=False)
     file_path = Column(Text)
@@ -47,6 +51,8 @@ class SavedFilter(CrmBase):
     __tablename__ = "saved_filters"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     entity_type = Column(Text, nullable=False)

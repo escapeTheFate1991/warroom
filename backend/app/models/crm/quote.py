@@ -13,6 +13,8 @@ class Quote(CrmBase):
     __tablename__ = "quotes"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     subject = Column(Text, nullable=False)
     description = Column(Text)
@@ -42,6 +44,8 @@ class QuoteItem(CrmBase):
     __tablename__ = "quote_items"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     quote_id = Column(Integer, ForeignKey("crm.quotes.id", ondelete="CASCADE"))
     product_id = Column(Integer, ForeignKey("crm.products.id", ondelete="SET NULL"))

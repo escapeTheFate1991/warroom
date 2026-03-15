@@ -13,6 +13,8 @@ class Organization(CrmBase):
     __tablename__ = "organizations"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, unique=True, nullable=False)
     address = Column(JSONB)
@@ -35,6 +37,8 @@ class Person(CrmBase):
     __tablename__ = "persons"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     email_addresses = Column("emails", JSONB, default=[])  # [{value: "x@y.com", label: "work"}]
@@ -62,6 +66,8 @@ class Tag(CrmBase):
     __tablename__ = "tags"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     color = Column(Text)

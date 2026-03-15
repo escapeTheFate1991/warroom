@@ -12,6 +12,8 @@ class WorkflowTemplate(CrmBase):
     __tablename__ = "workflow_templates"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     description = Column(Text)
@@ -35,6 +37,8 @@ class Workflow(CrmBase):
     __tablename__ = "workflows"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     description = Column(Text)
@@ -58,6 +62,8 @@ class WorkflowExecution(CrmBase):
     __tablename__ = "workflow_executions"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     workflow_id = Column(Integer, ForeignKey("crm.workflows.id", ondelete="CASCADE"))
     trigger_event = Column(Text, nullable=False)
@@ -79,6 +85,8 @@ class Webhook(CrmBase):
     __tablename__ = "webhooks"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     entity_type = Column(Text)

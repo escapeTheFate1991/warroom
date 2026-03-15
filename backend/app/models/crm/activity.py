@@ -13,6 +13,8 @@ class Activity(CrmBase):
     __tablename__ = "activities"
     __table_args__ = {"schema": "crm"}
 
+
+    org_id = Column(Integer)
     id = Column(Integer, primary_key=True)
     title = Column(Text)
     type = Column(Text, nullable=False)  # call, meeting, note, task, email, lunch
