@@ -82,5 +82,15 @@ services:
     volumes:
       - /home/eddy/.openclaw/workspace/skills/mental-library/backend/data:/data/mental-library:ro
 
+  warroom-qdrant:
+    image: qdrant/qdrant:latest
+    container_name: warroom-qdrant
+    ports:
+      - "6334:6333"  # Use 6334 to avoid conflict with Brain 2's 6333
+    volumes:
+      - warroom-qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
 volumes:
   instagram-cookies:
+  warroom-qdrant-data:
