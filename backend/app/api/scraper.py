@@ -22,8 +22,8 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_tenant_db
-from app.services.tenant import get_org_id, get_user_id, crm_session
+from app.db.crm_db import get_tenant_db, crm_session
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.competitor import Competitor
 from app.services.instagram_scraper import (
     scrape_profile,
