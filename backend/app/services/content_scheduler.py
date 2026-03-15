@@ -493,10 +493,14 @@ async def get_calendar_view(
         ORDER BY scheduled_for ASC
     """)
     
+    # Strip timezone info for naive TIMESTAMP columns
+    start_naive = start_date.replace(tzinfo=None) if start_date.tzinfo else start_date
+    end_naive = end_date.replace(tzinfo=None) if end_date.tzinfo else end_date
+    
     result = await db.execute(query, {
         "org_id": org_id,
-        "start_date": start_date,
-        "end_date": end_date
+        "start_date": start_naive,
+        "end_date": end_naive
     })
     rows = result.fetchall()
     

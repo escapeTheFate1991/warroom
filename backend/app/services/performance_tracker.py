@@ -125,7 +125,7 @@ async def get_performance_history(
     ]
     params = {
         "org_id": org_id,
-        "since_date": datetime.now(timezone.utc) - timedelta(days=days)
+        "since_date": (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
     }
     
     if platform:
