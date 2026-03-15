@@ -855,17 +855,18 @@ async def _sync_imap(account_id: int, org_id: int, config: dict, last_sync: Opti
                 await db.execute(
                     text("""
                         INSERT INTO public.email_messages
-                            (account_id, message_id, thread_id, subject, from_address, from_name,
+                            (account_id, org_id, message_id, thread_id, subject, from_address, from_name,
                              to_addresses, cc_addresses, date, snippet, body_text, body_html,
                              labels, is_read, has_attachments)
                         VALUES
-                            (:account_id, :message_id, :thread_id, :subject, :from_address, :from_name,
+                            (:account_id, :org_id, :message_id, :thread_id, :subject, :from_address, :from_name,
                              :to_addresses, :cc_addresses, :date, :snippet, :body_text, :body_html,
                              '[]'::jsonb, :is_read, :has_attachments)
                         ON CONFLICT (message_id) DO NOTHING
                     """),
                     {
                         "account_id": account_id,
+                        "org_id": org_id,
                         "message_id": msg["message_id"],
                         "thread_id": msg["thread_id"],
                         "subject": msg["subject"],
@@ -904,8 +905,8 @@ async def list_messages(
 ):
     """List email messages with pagination and filtering."""
     org_id = get_org_id(request)
-    conditions = []
-    params: dict = {}
+    conditions = ["m.org_id = :org_id"]
+    params: dict = {"org_id": org_id}
 
     if account_id is not None:
         conditions.append("m.account_id = :account_id")
@@ -917,7 +918,7 @@ async def list_messages(
         conditions.append("(m.subject ILIKE :search OR m.from_address ILIKE :search OR m.from_name ILIKE :search)")
         params["search"] = f"%{search}%"
 
-    where_clause = " AND ".join(conditions) if conditions else "TRUE"
+    where_clause = " AND ".join(conditions)
     offset = (page - 1) * per_page
     params["limit"] = per_page
     params["offset"] = offset
@@ -993,9 +994,9 @@ async def get_message(request: Request, message_id: int, crm_db=Depends(get_tena
                 SELECT m.*, a.provider, a.email as account_email
                 FROM public.email_messages m
                 JOIN public.email_accounts a ON a.id = m.account_id
-                WHERE m.id = :id
+                WHERE m.id = :id AND m.org_id = :org_id
             """),
-            {"id": message_id},
+            {"id": message_id, "org_id": org_id},
         )
         row = result.fetchone()
         if not row:
@@ -1021,12 +1022,13 @@ async def get_message(request: Request, message_id: int, crm_db=Depends(get_tena
 
 
 @router.patch("/email/messages/{message_id}/read")
-async def mark_as_read(message_id: int):
+async def mark_as_read(message_id: int, request: Request):
     """Mark a message as read."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
-            text("UPDATE public.email_messages SET is_read = TRUE WHERE id = :id RETURNING id"),
-            {"id": message_id},
+            text("UPDATE public.email_messages SET is_read = TRUE WHERE id = :id AND org_id = :org_id RETURNING id"),
+            {"id": message_id, "org_id": org_id},
         )
         if not result.fetchone():
             raise HTTPException(status_code=404, detail="Message not found")
@@ -1044,24 +1046,27 @@ class SendEmailBody(BaseModel):
 
 
 @router.post("/email/send")
-async def send_email_endpoint(req: SendEmailBody):
+async def send_email_endpoint(req: SendEmailBody, request: Request):
     """Send an email via Resend and log to outbound_emails."""
     from app.services.email import _send_email_async
     from app.api.comms import log_outbound_email, _match_crm_person
 
+    org_id = get_org_id(request)
+    
     # Wrap plain text in basic HTML
     html_body = req.body.replace("\n", "<br>")
     sent = await _send_email_async(req.to, req.subject, f"<div>{html_body}</div>")
     if not sent:
         raise HTTPException(status_code=500, detail="Failed to send email")
 
-    # Log outbound
+    # Log outbound with org_id context
     person_id, _, _ = await _match_crm_person(None, req.to)
     await log_outbound_email(
         to_address=req.to,
         subject=req.subject,
         body_text=req.body,
         person_id=person_id,
+        org_id=org_id,
     )
 
     return {"ok": True, "message": "Email sent"}

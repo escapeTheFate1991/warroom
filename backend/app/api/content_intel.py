@@ -774,12 +774,13 @@ def cluster_topics(topics: List[str], max_clusters: int = 5) -> Dict[str, List[s
         return dict(clusters)
 
 
-async def get_social_account_token(db: AsyncSession, platform: str) -> Optional[str]:
+async def get_social_account_token(db: AsyncSession, org_id: int, platform: str) -> Optional[str]:
     """Get access token for connected social account."""
     try:
         result = await db.execute(
             select(SocialAccount.access_token)
             .where(SocialAccount.platform == platform)
+            .where(SocialAccount.org_id == org_id)
             .where(SocialAccount.status == "connected")
             .limit(1)
         )
@@ -790,17 +791,18 @@ async def get_social_account_token(db: AsyncSession, platform: str) -> Optional[
         return None
 
 
-async def save_competitor_posts(db: AsyncSession, competitor_id: int, platform: str, 
+async def save_competitor_posts(db: AsyncSession, competitor_id: int, org_id: int, platform: str, 
                                posts: List[CompetitorPost]) -> bool:
     """Save competitor posts to cache table."""
     try:
-        # Delete old posts for this competitor/platform
+        # Delete old posts for this competitor/platform (with org_id check via competitor)
         await db.execute(
             text("""
                 DELETE FROM crm.competitor_posts 
-                WHERE competitor_id = :competitor_id AND platform = :platform
+                WHERE competitor_id = :competitor_id AND platform = :platform 
+                AND competitor_id IN (SELECT id FROM crm.competitors WHERE id = :competitor_id AND org_id = :org_id)
             """),
-            {"competitor_id": competitor_id, "platform": platform}
+            {"competitor_id": competitor_id, "platform": platform, "org_id": org_id}
         )
         
         # Insert new posts
@@ -836,7 +838,7 @@ async def save_competitor_posts(db: AsyncSession, competitor_id: int, platform: 
         return False
 
 
-async def load_cached_posts(db: AsyncSession, competitor_id: int = None,
+async def load_cached_posts(db: AsyncSession, org_id: int, competitor_id: int = None,
                            platform: str = None, days: Optional[int] = 30) -> List[Dict]:
     """Load cached competitor posts from database."""
     try:
@@ -844,9 +846,9 @@ async def load_cached_posts(db: AsyncSession, competitor_id: int = None,
             SELECT cp.*, c.handle, COALESCE(c.followers, 0) AS followers
             FROM crm.competitor_posts cp
             JOIN crm.competitors c ON cp.competitor_id = c.id
-            WHERE 1 = 1
+            WHERE c.org_id = :org_id
         """
-        params: Dict[str, Any] = {}
+        params: Dict[str, Any] = {"org_id": org_id}
 
         if days is not None:
             query += " AND cp.posted_at >= :cutoff_date"
@@ -926,9 +928,9 @@ def _scraped_profile_to_posts(profile: Any) -> List[CompetitorPost]:
     return posts
 
 
-async def _get_competitor_or_404(db: AsyncSession, competitor_id: int) -> Competitor:
+async def _get_competitor_or_404(db: AsyncSession, competitor_id: int, org_id: int) -> Competitor:
     """Load a competitor or raise a 404."""
-    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
+    result = await db.execute(select(Competitor).where(Competitor.id == competitor_id, Competitor.org_id == org_id))
     competitor = result.scalar_one_or_none()
 
     if not competitor:
@@ -944,13 +946,13 @@ async def _ensure_competitor_cached_posts(
 ) -> Tuple[List[Dict[str, Any]], Optional[Any]]:
     """Ensure Instagram competitors have cached posts for drill-down reads."""
     platform = competitor.platform.lower()
-    cached_posts = await load_cached_posts(db, competitor.id, platform, days=days)
+    cached_posts = await load_cached_posts(db, competitor.org_id, competitor.id, platform, days=days)
     if cached_posts or platform != "instagram":
         return cached_posts, None
 
     lock = _get_competitor_sync_lock(competitor.id)
     async with lock:
-        cached_posts = await load_cached_posts(db, competitor.id, platform, days=days)
+        cached_posts = await load_cached_posts(db, competitor.org_id, competitor.id, platform, days=days)
         if cached_posts:
             return cached_posts, None
 
@@ -962,7 +964,7 @@ async def _ensure_competitor_cached_posts(
             )
 
         await db.commit()
-        cached_posts = await load_cached_posts(db, competitor.id, platform, days=days)
+        cached_posts = await load_cached_posts(db, competitor.org_id, competitor.id, platform, days=days)
         return cached_posts, sync_result["profile"]
 
 
@@ -1257,7 +1259,7 @@ async def get_competitor_content(
     """Fetch recent posts from a tracked competitor using the appropriate social API."""
     org_id = get_org_id(request)
     try:
-        competitor = await _get_competitor_or_404(db, competitor_id)
+        competitor = await _get_competitor_or_404(db, competitor_id, org_id)
         
         posts = []
         platform = competitor.platform.lower()
@@ -1275,12 +1277,12 @@ async def get_competitor_content(
                 posts = _scraped_profile_to_posts(synced_profile)
 
         elif platform == "x":
-            token = await get_social_account_token(db, "x")
+            token = await get_social_account_token(db, org_id, "x")
             if not token:
                 raise HTTPException(status_code=422, detail="X account not connected")
             posts = await fetch_x_content(handle, token)
             if posts:
-                await save_competitor_posts(db, competitor_id, platform, posts)
+                await save_competitor_posts(db, competitor_id, org_id, platform, posts)
 
         elif platform == "youtube":
             raise HTTPException(status_code=422, detail="YouTube content fetching not configured")
@@ -1318,7 +1320,7 @@ async def get_trending_topics(
     org_id = get_org_id(request)
     try:
         # Load cached posts from all competitors
-        cached_posts = await load_cached_posts(db, platform=platform, days=days)
+        cached_posts = await load_cached_posts(db, org_id, platform=platform, days=days)
         
         if not cached_posts:
             # If no cached posts, we need to refresh data
@@ -1354,7 +1356,7 @@ async def get_top_content(
     org_id = get_org_id(request)
     try:
         # Load cached posts sorted by engagement
-        cached_posts = await load_cached_posts(db, platform=platform, days=days)
+        cached_posts = await load_cached_posts(db, org_id, platform=platform, days=days)
         
         if not cached_posts:
             return TopContentResponse(posts=[], total_posts=0)
@@ -1402,7 +1404,7 @@ async def get_hooks(
     org_id = get_org_id(request)
     try:
         # Load cached posts
-        cached_posts = await load_cached_posts(db, platform=platform, days=days)
+        cached_posts = await load_cached_posts(db, org_id, platform=platform, days=days)
         
         if not cached_posts:
             return HooksResponse(hooks=[], total_hooks=0)
@@ -1451,7 +1453,7 @@ async def refresh_competitor_content(
     org_id = get_org_id(request)
     try:
         # Get competitors to refresh
-        query = select(Competitor)
+        query = select(Competitor).where(Competitor.org_id == org_id)
         
         if competitor_id:
             query = query.where(Competitor.id == competitor_id)
@@ -1534,12 +1536,12 @@ async def generate_content_script(
     """Generate competitor-driven script ideas from live cached performance data."""
     org_id = get_org_id(request)
     try:
-        competitor = await _get_competitor_or_404(db, competitor_id)
+        competitor = await _get_competitor_or_404(db, competitor_id, org_id)
 
         if competitor.platform.lower() == "instagram":
             cached_posts, _ = await _ensure_competitor_cached_posts(db, competitor, days=45)
         else:
-            cached_posts = await load_cached_posts(db, competitor_id=competitor_id, days=45)
+            cached_posts = await load_cached_posts(db, org_id, competitor_id=competitor_id, days=45)
 
         if not cached_posts:
             raise HTTPException(
@@ -1615,7 +1617,7 @@ async def generate_aggregated_scripts(
     org_id = get_org_id(request)
     try:
         # Load all cached posts across every competitor for the requested platform
-        all_posts = await load_cached_posts(db, platform=body.platform, days=45)
+        all_posts = await load_cached_posts(db, org_id, platform=body.platform, days=45)
         if not all_posts:
             raise HTTPException(
                 status_code=422,
@@ -1810,7 +1812,7 @@ async def list_generated_scripts(
     """List all generated content scripts."""
     org_id = get_org_id(request)
     try:
-        query = select(ContentScript).order_by(ContentScript.created_at.desc())
+        query = select(ContentScript).where(ContentScript.org_id == org_id).order_by(ContentScript.created_at.desc())
         
         if platform:
             query = query.where(ContentScript.platform == platform.lower())
@@ -2896,7 +2898,7 @@ async def get_competitor_top_videos(
     """Return the top-performing posts for a competitor, ordered by engagement_score."""
     org_id = get_org_id(request)
     try:
-        competitor = await _get_competitor_or_404(db, competitor_id)
+        competitor = await _get_competitor_or_404(db, competitor_id, org_id)
         cached_posts, _ = await _ensure_competitor_cached_posts(
             db,
             competitor,
@@ -3026,7 +3028,7 @@ async def get_competitor_hashtags(
     """Extract hashtags from all post_text for a competitor, sorted by frequency."""
     org_id = get_org_id(request)
     try:
-        competitor = await _get_competitor_or_404(db, competitor_id)
+        competitor = await _get_competitor_or_404(db, competitor_id, org_id)
         cached_posts, _ = await _ensure_competitor_cached_posts(
             db,
             competitor,
@@ -3145,14 +3147,14 @@ async def recommend_content(request: Request, body: dict = {}, db: AsyncSession 
     # Fallback: v1 rule-based (for when index hasn't been built yet)
     try:
         result = await db.execute(
-            select(Competitor).where(Competitor.platform == platform)
+            select(Competitor).where(Competitor.platform == platform, Competitor.org_id == org_id)
         )
         competitors = result.scalars().all()
 
         if not competitors:
             return {"recommendations": [], "message": "No competitors found. Add competitors first."}
 
-        all_posts = await load_cached_posts(db, platform=platform, days=45)
+        all_posts = await load_cached_posts(db, org_id, platform=platform, days=45)
 
         if not all_posts:
             return {"recommendations": [], "message": "No competitor content cached. Sync competitors first."}
@@ -3437,8 +3439,8 @@ async def get_competitor_dossier(
 ):
     """Get comprehensive dossier for a competitor: bio, links, products, network."""
     org_id = get_org_id(request)
-    competitor = await _get_competitor_or_404(db, competitor_id)
-    posts = await load_cached_posts(db, competitor_id)
+    competitor = await _get_competitor_or_404(db, competitor_id, org_id)
+    posts = await load_cached_posts(db, org_id, competitor_id)
 
     # Extract social links from bio and captions
     captions = [p.get("caption", "") or p.get("text", "") for p in posts if p.get("caption") or p.get("text")]
