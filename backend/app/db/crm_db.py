@@ -110,10 +110,11 @@ async def run_multi_tenant_migration():
         with open(migration_file, "r") as f:
             migration_sql = f.read()
 
-        # Use raw connection for multi-statement execution
+        # Use raw asyncpg connection for multi-statement execution
+        # (SQLAlchemy's text() doesn't support multiple commands in one call)
         async with crm_engine.connect() as conn:
-            raw = await conn.get_raw_connection()
-            await raw.dbapi_connection.execute(migration_sql)
+            raw_conn = await conn.get_raw_connection()
+            await raw_conn.driver_connection.execute(migration_sql)
             await conn.commit()
 
         logger.info("Multi-tenant migration completed successfully")
