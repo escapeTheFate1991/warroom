@@ -596,11 +596,12 @@ INSERT INTO crm.lead_types (name) VALUES
     ('New Business'), ('Existing Business'), ('Upsell')
 ON CONFLICT DO NOTHING;
 
--- Default admin role
-INSERT INTO crm.roles (name, description, permission_type) VALUES
-    ('Administrator', 'Full access', 'all'),
-    ('Sales Agent', 'Sales operations', 'custom'),
-    ('Viewer', 'Read-only access', 'custom')
+-- Default roles with hierarchy levels
+INSERT INTO crm.roles (name, description, permission_type, hierarchy_level) VALUES
+    ('admin', 'Full access to all org data', 'all', 40),
+    ('director', 'Department-level oversight', 'custom', 30),
+    ('manager', 'Team-level management', 'custom', 20),
+    ('employee', 'Individual contributor', 'custom', 10)
 ON CONFLICT DO NOTHING;
 
 -- Default admin user (eddy)

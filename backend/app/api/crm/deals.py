@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Optional
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -29,7 +29,8 @@ def _first_contact_value(contacts_jsonb) -> str | None:
     except (json.JSONDecodeError, TypeError, IndexError):
         pass
     return None
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.deal import Deal, Pipeline, PipelineStage, LeadSource, LeadType
 from app.models.crm.contact import Person, Organization
 from app.models.crm.activity import Activity, DealActivity
@@ -145,6 +146,7 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
 
 @router.get("/deals", response_model=List[DealResponse])
 async def list_deals(
+    request: Request,
     pipeline_id: Optional[int] = None,
     stage_id: Optional[int] = None,
     user_id: Optional[int] = None,
@@ -152,11 +154,16 @@ async def list_deals(
     search: Optional[str] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
-    """List deals with filtering options."""
+    """List deals with filtering options (tenant-isolated)."""
+    org_id = get_org_id(request)
     query = select(Deal).options(*DEAL_RELATION_OPTIONS)
-    
+
+    # Tenant isolation — only see deals in your org
+    if org_id:
+        query = query.where(Deal.org_id == org_id)
+
     if pipeline_id:
         query = query.where(Deal.pipeline_id == pipeline_id)
     if stage_id:
@@ -181,30 +188,33 @@ async def list_deals(
 
 
 @router.get("/deals/{deal_id}", response_model=DealResponse)
-async def get_deal(deal_id: int, db: AsyncSession = Depends(get_crm_db)):
-    """Get single deal with related data."""
+async def get_deal(deal_id: int, request: Request, db: AsyncSession = Depends(get_tenant_db)):
+    """Get single deal with related data (tenant-isolated)."""
+    org_id = get_org_id(request)
     deal = await load_deal_with_related(db, deal_id)
     
-    if not deal:
+    if not deal or (org_id and deal.org_id != org_id):
         raise HTTPException(status_code=404, detail="Deal not found")
     
     return await serialize_single_deal(db, deal)
 
 
 @router.post("/deals", response_model=DealResponse)
-async def create_deal(deal_data: DealCreate, db: AsyncSession = Depends(get_crm_db)):
-    """Create a new deal."""
-    # If no pipeline/stage specified, use default
+async def create_deal(deal_data: DealCreate, request: Request, db: AsyncSession = Depends(get_tenant_db)):
+    """Create a new deal (tenant-stamped)."""
+    org_id = get_org_id(request)
+
+    # If no pipeline/stage specified, use default (scoped to org)
     if not deal_data.pipeline_id:
-        default_pipeline = await db.execute(
-            select(Pipeline).where(Pipeline.is_default == True)
-        )
+        pq = select(Pipeline).where(Pipeline.is_default == True)
+        if org_id:
+            pq = pq.where(Pipeline.org_id == org_id)
+        default_pipeline = await db.execute(pq)
         pipeline = default_pipeline.scalar_one_or_none()
         if pipeline:
             deal_data.pipeline_id = pipeline.id
             
             if not deal_data.stage_id:
-                # Get first stage of default pipeline
                 first_stage = await db.execute(
                     select(PipelineStage)
                     .where(PipelineStage.pipeline_id == pipeline.id)
@@ -214,7 +224,7 @@ async def create_deal(deal_data: DealCreate, db: AsyncSession = Depends(get_crm_
                 if stage:
                     deal_data.stage_id = stage.id
     
-    deal = Deal(**deal_data.model_dump(exclude_unset=True))
+    deal = Deal(**deal_data.model_dump(exclude_unset=True), org_id=org_id)
     db.add(deal)
     await db.commit()
     await db.refresh(deal)
@@ -245,9 +255,13 @@ async def create_deal(deal_data: DealCreate, db: AsyncSession = Depends(get_crm_
 
 
 @router.put("/deals/{deal_id}", response_model=DealResponse)
-async def update_deal(deal_id: int, deal_data: DealUpdate, db: AsyncSession = Depends(get_crm_db)):
-    """Update an existing deal."""
-    result = await db.execute(select(Deal).where(Deal.id == deal_id))
+async def update_deal(deal_id: int, deal_data: DealUpdate, request: Request, db: AsyncSession = Depends(get_tenant_db)):
+    """Update an existing deal (tenant-isolated)."""
+    org_id = get_org_id(request)
+    query = select(Deal).where(Deal.id == deal_id)
+    if org_id:
+        query = query.where(Deal.org_id == org_id)
+    result = await db.execute(query)
     deal = result.scalar_one_or_none()
     
     if not deal:
@@ -323,10 +337,15 @@ async def update_deal(deal_id: int, deal_data: DealUpdate, db: AsyncSession = De
 async def link_activity_to_deal(
     deal_id: int,
     payload: DealActivityLinkRequest,
-    db: AsyncSession = Depends(get_crm_db),
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
 ):
-    """Link an existing activity to a deal."""
-    deal_result = await db.execute(select(Deal).where(Deal.id == deal_id))
+    """Link an existing activity to a deal (tenant-isolated)."""
+    org_id = get_org_id(request)
+    dq = select(Deal).where(Deal.id == deal_id)
+    if org_id:
+        dq = dq.where(Deal.org_id == org_id)
+    deal_result = await db.execute(dq)
     deal = deal_result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
@@ -351,22 +370,29 @@ async def link_activity_to_deal(
 
 
 @router.delete("/deals/{deal_id}")
-async def delete_deal(deal_id: int, user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
-    """Delete a deal."""
-    result = await db.execute(select(Deal).where(Deal.id == deal_id))
+async def delete_deal(deal_id: int, request: Request, user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
+    """Delete a deal (tenant-isolated)."""
+    org_id = get_org_id(request)
+    dq = select(Deal).where(Deal.id == deal_id)
+    if org_id:
+        dq = dq.where(Deal.org_id == org_id)
+    result = await db.execute(dq)
     deal = result.scalar_one_or_none()
     
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
     
-    # Store values for audit
     old_values = {
         "title": deal.title,
         "deal_value": str(deal.deal_value) if deal.deal_value else None,
         "stage_id": deal.stage_id
     }
     
-    await db.execute(delete(Deal).where(Deal.id == deal_id))
+    # Delete with org guard
+    del_q = delete(Deal).where(Deal.id == deal_id)
+    if org_id:
+        del_q = del_q.where(Deal.org_id == org_id)
+    await db.execute(del_q)
     
     # Log audit
     await log_audit(db, "deal", deal_id, "deleted", user_id, old_values)
@@ -376,10 +402,14 @@ async def delete_deal(deal_id: int, user_id: Optional[int] = None, db: AsyncSess
 
 
 @router.put("/deals/{deal_id}/stage", response_model=DealResponse)
-async def move_deal_stage(deal_id: int, stage_move: DealStageMove, user_id: Optional[int] = None, 
-                         db: AsyncSession = Depends(get_crm_db)):
-    """Move deal to different stage (for kanban drag)."""
-    result = await db.execute(select(Deal).where(Deal.id == deal_id))
+async def move_deal_stage(deal_id: int, stage_move: DealStageMove, request: Request, user_id: Optional[int] = None, 
+                         db: AsyncSession = Depends(get_tenant_db)):
+    """Move deal to different stage (tenant-isolated)."""
+    org_id = get_org_id(request)
+    dq = select(Deal).where(Deal.id == deal_id)
+    if org_id:
+        dq = dq.where(Deal.org_id == org_id)
+    result = await db.execute(dq)
     deal = result.scalar_one_or_none()
     
     if not deal:
@@ -452,8 +482,14 @@ async def move_deal_stage(deal_id: int, stage_move: DealStageMove, user_id: Opti
 
 
 @router.get("/deals/forecast", response_model=List[DealForecast])
-async def get_deals_forecast(pipeline_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
-    """Get deal forecast - aggregate deal values by stage with win probability."""
+async def get_deals_forecast(request: Request, pipeline_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
+    """Get deal forecast (tenant-isolated)."""
+    org_id = get_org_id(request)
+    # Build join condition with org filter
+    join_cond = (Deal.stage_id == PipelineStage.id) & (Deal.status.is_(None))
+    if org_id:
+        join_cond = join_cond & (Deal.org_id == org_id)
+    
     query = select(
         PipelineStage.id.label("stage_id"),
         PipelineStage.name.label("stage_name"),
@@ -463,7 +499,7 @@ async def get_deals_forecast(pipeline_id: Optional[int] = None, db: AsyncSession
     ).select_from(
         PipelineStage
     ).outerjoin(
-        Deal, (Deal.stage_id == PipelineStage.id) & (Deal.status.is_(None))  # Only open deals
+        Deal, join_cond
     )
     
     if pipeline_id:
@@ -498,9 +534,10 @@ async def get_deals_forecast(pipeline_id: Optional[int] = None, db: AsyncSession
 
 
 @router.post("/deals/convert-from-lead", response_model=DealResponse)
-async def convert_from_lead(convert_data: ConvertFromLeadRequest,
-                           db: AsyncSession = Depends(get_crm_db)):
-    """Create deal + org + person from a leadgen lead. Starts the sales pipeline."""
+async def convert_from_lead(convert_data: ConvertFromLeadRequest, request: Request,
+                           db: AsyncSession = Depends(get_tenant_db)):
+    """Create deal + org + person from a leadgen lead (tenant-stamped)."""
+    org_id = get_org_id(request)
     
     # 1. Create or find organization — include website and full address
     org = Organization(
@@ -512,6 +549,7 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
             "website": convert_data.website or "",
         },
         leadgen_lead_id=convert_data.leadgen_lead_id,
+        org_id=org_id,
     )
     db.add(org)
     await db.flush()
@@ -526,6 +564,7 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
             email_addresses=emails_json or [],
             contact_numbers=phones_json,
             organization_id=org.id,
+            org_id=org_id,
         )
         db.add(person)
         await db.flush()
@@ -603,6 +642,7 @@ async def convert_from_lead(convert_data: ConvertFromLeadRequest,
         source_id=source.id if source else None,
         leadgen_lead_id=convert_data.leadgen_lead_id,
         deal_metadata=lead_metadata if lead_metadata else None,
+        org_id=org_id,
     )
     db.add(deal)
     await db.flush()
