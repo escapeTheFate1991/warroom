@@ -34,7 +34,7 @@ GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 # ── DDL ────────────────────────────────────────────────────────────────
 
-TABLES_DDL = """
+TEMPLATES_DDL = """
 CREATE TABLE IF NOT EXISTS public.remotion_templates (
     id TEXT PRIMARY KEY,
     org_id INTEGER,
@@ -49,8 +49,10 @@ CREATE TABLE IF NOT EXISTS public.remotion_templates (
     default_props JSONB DEFAULT '{}'::jsonb,
     thumbnail_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
-);
+)
+"""
 
+RENDER_JOBS_DDL = """
 CREATE TABLE IF NOT EXISTS public.remotion_render_jobs (
     id TEXT PRIMARY KEY,
     org_id INTEGER,
@@ -64,7 +66,7 @@ CREATE TABLE IF NOT EXISTS public.remotion_render_jobs (
     error_message TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ
-);
+)
 """
 
 SEED_TEMPLATES = [
@@ -133,7 +135,8 @@ SEED_TEMPLATES = [
 async def init_video_editor_tables():
     """Create video editor tables if they don't exist."""
     async with leadgen_engine.begin() as conn:
-        await conn.execute(text(TABLES_DDL))
+        await conn.execute(text(TEMPLATES_DDL))
+        await conn.execute(text(RENDER_JOBS_DDL))
     logger.info("Video editor tables initialized")
 
 
