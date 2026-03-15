@@ -20,6 +20,7 @@ from fastapi.responses import Response
 from sqlalchemy import text
 
 from app.db.leadgen_db import leadgen_session
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ BASE_URL = "https://warroom.stuffnthings.io/api/twilio"
 @router.post("/voice/welcome")
 async def voice_welcome(request: Request):
     """Initial greeting — thanks for the audit request, asks about website challenges."""
+    org_id = get_org_id(request)
     form = await request.form()
     call_sid = form.get("CallSid", "")
     to = form.get("To", "")
@@ -140,6 +142,7 @@ async def voice_welcome(request: Request):
 @router.post("/voice/gather-tasks")
 async def voice_gather_tasks(request: Request):
     """Receives speech about pain points, asks about services."""
+    org_id = get_org_id(request)
     form = await request.form()
     call_sid = form.get("CallSid", "")
     speech_result = form.get("SpeechResult", "")
@@ -178,6 +181,7 @@ async def voice_gather_tasks(request: Request):
 @router.post("/voice/gather-services")
 async def voice_gather_services(request: Request):
     """Receives speech about services, asks about scheduling."""
+    org_id = get_org_id(request)
     form = await request.form()
     call_sid = form.get("CallSid", "")
     speech_result = form.get("SpeechResult", "")
@@ -236,6 +240,7 @@ async def voice_gather_services(request: Request):
 @router.post("/voice/gather-schedule")
 async def voice_gather_schedule(request: Request):
     """Receives DTMF slot selection, creates calendar event, wraps up."""
+    org_id = get_org_id(request)
     form = await request.form()
     call_sid = form.get("CallSid", "")
     digits = form.get("Digits", "")
@@ -346,6 +351,7 @@ async def voice_gather_schedule(request: Request):
 @router.post("/voice/complete")
 async def voice_complete(request: Request):
     """Final redirect — mark call as complete and trigger follow-ups."""
+    org_id = get_org_id(request)
     form = await request.form()
     call_sid = form.get("CallSid", "")
 
@@ -392,6 +398,7 @@ async def voice_complete(request: Request):
 @router.post("/voice/status")
 async def voice_status(request: Request):
     """Twilio status callback — updates call status."""
+    org_id = get_org_id(request)
     form = await request.form()
     call_sid = form.get("CallSid", "")
     call_status = form.get("CallStatus", "")

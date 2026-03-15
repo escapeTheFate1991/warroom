@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.db.leadgen_db import leadgen_engine
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -132,6 +133,7 @@ async def call_ai(description: str, board_context: Optional[str] = None) -> dict
 @router.post("/ai-planning/generate")
 async def generate_plan(req: GenerateRequest):
     """Generate a structured plan from a project description."""
+    org_id = get_org_id(request)
     await ensure_table()
 
     result = await call_ai(req.description, req.board_context)
@@ -160,6 +162,7 @@ async def generate_plan(req: GenerateRequest):
 @router.get("/ai-planning/plans")
 async def list_plans():
     """List all saved plans."""
+    org_id = get_org_id(request)
     await ensure_table()
     async with leadgen_engine.begin() as conn:
         rows = await conn.execute(
@@ -185,6 +188,7 @@ async def list_plans():
 @router.get("/ai-planning/plans/{plan_id}")
 async def get_plan(plan_id: str):
     """Get a specific plan."""
+    org_id = get_org_id(request)
     await ensure_table()
     async with leadgen_engine.begin() as conn:
         row = await conn.execute(
@@ -208,6 +212,7 @@ async def get_plan(plan_id: str):
 @router.post("/ai-planning/plans/{plan_id}/execute")
 async def execute_plan(plan_id: str, req: ExecuteRequest):
     """Create kanban tasks from a plan (or selected subset)."""
+    org_id = get_org_id(request)
     await ensure_table()
 
     async with leadgen_engine.begin() as conn:
@@ -273,6 +278,7 @@ async def execute_plan(plan_id: str, req: ExecuteRequest):
 @router.delete("/ai-planning/plans/{plan_id}")
 async def delete_plan(plan_id: str):
     """Delete a plan."""
+    org_id = get_org_id(request)
     await ensure_table()
     async with leadgen_engine.begin() as conn:
         result = await conn.execute(

@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from app.db.leadgen_db import leadgen_engine, leadgen_session
 from app.services import stripe_service
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -197,6 +198,7 @@ async def init_products_table(engine) -> None:
 @router.get("/stripe")
 async def get_stripe_config():
     """Get current Stripe config — mode, public key, connection status."""
+    org_id = get_org_id(request)
     mode = stripe_service.get_mode()
     pk = stripe_service.get_public_key()
     conn = stripe_service.test_connection()
@@ -211,6 +213,7 @@ async def get_stripe_config():
 @router.put("/stripe")
 async def update_stripe_config(body: StripeConfigUpdate):
     """Toggle test/live mode."""
+    org_id = get_org_id(request)
     if body.mode not in ("test", "live"):
         raise HTTPException(400, "Mode must be 'test' or 'live'")
     os.environ["STRIPE_MODE"] = body.mode
@@ -220,6 +223,7 @@ async def update_stripe_config(body: StripeConfigUpdate):
 @router.get("/stripe/test-connection")
 async def test_stripe_connection():
     """Verify the current API key works."""
+    org_id = get_org_id(request)
     return stripe_service.test_connection()
 
 
@@ -229,6 +233,7 @@ async def test_stripe_connection():
 @router.get("/stripe/products")
 async def list_products():
     """List all local products (with Stripe IDs if synced)."""
+    org_id = get_org_id(request)
     async with leadgen_session() as db:
         result = await db.execute(
             text("SELECT * FROM public.products_stripe ORDER BY sort_order, id")
@@ -240,6 +245,7 @@ async def list_products():
 @router.post("/stripe/products")
 async def create_product(body: ProductCreate):
     """Create a product locally and optionally push to Stripe."""
+    org_id = get_org_id(request)
     features_json = json.dumps(body.features)
 
     # Try to create in Stripe
@@ -282,6 +288,7 @@ async def create_product(body: ProductCreate):
 @router.put("/stripe/products/{product_id}")
 async def update_product(product_id: int, body: ProductUpdate):
     """Update a product locally and sync to Stripe if connected."""
+    org_id = get_org_id(request)
     async with leadgen_session() as db:
         # Fetch current
         result = await db.execute(
@@ -360,6 +367,7 @@ async def update_product(product_id: int, body: ProductUpdate):
 @router.delete("/stripe/products/{product_id}")
 async def delete_product(product_id: int):
     """Archive a product (deactivate in Stripe, soft-delete locally)."""
+    org_id = get_org_id(request)
     async with leadgen_session() as db:
         result = await db.execute(
             text("SELECT * FROM public.products_stripe WHERE id = :id"), {"id": product_id}
@@ -394,6 +402,7 @@ async def delete_product(product_id: int):
 @router.post("/stripe/sync")
 async def sync_products():
     """Push all local products to Stripe (create if missing, update if exists)."""
+    org_id = get_org_id(request)
     async with leadgen_session() as db:
         result = await db.execute(
             text("SELECT * FROM public.products_stripe WHERE is_active = TRUE ORDER BY sort_order")

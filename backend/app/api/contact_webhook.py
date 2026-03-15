@@ -17,6 +17,7 @@ from sqlalchemy import text
 from app.db.leadgen_db import leadgen_engine, leadgen_session
 from app.services.email import _send_email_async
 from app.services.notify import send_notification
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -397,6 +398,7 @@ async def _check_rate_limit(email: str) -> bool:
 @router.post("/webhooks/contact", status_code=201)
 async def submit_contact(body: ContactSubmission, request: Request):
     """PUBLIC — receive a contact form submission."""
+    org_id = get_org_id(request)
     ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
 
     # Rate limit
@@ -486,6 +488,7 @@ async def list_submissions(
     per_page: int = Query(25, ge=1, le=100),
 ):
     """List contact submissions (paginated, filterable by status)."""
+    org_id = get_org_id(request)
     offset = (page - 1) * per_page
 
     where_clause = ""
@@ -530,6 +533,7 @@ async def list_submissions(
 @router.get("/contact-submissions/{submission_id}")
 async def get_submission(submission_id: int):
     """Get a single contact submission by ID."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("""
@@ -550,6 +554,7 @@ async def get_submission(submission_id: int):
 @router.patch("/contact-submissions/{submission_id}")
 async def update_submission(submission_id: int, body: ContactUpdate):
     """Update status, assignment, or notes on a submission."""
+    org_id = get_org_id(request)
     updates = []
     params: dict = {"id": submission_id}
 

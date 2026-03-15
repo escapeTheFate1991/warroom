@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.leadgen_db import get_leadgen_db, leadgen_engine
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, leadgen_engine
 from app.api.auth import get_current_user
 from app.models.crm.user import User
 from app.models.settings import Setting
@@ -224,11 +225,13 @@ class DigitalCopyResponse(BaseModel):
 
 @router.post("/digital-copies")
 async def create_digital_copy(
+    request: Request,
     body: DigitalCopyCreate,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a new digital copy entry (assets uploaded separately)."""
+    org_id = get_org_id(request)
     copy_id = f"dc-{uuid.uuid4().hex[:12]}"
     await db.execute(text("""
         INSERT INTO public.ugc_digital_copies (id, user_id, name, description)
@@ -240,10 +243,12 @@ async def create_digital_copy(
 
 @router.get("/digital-copies")
 async def list_digital_copies(
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List all digital copies for the current user."""
+    org_id = get_org_id(request)
     rows = await db.execute(text("""
         SELECT id, name, description, status, assets, preview_url, created_at
         FROM public.ugc_digital_copies
@@ -264,8 +269,9 @@ async def list_digital_copies(
 @router.get("/digital-copies/{copy_id}")
 async def get_digital_copy(
     copy_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     row = await db.execute(text("""
         SELECT id, name, description, status, assets, preview_url, created_at
@@ -280,8 +286,9 @@ async def get_digital_copy(
 @router.delete("/digital-copies/{copy_id}")
 async def delete_digital_copy(
     copy_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     await db.execute(text(
         "DELETE FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
@@ -292,11 +299,12 @@ async def delete_digital_copy(
 
 @router.post("/digital-copies/{copy_id}/assets")
 async def upload_asset(
+    request: Request,
     copy_id: str,
     file: UploadFile = File(...),
     label: str = Form("angle"),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Upload an image/video asset for a digital copy."""
     # Verify ownership
@@ -346,11 +354,13 @@ async def upload_asset(
 
 @router.get("/templates")
 async def list_templates(
+    request: Request,
     category: Optional[str] = None,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List available video templates, optionally filtered by category."""
+    org_id = get_org_id(request)
     if category:
         rows = await db.execute(text("""
             SELECT id, name, description, category, duration_seconds, scene_count, storyboard, prompt_template, thumbnail_url
@@ -377,8 +387,9 @@ async def list_templates(
 @router.get("/templates/{template_id}")
 async def get_template(
     template_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     row = await db.execute(text(
         "SELECT * FROM public.ugc_video_templates WHERE id = :id"
@@ -407,10 +418,12 @@ class VideoProjectCreate(BaseModel):
 @router.post("/projects")
 async def create_project(
     body: VideoProjectCreate,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a new video project. Copies storyboard from template if provided."""
+    org_id = get_org_id(request)
     project_id = f"vp-{uuid.uuid4().hex[:12]}"
     storyboard = []
 
@@ -440,8 +453,9 @@ async def create_project(
 
 @router.get("/projects")
 async def list_projects(
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     rows = await db.execute(text("""
         SELECT id, title, template_id, digital_copy_id, content_mode, status, video_url, created_at
@@ -456,8 +470,9 @@ async def list_projects(
 @router.get("/projects/{project_id}")
 async def get_project(
     project_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     row = await db.execute(text("""
         SELECT * FROM public.ugc_video_projects WHERE id = :id AND user_id = :uid
@@ -478,10 +493,12 @@ async def get_project(
 async def update_project(
     project_id: str,
     body: dict,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Update project fields (title, script, storyboard, content_mode, digital_copy_id)."""
+    org_id = get_org_id(request)
     allowed = {"title", "script", "storyboard", "content_mode", "digital_copy_id"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
@@ -509,8 +526,9 @@ async def update_project(
 @router.delete("/projects/{project_id}")
 async def delete_project(
     project_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     await db.execute(text(
         "DELETE FROM public.ugc_video_projects WHERE id = :id AND user_id = :uid"
@@ -568,9 +586,10 @@ class GenerateVideoRequest(BaseModel):
 async def generate_video(
     body: GenerateVideoRequest,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Kick off video generation via Google Veo 3.1 for a project."""
+    org_id = get_org_id(request)
     api_key = await _get_gemini_key(db)
 
     # Load project
@@ -669,9 +688,10 @@ async def generate_video(
 async def check_generation_status(
     project_id: str,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Poll generation status for a video project."""
+    org_id = get_org_id(request)
     row = await db.execute(text("""
         SELECT id, status, generation_id, video_url, error_message
         FROM public.ugc_video_projects WHERE id = :id AND user_id = :uid
@@ -736,6 +756,7 @@ async def preview_prompt(
     user: User = Depends(get_current_user),
 ):
     """Preview the assembled Veo prompt without generating. For debugging/review."""
+    org_id = get_org_id(request)
     storyboard = body.get("storyboard", [])
     script = body.get("script", "")
     content_mode = body.get("content_mode", "product")
@@ -902,9 +923,10 @@ class TemplatizeRequest(BaseModel):
 async def templatize_video(
     body: TemplatizeRequest,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Download a video from URL, send to Gemini 2.5 Pro, extract a reusable template."""
+    org_id = get_org_id(request)
     api_key = await _get_gemini_key(db)
 
     # 1. Download the video
@@ -1025,9 +1047,10 @@ class TemplatizeCompetitorRequest(BaseModel):
 async def templatize_competitor_post(
     body: TemplatizeCompetitorRequest,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Pull a top competitor video from CRM and templatize it."""
+    org_id = get_org_id(request)
     # Look up the competitor post
     row = await db.execute(text("""
         SELECT cp.id, cp.post_url, cp.media_url, cp.media_type, cp.shortcode,
@@ -1071,12 +1094,14 @@ async def templatize_competitor_post(
 
 @router.get("/competitor-videos")
 async def list_competitor_videos(
+    request: Request,
     limit: int = 20,
     min_engagement: float = 0,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List top competitor video posts available for templatizing."""
+    org_id = get_org_id(request)
     rows = await db.execute(text("""
         SELECT cp.id, cp.post_url, cp.media_url, cp.media_type, cp.shortcode,
                cp.post_text, cp.engagement_score, cp.likes, cp.comments,
@@ -1114,11 +1139,12 @@ async def list_competitor_videos(
 
 @router.post("/digital-copies/{copy_id}/voice-samples")
 async def upload_voice_sample(
+    request: Request,
     copy_id: str,
     file: UploadFile = File(...),
     label: str = Form("default"),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Upload an audio sample for voice cloning to a digital copy."""
     # Verify ownership
@@ -1170,10 +1196,12 @@ async def upload_voice_sample(
 @router.get("/digital-copies/{copy_id}/voice-samples")
 async def list_voice_samples(
     copy_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List voice samples for a digital copy."""
+    org_id = get_org_id(request)
     row = await db.execute(text(
         "SELECT voice_samples FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
     ), {"id": copy_id, "uid": user.id})
@@ -1187,10 +1215,12 @@ async def list_voice_samples(
 async def delete_voice_sample(
     copy_id: str,
     filename: str,
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Delete a voice sample from a digital copy."""
+    org_id = get_org_id(request)
     row = await db.execute(text(
         "SELECT id, voice_samples FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
     ), {"id": copy_id, "uid": user.id})

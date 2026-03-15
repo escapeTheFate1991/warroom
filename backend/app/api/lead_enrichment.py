@@ -17,6 +17,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import text
 
 from app.db.leadgen_db import leadgen_engine, leadgen_session
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +258,7 @@ async def _run_enrichment(enrichment_id: int, email: str, contact_submission_id:
 @router.post("/enrichment/enrich", status_code=202)
 async def enrich(body: EnrichRequest, background_tasks: BackgroundTasks):
     """Enrich a lead by email or contact_submission_id. Runs in background."""
+    org_id = get_org_id(request)
     email = body.email
 
     # Resolve email from contact_submission if needed
@@ -317,6 +319,7 @@ async def enrich(body: EnrichRequest, background_tasks: BackgroundTasks):
 @router.get("/enrichment/{enrichment_id}")
 async def get_enrichment(enrichment_id: int):
     """Get enrichment result by ID."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("""
@@ -337,6 +340,7 @@ async def get_enrichment(enrichment_id: int):
 @router.get("/enrichment/by-email/{email}")
 async def get_by_email(email: str):
     """Lookup enrichment results by email."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("""
@@ -359,6 +363,7 @@ async def get_by_email(email: str):
 @router.post("/enrichment/batch", status_code=202)
 async def batch_enrich(body: BatchEnrichRequest, background_tasks: BackgroundTasks):
     """Batch enrich multiple emails. Each runs in background."""
+    org_id = get_org_id(request)
     if not body.emails:
         return JSONResponse(status_code=400, content={"error": "emails list is empty"})
 

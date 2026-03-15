@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from app.db.leadgen_db import leadgen_engine, leadgen_session
 from app.services.email import _send_email
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +311,7 @@ class UpdateDraftRequest(BaseModel):
 @router.get("/cold-emails/templates")
 async def list_templates(active_only: bool = Query(True)):
     """List all cold email templates."""
+    org_id = get_org_id(request)
     clause = "WHERE is_active = TRUE" if active_only else ""
     async with _session() as db:
         result = await db.execute(
@@ -322,6 +324,7 @@ async def list_templates(active_only: bool = Query(True)):
 @router.post("/cold-emails/templates", status_code=201)
 async def create_template(req: CreateTemplateRequest):
     """Create a new cold email template."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text(
@@ -353,6 +356,7 @@ async def generate_email(req: GenerateEmailRequest):
     recipient_name + recipient_email directly. Optionally pass template_id
     (defaults to first active template) and variables dict for substitution.
     """
+    org_id = get_org_id(request)
     recipient_name = req.recipient_name
     recipient_email = req.recipient_email
     company_context = req.company_info or {}
@@ -529,6 +533,7 @@ async def list_drafts(
     per_page: int = Query(20, ge=1, le=100),
 ):
     """List cold email drafts with pagination and optional status filter."""
+    org_id = get_org_id(request)
     offset = (page - 1) * per_page
     conditions = []
     params: dict = {"limit": per_page, "offset": offset}
@@ -566,6 +571,7 @@ async def list_drafts(
 @router.get("/cold-emails/drafts/{draft_id}")
 async def get_draft(draft_id: int):
     """Get a single cold email draft by ID."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("SELECT * FROM public.cold_email_drafts WHERE id = :id"),
@@ -580,6 +586,7 @@ async def get_draft(draft_id: int):
 @router.patch("/cold-emails/drafts/{draft_id}")
 async def update_draft(draft_id: int, req: UpdateDraftRequest):
     """Update a draft's subject, body, or status."""
+    org_id = get_org_id(request)
     updates = []
     params: dict = {"id": draft_id}
 
@@ -617,6 +624,7 @@ async def update_draft(draft_id: int, req: UpdateDraftRequest):
 @router.post("/cold-emails/drafts/{draft_id}/send")
 async def send_draft(draft_id: int):
     """Send a cold email draft via the email service."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("SELECT * FROM public.cold_email_drafts WHERE id = :id"),

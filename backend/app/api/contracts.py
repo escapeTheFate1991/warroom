@@ -20,6 +20,7 @@ from app.db.leadgen_db import leadgen_engine, leadgen_session
 from app.services.email import _send_email
 from app.api.contract_templates_data import SEED_TEMPLATES
 from app.services.notify import send_notification
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +293,7 @@ async def _get_contract_or_404(db, contract_id: int):
 @router.get("/contracts/templates")
 async def list_templates():
     """List all active contract templates."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("""
@@ -322,6 +324,7 @@ async def list_templates():
 @router.post("/contracts/templates", status_code=201)
 async def create_template(data: TemplateCreate):
     """Create a new contract template."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("""
@@ -354,6 +357,7 @@ async def list_contracts(
     per_page: int = Query(25, ge=1, le=100),
 ):
     """List contracts with pagination and optional status filter."""
+    org_id = get_org_id(request)
     offset = (page - 1) * per_page
     params: dict = {"limit": per_page, "offset": offset}
     where_clause = ""
@@ -413,6 +417,7 @@ async def list_contracts(
 @router.post("/contracts", status_code=201)
 async def create_contract(data: ContractCreate):
     """Create a new contract from a template."""
+    org_id = get_org_id(request)
     async with _session() as db:
         # Fetch template
         tpl_result = await db.execute(
@@ -476,6 +481,7 @@ async def create_contract(data: ContractCreate):
 @router.post("/contracts/from-deal", status_code=201)
 async def create_contract_from_deal(data: ContractFromDeal):
     """Create a contract pre-populated from a CRM deal's person/organization."""
+    org_id = get_org_id(request)
     from app.db.crm_db import crm_engine
     from sqlalchemy.ext.asyncio import AsyncSession as _AS
     from sqlalchemy.orm import sessionmaker as _sm
@@ -588,6 +594,7 @@ async def create_contract_from_deal(data: ContractFromDeal):
 @router.get("/contracts/by-deal/{deal_id}")
 async def get_contracts_by_deal(deal_id: int):
     """Return all contracts linked to a specific CRM deal."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("""
@@ -620,6 +627,7 @@ async def get_contracts_by_deal(deal_id: int):
 @router.get("/contracts/{contract_id}")
 async def get_contract(contract_id: int):
     """Get full contract details including deal pipeline state."""
+    org_id = get_org_id(request)
     async with _session() as db:
         contract = await _get_contract_or_404(db, contract_id)
 
@@ -657,6 +665,7 @@ async def get_contract(contract_id: int):
 @router.patch("/contracts/{contract_id}")
 async def update_contract(contract_id: int, data: ContractUpdate):
     """Update a contract (only draft/sent contracts can be edited)."""
+    org_id = get_org_id(request)
     async with _session() as db:
         # Check current status
         existing = await db.execute(
@@ -713,6 +722,7 @@ async def update_contract(contract_id: int, data: ContractUpdate):
 @router.get("/contracts/{contract_id}/html", response_class=HTMLResponse)
 async def get_contract_html(contract_id: int):
     """Render the full contract as a professional, printable HTML document."""
+    org_id = get_org_id(request)
     async with _session() as db:
         # Fetch contract
         result = await db.execute(
@@ -1096,6 +1106,7 @@ async def get_contract_html(contract_id: int):
 @router.post("/contracts/{contract_id}/send")
 async def send_contract(contract_id: int):
     """Email the contract to the client."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("SELECT id, contract_number, client_name, client_email, plan_name, status FROM public.contracts WHERE id = :id"),
@@ -1150,6 +1161,7 @@ async def send_contract(contract_id: int):
 @router.post("/contracts/{contract_id}/mark-signed")
 async def mark_contract_signed(contract_id: int):
     """Mark a contract as signed and set it active."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("SELECT id, status FROM public.contracts WHERE id = :id"),
@@ -1185,6 +1197,7 @@ async def export_to_google_doc(contract_id: int):
     Requires google_oauth_client_id/secret in settings + Google Docs API enabled.
     Uses the same OAuth tokens as Calendar/Gmail.
     """
+    org_id = get_org_id(request)
     import httpx
     import json
 
@@ -1347,6 +1360,7 @@ class MarkStageRequest(BaseModel):
 @router.post("/contracts/{contract_id}/send-for-signature")
 async def send_for_signature(contract_id: int):
     """Send the contract to the client for eSignature review via email."""
+    org_id = get_org_id(request)
     async with _session() as db:
         contract = await _get_contract_or_404(db, contract_id)
 
@@ -1450,6 +1464,7 @@ async def send_for_signature(contract_id: int):
 @router.post("/contracts/{contract_id}/mark-stage")
 async def mark_deal_stage(contract_id: int, data: MarkStageRequest):
     """Manually update the deal stage (e.g., read, signing, signed)."""
+    org_id = get_org_id(request)
     if data.stage not in VALID_DEAL_STAGES:
         raise HTTPException(400, f"Invalid stage. Must be one of: {', '.join(sorted(VALID_DEAL_STAGES))}")
 
@@ -1503,6 +1518,7 @@ async def mark_deal_stage(contract_id: int, data: MarkStageRequest):
 @router.post("/contracts/{contract_id}/send-followup")
 async def send_followup(contract_id: int):
     """Send a follow-up reminder email for an unsigned contract."""
+    org_id = get_org_id(request)
     async with _session() as db:
         contract = await _get_contract_or_404(db, contract_id)
 
@@ -1590,6 +1606,7 @@ async def send_followup(contract_id: int):
 @router.post("/contracts/{contract_id}/send-congratulation")
 async def send_congratulation(contract_id: int):
     """Send a welcome/congratulation email after the contract is signed."""
+    org_id = get_org_id(request)
     async with _session() as db:
         contract = await _get_contract_or_404(db, contract_id)
 
@@ -1693,6 +1710,7 @@ async def send_congratulation(contract_id: int):
 @router.get("/contracts/{contract_id}/deal-timeline")
 async def get_deal_timeline(contract_id: int):
     """Get the full deal history timeline with computed metrics."""
+    org_id = get_org_id(request)
     async with _session() as db:
         contract = await _get_contract_or_404(db, contract_id)
 

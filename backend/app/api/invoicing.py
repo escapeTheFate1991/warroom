@@ -10,7 +10,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import Request,  APIRouter, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import text
@@ -18,6 +18,7 @@ from sqlalchemy import text
 from app.db.leadgen_db import leadgen_engine, leadgen_session
 from app.services.email import _send_email
 from app.services.notify import send_notification
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +226,7 @@ async def list_invoices(
     search: Optional[str] = Query(None),
 ):
     """List invoices with pagination, status filter, and search."""
+    org_id = get_org_id(request)
     offset = (page - 1) * per_page
     conditions = ["status != 'cancelled'"]
     params: dict = {"limit": per_page, "offset": offset}
@@ -271,6 +273,7 @@ async def list_invoices(
 @router.post("/invoices")
 async def create_invoice(body: InvoiceCreate):
     """Create a new invoice with auto-generated invoice number."""
+    org_id = get_org_id(request)
     invoice_number = await _next_invoice_number()
     totals = _calculate_totals(body.items, Decimal(str(body.tax_rate)))
 
@@ -312,6 +315,7 @@ async def create_invoice(body: InvoiceCreate):
 @router.get("/invoices/templates")
 async def list_templates():
     """List all invoice templates."""
+    org_id = get_org_id(request)
     async with _session() as sess:
         result = await sess.execute(
             text("SELECT * FROM public.invoice_templates ORDER BY is_default DESC, name ASC")
@@ -323,6 +327,7 @@ async def list_templates():
 @router.post("/invoices/templates")
 async def create_template(body: TemplateCreate):
     """Create a new invoice template."""
+    org_id = get_org_id(request)
     async with _session() as sess:
         result = await sess.execute(
             text("""
@@ -345,6 +350,7 @@ async def create_template(body: TemplateCreate):
 @router.get("/invoices/{invoice_id}")
 async def get_invoice(invoice_id: int):
     """Get invoice detail by ID."""
+    org_id = get_org_id(request)
     async with _session() as sess:
         result = await sess.execute(
             text("SELECT * FROM public.invoices WHERE id = :id"), {"id": invoice_id}
@@ -358,6 +364,7 @@ async def get_invoice(invoice_id: int):
 @router.patch("/invoices/{invoice_id}")
 async def update_invoice(invoice_id: int, body: InvoiceUpdate):
     """Update an invoice (items, status, notes, due_date, etc.)."""
+    org_id = get_org_id(request)
     # Fetch current invoice
     async with _session() as sess:
         result = await sess.execute(
@@ -429,6 +436,7 @@ async def update_invoice(invoice_id: int, body: InvoiceUpdate):
 @router.delete("/invoices/{invoice_id}")
 async def delete_invoice(invoice_id: int):
     """Soft-delete an invoice (set status to cancelled)."""
+    org_id = get_org_id(request)
     async with _session() as sess:
         result = await sess.execute(
             text("""
@@ -448,6 +456,7 @@ async def delete_invoice(invoice_id: int):
 @router.post("/invoices/{invoice_id}/send")
 async def send_invoice(invoice_id: int):
     """Send invoice to client via email."""
+    org_id = get_org_id(request)
     async with _session() as sess:
         result = await sess.execute(
             text("SELECT * FROM public.invoices WHERE id = :id"), {"id": invoice_id}
@@ -480,6 +489,7 @@ async def send_invoice(invoice_id: int):
 @router.post("/invoices/{invoice_id}/mark-paid")
 async def mark_invoice_paid(invoice_id: int):
     """Mark an invoice as paid."""
+    org_id = get_org_id(request)
     async with _session() as sess:
         result = await sess.execute(
             text("""
@@ -509,6 +519,7 @@ async def mark_invoice_paid(invoice_id: int):
 @router.get("/invoices/{invoice_id}/pdf")
 async def get_invoice_pdf(invoice_id: int):
     """Generate and return invoice as HTML (printable to PDF)."""
+    org_id = get_org_id(request)
     async with _session() as sess:
         result = await sess.execute(
             text("SELECT * FROM public.invoices WHERE id = :id"), {"id": invoice_id}

@@ -18,6 +18,7 @@ from sqlalchemy import text
 from app.api.agent_assignment_helpers import load_assignment_summaries
 from app.db.leadgen_db import leadgen_engine, leadgen_session
 from app.services.notify import send_notification
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -116,6 +117,7 @@ def _get_stage_for_submission(status: str) -> str:
 @router.post("/prospects/list")
 async def list_prospects(req: ProspectListRequest):
     """Unified prospect list merging leads + contact submissions."""
+    org_id = get_org_id(request)
     await init_prospects_table()
 
     prospects = []
@@ -290,6 +292,7 @@ async def list_prospects(req: ProspectListRequest):
 @router.patch("/prospects/{prospect_id}/stage")
 async def update_prospect_stage(prospect_id: str, body: ProspectStageUpdate):
     """Update the stage of a prospect."""
+    org_id = get_org_id(request)
     await init_prospects_table()
 
     valid_stages = {"new", "contacted", "meeting_scheduled", "proposal_sent", "won", "lost"}
@@ -335,6 +338,7 @@ async def update_prospect_stage(prospect_id: str, body: ProspectStageUpdate):
 @router.patch("/prospects/{prospect_id}/notes")
 async def update_prospect_notes(prospect_id: str, body: ProspectNotesUpdate):
     """Update the notes for a prospect."""
+    org_id = get_org_id(request)
     await init_prospects_table()
 
     parts = prospect_id.split("-", 1)
