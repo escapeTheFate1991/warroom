@@ -97,6 +97,8 @@ async def run_multi_tenant_migration():
     """Run the multi-tenant migration (adds org_id to all tables).
 
     Safe to run multiple times — all statements are idempotent (IF NOT EXISTS).
+    Uses raw asyncpg connection to execute multi-statement SQL (asyncpg's
+    prepared statement mode doesn't support multiple commands).
     """
     migration_file = Path(__file__).parent / "multi_tenant_migration.sql"
 
@@ -108,10 +110,11 @@ async def run_multi_tenant_migration():
         with open(migration_file, "r") as f:
             migration_sql = f.read()
 
-        async with crm_session() as session:
-            await session.execute(text("SET search_path TO crm, public"))
-            await session.execute(text(migration_sql))
-            await session.commit()
+        # Use raw connection for multi-statement execution
+        async with crm_engine.connect() as conn:
+            raw = await conn.get_raw_connection()
+            await raw.dbapi_connection.execute(migration_sql)
+            await conn.commit()
 
         logger.info("Multi-tenant migration completed successfully")
         return True
