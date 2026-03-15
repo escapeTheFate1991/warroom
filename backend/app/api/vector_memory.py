@@ -32,7 +32,7 @@ class StoreMemoryRequest(BaseModel):
 class StoreMemoryResponse(BaseModel):
     """Response model for storing a memory."""
     memory_id: str = Field(..., description="Unique memory ID")
-    org_id: str = Field(..., description="Organization ID")
+    org_id: int = Field(..., description="Organization ID")
     success: bool = Field(..., description="Whether storage was successful")
 
 
@@ -46,14 +46,14 @@ class SearchMemoryRequest(BaseModel):
 class SearchMemoryResponse(BaseModel):
     """Response model for search results."""
     memories: List[Dict[str, Any]] = Field(..., description="Search results")
-    org_id: str = Field(..., description="Organization ID")
+    org_id: int = Field(..., description="Organization ID")
     query: str = Field(..., description="Original query")
     count: int = Field(..., description="Number of results")
 
 
 class MemoryStatsResponse(BaseModel):
     """Response model for memory statistics."""
-    org_id: str = Field(..., description="Organization ID")
+    org_id: int = Field(..., description="Organization ID")
     collection_name: str = Field(..., description="Qdrant collection name")
     memory_count: int = Field(..., description="Number of stored memories")
     status: str = Field(..., description="Collection status")
@@ -64,7 +64,7 @@ class DeleteMemoryResponse(BaseModel):
     """Response model for memory deletion."""
     success: bool = Field(..., description="Whether deletion was successful")
     memory_id: str = Field(..., description="Memory ID")
-    org_id: str = Field(..., description="Organization ID")
+    org_id: int = Field(..., description="Organization ID")
 
 
 @router.post("/store", response_model=StoreMemoryResponse)
