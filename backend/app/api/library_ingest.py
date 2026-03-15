@@ -13,11 +13,12 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -240,11 +241,12 @@ class VideoAnalysisRequest(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.post("/ingest", response_model=IngestResponse)
-async def universal_ingest(req: IngestURLRequest, db=Depends(get_crm_db)):
+async def universal_ingest(request: Request, req: IngestURLRequest, db=Depends(get_tenant_db)):
     """Universal ingester — auto-detects URL type and processes accordingly.
 
     Supports: articles, documentation sites, YouTube videos (proxied to ML service), PDFs.
     """
+    org_id = get_org_id(request)
     await _run_migrations(db)
 
     url = req.url.strip()
@@ -318,11 +320,13 @@ async def universal_ingest(req: IngestURLRequest, db=Depends(get_crm_db)):
 
 @router.post("/ingest/pdf", response_model=IngestResponse)
 async def ingest_pdf_upload(
+    request: Request,
     file: UploadFile = File(...),
     tags: str = Form(""),
-    db=Depends(get_crm_db),
+    db=Depends(get_tenant_db),
 ):
     """Upload and ingest a PDF file."""
+    org_id = get_org_id(request)
     await _run_migrations(db)
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -347,11 +351,12 @@ async def ingest_pdf_upload(
 
 
 @router.post("/analyze-video")
-async def analyze_competitor_video(req: VideoAnalysisRequest, db=Depends(get_crm_db)):
+async def analyze_competitor_video(request: Request, req: VideoAnalysisRequest, db=Depends(get_tenant_db)):
     """Analyze a competitor video for hooks, transitions, CTAs, and layout patterns.
 
     Returns structured analysis that feeds into competitor intel.
     """
+    org_id = get_org_id(request)
     url = req.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
@@ -405,8 +410,9 @@ async def analyze_competitor_video(req: VideoAnalysisRequest, db=Depends(get_crm
 
 
 @router.get("/sources")
-async def list_sources(db=Depends(get_crm_db)):
+async def list_sources(request: Request, db=Depends(get_tenant_db)):
     """List all ingested sources with type and status."""
+    org_id = get_org_id(request)
     await _run_migrations(db)
 
     result = await db.execute(text("""

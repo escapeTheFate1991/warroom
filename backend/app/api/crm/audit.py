@@ -4,11 +4,12 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.audit import AuditLog
 from app.models.crm.user import User
 from .schemas import AuditLogResponse
@@ -19,6 +20,7 @@ router = APIRouter()
 
 @router.get("/audit-log", response_model=List[AuditLogResponse])
 async def get_audit_log(
+    request: Request,
     entity_type: Optional[str] = None,
     entity_id: Optional[int] = None,
     action: Optional[str] = None,
@@ -27,9 +29,10 @@ async def get_audit_log(
     date_to: Optional[date] = None,
     limit: int = Query(default=100, le=1000),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get filterable audit trail."""
+    org_id = get_org_id(request)
     query = select(AuditLog)
     
     # Apply filters
@@ -57,10 +60,12 @@ async def get_audit_log(
 
 @router.get("/audit-log/stats")
 async def get_audit_stats(
+    request: Request,
     days_back: int = Query(default=30, le=365),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get audit log statistics."""
+    org_id = get_org_id(request)
     cutoff_date = datetime.now() - timedelta(days=days_back)
     
     # Total actions in period
@@ -132,8 +137,9 @@ async def get_audit_stats(
 
 
 @router.get("/audit-log/{audit_id}")
-async def get_audit_entry(audit_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_audit_entry(request: Request, audit_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get detailed audit entry."""
+    org_id = get_org_id(request)
     result = await db.execute(select(AuditLog).where(AuditLog.id == audit_id))
     audit_entry = result.scalar_one_or_none()
     
@@ -161,10 +167,11 @@ async def get_audit_entry(audit_id: int, db: AsyncSession = Depends(get_crm_db))
 
 
 @router.get("/audit-log/entity/{entity_type}/{entity_id}")
-async def get_entity_history(entity_type: str, entity_id: int, 
+async def get_entity_history(request: Request, entity_type: str, entity_id: int, 
                             limit: int = Query(default=50, le=200),
-                            db: AsyncSession = Depends(get_crm_db)):
+                            db: AsyncSession = Depends(get_tenant_db)):
     """Get audit history for a specific entity."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(AuditLog)
         .where(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id)
@@ -201,8 +208,9 @@ async def get_entity_history(entity_type: str, entity_id: int,
 
 
 @router.get("/audit-log/actions")
-async def get_available_actions(db: AsyncSession = Depends(get_crm_db)):
+async def get_available_actions(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Get list of available audit actions for filtering."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(AuditLog.action).distinct().order_by(AuditLog.action)
     )
@@ -211,8 +219,9 @@ async def get_available_actions(db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.get("/audit-log/entity-types")
-async def get_available_entity_types(db: AsyncSession = Depends(get_crm_db)):
+async def get_available_entity_types(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Get list of available entity types for filtering."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(AuditLog.entity_type).distinct().order_by(AuditLog.entity_type)
     )
@@ -277,11 +286,13 @@ def _analyze_changes(old_values: dict, new_values: dict) -> List[dict]:
 
 @router.delete("/audit-log/cleanup")
 async def cleanup_old_audit_logs(
+    request: Request,
     days_to_keep: int = Query(default=365, ge=30, le=3650),
     user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Clean up old audit log entries (admin only)."""
+    org_id = get_org_id(request)
     cutoff_date = datetime.now() - timedelta(days=days_to_keep)
     
     # Count entries to be deleted

@@ -6,7 +6,7 @@ for full operator scopes (chat.send, chat.history, chat.abort).
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Request
 from pydantic import BaseModel, Field
 import websockets
 import asyncio
@@ -20,7 +20,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_pem_public_key, Encoding, PublicFormat
 
 from app.api.agent_contract import AssignableEntityType, load_agent_assignment_map
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 
 logger = logging.getLogger("chat")
 logger.setLevel(logging.INFO)
@@ -456,7 +457,8 @@ def _build_grounding_payload(context: GroundingContext | None, assignments: list
 
 
 @router.post("/message")
-async def send_message(body: ChatMessageRequest, db=Depends(get_crm_db)):
+async def send_message(request: Request, body: ChatMessageRequest, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     import httpx
 
     text = body.message.strip()

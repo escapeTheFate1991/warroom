@@ -1,20 +1,23 @@
 """Content Tracker API — Real social media data from connected accounts."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from typing import Optional
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 
 router = APIRouter()
 
 
 @router.get("/content/tracker")
 async def get_tracked_content(
+    request: Request,
     platform: Optional[str] = None,
     limit: int = 50,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get content from connected social accounts with real metrics."""
+    org_id = get_org_id(request)
     query = """
         SELECT 
             sa.id as account_id,
@@ -52,8 +55,9 @@ async def get_tracked_content(
 
 
 @router.get("/content/tracker/summary")
-async def get_content_summary(db: AsyncSession = Depends(get_crm_db)):
+async def get_content_summary(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Get aggregated content metrics across all platforms."""
+    org_id = get_org_id(request)
     result = await db.execute(text("""
         SELECT 
             COUNT(*) as total_accounts,
@@ -86,8 +90,9 @@ async def get_content_summary(db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.get("/content/tracker/top-performing")
-async def get_top_performing(limit: int = 10, db: AsyncSession = Depends(get_crm_db)):
+async def get_top_performing(request: Request, limit: int = 10, db: AsyncSession = Depends(get_tenant_db)):
     """Get top performing content by engagement metrics."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(text("""
             SELECT 

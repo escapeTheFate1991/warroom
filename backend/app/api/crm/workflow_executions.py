@@ -3,12 +3,13 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.automation import WorkflowExecution
 from app.services.workflow_executor import (
     cancel_execution,
@@ -103,13 +104,15 @@ async def trigger_execution(data: ExecutionTriggerRequest):
 
 @router.get("/workflow-executions", response_model=List[ExecutionResponse])
 async def list_executions(
+    request: Request,
     workflow_id: Optional[int] = None,
     status: Optional[str] = None,
     limit: int = Query(default=50, le=200),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List workflow executions with optional filters."""
+    org_id = get_org_id(request)
     query = select(WorkflowExecution)
     if workflow_id is not None:
         query = query.where(WorkflowExecution.workflow_id == workflow_id)
@@ -122,8 +125,9 @@ async def list_executions(
 
 
 @router.get("/workflow-executions/{execution_id}", response_model=ExecutionResponse)
-async def get_execution(execution_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_execution(request: Request, execution_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get execution details including step results."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
     )
@@ -173,8 +177,9 @@ async def retry_failed_execution(execution_id: int):
 
 
 @router.post("/workflow-executions/{execution_id}/cancel", response_model=ExecutionResponse)
-async def cancel_running_execution(execution_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def cancel_running_execution(request: Request, execution_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Cancel a running or paused execution."""
+    org_id = get_org_id(request)
     try:
         await cancel_execution(execution_id)
     except ValueError as exc:

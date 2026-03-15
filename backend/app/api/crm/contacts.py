@@ -3,12 +3,13 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.api.agent_assignment_helpers import load_assignment_summaries
 from app.models.crm.activity import Activity, PersonActivity
 from app.models.crm.contact import Person, Organization
@@ -257,13 +258,15 @@ async def _query_person_rows(
 
 @router.get("/persons", response_model=List[PersonResponse])
 async def list_persons(
+    request: Request,
     organization_id: Optional[int] = None,
     search: Optional[str] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List persons with filtering."""
+    org_id = get_org_id(request)
     rows = await _query_person_rows(
         db,
         organization_id=organization_id,
@@ -275,8 +278,9 @@ async def list_persons(
 
 
 @router.get("/persons/{person_id}", response_model=PersonResponse)
-async def get_person(person_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_person(request: Request, person_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single person by ID."""
+    org_id = get_org_id(request)
     rows = await _query_person_rows(db, person_id=person_id, limit=1)
     if not rows:
         raise HTTPException(status_code=404, detail="Person not found")
@@ -286,8 +290,9 @@ async def get_person(person_id: int, db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/persons", response_model=PersonResponse)
-async def create_person(person_data: PersonCreate, db: AsyncSession = Depends(get_crm_db)):
+async def create_person(request: Request, person_data: PersonCreate, db: AsyncSession = Depends(get_tenant_db)):
     """Create a new person."""
+    org_id = get_org_id(request)
     normalized_payload = _normalize_person_payload(person_data.model_dump(exclude_unset=True))
     person = Person(**normalized_payload)
     db.add(person)
@@ -325,9 +330,10 @@ async def create_person(person_data: PersonCreate, db: AsyncSession = Depends(ge
 
 
 @router.put("/persons/{person_id}", response_model=PersonResponse)
-async def update_person(person_id: int, person_data: PersonUpdate, 
-                       db: AsyncSession = Depends(get_crm_db)):
+async def update_person(request: Request, person_id: int, person_data: PersonUpdate, 
+                       db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing person."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Person).where(Person.id == person_id))
     person = result.scalar_one_or_none()
     
@@ -400,9 +406,10 @@ async def update_person(person_id: int, person_data: PersonUpdate,
 
 
 @router.delete("/persons/{person_id}")
-async def delete_person(person_id: int, user_id: Optional[int] = None, 
-                       db: AsyncSession = Depends(get_crm_db)):
+async def delete_person(request: Request, person_id: int, user_id: Optional[int] = None, 
+                       db: AsyncSession = Depends(get_tenant_db)):
     """Delete a person."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Person).where(Person.id == person_id))
     person = result.scalar_one_or_none()
     
@@ -420,8 +427,9 @@ async def delete_person(person_id: int, user_id: Optional[int] = None,
 
 
 @router.get("/persons/{person_id}/deals", response_model=List)
-async def get_person_deals(person_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_person_deals(request: Request, person_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get deals for a person."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(Deal)
         .options(selectinload(Deal.pipeline), selectinload(Deal.stage))
@@ -432,8 +440,9 @@ async def get_person_deals(person_id: int, db: AsyncSession = Depends(get_crm_db
 
 
 @router.post("/persons/search", response_model=List[PersonResponse])
-async def search_persons(search_request: PersonSearchRequest, db: AsyncSession = Depends(get_crm_db)):
+async def search_persons(request: Request, search_request: PersonSearchRequest, db: AsyncSession = Depends(get_tenant_db)):
     """Search persons by name/email/phone."""
+    org_id = get_org_id(request)
     search_fields = search_request.search_fields or ["name", "email", "phone"]
     if not search_fields:
         return []
@@ -449,25 +458,29 @@ async def search_persons(search_request: PersonSearchRequest, db: AsyncSession =
 
 @router.get("/contacts", response_model=List[CRMContactResponse])
 async def list_contacts(
+    request: Request,
     search: Optional[str] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List flattened CRM contacts for the contacts manager."""
+    org_id = get_org_id(request)
     rows = await _query_person_rows(db, search=search, limit=limit, offset=offset)
     return await _serialize_crm_contacts(db, rows)
 
 
 @router.get("/contacts/persons", response_model=List[ContactPersonResponse])
 async def list_contact_persons(
+    request: Request,
     organization_id: Optional[int] = None,
     search: Optional[str] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Compatibility wrapper for person lookup under /contacts."""
+    org_id = get_org_id(request)
     rows = await _query_person_rows(
         db,
         organization_id=organization_id,
@@ -480,11 +493,13 @@ async def list_contact_persons(
 
 @router.get("/contacts/persons/search", response_model=List[ContactPersonResponse])
 async def search_contact_persons(
+    request: Request,
     q: str = Query(..., min_length=1),
     limit: int = Query(default=50, le=500),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Compatibility GET search endpoint for person lookups."""
+    org_id = get_org_id(request)
     rows = await _query_person_rows(db, search=q, limit=limit)
     return await _serialize_person_rows(db, rows)
 
@@ -493,12 +508,14 @@ async def search_contact_persons(
 
 @router.get("/organizations", response_model=List[OrganizationResponse])
 async def list_organizations(
+    request: Request,
     search: Optional[str] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List organizations with filtering."""
+    org_id = get_org_id(request)
     query = select(Organization)
     
     if search:
@@ -512,28 +529,33 @@ async def list_organizations(
 
 @router.get("/contacts/organizations", response_model=List[OrganizationResponse])
 async def list_contact_organizations(
+    request: Request,
     search: Optional[str] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Compatibility wrapper for organization lookup under /contacts."""
+    org_id = get_org_id(request)
     return await list_organizations(search=search, limit=limit, offset=offset, db=db)
 
 
 @router.get("/contacts/organizations/search", response_model=List[OrganizationResponse])
 async def search_contact_organizations(
+    request: Request,
     q: str = Query(..., min_length=1),
     limit: int = Query(default=50, le=500),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Compatibility GET search endpoint for organization lookups."""
+    org_id = get_org_id(request)
     return await list_organizations(search=q, limit=limit, offset=0, db=db)
 
 
 @router.get("/organizations/{org_id}", response_model=OrganizationResponse)
-async def get_organization(org_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_organization(request: Request, org_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single organization by ID."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = result.scalar_one_or_none()
     
@@ -544,8 +566,9 @@ async def get_organization(org_id: int, db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/organizations", response_model=OrganizationResponse)
-async def create_organization(org_data: OrganizationCreate, db: AsyncSession = Depends(get_crm_db)):
+async def create_organization(request: Request, org_data: OrganizationCreate, db: AsyncSession = Depends(get_tenant_db)):
     """Create a new organization."""
+    org_id = get_org_id(request)
     normalized_payload = _normalize_organization_payload(org_data.model_dump(exclude_unset=True))
     org = Organization(**normalized_payload)
     db.add(org)
@@ -561,9 +584,10 @@ async def create_organization(org_data: OrganizationCreate, db: AsyncSession = D
 
 
 @router.put("/organizations/{org_id}", response_model=OrganizationResponse)
-async def update_organization(org_id: int, org_data: OrganizationUpdate, 
-                            db: AsyncSession = Depends(get_crm_db)):
+async def update_organization(request: Request, org_id: int, org_data: OrganizationUpdate, 
+                            db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing organization."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = result.scalar_one_or_none()
     
@@ -595,9 +619,10 @@ async def update_organization(org_id: int, org_data: OrganizationUpdate,
 
 
 @router.delete("/organizations/{org_id}")
-async def delete_organization(org_id: int, user_id: Optional[int] = None, 
-                            db: AsyncSession = Depends(get_crm_db)):
+async def delete_organization(request: Request, org_id: int, user_id: Optional[int] = None, 
+                            db: AsyncSession = Depends(get_tenant_db)):
     """Delete an organization."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = result.scalar_one_or_none()
     
@@ -615,7 +640,8 @@ async def delete_organization(org_id: int, user_id: Optional[int] = None,
 
 
 @router.get("/organizations/{org_id}/persons", response_model=List[PersonResponse])
-async def get_organization_persons(org_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_organization_persons(request: Request, org_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get persons in an organization."""
+    org_id = get_org_id(request)
     rows = await _query_person_rows(db, organization_id=org_id, limit=500)
     return await _serialize_person_rows(db, rows)

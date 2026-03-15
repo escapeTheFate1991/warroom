@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import Text as SAText, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import crm_engine, get_crm_db
+from app.db.crm_db import crm_engine, get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.activity import Activity, DealActivity, PersonActivity
 from app.models.crm.call_log import CallLog
 from app.models.crm.contact import Person
@@ -531,8 +532,9 @@ async def speak_on_telnyx_call(body: TelnyxSpeakRequest):
 
 
 @router.post("/telnyx/sms")
-async def send_telnyx_sms(body: TelnyxSMSRequest, db: AsyncSession = Depends(get_crm_db)):
+async def send_telnyx_sms(request: Request, body: TelnyxSMSRequest, db: AsyncSession = Depends(get_tenant_db)):
     """Send and persist an outbound SMS through Telnyx."""
+    org_id = get_org_id(request)
     try:
         result = await send_sms(body.to, body.body)
         sms = SMSMessage(
@@ -560,12 +562,14 @@ async def send_telnyx_sms(body: TelnyxSMSRequest, db: AsyncSession = Depends(get
 
 @router.get("/telnyx/sms-messages")
 async def list_sms_messages(
+    request: Request,
     deal_id: int | None = None,
     person_id: int | None = None,
     direction: str | None = None,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List recent persisted Telnyx SMS messages."""
+    org_id = get_org_id(request)
     query = select(SMSMessage).order_by(SMSMessage.created_at.desc())
     if deal_id is not None:
         query = query.where(SMSMessage.deal_id == deal_id)
@@ -593,8 +597,9 @@ async def list_sms_messages(
 
 
 @router.post("/telnyx/webhook")
-async def telnyx_webhook(body: dict, db: AsyncSession = Depends(get_crm_db)):
+async def telnyx_webhook(request: Request, body: dict, db: AsyncSession = Depends(get_tenant_db)):
     """Receive and persist Telnyx voice and messaging webhooks."""
+    org_id = get_org_id(request)
     event = unwrap_telnyx_event(body)
     event_type = event.get("event_type", "")
 

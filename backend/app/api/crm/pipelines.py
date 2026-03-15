@@ -4,12 +4,13 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.deal import Pipeline, PipelineStage
 from app.models.crm.audit import AuditLog
 from .schemas import (
@@ -39,8 +40,9 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
 # ===== Pipelines CRUD =====
 
 @router.get("/pipelines", response_model=List[PipelineResponse])
-async def list_pipelines(db: AsyncSession = Depends(get_crm_db)):
+async def list_pipelines(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """List all pipelines."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(Pipeline)
         .options(selectinload(Pipeline.stages))
@@ -50,8 +52,9 @@ async def list_pipelines(db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.get("/pipelines/{pipeline_id}", response_model=PipelineResponse)
-async def get_pipeline(pipeline_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_pipeline(request: Request, pipeline_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single pipeline with stages."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(Pipeline)
         .options(selectinload(Pipeline.stages))
@@ -66,9 +69,10 @@ async def get_pipeline(pipeline_id: int, db: AsyncSession = Depends(get_crm_db))
 
 
 @router.post("/pipelines", response_model=PipelineResponse)
-async def create_pipeline(pipeline_data: PipelineCreate, user_id: Optional[int] = None,
-                         db: AsyncSession = Depends(get_crm_db)):
+async def create_pipeline(request: Request, pipeline_data: PipelineCreate, user_id: Optional[int] = None,
+                         db: AsyncSession = Depends(get_tenant_db)):
     """Create a new pipeline."""
+    org_id = get_org_id(request)
     # If this is set as default, unset other defaults
     if pipeline_data.is_default:
         await db.execute(
@@ -107,9 +111,10 @@ async def create_pipeline(pipeline_data: PipelineCreate, user_id: Optional[int] 
 
 
 @router.put("/pipelines/{pipeline_id}", response_model=PipelineResponse)
-async def update_pipeline(pipeline_id: int, pipeline_data: PipelineUpdate, 
-                         user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def update_pipeline(request: Request, pipeline_id: int, pipeline_data: PipelineUpdate, 
+                         user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing pipeline."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
     pipeline = result.scalar_one_or_none()
     
@@ -146,9 +151,10 @@ async def update_pipeline(pipeline_id: int, pipeline_data: PipelineUpdate,
 
 
 @router.delete("/pipelines/{pipeline_id}")
-async def delete_pipeline(pipeline_id: int, user_id: Optional[int] = None,
-                         db: AsyncSession = Depends(get_crm_db)):
+async def delete_pipeline(request: Request, pipeline_id: int, user_id: Optional[int] = None,
+                         db: AsyncSession = Depends(get_tenant_db)):
     """Delete a pipeline."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
     pipeline = result.scalar_one_or_none()
     
@@ -177,8 +183,9 @@ async def delete_pipeline(pipeline_id: int, user_id: Optional[int] = None,
 # ===== Pipeline Stages CRUD =====
 
 @router.get("/pipelines/{pipeline_id}/stages", response_model=List[PipelineStageResponse])
-async def list_pipeline_stages(pipeline_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def list_pipeline_stages(request: Request, pipeline_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """List stages for a pipeline."""
+    org_id = get_org_id(request)
     # Verify pipeline exists
     pipeline_result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
     if not pipeline_result.scalar_one_or_none():
@@ -193,9 +200,10 @@ async def list_pipeline_stages(pipeline_id: int, db: AsyncSession = Depends(get_
 
 
 @router.post("/pipelines/{pipeline_id}/stages", response_model=PipelineStageResponse)
-async def create_pipeline_stage(pipeline_id: int, stage_data: PipelineStageCreate,
-                               user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def create_pipeline_stage(request: Request, pipeline_id: int, stage_data: PipelineStageCreate,
+                               user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Create a new stage in a pipeline."""
+    org_id = get_org_id(request)
     # Verify pipeline exists
     pipeline_result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
     if not pipeline_result.scalar_one_or_none():
@@ -225,9 +233,10 @@ async def create_pipeline_stage(pipeline_id: int, stage_data: PipelineStageCreat
 
 
 @router.put("/stages/{stage_id}", response_model=PipelineStageResponse)
-async def update_pipeline_stage(stage_id: int, stage_data: PipelineStageUpdate,
-                               user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def update_pipeline_stage(request: Request, stage_id: int, stage_data: PipelineStageUpdate,
+                               user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing pipeline stage."""
+    org_id = get_org_id(request)
     result = await db.execute(select(PipelineStage).where(PipelineStage.id == stage_id))
     stage = result.scalar_one_or_none()
     
@@ -281,9 +290,10 @@ async def update_pipeline_stage(stage_id: int, stage_data: PipelineStageUpdate,
 
 
 @router.delete("/stages/{stage_id}")
-async def delete_pipeline_stage(stage_id: int, user_id: Optional[int] = None,
-                               db: AsyncSession = Depends(get_crm_db)):
+async def delete_pipeline_stage(request: Request, stage_id: int, user_id: Optional[int] = None,
+                               db: AsyncSession = Depends(get_tenant_db)):
     """Delete a pipeline stage."""
+    org_id = get_org_id(request)
     result = await db.execute(select(PipelineStage).where(PipelineStage.id == stage_id))
     stage = result.scalar_one_or_none()
     
@@ -312,9 +322,10 @@ async def delete_pipeline_stage(stage_id: int, user_id: Optional[int] = None,
 
 
 @router.put("/pipelines/{pipeline_id}/stages/reorder")
-async def reorder_stages(pipeline_id: int, reorder_data: StageReorderRequest,
-                        user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def reorder_stages(request: Request, pipeline_id: int, reorder_data: StageReorderRequest,
+                        user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Reorder stages in a pipeline."""
+    org_id = get_org_id(request)
     # Verify pipeline exists
     pipeline_result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
     if not pipeline_result.scalar_one_or_none():

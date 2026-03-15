@@ -10,11 +10,12 @@ from datetime import datetime, date, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 
 logger = logging.getLogger("social_sync")
 router = APIRouter()
@@ -498,8 +499,9 @@ SYNC_MAP = {
 # ── Endpoints ────────────────────────────────────────────────────────
 
 @router.post("/sync")
-async def sync_all(db: AsyncSession = Depends(get_crm_db)):
+async def sync_all(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Sync all connected social accounts."""
+    org_id = get_org_id(request)
     accounts = await _get_accounts(db)
     if not accounts:
         return {"status": "no_accounts", "results": []}
@@ -528,8 +530,9 @@ async def sync_all(db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/sync/{platform}")
-async def sync_platform(platform: str, db: AsyncSession = Depends(get_crm_db)):
+async def sync_platform(request: Request, platform: str, db: AsyncSession = Depends(get_tenant_db)):
     """Sync a specific platform."""
+    org_id = get_org_id(request)
     syncer = SYNC_MAP.get(platform)
     if not syncer:
         raise HTTPException(400, f"Unknown platform: {platform}")

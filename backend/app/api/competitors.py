@@ -6,12 +6,13 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.competitor import Competitor
 from app.models.crm.social import SocialAccount
 from app.api.scraper import sync_instagram_competitor, sync_instagram_competitor_batch
@@ -320,11 +321,13 @@ async def _sync_competitor_record(
 
 @router.post("/competitors", response_model=CompetitorResponse)
 async def create_competitor(
+    request: Request,
     competitor_data: CompetitorCreate,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Create a new competitor with auto-populated data."""
+    org_id = get_org_id(request)
     try:
         handle = competitor_data.handle.strip().lstrip('@')
         platform = competitor_data.platform.lower()
@@ -385,10 +388,12 @@ async def create_competitor(
 
 @router.get("/competitors", response_model=List[CompetitorResponse])
 async def list_competitors(
+    request: Request,
     platform: Optional[str] = None,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """List all competitors."""
+    org_id = get_org_id(request)
     try:
         query = select(Competitor).order_by(Competitor.created_at.desc())
         
@@ -407,10 +412,12 @@ async def list_competitors(
 
 @router.get("/competitors/{competitor_id}", response_model=CompetitorResponse)
 async def get_competitor(
+    request: Request,
     competitor_id: int,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get a specific competitor."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             select(Competitor).where(Competitor.id == competitor_id)
@@ -431,11 +438,13 @@ async def get_competitor(
 
 @router.put("/competitors/{competitor_id}", response_model=CompetitorResponse)
 async def update_competitor(
+    request: Request,
     competitor_id: int,
     update_data: CompetitorUpdate,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Update a competitor."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             select(Competitor).where(Competitor.id == competitor_id)
@@ -466,10 +475,12 @@ async def update_competitor(
 
 @router.delete("/competitors/{competitor_id}")
 async def delete_competitor(
+    request: Request,
     competitor_id: int,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Delete a competitor."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             select(Competitor).where(Competitor.id == competitor_id)
@@ -494,10 +505,12 @@ async def delete_competitor(
 
 @router.post("/competitors/{competitor_id}/auto-populate", response_model=CompetitorResponse)
 async def auto_populate_competitor(
+    request: Request,
     competitor_id: int,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Populate an existing competitor through the real platform-specific write path."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             select(Competitor).where(Competitor.id == competitor_id)
@@ -528,10 +541,12 @@ async def auto_populate_competitor(
 
 @router.post("/competitors/sync")
 async def sync_competitors(
+    request: Request,
     platform: Optional[str] = None,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Refresh all tracked competitors' stats from their respective APIs."""
+    org_id = get_org_id(request)
     try:
         # Get competitors to sync
         query = select(Competitor).where(Competitor.auto_sync_enabled == True)
@@ -629,10 +644,12 @@ async def sync_competitors(
 
 @router.post("/competitors/{competitor_id}/sync", response_model=CompetitorResponse)
 async def sync_single_competitor(
+    request: Request,
     competitor_id: int,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Refresh a single competitor's data from their platform API."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             select(Competitor).where(Competitor.id == competitor_id)

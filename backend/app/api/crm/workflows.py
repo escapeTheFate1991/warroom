@@ -4,11 +4,12 @@ from copy import deepcopy
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.automation import Workflow, WorkflowTemplate
 from app.models.crm.audit import AuditLog
 from .schemas import WorkflowCloneRequest, WorkflowCreate, WorkflowResponse, WorkflowTemplateResponse, WorkflowUpdate
@@ -836,12 +837,14 @@ async def log_audit(
 
 @router.get("/workflow-templates", response_model=List[WorkflowTemplateResponse])
 async def list_workflow_templates(
+    request: Request,
     seed_only: Optional[bool] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List workflow templates for the gallery, ensuring starter seeds exist."""
+    org_id = get_org_id(request)
     await _ensure_seed_templates(db)
     query = select(WorkflowTemplate)
     if seed_only is not None:
@@ -852,8 +855,9 @@ async def list_workflow_templates(
 
 
 @router.get("/workflow-templates/{template_id}", response_model=WorkflowTemplateResponse)
-async def get_workflow_template(template_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_workflow_template(request: Request, template_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get a single workflow template."""
+    org_id = get_org_id(request)
     await _ensure_seed_templates(db)
     result = await db.execute(select(WorkflowTemplate).where(WorkflowTemplate.id == template_id))
     template = result.scalar_one_or_none()
@@ -864,12 +868,14 @@ async def get_workflow_template(template_id: int, db: AsyncSession = Depends(get
 
 @router.post("/workflow-templates/{template_id}/clone", response_model=WorkflowResponse)
 async def clone_workflow_from_template(
+    request: Request,
     template_id: int,
     data: WorkflowCloneRequest,
     user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a new workflow from an immutable template without mutating the seed/template."""
+    org_id = get_org_id(request)
     await _ensure_seed_templates(db)
     result = await db.execute(select(WorkflowTemplate).where(WorkflowTemplate.id == template_id))
     template = result.scalar_one_or_none()
@@ -897,13 +903,15 @@ async def clone_workflow_from_template(
 
 @router.get("/workflows", response_model=List[WorkflowResponse])
 async def list_workflows(
+    request: Request,
     template_id: Optional[int] = None,
     root_workflow_id: Optional[int] = None,
     limit: int = Query(default=100, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List saved workflows and their visible provenance/version metadata."""
+    org_id = get_org_id(request)
     query = select(Workflow)
     if template_id is not None:
         query = query.where(Workflow.template_id == template_id)
@@ -916,8 +924,9 @@ async def list_workflows(
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowResponse)
-async def get_workflow(workflow_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_workflow(request: Request, workflow_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get a single saved workflow."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
     workflow = result.scalar_one_or_none()
     if not workflow:
@@ -927,11 +936,13 @@ async def get_workflow(workflow_id: int, db: AsyncSession = Depends(get_crm_db))
 
 @router.post("/workflows", response_model=WorkflowResponse)
 async def create_workflow(
+    request: Request,
     data: WorkflowCreate,
     user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a saved workflow directly from the workflow platform."""
+    org_id = get_org_id(request)
     payload = normalize_workflow_payload(data)
     workflow = Workflow(**payload)
     db.add(workflow)
@@ -953,12 +964,14 @@ async def create_workflow(
 
 @router.put("/workflows/{workflow_id}", response_model=WorkflowResponse)
 async def update_workflow(
+    request: Request,
     workflow_id: int,
     data: WorkflowUpdate,
     user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Update an existing workflow in place."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
     workflow = result.scalar_one_or_none()
     if not workflow:
@@ -991,11 +1004,13 @@ async def update_workflow(
 
 @router.delete("/workflows/{workflow_id}")
 async def delete_workflow(
+    request: Request,
     workflow_id: int,
     user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Delete a saved workflow."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
     workflow = result.scalar_one_or_none()
     if not workflow:
@@ -1024,12 +1039,14 @@ async def delete_workflow(
 
 @router.post("/workflows/{workflow_id}/clone", response_model=WorkflowResponse)
 async def clone_workflow_version(
+    request: Request,
     workflow_id: int,
     data: WorkflowCloneRequest,
     user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Save a workflow as a new versioned copy instead of mutating the current one."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
     source_workflow = result.scalar_one_or_none()
     if not source_workflow:

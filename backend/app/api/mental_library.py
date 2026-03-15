@@ -12,7 +12,8 @@ import json
 import logging
 from sqlalchemy import text
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -87,7 +88,8 @@ def _video_row_to_dict(r: dict) -> dict:
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.get("/videos")
-async def list_videos(db=Depends(get_crm_db)):
+async def list_videos(request: Request, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
         "SELECT id, url, title, author, duration, thumbnail_url, processed_at, "
@@ -126,8 +128,9 @@ async def video_status(task_id: str):
 
 
 @router.delete("/videos/{video_id}")
-async def delete_video(video_id: int, db=Depends(get_crm_db)):
+async def delete_video(request: Request, video_id: int, db=Depends(get_tenant_db)):
     """Delete a video and its chunks. Also proxy to external service if running."""
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     # Delete from our DB
@@ -149,7 +152,8 @@ async def delete_video(video_id: int, db=Depends(get_crm_db)):
 
 
 @router.get("/videos/{video_id}")
-async def get_video(video_id: int, db=Depends(get_crm_db)):
+async def get_video(request: Request, video_id: int, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text("SELECT * FROM ml_videos WHERE id = :vid"), {"vid": video_id})
     r = result.mappings().first()
@@ -164,7 +168,8 @@ async def get_video(video_id: int, db=Depends(get_crm_db)):
 
 
 @router.get("/videos/{video_id}/chunks")
-async def get_video_chunks(video_id: int, db=Depends(get_crm_db)):
+async def get_video_chunks(request: Request, video_id: int, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
         "SELECT id, chunk_index, text, start_time, end_time, token_count, topic_tags "
@@ -185,7 +190,8 @@ async def get_video_chunks(video_id: int, db=Depends(get_crm_db)):
 
 
 @router.get("/stats")
-async def stats(db=Depends(get_crm_db)):
+async def stats(request: Request, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     videos = await db.execute(text("SELECT count(*) as c FROM ml_videos WHERE status='completed'"))
     chunks = await db.execute(text("SELECT count(*) as c FROM ml_chunks"))
@@ -198,8 +204,9 @@ async def stats(db=Depends(get_crm_db)):
 
 
 @router.get("/search")
-async def search_videos(q: str = "", db=Depends(get_crm_db)):
+async def search_videos(request: Request, q: str = "", db=Depends(get_tenant_db)):
     """Full-text search across video titles, authors, tags, and chunk text."""
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     if not q.strip():

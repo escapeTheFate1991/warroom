@@ -5,12 +5,13 @@ import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.agent_contract import load_agent_assignment_map
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.marketing import MarketingCampaign, MarketingEvent
 from app.models.crm.audit import AuditLog
 from .schemas import (
@@ -187,14 +188,16 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
 
 @router.get("/campaigns", response_model=List[MarketingCampaignResponse])
 async def list_campaigns(
+    request: Request,
     status: Optional[bool] = None,
     campaign_type: Optional[str] = None,
     channel: Optional[str] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List marketing campaigns."""
+    org_id = get_org_id(request)
     query = select(MarketingCampaign)
     
     if status is not None:
@@ -211,8 +214,9 @@ async def list_campaigns(
 
 
 @router.get("/campaigns/{campaign_id}", response_model=MarketingCampaignResponse)
-async def get_campaign(campaign_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_campaign(request: Request, campaign_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single marketing campaign."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(MarketingCampaign).where(MarketingCampaign.id == campaign_id)
     )
@@ -225,9 +229,10 @@ async def get_campaign(campaign_id: int, db: AsyncSession = Depends(get_crm_db))
 
 
 @router.post("/campaigns", response_model=MarketingCampaignResponse)
-async def create_campaign(campaign_data: MarketingCampaignCreate, user_id: Optional[int] = None,
-                         db: AsyncSession = Depends(get_crm_db)):
+async def create_campaign(request: Request, campaign_data: MarketingCampaignCreate, user_id: Optional[int] = None,
+                         db: AsyncSession = Depends(get_tenant_db)):
     """Create a new marketing campaign."""
+    org_id = get_org_id(request)
     payload = _normalize_campaign_payload(campaign_data)
     campaign = MarketingCampaign(**payload)
     db.add(campaign)
@@ -243,9 +248,10 @@ async def create_campaign(campaign_data: MarketingCampaignCreate, user_id: Optio
 
 
 @router.put("/campaigns/{campaign_id}", response_model=MarketingCampaignResponse)
-async def update_campaign(campaign_id: int, campaign_data: MarketingCampaignUpdate,
-                         user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def update_campaign(request: Request, campaign_id: int, campaign_data: MarketingCampaignUpdate,
+                         user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing marketing campaign."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(MarketingCampaign).where(MarketingCampaign.id == campaign_id)
     )
@@ -286,9 +292,10 @@ async def update_campaign(campaign_id: int, campaign_data: MarketingCampaignUpda
 
 
 @router.delete("/campaigns/{campaign_id}")
-async def delete_campaign(campaign_id: int, user_id: Optional[int] = None,
-                         db: AsyncSession = Depends(get_crm_db)):
+async def delete_campaign(request: Request, campaign_id: int, user_id: Optional[int] = None,
+                         db: AsyncSession = Depends(get_tenant_db)):
     """Delete a marketing campaign."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(MarketingCampaign).where(MarketingCampaign.id == campaign_id)
     )
@@ -314,9 +321,10 @@ async def delete_campaign(campaign_id: int, user_id: Optional[int] = None,
 
 
 @router.post("/campaigns/{campaign_id}/send")
-async def send_campaign(campaign_id: int, user_id: Optional[int] = None,
-                       db: AsyncSession = Depends(get_crm_db)):
+async def send_campaign(request: Request, campaign_id: int, user_id: Optional[int] = None,
+                       db: AsyncSession = Depends(get_tenant_db)):
     """Send/activate a marketing campaign."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(MarketingCampaign).where(MarketingCampaign.id == campaign_id)
     )
@@ -353,11 +361,13 @@ async def send_campaign(campaign_id: int, user_id: Optional[int] = None,
 
 @router.get("/events", response_model=List[MarketingEventResponse])
 async def list_events(
+    request: Request,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List marketing events."""
+    org_id = get_org_id(request)
     query = (
         select(MarketingEvent)
         .order_by(MarketingEvent.date.desc().nulls_last(), MarketingEvent.name)
@@ -370,8 +380,9 @@ async def list_events(
 
 
 @router.get("/events/{event_id}", response_model=MarketingEventResponse)
-async def get_event(event_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_event(request: Request, event_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single marketing event."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(MarketingEvent).where(MarketingEvent.id == event_id)
     )
@@ -384,9 +395,10 @@ async def get_event(event_id: int, db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/events", response_model=MarketingEventResponse)
-async def create_event(event_data: MarketingEventCreate, user_id: Optional[int] = None,
-                      db: AsyncSession = Depends(get_crm_db)):
+async def create_event(request: Request, event_data: MarketingEventCreate, user_id: Optional[int] = None,
+                      db: AsyncSession = Depends(get_tenant_db)):
     """Create a new marketing event."""
+    org_id = get_org_id(request)
     event = MarketingEvent(**event_data.model_dump(exclude_unset=True))
     db.add(event)
     await db.commit()
@@ -401,9 +413,10 @@ async def create_event(event_data: MarketingEventCreate, user_id: Optional[int] 
 
 
 @router.put("/events/{event_id}", response_model=MarketingEventResponse)
-async def update_event(event_id: int, event_data: MarketingEventUpdate,
-                      user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def update_event(request: Request, event_id: int, event_data: MarketingEventUpdate,
+                      user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing marketing event."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(MarketingEvent).where(MarketingEvent.id == event_id)
     )
@@ -435,9 +448,10 @@ async def update_event(event_id: int, event_data: MarketingEventUpdate,
 
 
 @router.delete("/events/{event_id}")
-async def delete_event(event_id: int, user_id: Optional[int] = None,
-                      db: AsyncSession = Depends(get_crm_db)):
+async def delete_event(request: Request, event_id: int, user_id: Optional[int] = None,
+                      db: AsyncSession = Depends(get_tenant_db)):
     """Delete a marketing event."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(MarketingEvent).where(MarketingEvent.id == event_id)
     )

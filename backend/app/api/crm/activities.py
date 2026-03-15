@@ -4,12 +4,13 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, delete, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.activity import Activity, ActivityParticipant, DealActivity, PersonActivity
 from app.models.crm.audit import AuditLog
 from app.models.crm.contact import Person
@@ -267,6 +268,7 @@ async def load_history_emails(
 
 @router.get("/activities", response_model=List[ActivityResponse])
 async def list_activities(
+    request: Request,
     deal_id: Optional[int] = None,
     person_id: Optional[int] = None,
     activity_type: Optional[str] = None,
@@ -276,9 +278,10 @@ async def list_activities(
     user_id: Optional[int] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List activities with filtering options."""
+    org_id = get_org_id(request)
     query = select(Activity).options(selectinload(Activity.participants))
 
     if deal_id:
@@ -325,11 +328,13 @@ async def list_activities(
 
 @router.get("/activities/upcoming", response_model=List[ActivityResponse])
 async def get_upcoming_activities(
+    request: Request,
     days_ahead: int = Query(default=7, le=30),
     user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get upcoming scheduled activities."""
+    org_id = get_org_id(request)
     now = datetime.now()
     future_date = now + timedelta(days=days_ahead)
 
@@ -352,10 +357,12 @@ async def get_upcoming_activities(
 
 @router.get("/activities/overdue", response_model=List[ActivityResponse])
 async def get_overdue_activities(
+    request: Request,
     user_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get overdue activities (past schedule_to date and not done)."""
+    org_id = get_org_id(request)
     now = datetime.now()
 
     query = select(Activity).where(
@@ -375,8 +382,9 @@ async def get_overdue_activities(
 
 
 @router.get("/activities/types")
-async def get_activity_types(db: AsyncSession = Depends(get_crm_db)):
+async def get_activity_types(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Get list of activity types in use."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(Activity.type).distinct().where(Activity.type.isnot(None))
     )
@@ -392,13 +400,15 @@ async def get_activity_types(db: AsyncSession = Depends(get_crm_db)):
 
 @router.get("/communications/history", response_model=CommunicationHistoryResponse)
 async def get_communications_history(
+    request: Request,
     person_id: Optional[int] = None,
     deal_id: Optional[int] = None,
     prospect_id: Optional[str] = None,
     limit: int = Query(default=100, ge=1, le=500),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Return a unified AI-readable communications timeline for a CRM entity."""
+    org_id = get_org_id(request)
     selectors = [person_id is not None, deal_id is not None, prospect_id is not None]
     if sum(selectors) != 1:
         raise HTTPException(status_code=400, detail="Provide exactly one of person_id, deal_id, or prospect_id")
@@ -427,8 +437,9 @@ async def get_communications_history(
 
 
 @router.get("/activities/{activity_id}", response_model=ActivityResponse)
-async def get_activity(activity_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_activity(request: Request, activity_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single activity by ID."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(Activity)
         .options(selectinload(Activity.participants))
@@ -443,8 +454,9 @@ async def get_activity(activity_id: int, db: AsyncSession = Depends(get_crm_db))
 
 
 @router.post("/activities", response_model=ActivityResponse)
-async def create_activity(activity_data: ActivityCreate, db: AsyncSession = Depends(get_crm_db)):
+async def create_activity(request: Request, activity_data: ActivityCreate, db: AsyncSession = Depends(get_tenant_db)):
     """Create a new activity."""
+    org_id = get_org_id(request)
     activity = Activity(**activity_data.model_dump(exclude_unset=True))
     db.add(activity)
     await db.commit()
@@ -472,9 +484,10 @@ async def create_activity(activity_data: ActivityCreate, db: AsyncSession = Depe
 
 
 @router.put("/activities/{activity_id}", response_model=ActivityResponse)
-async def update_activity(activity_id: int, activity_data: ActivityUpdate, 
-                         db: AsyncSession = Depends(get_crm_db)):
+async def update_activity(request: Request, activity_id: int, activity_data: ActivityUpdate, 
+                         db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing activity."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = result.scalar_one_or_none()
     
@@ -522,9 +535,10 @@ async def update_activity(activity_id: int, activity_data: ActivityUpdate,
 
 
 @router.delete("/activities/{activity_id}")
-async def delete_activity(activity_id: int, user_id: Optional[int] = None, 
-                         db: AsyncSession = Depends(get_crm_db)):
+async def delete_activity(request: Request, activity_id: int, user_id: Optional[int] = None, 
+                         db: AsyncSession = Depends(get_tenant_db)):
     """Delete an activity."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = result.scalar_one_or_none()
     
@@ -547,9 +561,10 @@ async def delete_activity(activity_id: int, user_id: Optional[int] = None,
 
 
 @router.put("/activities/{activity_id}/done", response_model=ActivityResponse)
-async def mark_activity_done(activity_id: int, user_id: Optional[int] = None, 
-                           db: AsyncSession = Depends(get_crm_db)):
+async def mark_activity_done(request: Request, activity_id: int, user_id: Optional[int] = None, 
+                           db: AsyncSession = Depends(get_tenant_db)):
     """Mark activity as done."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = result.scalar_one_or_none()
     

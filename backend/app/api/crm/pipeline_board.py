@@ -5,12 +5,13 @@ import logging
 from datetime import date, datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.deal import Deal, PipelineStage
 from app.models.crm.audit import AuditLog
 
@@ -51,11 +52,13 @@ STAGE_GATES: dict[int, list[str]] = {
 
 @router.put("/deals/{deal_id}/advance")
 async def advance_deal(
+    request: Request,
     deal_id: int,
     req: StageAdvanceRequest,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Advance a deal to the next stage with gated validation."""
+    org_id = get_org_id(request)
 
     # Get current deal with its stage info
     result = await db.execute(

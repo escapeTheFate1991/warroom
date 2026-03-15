@@ -11,11 +11,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -75,8 +76,9 @@ class BlackboardQuery(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.post("/blackboard")
-async def write_entry(body: BlackboardEntry, db=Depends(get_crm_db)):
+async def write_entry(request: Request, body: BlackboardEntry, db=Depends(get_tenant_db)):
     """Write or update a blackboard entry. Upserts on (topic, key)."""
+    org_id = get_org_id(request)
     await ensure_table(db)
 
     entry_id = str(uuid.uuid4())[:12]
@@ -105,13 +107,15 @@ async def write_entry(body: BlackboardEntry, db=Depends(get_crm_db)):
 
 @router.get("/blackboard")
 async def read_entries(
+    request: Request,
     topic: Optional[str] = None,
     key: Optional[str] = None,
     agent_id: Optional[str] = None,
     limit: int = Query(default=50, le=200),
-    db=Depends(get_crm_db),
+    db=Depends(get_tenant_db),
 ):
     """Read blackboard entries with optional filters."""
+    org_id = get_org_id(request)
     await ensure_table(db)
 
     # Clean expired entries
@@ -144,8 +148,9 @@ async def read_entries(
 
 
 @router.get("/blackboard/{topic}/{key}")
-async def read_single(topic: str, key: str, db=Depends(get_crm_db)):
+async def read_single(request: Request, topic: str, key: str, db=Depends(get_tenant_db)):
     """Read a single blackboard entry by topic + key."""
+    org_id = get_org_id(request)
     await ensure_table(db)
 
     result = await db.execute(text(
@@ -160,8 +165,9 @@ async def read_single(topic: str, key: str, db=Depends(get_crm_db)):
 
 
 @router.delete("/blackboard/{topic}/{key}")
-async def delete_entry(topic: str, key: str, db=Depends(get_crm_db)):
+async def delete_entry(request: Request, topic: str, key: str, db=Depends(get_tenant_db)):
     """Delete a single blackboard entry."""
+    org_id = get_org_id(request)
     await ensure_table(db)
 
     result = await db.execute(text(
@@ -175,8 +181,9 @@ async def delete_entry(topic: str, key: str, db=Depends(get_crm_db)):
 
 
 @router.delete("/blackboard")
-async def clear_topic(topic: str = Query(...), db=Depends(get_crm_db)):
+async def clear_topic(request: Request, topic: str = Query(...), db=Depends(get_tenant_db)):
     """Delete all entries for a topic."""
+    org_id = get_org_id(request)
     await ensure_table(db)
 
     result = await db.execute(text(

@@ -3,12 +3,13 @@ Social Content API — fetch real posts, videos, and metrics from connected plat
 """
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 import httpx
 
-from app.api.social import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 
 logger = logging.getLogger("social_content")
 router = APIRouter()
@@ -35,8 +36,9 @@ async def _get_account(db: AsyncSession, platform: str):
 INSTAGRAM_GRAPH = "https://graph.instagram.com"
 
 @router.get("/instagram/media")
-async def instagram_media(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
+async def instagram_media(request: Request, limit: int = 25, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch recent Instagram posts with engagement metrics."""
+    org_id = get_org_id(request)
     acc = await _get_account(db, "instagram")
 
     async with httpx.AsyncClient(timeout=15) as client:
@@ -92,8 +94,9 @@ async def instagram_media(limit: int = 25, db: AsyncSession = Depends(get_crm_db
 
 
 @router.get("/instagram/insights")
-async def instagram_insights(db: AsyncSession = Depends(get_crm_db)):
+async def instagram_insights(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch Instagram account-level insights (requires Business/Creator account)."""
+    org_id = get_org_id(request)
     acc = await _get_account(db, "instagram")
 
     async with httpx.AsyncClient(timeout=15) as client:
@@ -121,8 +124,9 @@ async def instagram_insights(db: AsyncSession = Depends(get_crm_db)):
 YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
 
 @router.get("/youtube/videos")
-async def youtube_videos(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
+async def youtube_videos(request: Request, limit: int = 25, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch recent YouTube videos with view/like/comment counts."""
+    org_id = get_org_id(request)
     acc = await _get_account(db, "youtube")
 
     async with httpx.AsyncClient(timeout=15) as client:
@@ -207,8 +211,9 @@ async def youtube_videos(limit: int = 25, db: AsyncSession = Depends(get_crm_db)
 FB_GRAPH = "https://graph.facebook.com/v21.0"
 
 @router.get("/facebook/posts")
-async def facebook_posts(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
+async def facebook_posts(request: Request, limit: int = 25, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch recent Facebook page/profile posts."""
+    org_id = get_org_id(request)
     acc = await _get_account(db, "facebook")
 
     async with httpx.AsyncClient(timeout=15) as client:
@@ -247,8 +252,9 @@ async def facebook_posts(limit: int = 25, db: AsyncSession = Depends(get_crm_db)
 X_API = "https://api.x.com/2"
 
 @router.get("/x/tweets")
-async def x_tweets(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
+async def x_tweets(request: Request, limit: int = 25, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch recent tweets with engagement metrics."""
+    org_id = get_org_id(request)
     acc = await _get_account(db, "x")
     headers = {"Authorization": f"Bearer {acc['token']}"}
 
@@ -316,8 +322,9 @@ async def x_tweets(limit: int = 25, db: AsyncSession = Depends(get_crm_db)):
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/summary")
-async def content_summary(db: AsyncSession = Depends(get_crm_db)):
+async def content_summary(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Quick summary of all connected platforms — content counts and top posts."""
+    org_id = get_org_id(request)
     r = await db.execute(
         text("SELECT platform, username, follower_count, post_count, following_count FROM crm.social_accounts WHERE status = 'connected'")
     )

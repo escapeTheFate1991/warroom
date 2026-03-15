@@ -6,11 +6,12 @@ import io
 import base64
 from typing import List, Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy import select, delete, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.audit import AuditLog, Import
 from app.models.crm.deal import Deal
 from app.models.crm.contact import Person, Organization
@@ -135,9 +136,10 @@ async def process_import(import_id: int, entity_type: str, csv_data: str,
 
 
 @router.post("/import", response_model=ImportResponse)
-async def import_csv(import_data: ImportRequest, background_tasks: BackgroundTasks,
-                    user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def import_csv(request: Request, import_data: ImportRequest, background_tasks: BackgroundTasks,
+                    user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Import CSV data for deals, contacts, or products."""
+    org_id = get_org_id(request)
     # Validate entity type
     valid_types = ["deals", "persons", "organizations", "products"]
     if import_data.entity_type not in valid_types:
@@ -180,8 +182,9 @@ async def import_csv(import_data: ImportRequest, background_tasks: BackgroundTas
 
 
 @router.get("/import/{import_id}", response_model=ImportResponse)
-async def get_import_status(import_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_import_status(request: Request, import_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get import status."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Import).where(Import.id == import_id))
     import_record = result.scalar_one_or_none()
     
@@ -193,13 +196,15 @@ async def get_import_status(import_id: int, db: AsyncSession = Depends(get_crm_d
 
 @router.get("/imports", response_model=List[ImportResponse])
 async def list_imports(
+    request: Request,
     entity_type: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """List import history."""
+    org_id = get_org_id(request)
     query = select(Import)
     
     if entity_type:
@@ -214,8 +219,9 @@ async def list_imports(
 
 
 @router.get("/export/{entity_type}")
-async def export_csv(entity_type: str, db: AsyncSession = Depends(get_crm_db)):
+async def export_csv(request: Request, entity_type: str, db: AsyncSession = Depends(get_tenant_db)):
     """Export entity data to CSV."""
+    org_id = get_org_id(request)
     from fastapi.responses import StreamingResponse
     
     valid_types = ["deals", "persons", "organizations", "products"]
@@ -314,9 +320,10 @@ async def export_csv(entity_type: str, db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/deduplicate/{entity_type}")
-async def deduplicate_entities(entity_type: str, dedup_request: DeduplicateRequest,
-                              user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def deduplicate_entities(request: Request, entity_type: str, dedup_request: DeduplicateRequest,
+                              user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Find and merge duplicate entities."""
+    org_id = get_org_id(request)
     valid_types = ["deals", "persons", "organizations", "products"]
     if entity_type not in valid_types:
         raise HTTPException(status_code=400, detail=f"Invalid entity type. Must be one of: {valid_types}")

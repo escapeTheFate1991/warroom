@@ -3,11 +3,12 @@
 import logging
 from typing import List, Optional, Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.attribute import Attribute, AttributeOption, AttributeValue
 from app.models.crm.audit import AuditLog
 from .schemas import AttributeResponse, AttributeCreate, AttributeValueSet
@@ -32,10 +33,12 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
 
 @router.get("/attributes", response_model=List[AttributeResponse])
 async def list_attributes(
+    request: Request,
     entity_type: Optional[str] = Query(None, description="Filter by entity type (deal, person, organization, product, quote)"),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List attributes for entity type."""
+    org_id = get_org_id(request)
     query = select(Attribute)
     
     if entity_type:
@@ -48,8 +51,9 @@ async def list_attributes(
 
 
 @router.get("/attributes/{attribute_id}", response_model=AttributeResponse)
-async def get_attribute(attribute_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_attribute(request: Request, attribute_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single attribute."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(Attribute).where(Attribute.id == attribute_id)
     )
@@ -62,9 +66,10 @@ async def get_attribute(attribute_id: int, db: AsyncSession = Depends(get_crm_db
 
 
 @router.post("/attributes", response_model=AttributeResponse)
-async def create_attribute(attribute_data: AttributeCreate, user_id: Optional[int] = None,
-                          db: AsyncSession = Depends(get_crm_db)):
+async def create_attribute(request: Request, attribute_data: AttributeCreate, user_id: Optional[int] = None,
+                          db: AsyncSession = Depends(get_tenant_db)):
     """Create custom attribute."""
+    org_id = get_org_id(request)
     # Check for duplicate code within same entity type
     existing = await db.execute(
         select(Attribute).where(
@@ -89,9 +94,10 @@ async def create_attribute(attribute_data: AttributeCreate, user_id: Optional[in
 
 
 @router.put("/attributes/{attribute_id}", response_model=AttributeResponse)
-async def update_attribute(attribute_id: int, attribute_data: AttributeCreate,
-                          user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def update_attribute(request: Request, attribute_id: int, attribute_data: AttributeCreate,
+                          user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update custom attribute."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Attribute).where(Attribute.id == attribute_id))
     attribute = result.scalar_one_or_none()
     
@@ -134,9 +140,10 @@ async def update_attribute(attribute_id: int, attribute_data: AttributeCreate,
 
 
 @router.delete("/attributes/{attribute_id}")
-async def delete_attribute(attribute_id: int, user_id: Optional[int] = None,
-                          db: AsyncSession = Depends(get_crm_db)):
+async def delete_attribute(request: Request, attribute_id: int, user_id: Optional[int] = None,
+                          db: AsyncSession = Depends(get_tenant_db)):
     """Delete custom attribute."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Attribute).where(Attribute.id == attribute_id))
     attribute = result.scalar_one_or_none()
     
@@ -164,9 +171,10 @@ async def delete_attribute(attribute_id: int, user_id: Optional[int] = None,
 
 
 @router.get("/entities/{entity_type}/{entity_id}/attributes")
-async def get_entity_attributes(entity_type: str, entity_id: int, 
-                               db: AsyncSession = Depends(get_crm_db)):
+async def get_entity_attributes(request: Request, entity_type: str, entity_id: int, 
+                               db: AsyncSession = Depends(get_tenant_db)):
     """Get attribute values for an entity."""
+    org_id = get_org_id(request)
     # Get all attributes for this entity type
     attributes_result = await db.execute(
         select(Attribute).where(Attribute.entity_type == entity_type)
@@ -216,11 +224,12 @@ async def get_entity_attributes(entity_type: str, entity_id: int,
 
 
 @router.put("/entities/{entity_type}/{entity_id}/attributes")
-async def set_entity_attributes(entity_type: str, entity_id: int, 
+async def set_entity_attributes(request: Request, entity_type: str, entity_id: int, 
                                values_data: AttributeValueSet,
                                user_id: Optional[int] = None,
-                               db: AsyncSession = Depends(get_crm_db)):
+                               db: AsyncSession = Depends(get_tenant_db)):
     """Set attribute values for an entity."""
+    org_id = get_org_id(request)
     # Validate entity_type
     valid_types = ["deal", "person", "organization", "product", "quote"]
     if entity_type not in valid_types:

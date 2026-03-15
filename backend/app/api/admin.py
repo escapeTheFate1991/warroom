@@ -3,13 +3,14 @@ import logging
 import re
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.user import User, Role
 from app.models.crm.organization import Tenant as Organization
 from app.api.auth import get_current_user, require_superadmin, require_permission, _hash_password
@@ -61,10 +62,12 @@ class CreateRoleRequest(BaseModel):
 
 @router.get("/orgs")
 async def list_orgs(
+    request: Request,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List all organizations."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Organization).order_by(Organization.created_at.desc()))
     orgs = result.scalars().all()
     return [
@@ -79,11 +82,13 @@ async def list_orgs(
 
 @router.post("/orgs", status_code=201)
 async def create_org(
+    request: Request,
     data: CreateOrgRequest,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a new organization."""
+    org_id = get_org_id(request)
     slug = data.slug or re.sub(r'[^a-z0-9]+', '-', data.name.lower()).strip('-')
 
     # Check slug uniqueness
@@ -107,12 +112,14 @@ async def create_org(
 
 @router.put("/orgs/{org_id}")
 async def update_org(
+    request: Request,
     org_id: int,
     data: UpdateOrgRequest,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Update an organization."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = result.scalar_one_or_none()
     if not org:
@@ -127,11 +134,13 @@ async def update_org(
 
 @router.delete("/orgs/{org_id}")
 async def delete_org(
+    request: Request,
     org_id: int,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Deactivate an organization (soft delete)."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = result.scalar_one_or_none()
     if not org:
@@ -146,11 +155,13 @@ async def delete_org(
 
 @router.get("/users")
 async def list_users(
+    request: Request,
     org_id: Optional[int] = None,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List all users, optionally filtered by org."""
+    org_id = get_org_id(request)
     query = select(User).options(selectinload(User.org), selectinload(User.role))
     if org_id:
         query = query.where(User.org_id == org_id)
@@ -175,12 +186,14 @@ async def list_users(
 
 @router.put("/users/{user_id}")
 async def update_user(
+    request: Request,
     user_id: int,
     data: UpdateUserRequest,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Update a user (assign org, role, status, superadmin)."""
+    org_id = get_org_id(request)
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -195,11 +208,13 @@ async def update_user(
 
 @router.post("/users/invite", status_code=201)
 async def invite_user(
+    request: Request,
     data: InviteUserRequest,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a pre-registered user and send invite email."""
+    org_id = get_org_id(request)
     # Check existing
     result = await db.execute(select(User).where(User.email == data.email))
     if result.scalar_one_or_none():
@@ -243,11 +258,13 @@ async def invite_user(
 
 @router.delete("/users/{user_id}")
 async def deactivate_user(
+    request: Request,
     user_id: int,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Deactivate a user (soft delete)."""
+    org_id = get_org_id(request)
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -265,10 +282,12 @@ async def deactivate_user(
 
 @router.get("/roles")
 async def list_roles(
+    request: Request,
     admin: User = Depends(require_permission("users:manage")),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List all roles."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Role).order_by(Role.name))
     roles = result.scalars().all()
     return [
@@ -283,11 +302,13 @@ async def list_roles(
 
 @router.post("/roles", status_code=201)
 async def create_role(
+    request: Request,
     data: CreateRoleRequest,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a new role."""
+    org_id = get_org_id(request)
     role = Role(
         name=data.name,
         description=data.description,
@@ -302,12 +323,14 @@ async def create_role(
 
 @router.put("/roles/{role_id}")
 async def update_role(
+    request: Request,
     role_id: int,
     data: CreateRoleRequest,
     admin: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Update a role."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Role).where(Role.id == role_id))
     role = result.scalar_one_or_none()
     if not role:

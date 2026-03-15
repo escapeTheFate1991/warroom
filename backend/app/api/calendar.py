@@ -5,7 +5,7 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.agent_contract import (
@@ -13,7 +13,8 @@ from app.api.agent_contract import (
     PersonalCalendarResponse,
     load_agent_assignment_map,
 )
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -95,8 +96,9 @@ async def personal_calendar_status():
 
 
 @router.get("/calendar/personal", response_model=PersonalCalendarResponse)
-async def get_personal_calendar(month: Optional[str] = None, db: AsyncSession = Depends(get_crm_db)):
+async def get_personal_calendar(request: Request, month: Optional[str] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Get personal calendar events for a month. Returns local events + Google Calendar events when connected."""
+    org_id = get_org_id(request)
     if month:
         try:
             year, mon = int(month.split("-")[0]), int(month.split("-")[1])
@@ -186,8 +188,9 @@ async def get_personal_calendar(month: Optional[str] = None, db: AsyncSession = 
 
 
 @router.post("/calendar/personal/events", response_model=PersonalCalendarEventEnvelope)
-async def create_personal_event(event: dict, db: AsyncSession = Depends(get_crm_db)):
+async def create_personal_event(request: Request, event: dict, db: AsyncSession = Depends(get_tenant_db)):
     """Create a local personal calendar event."""
+    org_id = get_org_id(request)
     required = ["title", "date"]
     for field in required:
         if field not in event:
@@ -214,8 +217,9 @@ async def create_personal_event(event: dict, db: AsyncSession = Depends(get_crm_
 
 
 @router.patch("/calendar/personal/events/{event_id}", response_model=PersonalCalendarEventEnvelope)
-async def update_personal_event(event_id: str, updates: dict, db: AsyncSession = Depends(get_crm_db)):
+async def update_personal_event(request: Request, event_id: str, updates: dict, db: AsyncSession = Depends(get_tenant_db)):
     """Partially update a local personal calendar event."""
+    org_id = get_org_id(request)
     if not PERSONAL_EVENTS_FILE.exists():
         raise HTTPException(status_code=404, detail="Event not found")
 

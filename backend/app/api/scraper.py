@@ -16,13 +16,14 @@ import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db, crm_session
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id, crm_session
 from app.models.crm.competitor import Competitor
 from app.services.instagram_scraper import (
     scrape_profile,
@@ -563,13 +564,15 @@ def _empty_competitor_status(competitor: Competitor) -> Dict[str, Any]:
 
 @router.post("/scraper/instagram/sync", response_model=BulkScrapeResponse)
 async def sync_all_instagram_competitors(
+    request: Request,
     background: bool = False,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Scrape ALL tracked Instagram competitors, update their records, and cache posts.
     
     This is the main data collection endpoint for the Reports feature.
     """
+    org_id = get_org_id(request)
     global _instagram_sync_task
 
     try:
@@ -616,13 +619,15 @@ async def sync_all_instagram_competitors(
 
 @router.post("/scraper/instagram/bulk", response_model=BulkScrapeResponse)
 async def bulk_scrape_instagram(
-    request: BulkScrapeRequest,
-    db: AsyncSession = Depends(get_crm_db),
+    request: Request,
+    body: BulkScrapeRequest,
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Scrape specific handles or all tracked competitors."""
+    org_id = get_org_id(request)
     
-    if request.handles:
-        handles = [h.strip().lstrip("@") for h in request.handles]
+    if body.handles:
+        handles = [h.strip().lstrip("@") for h in body.handles]
     else:
         # Scrape all tracked Instagram competitors
         result = await db.execute(
@@ -634,7 +639,7 @@ async def bulk_scrape_instagram(
         raise HTTPException(status_code=404, detail="No handles to scrape")
     
     profiles = await scrape_multiple(
-        handles, delay_range=(request.delay_min, request.delay_max)
+        handles, delay_range=(body.delay_min, body.delay_max)
     )
     
     success = sum(1 for p in profiles if not p.error)
@@ -649,8 +654,9 @@ async def bulk_scrape_instagram(
 
 
 @router.get("/scraper/status", response_model=ScrapeStatusResponse)
-async def get_scrape_status(db: AsyncSession = Depends(get_crm_db)):
+async def get_scrape_status(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Get scraper status — last sync times, post counts, errors."""
+    org_id = get_org_id(request)
     
     # Total competitors
     comp_result = await db.execute(
@@ -727,15 +733,17 @@ async def scrape_instagram_profile(handle: str):
 
 @router.post("/scraper/transcribe/{competitor_id}")
 async def transcribe_competitor_videos_endpoint(
+    request: Request,
     competitor_id: int,
     limit: int = 10,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Download, transcribe, and delete video/reel posts for a competitor.
     
     Only processes posts with media_type in (video, reel) that don't have transcripts yet.
     Videos are deleted immediately after transcription.
     """
+    org_id = get_org_id(request)
     from app.services.video_transcriber import transcribe_competitor_videos
     
     # Verify competitor exists
@@ -754,15 +762,17 @@ async def transcribe_competitor_videos_endpoint(
 
 @router.post("/scraper/comments/{competitor_id}")
 async def scrape_competitor_comments_endpoint(
+    request: Request,
     competitor_id: int,
     top_n: int = 10,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Scrape comments from a competitor's top posts.
     
     Uses authenticated Playwright to access post pages and extract comments.
     Only processes posts that don't have comments scraped yet.
     """
+    org_id = get_org_id(request)
     from app.services.comment_scraper import scrape_competitor_comments
     
     result = await db.execute(select(Competitor).where(Competitor.id == competitor_id))
@@ -780,10 +790,12 @@ async def scrape_competitor_comments_endpoint(
 
 @router.get("/scraper/posts/{post_id}")
 async def get_post_detail(
+    request: Request,
     post_id: int,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get full post detail including transcript and comments."""
+    org_id = get_org_id(request)
     result = await db.execute(
         text("""
             SELECT cp.*, c.handle
@@ -802,10 +814,12 @@ async def get_post_detail(
 
 @router.get("/scraper/posts/by-shortcode/{shortcode}")
 async def get_post_by_shortcode(
+    request: Request,
     shortcode: str,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get post detail by Instagram shortcode."""
+    org_id = get_org_id(request)
     result = await db.execute(
         text("""
             SELECT cp.*, c.handle

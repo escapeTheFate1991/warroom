@@ -3,11 +3,12 @@
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.product import Product
 from app.models.crm.audit import AuditLog
 from .schemas import ProductResponse, ProductCreate, ProductUpdate
@@ -32,13 +33,15 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
 
 @router.get("/products", response_model=List[ProductResponse])
 async def list_products(
+    request: Request,
     search: Optional[str] = None,
     sku: Optional[str] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List products with filtering."""
+    org_id = get_org_id(request)
     query = select(Product)
     
     if search:
@@ -56,8 +59,9 @@ async def list_products(
 
 
 @router.get("/products/{product_id}", response_model=ProductResponse)
-async def get_product(product_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_product(request: Request, product_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single product by ID."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Product).where(Product.id == product_id))
     product = result.scalar_one_or_none()
     
@@ -68,9 +72,10 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/products", response_model=ProductResponse)
-async def create_product(product_data: ProductCreate, user_id: Optional[int] = None,
-                        db: AsyncSession = Depends(get_crm_db)):
+async def create_product(request: Request, product_data: ProductCreate, user_id: Optional[int] = None,
+                        db: AsyncSession = Depends(get_tenant_db)):
     """Create a new product."""
+    org_id = get_org_id(request)
     # Check for duplicate SKU if provided
     if product_data.sku:
         existing = await db.execute(
@@ -93,9 +98,10 @@ async def create_product(product_data: ProductCreate, user_id: Optional[int] = N
 
 
 @router.put("/products/{product_id}", response_model=ProductResponse)
-async def update_product(product_id: int, product_data: ProductUpdate,
-                        user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def update_product(request: Request, product_id: int, product_data: ProductUpdate,
+                        user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing product."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Product).where(Product.id == product_id))
     product = result.scalar_one_or_none()
     
@@ -135,9 +141,10 @@ async def update_product(product_id: int, product_data: ProductUpdate,
 
 
 @router.delete("/products/{product_id}")
-async def delete_product(product_id: int, user_id: Optional[int] = None,
-                        db: AsyncSession = Depends(get_crm_db)):
+async def delete_product(request: Request, product_id: int, user_id: Optional[int] = None,
+                        db: AsyncSession = Depends(get_tenant_db)):
     """Delete a product."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Product).where(Product.id == product_id))
     product = result.scalar_one_or_none()
     
@@ -169,11 +176,13 @@ async def delete_product(product_id: int, user_id: Optional[int] = None,
 
 @router.get("/products/search")
 async def search_products(
+    request: Request,
     q: str = Query(..., description="Search query"),
     limit: int = Query(default=20, le=100),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Search products for autocomplete/selection."""
+    org_id = get_org_id(request)
     query = select(Product).where(
         Product.name.ilike(f"%{q}%") |
         Product.sku.ilike(f"%{q}%") |

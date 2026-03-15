@@ -20,7 +20,8 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.user import User, Role
 from app.models.crm.organization import Tenant as Organization
 from app.config import settings
@@ -181,10 +182,12 @@ def _user_dict(user: User) -> dict:
 # ── Auth Dependency (used across all endpoints) ──────────────────────
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> User:
     """Extract and validate current user from JWT. Raises 401 if invalid."""
+    org_id = get_org_id(request)
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -211,10 +214,12 @@ async def get_current_user(
 
 
 async def get_optional_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> Optional[User]:
     """Like get_current_user but returns None instead of 401."""
+    org_id = get_org_id(request)
     if not credentials:
         return None
     try:
@@ -244,8 +249,9 @@ def require_superadmin():
 # ── Endpoints ─────────────────────────────────────────────────────────
 
 @router.post("/signup", response_model=TokenResponse, status_code=201)
-async def signup(data: SignupRequest, db: AsyncSession = Depends(get_crm_db)):
+async def signup(request: Request, data: SignupRequest, db: AsyncSession = Depends(get_tenant_db)):
     """Create account. Sends verification code to email."""
+    org_id = get_org_id(request)
     # Check existing
     result = await db.execute(select(User).where(User.email == data.email))
     if result.scalar_one_or_none():
@@ -303,7 +309,7 @@ async def signup(data: SignupRequest, db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_crm_db)):
+async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Authenticate and return JWT. Token valid for 7 days from last login."""
     # Rate limit by email and IP
     client_ip = request.client.host if request.client else "unknown"
@@ -342,8 +348,9 @@ async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends
 
 
 @router.post("/verify-email")
-async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_crm_db)):
+async def verify_email(request: Request, data: VerifyEmailRequest, db: AsyncSession = Depends(get_tenant_db)):
     """Verify email with 6-digit code."""
+    org_id = get_org_id(request)
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
     if not user:
@@ -367,8 +374,9 @@ async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_
 
 
 @router.post("/resend-verification")
-async def resend_verification(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_crm_db)):
+async def resend_verification(request: Request, data: ForgotPasswordRequest, db: AsyncSession = Depends(get_tenant_db)):
     """Resend email verification code."""
+    org_id = get_org_id(request)
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
     if not user:
@@ -387,8 +395,9 @@ async def resend_verification(data: ForgotPasswordRequest, db: AsyncSession = De
 
 
 @router.post("/forgot-password")
-async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_crm_db)):
+async def forgot_password(request: Request, data: ForgotPasswordRequest, db: AsyncSession = Depends(get_tenant_db)):
     """Send password reset code to email."""
+    org_id = get_org_id(request)
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
 
@@ -406,8 +415,9 @@ async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depend
 
 
 @router.post("/reset-password")
-async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(get_crm_db)):
+async def reset_password(request: Request, data: ResetPasswordRequest, db: AsyncSession = Depends(get_tenant_db)):
     """Reset password using code from email."""
+    org_id = get_org_id(request)
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
     if not user:
@@ -432,11 +442,13 @@ async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(
 
 @router.post("/change-password")
 async def change_password(
+    request: Request,
     data: ChangePasswordRequest,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Change password (requires current password)."""
+    org_id = get_org_id(request)
     if not _verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 

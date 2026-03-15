@@ -3,13 +3,14 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.agent_contract import AgentAssignmentSummary, load_agent_assignment_map
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.social import SocialAccount, SocialAnalytics
 
 logger = logging.getLogger(__name__)
@@ -132,8 +133,9 @@ def _format_bucket_label(bucket: date, granularity: str) -> str:
 
 
 @router.get("/accounts", response_model=List[SocialAccountResponse])
-async def get_social_accounts(db: AsyncSession = Depends(get_crm_db)):
+async def get_social_accounts(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """List all connected social media accounts."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             select(SocialAccount).where(SocialAccount.status == "connected")
@@ -157,10 +159,12 @@ async def get_social_accounts(db: AsyncSession = Depends(get_crm_db)):
 
 @router.post("/accounts", response_model=SocialAccountResponse)
 async def connect_social_account(
+    request: Request,
     account_data: SocialAccountCreate,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Connect a new social media account."""
+    org_id = get_org_id(request)
     try:
         # For demo purposes, use user_id = 1
         new_account = SocialAccount(
@@ -187,10 +191,12 @@ async def connect_social_account(
 
 @router.delete("/accounts/{account_id}")
 async def disconnect_social_account(
+    request: Request,
     account_id: int,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Disconnect a social media account."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
         account = result.scalar_one_or_none()
@@ -212,10 +218,12 @@ async def disconnect_social_account(
 
 @router.get("/analytics", response_model=SocialSummaryResponse)
 async def get_social_analytics(
+    request: Request,
     platform: Optional[str] = None,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get aggregated social media analytics (raw SQL — includes all Reel metrics)."""
+    org_id = get_org_id(request)
     try:
         # Count connected accounts + total followers
         acct_q = "SELECT count(*), coalesce(sum(follower_count), 0) FROM social_accounts WHERE status = 'connected'"
@@ -304,10 +312,12 @@ async def get_social_analytics(
 
 @router.get("/analytics/sparkline")
 async def get_analytics_sparkline(
+    request: Request,
     days: int = 7,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get sparkline data for each platform (engagement arrays for charts)."""
+    org_id = get_org_id(request)
     try:
         end_date = date.today()
         start_date = end_date - timedelta(days=days)
@@ -364,8 +374,9 @@ async def get_analytics_sparkline(
 
 
 @router.get("/analytics/trends")
-async def get_analytics_trends(db: AsyncSession = Depends(get_crm_db)):
+async def get_analytics_trends(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Get percentage change trends (this week vs last week)."""
+    org_id = get_org_id(request)
     try:
         today = date.today()
         
@@ -444,11 +455,13 @@ async def get_analytics_trends(db: AsyncSession = Depends(get_crm_db)):
 
 @router.get("/analytics/timeseries", response_model=List[SocialAnalyticsSeriesPoint])
 async def get_analytics_timeseries(
+    request: Request,
     platform: Optional[str] = None,
     granularity: str = "daily",
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get aggregated analytics bars for the dashboard."""
+    org_id = get_org_id(request)
     allowed_granularities = {
         "daily": "day",
         "weekly": "week",
@@ -528,13 +541,15 @@ async def get_analytics_timeseries(
 
 @router.get("/analytics/engagement-velocity")
 async def get_engagement_velocity(
+    request: Request,
     media_id: Optional[str] = None,
     platform: str = "instagram",
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get engagement velocity over time — snapshots of metrics at each sync.
     Shows how likes/views/reach grow over time for a post or aggregate.
     Used for 'When people engage' line chart."""
+    org_id = get_org_id(request)
     try:
         if media_id:
             # Per-post velocity
@@ -592,11 +607,13 @@ async def get_engagement_velocity(
 
 @router.get("/analytics/{platform}", response_model=List[SocialAnalyticsResponse])
 async def get_platform_analytics(
+    request: Request,
     platform: str,
     days: int = 30,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get analytics for a specific platform."""
+    org_id = get_org_id(request)
     try:
         end_date = date.today()
         start_date = end_date - timedelta(days=days)
@@ -645,8 +662,9 @@ async def get_platform_analytics(
 
 
 @router.post("/sync")
-async def sync_social_data(db: AsyncSession = Depends(get_crm_db)):
+async def sync_social_data(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Trigger real sync of all connected social media accounts."""
+    org_id = get_org_id(request)
     try:
         from app.api.social_sync import sync_all
         return await sync_all(db)

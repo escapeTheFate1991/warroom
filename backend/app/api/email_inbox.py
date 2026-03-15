@@ -25,7 +25,8 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.api.agent_contract import load_agent_assignment_map
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.db.leadgen_db import leadgen_engine, leadgen_session
 
 logger = logging.getLogger(__name__)
@@ -881,14 +882,16 @@ async def _sync_imap(account_id: int, config: dict, last_sync: Optional[datetime
 
 @router.get("/email/messages")
 async def list_messages(
+    request: Request,
     account_id: Optional[int] = Query(None),
     is_read: Optional[bool] = Query(None),
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
-    crm_db=Depends(get_crm_db),
+    crm_db=Depends(get_tenant_db),
 ):
     """List email messages with pagination and filtering."""
+    org_id = get_org_id(request)
     conditions = []
     params: dict = {}
 
@@ -969,8 +972,9 @@ async def list_messages(
 
 
 @router.get("/email/messages/{message_id}")
-async def get_message(message_id: int, crm_db=Depends(get_crm_db)):
+async def get_message(request: Request, message_id: int, crm_db=Depends(get_tenant_db)):
     """Get full message including body."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("""

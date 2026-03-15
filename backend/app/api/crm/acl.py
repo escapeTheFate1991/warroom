@@ -3,11 +3,12 @@
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.user import User, Role, Group, UserGroup
 from app.models.crm.audit import AuditLog
 from .schemas import (
@@ -36,15 +37,17 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
 # ===== Roles CRUD =====
 
 @router.get("/roles", response_model=List[RoleResponse])
-async def list_roles(db: AsyncSession = Depends(get_crm_db)):
+async def list_roles(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """List all roles."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Role).order_by(Role.name))
     return result.scalars().all()
 
 
 @router.get("/roles/{role_id}", response_model=RoleResponse)
-async def get_role(role_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_role(request: Request, role_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single role."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Role).where(Role.id == role_id))
     role = result.scalar_one_or_none()
     
@@ -55,9 +58,10 @@ async def get_role(role_id: int, db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/roles", response_model=RoleResponse)
-async def create_role(role_data: RoleCreate, user_id: Optional[int] = None,
-                     db: AsyncSession = Depends(get_crm_db)):
+async def create_role(request: Request, role_data: RoleCreate, user_id: Optional[int] = None,
+                     db: AsyncSession = Depends(get_tenant_db)):
     """Create a new role."""
+    org_id = get_org_id(request)
     # Check for duplicate name
     existing = await db.execute(select(Role).where(Role.name == role_data.name))
     if existing.scalar_one_or_none():
@@ -77,9 +81,10 @@ async def create_role(role_data: RoleCreate, user_id: Optional[int] = None,
 
 
 @router.put("/roles/{role_id}", response_model=RoleResponse)
-async def update_role(role_id: int, role_data: RoleUpdate,
-                     user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def update_role(request: Request, role_id: int, role_data: RoleUpdate,
+                     user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing role."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Role).where(Role.id == role_id))
     role = result.scalar_one_or_none()
     
@@ -118,9 +123,10 @@ async def update_role(role_id: int, role_data: RoleUpdate,
 
 
 @router.delete("/roles/{role_id}")
-async def delete_role(role_id: int, user_id: Optional[int] = None,
-                     db: AsyncSession = Depends(get_crm_db)):
+async def delete_role(request: Request, role_id: int, user_id: Optional[int] = None,
+                     db: AsyncSession = Depends(get_tenant_db)):
     """Delete a role."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Role).where(Role.id == role_id))
     role = result.scalar_one_or_none()
     
@@ -146,13 +152,15 @@ async def delete_role(role_id: int, user_id: Optional[int] = None,
 
 @router.get("/users", response_model=List[UserResponse])
 async def list_users(
+    request: Request,
     status: Optional[bool] = None,
     role_id: Optional[int] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List users."""
+    org_id = get_org_id(request)
     query = select(User)
     
     if status is not None:
@@ -167,8 +175,9 @@ async def list_users(
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)
-async def get_user(user_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_user(request: Request, user_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single user."""
+    org_id = get_org_id(request)
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     
@@ -179,9 +188,10 @@ async def get_user(user_id: int, db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.post("/users", response_model=UserResponse)
-async def create_user(user_data: UserCreate, admin_user_id: Optional[int] = None,
-                     db: AsyncSession = Depends(get_crm_db)):
+async def create_user(request: Request, user_data: UserCreate, admin_user_id: Optional[int] = None,
+                     db: AsyncSession = Depends(get_tenant_db)):
     """Create a new user."""
+    org_id = get_org_id(request)
     # Check for duplicate email
     existing = await db.execute(select(User).where(User.email == user_data.email))
     if existing.scalar_one_or_none():
@@ -208,9 +218,10 @@ async def create_user(user_data: UserCreate, admin_user_id: Optional[int] = None
 
 
 @router.put("/users/{user_id}", response_model=UserResponse)
-async def update_user(user_id: int, user_data: UserUpdate,
-                     admin_user_id: Optional[int] = None, db: AsyncSession = Depends(get_crm_db)):
+async def update_user(request: Request, user_id: int, user_data: UserUpdate,
+                     admin_user_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing user."""
+    org_id = get_org_id(request)
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     
@@ -255,9 +266,10 @@ async def update_user(user_id: int, user_data: UserUpdate,
 
 
 @router.delete("/users/{user_id}")
-async def delete_user(user_id: int, admin_user_id: Optional[int] = None,
-                     db: AsyncSession = Depends(get_crm_db)):
+async def delete_user(request: Request, user_id: int, admin_user_id: Optional[int] = None,
+                     db: AsyncSession = Depends(get_tenant_db)):
     """Delete a user."""
+    org_id = get_org_id(request)
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     
@@ -286,8 +298,9 @@ async def delete_user(user_id: int, admin_user_id: Optional[int] = None,
 
 
 @router.get("/users/{user_id}/permissions")
-async def get_user_permissions(user_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_user_permissions(request: Request, user_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get effective permissions for a user."""
+    org_id = get_org_id(request)
     # Get user with role
     result = await db.execute(
         select(User).where(User.id == user_id)

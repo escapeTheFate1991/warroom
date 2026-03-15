@@ -9,7 +9,7 @@ import logging
 import json
 import uuid
 from typing import Any, Optional, List
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -20,7 +20,8 @@ from app.api.agent_contract import (
     AgentAssignmentUpdate,
     TASK_ASSIGNMENT_ENTITY_TYPE,
 )
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -318,7 +319,8 @@ class TaskAssignment(BaseModel):
 # ── CRUD Endpoints ───────────────────────────────────────────────
 
 @router.get("/agents")
-async def list_agents(db=Depends(get_crm_db)):
+async def list_agents(request: Request, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
         "SELECT * FROM agents ORDER BY created_at ASC"
@@ -353,13 +355,15 @@ async def list_assignment_types():
 
 @router.get("/agents/assignments")
 async def list_assignments(
+    request: Request,
     agent_id: Optional[str] = None,
     entity_type: Optional[str] = Query(default=None),
     entity_id: Optional[str] = None,
     status: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
-    db=Depends(get_crm_db),
+    db=Depends(get_tenant_db),
 ):
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     if entity_type is not None and entity_type not in ASSIGNABLE_ENTITY_TYPES:
@@ -394,7 +398,8 @@ async def list_assignments(
 
 
 @router.get("/agents/{agent_id}")
-async def get_agent(agent_id: str, db=Depends(get_crm_db)):
+async def get_agent(request: Request, agent_id: str, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
         "SELECT * FROM agents WHERE id = :id"
@@ -420,7 +425,8 @@ async def get_agent(agent_id: str, db=Depends(get_crm_db)):
 
 
 @router.post("/agents")
-async def create_agent(body: AgentCreate, db=Depends(get_crm_db)):
+async def create_agent(request: Request, body: AgentCreate, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     agent_id = str(uuid.uuid4())[:8]
@@ -447,7 +453,8 @@ async def create_agent(body: AgentCreate, db=Depends(get_crm_db)):
 
 
 @router.put("/agents/{agent_id}")
-async def update_agent(agent_id: str, body: AgentUpdate, db=Depends(get_crm_db)):
+async def update_agent(request: Request, agent_id: str, body: AgentUpdate, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     # Check exists
@@ -484,7 +491,8 @@ async def update_agent(agent_id: str, body: AgentUpdate, db=Depends(get_crm_db))
 
 
 @router.delete("/agents/{agent_id}")
-async def delete_agent(agent_id: str, db=Depends(get_crm_db)):
+async def delete_agent(request: Request, agent_id: str, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     result = await db.execute(text("DELETE FROM agents WHERE id = :id RETURNING id"), {"id": agent_id})
@@ -499,8 +507,9 @@ async def delete_agent(agent_id: str, db=Depends(get_crm_db)):
 # ── Skill Assignment ─────────────────────────────────────────────
 
 @router.post("/agents/{agent_id}/skills")
-async def assign_skills(agent_id: str, body: dict, db=Depends(get_crm_db)):
+async def assign_skills(request: Request, agent_id: str, body: dict, db=Depends(get_tenant_db)):
     """Replace all skills for an agent. Body: { skills: ["skill-name-1", ...] }"""
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     skills = body.get("skills", [])
@@ -513,18 +522,21 @@ async def assign_skills(agent_id: str, body: dict, db=Depends(get_crm_db)):
 
 
 @router.post("/agents/{agent_id}/assignments")
-async def create_assignment(agent_id: str, body: AgentAssignmentCreate, db=Depends(get_crm_db)):
+async def create_assignment(request: Request, agent_id: str, body: AgentAssignmentCreate, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     return await _create_assignment_record(db, agent_id, body)
 
 
 @router.get("/agents/{agent_id}/assignments")
 async def get_agent_assignments(
+    request: Request,
     agent_id: str,
     entity_type: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
-    db=Depends(get_crm_db),
+    db=Depends(get_tenant_db),
 ):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     await _ensure_agent_exists(db, agent_id)
 
@@ -549,17 +561,20 @@ async def get_agent_assignments(
 
 @router.put("/agents/{agent_id}/assignments/{assignment_id}")
 async def update_assignment(
+    request: Request,
     agent_id: str,
     assignment_id: str,
     body: AgentAssignmentUpdate,
-    db=Depends(get_crm_db),
+    db=Depends(get_tenant_db),
 ):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     return await _update_assignment_record(db, agent_id, assignment_id, body)
 
 
 @router.delete("/agents/{agent_id}/assignments/{assignment_id}")
-async def remove_assignment(agent_id: str, assignment_id: str, db=Depends(get_crm_db)):
+async def remove_assignment(request: Request, agent_id: str, assignment_id: str, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     await _delete_assignment_record(db, agent_id, assignment_id)
     return {"deleted": True}
@@ -568,8 +583,9 @@ async def remove_assignment(agent_id: str, assignment_id: str, db=Depends(get_cr
 # ── Task Assignment ──────────────────────────────────────────────
 
 @router.post("/agents/{agent_id}/tasks")
-async def assign_task(agent_id: str, body: TaskAssignment, db=Depends(get_crm_db)):
+async def assign_task(request: Request, agent_id: str, body: TaskAssignment, db=Depends(get_tenant_db)):
     """Assign a kanban task to an agent with priority."""
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     assignment = await _create_assignment_record(db, agent_id, AgentAssignmentCreate(
@@ -589,8 +605,9 @@ async def assign_task(agent_id: str, body: TaskAssignment, db=Depends(get_crm_db
 
 
 @router.get("/agents/{agent_id}/tasks")
-async def get_agent_tasks(agent_id: str, db=Depends(get_crm_db)):
+async def get_agent_tasks(request: Request, agent_id: str, db=Depends(get_tenant_db)):
     """Get all task assignments for an agent."""
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     result = await db.execute(text(
@@ -601,8 +618,9 @@ async def get_agent_tasks(agent_id: str, db=Depends(get_crm_db)):
 
 
 @router.put("/agents/{agent_id}/tasks/{assignment_id}")
-async def update_task_assignment(agent_id: str, assignment_id: str, body: dict, db=Depends(get_crm_db)):
+async def update_task_assignment(request: Request, agent_id: str, assignment_id: str, body: dict, db=Depends(get_tenant_db)):
     """Update task assignment status. Body: { status: "running"|"completed"|"failed" }"""
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     if "status" in body and body["status"] not in ASSIGNMENT_STATUSES:
@@ -619,7 +637,8 @@ async def update_task_assignment(agent_id: str, assignment_id: str, body: dict, 
 
 
 @router.delete("/agents/{agent_id}/tasks/{assignment_id}")
-async def remove_task_assignment(agent_id: str, assignment_id: str, db=Depends(get_crm_db)):
+async def remove_task_assignment(request: Request, agent_id: str, assignment_id: str, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
 
     await _delete_assignment_record(db, agent_id, assignment_id, entity_type=TASK_ASSIGNMENT_ENTITY_TYPE)
@@ -634,7 +653,8 @@ class AgentSoulUpdate(BaseModel):
 
 
 @router.get("/agents/{agent_id}/soul")
-async def get_agent_soul(agent_id: str, db=Depends(get_crm_db)):
+async def get_agent_soul(request: Request, agent_id: str, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
         "SELECT soul_md FROM agents WHERE id = :id"
@@ -646,7 +666,8 @@ async def get_agent_soul(agent_id: str, db=Depends(get_crm_db)):
 
 
 @router.put("/agents/{agent_id}/soul")
-async def update_agent_soul(agent_id: str, body: AgentSoulUpdate, db=Depends(get_crm_db)):
+async def update_agent_soul(request: Request, agent_id: str, body: AgentSoulUpdate, db=Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
         "UPDATE agents SET soul_md = :soul_md, updated_at = NOW() WHERE id = :id RETURNING id"

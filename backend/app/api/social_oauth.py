@@ -14,7 +14,8 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.social import SocialAccount
 
 logger = logging.getLogger(__name__)
@@ -153,10 +154,12 @@ THREADS_SCOPES = [
 
 @router.get("/oauth/meta/authorize")
 async def meta_authorize(
+    request: Request,
     platform: str = "meta",
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Start Meta OAuth flow. platform=facebook|instagram|threads (or meta for both FB+IG)."""
+    org_id = get_org_id(request)
     # Each platform has its own App/Client ID in Meta Developer Dashboard
     PLATFORM_SETTINGS = {
         "instagram": "instagram_app_id",
@@ -218,8 +221,9 @@ async def meta_authorize(
 
 
 @router.get("/oauth/meta/callback")
-async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
+async def meta_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle Meta OAuth callback. Respects requested platform from state."""
+    org_id = get_org_id(request)
     if not state or not _nonce_validate(state):
         return _oauth_complete_page(False, "meta", "Invalid or expired OAuth state")
 
@@ -337,8 +341,9 @@ async def meta_callback(code: str, state: str = "", db: AsyncSession = Depends(g
 # ══════════════════════════════════════════════════════════════════════
 
 @router.get("/oauth/instagram/callback")
-async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
+async def instagram_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle Instagram OAuth callback (direct Instagram login, no Facebook Page needed)."""
+    org_id = get_org_id(request)
     if not state or not _nonce_validate(state):
         return _oauth_complete_page(False, "instagram", "Invalid or expired OAuth state")
 
@@ -414,8 +419,9 @@ async def instagram_callback(code: str, state: str = "", db: AsyncSession = Depe
 # ══════════════════════════════════════════════════════════════════════
 
 @router.get("/oauth/threads/callback")
-async def threads_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
+async def threads_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle Threads OAuth callback (separate from Meta/Facebook)."""
+    org_id = get_org_id(request)
     if not state or not _nonce_validate(state):
         return _oauth_complete_page(False, "threads", "Invalid or expired OAuth state")
 
@@ -538,8 +544,9 @@ def _nonce_validate(nonce: str) -> bool:
 
 
 @router.get("/oauth/x/authorize")
-async def x_authorize(db: AsyncSession = Depends(get_crm_db)):
+async def x_authorize(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Start X (Twitter) OAuth flow."""
+    org_id = get_org_id(request)
     client_id = await _get_setting(db, "x_client_id")
     if not client_id:
         raise HTTPException(400, "X Client ID not configured. Go to Settings → API Keys.")
@@ -571,7 +578,8 @@ async def x_authorize(db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.get("/oauth/x/callback")
-async def x_callback(code: str = "", state: str = "", error: str = "", error_description: str = "", db: AsyncSession = Depends(get_crm_db)):
+async def x_callback(request: Request, code: str = "", state: str = "", error: str = "", error_description: str = "", db: AsyncSession = Depends(get_tenant_db)):
+    org_id = get_org_id(request)
     if error:
         logger.error("X OAuth error: %s — %s", error, error_description)
         return _oauth_complete_page(False, "x", f"{error}: {error_description}")
@@ -641,8 +649,9 @@ TIKTOK_SCOPES = ["user.info.basic", "user.info.stats", "video.list"]
 
 
 @router.get("/oauth/tiktok/authorize")
-async def tiktok_authorize(db: AsyncSession = Depends(get_crm_db)):
+async def tiktok_authorize(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Start TikTok OAuth flow."""
+    org_id = get_org_id(request)
     client_key = await _get_setting(db, "tiktok_client_key")
     if not client_key:
         raise HTTPException(400, "TikTok Client Key not configured. Go to Settings → API Keys.")
@@ -674,8 +683,9 @@ async def tiktok_authorize(db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.get("/oauth/tiktok/callback")
-async def tiktok_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
+async def tiktok_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle TikTok OAuth callback."""
+    org_id = get_org_id(request)
     if not _nonce_validate(f"tiktok_{state}"):
         return _oauth_complete_page(False, "tiktok", "Invalid or expired OAuth state")
 
@@ -744,8 +754,9 @@ GOOGLE_SCOPES = [
 
 
 @router.get("/oauth/google/authorize")
-async def google_authorize(db: AsyncSession = Depends(get_crm_db)):
+async def google_authorize(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Start Google/YouTube OAuth flow."""
+    org_id = get_org_id(request)
     client_id = await _get_setting(db, "google_oauth_client_id")
     if not client_id:
         raise HTTPException(400, "Google OAuth Client ID not configured. Go to Settings → API Keys.")
@@ -767,8 +778,9 @@ async def google_authorize(db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.get("/oauth/google/callback")
-async def google_callback(code: str, state: str = "", db: AsyncSession = Depends(get_crm_db)):
+async def google_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle Google OAuth callback."""
+    org_id = get_org_id(request)
     if not state or not _nonce_validate(state):
         return _oauth_complete_page(False, "youtube", "Invalid or expired OAuth state")
 
@@ -833,8 +845,9 @@ async def google_callback(code: str, state: str = "", db: AsyncSession = Depends
 # ══════════════════════════════════════════════════════════════════════
 
 @router.post("/oauth/refresh/{account_id}")
-async def refresh_token(account_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def refresh_token(request: Request, account_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Refresh an expired OAuth token."""
+    org_id = get_org_id(request)
     result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
     account = result.scalar_one_or_none()
 

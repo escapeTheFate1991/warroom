@@ -4,13 +4,14 @@ from copy import deepcopy
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.agent_contract import load_agent_assignment_map
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.email import Email, EmailAttachment, EmailTemplate
 from app.models.crm.audit import AuditLog
 from .schemas import EmailResponse, EmailCreate, EmailTemplateCreate, EmailTemplateResponse, EmailTemplateUpdate
@@ -172,15 +173,17 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
 
 @router.get("/emails", response_model=List[EmailResponse])
 async def list_emails(
+    request: Request,
     person_id: Optional[int] = None,
     deal_id: Optional[int] = None,
     is_read: Optional[bool] = None,
     folder: Optional[str] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List emails with filtering."""
+    org_id = get_org_id(request)
     query = select(Email).options(
         selectinload(Email.attachments),
         selectinload(Email.person),
@@ -205,9 +208,10 @@ async def list_emails(
 
 
 @router.get("/emails/{email_id}", response_model=EmailResponse)
-async def get_email(email_id: int, mark_read: bool = Query(default=True),
-                   db: AsyncSession = Depends(get_crm_db)):
+async def get_email(request: Request, email_id: int, mark_read: bool = Query(default=True),
+                   db: AsyncSession = Depends(get_tenant_db)):
     """Get email thread/single email."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(Email)
         .options(
@@ -233,9 +237,10 @@ async def get_email(email_id: int, mark_read: bool = Query(default=True),
 
 
 @router.post("/emails", response_model=EmailResponse)
-async def compose_email(email_data: EmailCreate, user_id: Optional[int] = None,
-                       db: AsyncSession = Depends(get_crm_db)):
+async def compose_email(request: Request, email_data: EmailCreate, user_id: Optional[int] = None,
+                       db: AsyncSession = Depends(get_tenant_db)):
     """Compose/send email (placeholder - stores in DB for now)."""
+    org_id = get_org_id(request)
     # For now, just store the email in the database
     # In a full implementation, this would integrate with SMTP/Gmail API
     
@@ -262,9 +267,10 @@ async def compose_email(email_data: EmailCreate, user_id: Optional[int] = None,
 
 
 @router.put("/emails/{email_id}/read")
-async def mark_email_read(email_id: int, is_read: bool = True, 
-                         db: AsyncSession = Depends(get_crm_db)):
+async def mark_email_read(request: Request, email_id: int, is_read: bool = True, 
+                         db: AsyncSession = Depends(get_tenant_db)):
     """Mark email as read/unread."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Email).where(Email.id == email_id))
     email = result.scalar_one_or_none()
     
@@ -278,9 +284,10 @@ async def mark_email_read(email_id: int, is_read: bool = True,
 
 
 @router.put("/emails/{email_id}/folder")
-async def move_email_folder(email_id: int, folder: str, 
-                           db: AsyncSession = Depends(get_crm_db)):
+async def move_email_folder(request: Request, email_id: int, folder: str, 
+                           db: AsyncSession = Depends(get_tenant_db)):
     """Move email to folder."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Email).where(Email.id == email_id))
     email = result.scalar_one_or_none()
     
@@ -298,9 +305,10 @@ async def move_email_folder(email_id: int, folder: str,
 
 
 @router.delete("/emails/{email_id}")
-async def delete_email(email_id: int, user_id: Optional[int] = None,
-                      db: AsyncSession = Depends(get_crm_db)):
+async def delete_email(request: Request, email_id: int, user_id: Optional[int] = None,
+                      db: AsyncSession = Depends(get_tenant_db)):
     """Delete an email."""
+    org_id = get_org_id(request)
     result = await db.execute(select(Email).where(Email.id == email_id))
     email = result.scalar_one_or_none()
     
@@ -323,8 +331,9 @@ async def delete_email(email_id: int, user_id: Optional[int] = None,
 
 
 @router.get("/emails/{email_id}/thread", response_model=List[EmailResponse])
-async def get_email_thread(email_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_email_thread(request: Request, email_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get full email thread."""
+    org_id = get_org_id(request)
     # Get the root email
     result = await db.execute(select(Email).where(Email.id == email_id))
     email = result.scalar_one_or_none()
@@ -363,9 +372,10 @@ async def get_email_thread(email_id: int, db: AsyncSession = Depends(get_crm_db)
 
 
 @router.get("/emails/unread-count")
-async def get_unread_count(person_id: Optional[int] = None, deal_id: Optional[int] = None,
-                          db: AsyncSession = Depends(get_crm_db)):
+async def get_unread_count(request: Request, person_id: Optional[int] = None, deal_id: Optional[int] = None,
+                          db: AsyncSession = Depends(get_tenant_db)):
     """Get count of unread emails."""
+    org_id = get_org_id(request)
     from sqlalchemy import func
     
     query = select(func.count(Email.id)).where(Email.is_read == False)
@@ -384,8 +394,9 @@ async def get_unread_count(person_id: Optional[int] = None, deal_id: Optional[in
 # ===== Email Templates =====
 
 @router.get("/email-templates", response_model=List[EmailTemplateResponse])
-async def list_email_templates(db: AsyncSession = Depends(get_crm_db)):
+async def list_email_templates(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """List channel-aware templates on the existing email template path."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(EmailTemplate).order_by(EmailTemplate.name)
     )
@@ -393,8 +404,9 @@ async def list_email_templates(db: AsyncSession = Depends(get_crm_db)):
 
 
 @router.get("/email-templates/{template_id}", response_model=EmailTemplateResponse)
-async def get_email_template(template_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def get_email_template(request: Request, template_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get channel-aware template details."""
+    org_id = get_org_id(request)
     result = await db.execute(
         select(EmailTemplate).where(EmailTemplate.id == template_id)
     )
@@ -407,8 +419,9 @@ async def get_email_template(template_id: int, db: AsyncSession = Depends(get_cr
 
 
 @router.post("/email-templates", response_model=EmailTemplateResponse)
-async def create_email_template(data: EmailTemplateCreate, db: AsyncSession = Depends(get_crm_db)):
+async def create_email_template(request: Request, data: EmailTemplateCreate, db: AsyncSession = Depends(get_tenant_db)):
     """Create a new channel-aware template."""
+    org_id = get_org_id(request)
     payload = _normalize_template_payload(data)
     template = EmailTemplate(**payload)
     db.add(template)
@@ -418,8 +431,9 @@ async def create_email_template(data: EmailTemplateCreate, db: AsyncSession = De
 
 
 @router.put("/email-templates/{template_id}", response_model=EmailTemplateResponse)
-async def update_email_template(template_id: int, data: EmailTemplateUpdate, db: AsyncSession = Depends(get_crm_db)):
+async def update_email_template(request: Request, template_id: int, data: EmailTemplateUpdate, db: AsyncSession = Depends(get_tenant_db)):
     """Update a channel-aware template."""
+    org_id = get_org_id(request)
     result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
     template = result.scalar_one_or_none()
     if not template:
@@ -434,8 +448,9 @@ async def update_email_template(template_id: int, data: EmailTemplateUpdate, db:
 
 
 @router.delete("/email-templates/{template_id}")
-async def delete_email_template(template_id: int, db: AsyncSession = Depends(get_crm_db)):
+async def delete_email_template(request: Request, template_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Delete an email template."""
+    org_id = get_org_id(request)
     result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
     template = result.scalar_one_or_none()
     if not template:

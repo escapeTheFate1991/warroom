@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from collections import Counter, defaultdict
 import string
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text, func
@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.auth import get_current_user
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import get_tenant_db
+from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.competitor import Competitor
 from app.models.crm.content_script import ContentScript
 from app.models.crm.social import SocialAccount
@@ -1249,10 +1250,12 @@ async def analyze_trending_topics(posts: List[Dict], enable_clustering: bool = T
 
 @router.get("/competitors/{competitor_id}/content", response_model=CompetitorContentResponse)
 async def get_competitor_content(
+    request: Request,
     competitor_id: int,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Fetch recent posts from a tracked competitor using the appropriate social API."""
+    org_id = get_org_id(request)
     try:
         competitor = await _get_competitor_or_404(db, competitor_id)
         
@@ -1306,11 +1309,13 @@ async def get_competitor_content(
 
 @router.get("/competitors/trending-topics", response_model=TrendingTopicsResponse)
 async def get_trending_topics(
+    request: Request,
     platform: Optional[str] = None,
     days: int = 30,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Analyze all competitor content to extract common themes/topics ranked by engagement."""
+    org_id = get_org_id(request)
     try:
         # Load cached posts from all competitors
         cached_posts = await load_cached_posts(db, platform=platform, days=days)
@@ -1339,12 +1344,14 @@ async def get_trending_topics(
 
 @router.get("/competitors/top-content", response_model=TopContentResponse)
 async def get_top_content(
+    request: Request,
     limit: int = 20,
     days: int = 30,
     platform: Optional[str] = None,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get top performing content across all competitors."""
+    org_id = get_org_id(request)
     try:
         # Load cached posts sorted by engagement
         cached_posts = await load_cached_posts(db, platform=platform, days=days)
@@ -1385,12 +1392,14 @@ async def get_top_content(
 
 @router.get("/competitors/hooks", response_model=HooksResponse)
 async def get_hooks(
+    request: Request,
     limit: int = 50,
     days: int = 30,
     platform: Optional[str] = None,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get extracted hooks ranked by engagement score."""
+    org_id = get_org_id(request)
     try:
         # Load cached posts
         cached_posts = await load_cached_posts(db, platform=platform, days=days)
@@ -1433,11 +1442,13 @@ async def get_hooks(
 
 @router.post("/competitors/refresh")
 async def refresh_competitor_content(
+    request: Request,
     competitor_id: Optional[int] = None,
     platform: Optional[str] = None,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Re-fetch content for competitors and update cache."""
+    org_id = get_org_id(request)
     try:
         # Get competitors to refresh
         query = select(Competitor)
@@ -1514,12 +1525,14 @@ async def refresh_competitor_content(
 # Keep existing script generation endpoints
 @router.post("/competitors/{competitor_id}/generate-script", response_model=List[GeneratedScript])
 async def generate_content_script(
+    request: Request,
     competitor_id: int,
-    request: ScriptGenerationRequest,
+    body: ScriptGenerationRequest,
     save_to_db: bool = False,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Generate competitor-driven script ideas from live cached performance data."""
+    org_id = get_org_id(request)
     try:
         competitor = await _get_competitor_or_404(db, competitor_id)
 
@@ -1539,12 +1552,12 @@ async def generate_content_script(
         business_settings = await _get_business_settings()
         scripts = build_competitor_script_ideas(
             competitor_handle=competitor.handle,
-            platform=request.platform,
+            platform=body.platform,
             posts=ranked_posts,
             business_settings=business_settings,
-            count=request.count,
-            requested_topic=request.topic,
-            hook_style=request.hook_style,
+            count=body.count,
+            requested_topic=body.topic,
+            hook_style=body.hook_style,
             trending_topics=[topic.topic for topic in trending_topics],
         )
 
@@ -1563,7 +1576,7 @@ async def generate_content_script(
         for script in scripts:
             content_script = ContentScript(
                 competitor_id=competitor_id,
-                platform=request.platform,
+                platform=body.platform,
                 title=script.title,
                 hook=script.hook,
                 body=script.body_outline,
@@ -1593,14 +1606,16 @@ async def generate_content_script(
 
 @router.post("/generate-scripts", response_model=List[GeneratedScript])
 async def generate_aggregated_scripts(
-    request: ScriptGenerationRequest,
+    request: Request,
+    body: ScriptGenerationRequest,
     save_to_db: bool = False,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Generate script ideas aggregated from ALL competitors' top-performing posts."""
+    org_id = get_org_id(request)
     try:
         # Load all cached posts across every competitor for the requested platform
-        all_posts = await load_cached_posts(db, platform=request.platform, days=45)
+        all_posts = await load_cached_posts(db, platform=body.platform, days=45)
         if not all_posts:
             raise HTTPException(
                 status_code=422,
@@ -1621,12 +1636,12 @@ async def generate_aggregated_scripts(
 
         scripts = build_competitor_script_ideas(
             competitor_handle=combined_handle,
-            platform=request.platform,
+            platform=body.platform,
             posts=ranked_posts,
             business_settings=business_settings,
-            count=request.count,
-            requested_topic=request.topic,
-            hook_style=request.hook_style,
+            count=body.count,
+            requested_topic=body.topic,
+            hook_style=body.hook_style,
             trending_topics=[t.topic for t in trending_topics],
         )
 
@@ -1650,7 +1665,7 @@ async def generate_aggregated_scripts(
         for script in scripts:
             row = ContentScript(
                 competitor_id=None,
-                platform=request.platform,
+                platform=body.platform,
                 title=script.title,
                 hook=script.hook,
                 body=script.body_outline,
@@ -1787,11 +1802,13 @@ def build_competitor_script_ideas(
 
 @router.get("/competitors/scripts", response_model=List[GeneratedScript])
 async def list_generated_scripts(
+    request: Request,
     platform: Optional[str] = None,
     competitor_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """List all generated content scripts."""
+    org_id = get_org_id(request)
     try:
         query = select(ContentScript).order_by(ContentScript.created_at.desc())
         
@@ -1812,10 +1829,12 @@ async def list_generated_scripts(
 
 @router.delete("/competitors/scripts/{script_id}")
 async def delete_script(
+    request: Request,
     script_id: int,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Delete a generated script."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             select(ContentScript).where(ContentScript.id == script_id)
@@ -2440,9 +2459,11 @@ def _aggregate_audience_intel_rows(rows: List[Any]) -> AudienceIntelResponse:
 
 @router.get("/competitors/audience-intel", response_model=AudienceIntelResponse)
 async def get_global_audience_intel(
-    db: AsyncSession = Depends(get_crm_db),
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Aggregate audience intelligence across all tracked competitor posts."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             text("""
@@ -2750,10 +2771,12 @@ def _top_video_item_from_post(post: Dict[str, Any]) -> TopVideoItem:
 
 @router.get("/instagram/account-advice", response_model=InstagramProfileAdviceResponse)
 async def get_instagram_account_advice(
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Review only the authenticated user's connected Instagram account."""
+    org_id = get_org_id(request)
     try:
         account_result = await db.execute(
             text("""
@@ -2817,11 +2840,13 @@ async def get_instagram_account_advice(
 
 @router.get("/competitors/top-videos", response_model=List[TopVideoItem])
 async def get_top_competitor_videos(
+    request: Request,
     days: int = 30,
     limit: int = 5,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Return one top video-like post per leading Instagram competitor."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             select(Competitor).where(Competitor.platform == "instagram")
@@ -2862,11 +2887,13 @@ async def get_top_competitor_videos(
 
 @router.get("/competitors/{competitor_id}/top-videos", response_model=List[TopVideoItem])
 async def get_competitor_top_videos(
+    request: Request,
     competitor_id: int,
     limit: int = 5,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Return the top-performing posts for a competitor, ordered by engagement_score."""
+    org_id = get_org_id(request)
     try:
         competitor = await _get_competitor_or_404(db, competitor_id)
         cached_posts, _ = await _ensure_competitor_cached_posts(
@@ -2889,9 +2916,11 @@ async def get_competitor_top_videos(
 
 @router.get("/competitors/follower-analysis", response_model=FollowerAnalysisResponse)
 async def get_follower_analysis(
-    db: AsyncSession = Depends(get_crm_db)
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Analyze themes and audience demographics from all competitor post texts using TF-IDF."""
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             text("SELECT post_text, likes, comments, shares FROM crm.competitor_posts WHERE post_text IS NOT NULL")
@@ -2989,10 +3018,12 @@ async def get_follower_analysis(
 
 @router.get("/competitors/{competitor_id}/hashtags", response_model=List[HashtagItem])
 async def get_competitor_hashtags(
+    request: Request,
     competitor_id: int,
-    db: AsyncSession = Depends(get_crm_db)
+    db: AsyncSession = Depends(get_tenant_db)
 ):
     """Extract hashtags from all post_text for a competitor, sorted by frequency."""
+    org_id = get_org_id(request)
     try:
         competitor = await _get_competitor_or_404(db, competitor_id)
         cached_posts, _ = await _ensure_competitor_cached_posts(
@@ -3017,8 +3048,9 @@ async def get_competitor_hashtags(
 
 @router.get("/competitors/{competitor_id}/audience-intel", response_model=AudienceIntelResponse)
 async def get_aggregated_audience_intel(
+    request: Request,
     competitor_id: int,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Aggregate audience intelligence across ALL posts for a competitor.
     
@@ -3031,6 +3063,7 @@ async def get_aggregated_audience_intel(
     - Most engaged commenters
     - Content format breakdown
     """
+    org_id = get_org_id(request)
     try:
         result = await db.execute(
             text("""
@@ -3052,14 +3085,16 @@ async def get_aggregated_audience_intel(
 
 @router.post("/index-content")
 async def index_content_for_recommendations(
+    request: Request,
     body: dict = {},
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Index top competitor content into Qdrant for the recommendation engine.
     
     Call after syncing competitors or transcribing videos to update the index.
     Only indexes top 20% by engagement — the content worth learning from.
     """
+    org_id = get_org_id(request)
     from app.services.content_embedder import index_top_content
     
     days = body.get("days", 90)
@@ -3077,7 +3112,7 @@ async def get_recommendation_status():
 
 
 @router.post("/recommend")
-async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_db)):
+async def recommend_content(request: Request, body: dict = {}, db: AsyncSession = Depends(get_tenant_db)):
     """Embedding-based recommendation engine.
     
     Analyzes competitors' top content semantically and generates
@@ -3086,6 +3121,7 @@ async def recommend_content(body: dict = {}, db: AsyncSession = Depends(get_crm_
     Uses Qdrant vector search for content-based filtering.
     Falls back to v1 rule-based engine if index is empty.
     """
+    org_id = get_org_id(request)
     from app.services.recommendation_engine import recommend_content_v2
     from app.services.content_embedder import get_index_status
     
@@ -3394,10 +3430,12 @@ def _extract_social_links(bio: str, captions: list[str]) -> dict:
 
 @router.get("/competitors/{competitor_id}/dossier")
 async def get_competitor_dossier(
+    request: Request,
     competitor_id: int,
-    db: AsyncSession = Depends(get_crm_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get comprehensive dossier for a competitor: bio, links, products, network."""
+    org_id = get_org_id(request)
     competitor = await _get_competitor_or_404(db, competitor_id)
     posts = await load_cached_posts(db, competitor_id)
 
