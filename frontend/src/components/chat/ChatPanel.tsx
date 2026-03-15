@@ -46,6 +46,7 @@ const MARKDOWN_PROSE = [
 ].join(" ");
 import ArtifactPanel, { Artifact } from "./ArtifactPanel";
 import PromptImproverModal from "./PromptImproverModal";
+import WaveformAnimation, { EnhancedWaveformIcon } from "./WaveformAnimation";
 import type { AgentSummary } from "@/lib/agentAssignments";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -275,33 +276,7 @@ function UsageIndicator({ wsConnected }: { wsConnected: boolean }) {
   );
 }
 
-/* ── Waveform Icon ─────────────────────────────────────── */
-
-function WaveformIcon({ size = 18, animated = false }: { size?: number; animated?: boolean }) {
-  const bars = [
-    { x: 3, h: 8 },
-    { x: 7, h: 14 },
-    { x: 11, h: 10 },
-    { x: 15, h: 16 },
-    { x: 19, h: 6 },
-  ];
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      {bars.map((bar, i) => {
-        const y1 = (24 - bar.h) / 2;
-        const y2 = y1 + bar.h;
-        return animated ? (
-          <line key={i} x1={bar.x} x2={bar.x} y1={12} y2={12}>
-            <animate attributeName="y1" values={`12;${y1};12`} dur={`${0.4 + i * 0.1}s`} repeatCount="indefinite" />
-            <animate attributeName="y2" values={`12;${y2};12`} dur={`${0.4 + i * 0.1}s`} repeatCount="indefinite" />
-          </line>
-        ) : (
-          <line key={i} x1={bar.x} x2={bar.x} y1={y1} y2={y2} />
-        );
-      })}
-    </svg>
-  );
-}
+/* ── Waveform Icon (now using enhanced version from WaveformAnimation.tsx) ─────────────────────────────────────── */
 
 /* ── Helpers ───────────────────────────────────────────── */
 
@@ -1743,20 +1718,52 @@ export default function ChatPanel() {
                   </div>
                 )}
 
-                {/* Streaming text */}
+                {/* Streaming text or wave animation */}
                 {streamText && (
-                  <div className={MARKDOWN_PROSE}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamText}</ReactMarkdown>
-                    <span className="inline-block w-2 h-4 bg-warroom-accent/60 animate-pulse ml-0.5" />
-                  </div>
+                  <>
+                    {isConversationMode ? (
+                      /* Show wave animation instead of text when in conversation mode */
+                      <div className="relative w-full h-32 rounded-lg border border-warroom-border/30 bg-warroom-surface/20 overflow-hidden">
+                        <WaveformAnimation
+                          isActive={isConversationMode}
+                          hasVoiceActivity={hasVoiceActivity}
+                          isListening={!hasVoiceActivity}
+                          isSpeaking={hasVoiceActivity}
+                        />
+                        <div className="absolute top-2 right-2">
+                          <div className="text-xs text-warroom-muted/60 bg-black/20 backdrop-blur-sm rounded px-2 py-1">
+                            {streamText.length} chars
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Normal text streaming */
+                      <div className={MARKDOWN_PROSE}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamText}</ReactMarkdown>
+                        <span className="inline-block w-2 h-4 bg-warroom-accent/60 animate-pulse ml-0.5" />
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Loading dots when no text yet but tools are active (and no partial content either) */}
-                {!streamText && !partialContent && !thinkingText && activeTools.length > 0 && activeTools.some(t => t.status === "running") && (
+                {!streamText && !partialContent && !thinkingText && activeTools.length > 0 && activeTools.some(t => t.status === "running") && !isConversationMode && (
                   <div className="flex items-center gap-1 py-1">
                     <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:0ms]" />
                     <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:150ms]" />
                     <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:300ms]" />
+                  </div>
+                )}
+
+                {/* Wave animation during conversation mode when waiting or processing */}
+                {isConversationMode && !streamText && !partialContent && !thinkingText && (
+                  <div className="relative w-full h-24 rounded-lg border border-warroom-border/30 bg-warroom-surface/20 overflow-hidden">
+                    <WaveformAnimation
+                      isActive={isConversationMode}
+                      hasVoiceActivity={hasVoiceActivity}
+                      isListening={!hasVoiceActivity}
+                      isSpeaking={hasVoiceActivity}
+                    />
                   </div>
                 )}
               </div>
@@ -1794,10 +1801,25 @@ export default function ChatPanel() {
               <div className="w-8 h-8 rounded-full bg-warroom-accent/10 flex items-center justify-center flex-shrink-0">
                 <Bot size={16} className="text-warroom-accent" />
               </div>
-              <div className="flex items-center gap-1 py-2">
-                <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:0ms]" />
-                <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:150ms]" />
-                <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:300ms]" />
+              <div className="flex-1 min-w-0">
+                {isConversationMode ? (
+                  /* Show wave animation during initial loading in conversation mode */
+                  <div className="relative w-full h-16 rounded-lg border border-warroom-border/30 bg-warroom-surface/20 overflow-hidden">
+                    <WaveformAnimation
+                      isActive={isConversationMode}
+                      hasVoiceActivity={hasVoiceActivity}
+                      isListening={!hasVoiceActivity}
+                      isSpeaking={hasVoiceActivity}
+                    />
+                  </div>
+                ) : (
+                  /* Normal loading dots */
+                  <div className="flex items-center gap-1 py-2">
+                    <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:0ms]" />
+                    <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:150ms]" />
+                    <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:300ms]" />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1955,7 +1977,12 @@ export default function ChatPanel() {
                   className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isConversationMode ? "text-green-400 bg-green-500/10" : "text-warroom-muted hover:text-warroom-text"} disabled:opacity-30`}
                   title="Voice conversation"
                 >
-                  <WaveformIcon size={18} animated={isConversationMode && hasVoiceActivity} />
+                  <EnhancedWaveformIcon 
+                    size={18} 
+                    animated={isConversationMode && hasVoiceActivity}
+                    isActive={isConversationMode}
+                    hasActivity={hasVoiceActivity}
+                  />
                 </button>
                 <div className="w-px h-4 bg-warroom-border mx-1" />
                 <UsageIndicator wsConnected={wsConnected} />
