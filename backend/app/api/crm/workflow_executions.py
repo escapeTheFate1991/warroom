@@ -77,8 +77,9 @@ def _serialize_execution(ex: WorkflowExecution) -> dict:
 # ── Endpoints ────────────────────────────────────────────────────────
 
 @router.post("/workflow-executions", response_model=ExecutionResponse)
-async def trigger_execution(data: ExecutionTriggerRequest):
+async def trigger_execution(request: Request, data: ExecutionTriggerRequest, db: AsyncSession = Depends(get_tenant_db)):
     """Trigger a new workflow execution."""
+    org_id = get_org_id(request)
     try:
         execution_id = await start_execution(
             workflow_id=data.workflow_id,
@@ -87,19 +88,22 @@ async def trigger_execution(data: ExecutionTriggerRequest):
             trigger_entity_id=data.trigger_entity_id,
             trigger_data=data.trigger_data,
             initial_context=data.initial_context,
+            org_id=org_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
     # Fetch the created execution to return it
-    async with get_crm_db_session() as db:
-        result = await db.execute(
-            select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+    result = await db.execute(
+        select(WorkflowExecution).where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.org_id == org_id
         )
-        execution = result.scalar_one_or_none()
-        if not execution:
-            raise HTTPException(status_code=500, detail="Execution created but not found")
-        return _serialize_execution(execution)
+    )
+    execution = result.scalar_one_or_none()
+    if not execution:
+        raise HTTPException(status_code=500, detail="Execution created but not found")
+    return _serialize_execution(execution)
 
 
 @router.get("/workflow-executions", response_model=List[ExecutionResponse])
@@ -113,7 +117,7 @@ async def list_executions(
 ):
     """List workflow executions with optional filters."""
     org_id = get_org_id(request)
-    query = select(WorkflowExecution)
+    query = select(WorkflowExecution).where(WorkflowExecution.org_id == org_id)
     if workflow_id is not None:
         query = query.where(WorkflowExecution.workflow_id == workflow_id)
     if status is not None:
@@ -129,7 +133,10 @@ async def get_execution(request: Request, execution_id: int, db: AsyncSession = 
     """Get execution details including step results."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+        select(WorkflowExecution).where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.org_id == org_id
+        )
     )
     execution = result.scalar_one_or_none()
     if not execution:
@@ -139,41 +146,49 @@ async def get_execution(request: Request, execution_id: int, db: AsyncSession = 
 
 @router.post("/workflow-executions/{execution_id}/resume", response_model=ExecutionResponse)
 async def resume_paused_execution(
+    request: Request,
     execution_id: int,
     data: ExecutionResumeRequest = ExecutionResumeRequest(),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Resume a paused execution (after approval)."""
+    org_id = get_org_id(request)
     try:
         await resume_execution(execution_id, approval_data=data.approval_data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    async with get_crm_db_session() as db:
-        result = await db.execute(
-            select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+    result = await db.execute(
+        select(WorkflowExecution).where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.org_id == org_id
         )
-        execution = result.scalar_one_or_none()
-        if not execution:
-            raise HTTPException(status_code=404, detail="Execution not found")
-        return _serialize_execution(execution)
+    )
+    execution = result.scalar_one_or_none()
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    return _serialize_execution(execution)
 
 
 @router.post("/workflow-executions/{execution_id}/retry", response_model=ExecutionResponse)
-async def retry_failed_execution(execution_id: int):
+async def retry_failed_execution(request: Request, execution_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Retry a failed execution from the step that failed."""
+    org_id = get_org_id(request)
     try:
         await retry_execution(execution_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    async with get_crm_db_session() as db:
-        result = await db.execute(
-            select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+    result = await db.execute(
+        select(WorkflowExecution).where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.org_id == org_id
         )
-        execution = result.scalar_one_or_none()
-        if not execution:
-            raise HTTPException(status_code=404, detail="Execution not found")
-        return _serialize_execution(execution)
+    )
+    execution = result.scalar_one_or_none()
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    return _serialize_execution(execution)
 
 
 @router.post("/workflow-executions/{execution_id}/cancel", response_model=ExecutionResponse)
@@ -186,7 +201,10 @@ async def cancel_running_execution(request: Request, execution_id: int, db: Asyn
         raise HTTPException(status_code=400, detail=str(exc))
 
     result = await db.execute(
-        select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+        select(WorkflowExecution).where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.org_id == org_id
+        )
     )
     execution = result.scalar_one_or_none()
     if not execution:
@@ -253,16 +271,4 @@ async def queue_stats():
         }
 
 
-# ── Helper: standalone session for post-mutation reads ────────────────
-
-from contextlib import asynccontextmanager
-from app.db.crm_db import crm_session
-from sqlalchemy import text
-
-
-@asynccontextmanager
-async def get_crm_db_session():
-    """Standalone CRM session for reads after background mutations."""
-    async with crm_session() as session:
-        await session.execute(text("SET search_path TO crm, public"))
-        yield session
+# Note: get_crm_db_session() removed in favor of tenant-aware get_tenant_db dependency

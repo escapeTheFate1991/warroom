@@ -742,7 +742,7 @@ def _serialize_workflow(
     )
 
 
-async def _with_workflow_provenance(db: AsyncSession, workflows: list[Workflow]) -> list[WorkflowResponse]:
+async def _with_workflow_provenance(db: AsyncSession, workflows: list[Workflow], org_id: int) -> list[WorkflowResponse]:
     if not workflows:
         return []
 
@@ -760,7 +760,10 @@ async def _with_workflow_provenance(db: AsyncSession, workflows: list[Workflow])
 
     lineage_map: Dict[int, Workflow] = {workflow.id: workflow for workflow in workflows}
     if lineage_ids:
-        result = await db.execute(select(Workflow).where(Workflow.id.in_(lineage_ids)))
+        result = await db.execute(select(Workflow).where(
+            Workflow.id.in_(lineage_ids),
+            Workflow.org_id == org_id
+        ))
         lineage_map.update({workflow.id: workflow for workflow in result.scalars().all()})
 
     return [_serialize_workflow(workflow, template_map, lineage_map) for workflow in workflows]
@@ -804,10 +807,11 @@ async def _ensure_seed_templates(db: AsyncSession) -> None:
         await db.commit()
 
 
-async def _next_workflow_version(db: AsyncSession, root_workflow_id: int) -> int:
+async def _next_workflow_version(db: AsyncSession, root_workflow_id: int, org_id: int) -> int:
     result = await db.execute(
         select(func.coalesce(func.max(Workflow.version), 0)).where(
-            or_(Workflow.root_workflow_id == root_workflow_id, Workflow.id == root_workflow_id)
+            or_(Workflow.root_workflow_id == root_workflow_id, Workflow.id == root_workflow_id),
+            Workflow.org_id == org_id
         )
     )
     return int(result.scalar_one() or 0) + 1
@@ -883,6 +887,7 @@ async def clone_workflow_from_template(
         raise HTTPException(status_code=404, detail="Workflow template not found")
 
     payload = build_workflow_clone_from_template(template, data.model_dump(exclude_unset=True))
+    payload["org_id"] = org_id
     workflow = Workflow(**payload)
     db.add(workflow)
     await db.flush()
@@ -898,7 +903,7 @@ async def clone_workflow_from_template(
     )
     await db.commit()
     await db.refresh(workflow)
-    return (await _with_workflow_provenance(db, [workflow]))[0]
+    return (await _with_workflow_provenance(db, [workflow], org_id))[0]
 
 
 @router.get("/workflows", response_model=List[WorkflowResponse])
@@ -912,7 +917,7 @@ async def list_workflows(
 ):
     """List saved workflows and their visible provenance/version metadata."""
     org_id = get_org_id(request)
-    query = select(Workflow)
+    query = select(Workflow).where(Workflow.org_id == org_id)
     if template_id is not None:
         query = query.where(Workflow.template_id == template_id)
     if root_workflow_id is not None:
@@ -920,18 +925,21 @@ async def list_workflows(
     query = query.order_by(func.coalesce(Workflow.root_workflow_id, Workflow.id).desc(), Workflow.version.desc(), Workflow.updated_at.desc())
     query = query.offset(offset).limit(limit)
     result = await db.execute(query)
-    return await _with_workflow_provenance(db, result.scalars().all())
+    return await _with_workflow_provenance(db, result.scalars().all(), org_id)
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowResponse)
 async def get_workflow(request: Request, workflow_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get a single saved workflow."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(select(Workflow).where(
+        Workflow.id == workflow_id,
+        Workflow.org_id == org_id
+    ))
     workflow = result.scalar_one_or_none()
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    return (await _with_workflow_provenance(db, [workflow]))[0]
+    return (await _with_workflow_provenance(db, [workflow], org_id))[0]
 
 
 @router.post("/workflows", response_model=WorkflowResponse)
@@ -944,6 +952,7 @@ async def create_workflow(
     """Create a saved workflow directly from the workflow platform."""
     org_id = get_org_id(request)
     payload = normalize_workflow_payload(data)
+    payload["org_id"] = org_id
     workflow = Workflow(**payload)
     db.add(workflow)
     await db.flush()
@@ -959,7 +968,7 @@ async def create_workflow(
     )
     await db.commit()
     await db.refresh(workflow)
-    return (await _with_workflow_provenance(db, [workflow]))[0]
+    return (await _with_workflow_provenance(db, [workflow], org_id))[0]
 
 
 @router.put("/workflows/{workflow_id}", response_model=WorkflowResponse)
@@ -972,7 +981,10 @@ async def update_workflow(
 ):
     """Update an existing workflow in place."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(select(Workflow).where(
+        Workflow.id == workflow_id,
+        Workflow.org_id == org_id
+    ))
     workflow = result.scalar_one_or_none()
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -999,7 +1011,7 @@ async def update_workflow(
     )
     await db.commit()
     await db.refresh(workflow)
-    return (await _with_workflow_provenance(db, [workflow]))[0]
+    return (await _with_workflow_provenance(db, [workflow], org_id))[0]
 
 
 @router.delete("/workflows/{workflow_id}")
@@ -1011,7 +1023,10 @@ async def delete_workflow(
 ):
     """Delete a saved workflow."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(select(Workflow).where(
+        Workflow.id == workflow_id,
+        Workflow.org_id == org_id
+    ))
     workflow = result.scalar_one_or_none()
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -1047,13 +1062,17 @@ async def clone_workflow_version(
 ):
     """Save a workflow as a new versioned copy instead of mutating the current one."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(select(Workflow).where(
+        Workflow.id == workflow_id,
+        Workflow.org_id == org_id
+    ))
     source_workflow = result.scalar_one_or_none()
     if not source_workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    next_version = await _next_workflow_version(db, source_workflow.root_workflow_id or source_workflow.id)
+    next_version = await _next_workflow_version(db, source_workflow.root_workflow_id or source_workflow.id, org_id)
     payload = build_workflow_clone_from_workflow(source_workflow, data.model_dump(exclude_unset=True), next_version=next_version)
+    payload["org_id"] = org_id
     workflow = Workflow(**payload)
     db.add(workflow)
 
@@ -1068,4 +1087,4 @@ async def clone_workflow_version(
     )
     await db.commit()
     await db.refresh(workflow)
-    return (await _with_workflow_provenance(db, [workflow]))[0]
+    return (await _with_workflow_provenance(db, [workflow], org_id))[0]

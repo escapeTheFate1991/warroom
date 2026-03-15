@@ -56,6 +56,7 @@ ACCOUNTS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS public.email_accounts (
     id           SERIAL PRIMARY KEY,
     user_id      INTEGER,
+    org_id       INTEGER,
     provider     VARCHAR(20) NOT NULL,
     email        TEXT,
     display_name TEXT,
@@ -71,6 +72,7 @@ MESSAGES_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS public.email_messages (
     id              SERIAL PRIMARY KEY,
     account_id      INTEGER REFERENCES public.email_accounts(id) ON DELETE CASCADE,
+    org_id          INTEGER,
     message_id      TEXT UNIQUE,
     thread_id       TEXT,
     subject         TEXT,
@@ -92,10 +94,12 @@ CREATE TABLE IF NOT EXISTS public.email_messages (
 
 INDEX_SQLS = [
     "CREATE INDEX IF NOT EXISTS idx_email_messages_account ON public.email_messages (account_id)",
+    "CREATE INDEX IF NOT EXISTS idx_email_messages_org ON public.email_messages (org_id)",
     "CREATE INDEX IF NOT EXISTS idx_email_messages_date ON public.email_messages (date DESC)",
     "CREATE INDEX IF NOT EXISTS idx_email_messages_thread ON public.email_messages (thread_id)",
     "CREATE INDEX IF NOT EXISTS idx_email_messages_read ON public.email_messages (is_read)",
     "CREATE INDEX IF NOT EXISTS idx_email_accounts_user ON public.email_accounts (user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_email_accounts_org ON public.email_accounts (org_id)",
 ]
 
 
@@ -396,10 +400,11 @@ async def gmail_callback(
                 })},
             )
         else:
+            # NOTE: Gmail OAuth callback runs outside tenant context - will use org_id=1 by default
             await db.execute(
                 text("""
-                    INSERT INTO public.email_accounts (user_id, provider, email, display_name, tokens)
-                    VALUES (1, 'gmail', :email, :display_name, :tokens)
+                    INSERT INTO public.email_accounts (user_id, org_id, provider, email, display_name, tokens)
+                    VALUES (1, 1, 'gmail', :email, :display_name, :tokens)
                 """),
                 {
                     "email": email_addr,
@@ -433,7 +438,8 @@ async def gmail_callback(
 @router.post("/email/accounts/imap/connect")
 async def imap_connect(req: ImapConnectRequest, request: Request):
     """Test IMAP connection and store account if successful."""
-    user_id = getattr(request.state, "user_id", 1)
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
 
     def _test_imap():
         if req.use_ssl:
@@ -459,12 +465,13 @@ async def imap_connect(req: ImapConnectRequest, request: Request):
     async with _session() as db:
         result = await db.execute(
             text("""
-                INSERT INTO public.email_accounts (user_id, provider, email, display_name, config)
-                VALUES (:user_id, 'imap', :email, :display_name, :config)
+                INSERT INTO public.email_accounts (user_id, org_id, provider, email, display_name, config)
+                VALUES (:user_id, :org_id, 'imap', :email, :display_name, :config)
                 RETURNING id
             """),
             {
                 "user_id": user_id,
+                "org_id": org_id,
                 "email": req.username,
                 "display_name": req.display_name or req.username,
                 "config": json.dumps({
@@ -487,14 +494,16 @@ async def imap_connect(req: ImapConnectRequest, request: Request):
 @router.get("/email/accounts")
 async def list_accounts(request: Request):
     """List connected email accounts."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
             text("""
                 SELECT id, provider, email, display_name, is_active, last_sync_at, created_at
                 FROM public.email_accounts
-                WHERE is_active = TRUE
+                WHERE is_active = TRUE AND org_id = :org_id
                 ORDER BY created_at DESC
-            """)
+            """),
+            {"org_id": org_id}
         )
         rows = result.fetchall()
 
@@ -515,12 +524,13 @@ async def list_accounts(request: Request):
 
 
 @router.delete("/email/accounts/{account_id}")
-async def disconnect_account(account_id: int):
+async def disconnect_account(account_id: int, request: Request):
     """Disconnect (soft-delete) an email account."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
-            text("UPDATE public.email_accounts SET is_active = FALSE WHERE id = :id RETURNING id"),
-            {"id": account_id},
+            text("UPDATE public.email_accounts SET is_active = FALSE WHERE id = :id AND org_id = :org_id RETURNING id"),
+            {"id": account_id, "org_id": org_id},
         )
         if not result.fetchone():
             raise HTTPException(status_code=404, detail="Account not found")
@@ -532,12 +542,13 @@ async def disconnect_account(account_id: int):
 # ── Sync Endpoints ───────────────────────────────────────────────────
 
 @router.post("/email/accounts/{account_id}/sync")
-async def sync_account(account_id: int):
+async def sync_account(account_id: int, request: Request):
     """Trigger email sync for a specific account."""
+    org_id = get_org_id(request)
     async with _session() as db:
         result = await db.execute(
-            text("SELECT id, provider, config, last_sync_at FROM public.email_accounts WHERE id = :id AND is_active = TRUE"),
-            {"id": account_id},
+            text("SELECT id, provider, config, last_sync_at FROM public.email_accounts WHERE id = :id AND org_id = :org_id AND is_active = TRUE"),
+            {"id": account_id, "org_id": org_id},
         )
         row = result.fetchone()
         if not row:
@@ -548,17 +559,17 @@ async def sync_account(account_id: int):
     last_sync = row[3]
 
     if provider == "gmail":
-        count = await _sync_gmail(account_id, last_sync)
+        count = await _sync_gmail(account_id, org_id, last_sync)
     elif provider == "imap":
-        count = await _sync_imap(account_id, config, last_sync)
+        count = await _sync_imap(account_id, org_id, config, last_sync)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
 
     # Update last_sync_at
     async with _session() as db:
         await db.execute(
-            text("UPDATE public.email_accounts SET last_sync_at = now() WHERE id = :id"),
-            {"id": account_id},
+            text("UPDATE public.email_accounts SET last_sync_at = now() WHERE id = :id AND org_id = :org_id"),
+            {"id": account_id, "org_id": org_id},
         )
         await db.commit()
 
@@ -574,7 +585,7 @@ async def sync_account(account_id: int):
     return {"ok": True, "synced": count, "account_id": account_id}
 
 
-async def _sync_gmail(account_id: int, last_sync: Optional[datetime]) -> int:
+async def _sync_gmail(account_id: int, org_id: int, last_sync: Optional[datetime]) -> int:
     """Sync messages from Gmail API."""
     access_token = await _get_gmail_access_token()
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -609,8 +620,8 @@ async def _sync_gmail(account_id: int, last_sync: Optional[datetime]) -> int:
             # Skip if already synced
             async with _session() as db:
                 existing = await db.execute(
-                    text("SELECT 1 FROM public.email_messages WHERE message_id = :mid"),
-                    {"mid": msg_id},
+                    text("SELECT 1 FROM public.email_messages WHERE message_id = :mid AND org_id = :org_id"),
+                    {"mid": msg_id, "org_id": org_id},
                 )
                 if existing.fetchone():
                     continue
@@ -669,17 +680,18 @@ async def _sync_gmail(account_id: int, last_sync: Optional[datetime]) -> int:
                     await db.execute(
                         text("""
                             INSERT INTO public.email_messages
-                                (account_id, message_id, thread_id, subject, from_address, from_name,
+                                (account_id, org_id, message_id, thread_id, subject, from_address, from_name,
                                  to_addresses, cc_addresses, date, snippet, body_text, body_html,
                                  labels, is_read, has_attachments, raw_headers)
                             VALUES
-                                (:account_id, :message_id, :thread_id, :subject, :from_address, :from_name,
+                                (:account_id, :org_id, :message_id, :thread_id, :subject, :from_address, :from_name,
                                  :to_addresses, :cc_addresses, :date, :snippet, :body_text, :body_html,
                                  :labels, :is_read, :has_attachments, :raw_headers)
                             ON CONFLICT (message_id) DO NOTHING
                         """),
                         {
                             "account_id": account_id,
+                            "org_id": org_id,
                             "message_id": msg_id,
                             "thread_id": msg_data.get("threadId"),
                             "subject": subject,
@@ -706,7 +718,7 @@ async def _sync_gmail(account_id: int, last_sync: Optional[datetime]) -> int:
     return synced
 
 
-async def _sync_imap(account_id: int, config: dict, last_sync: Optional[datetime]) -> int:
+async def _sync_imap(account_id: int, org_id: int, config: dict, last_sync: Optional[datetime]) -> int:
     """Sync messages from IMAP server."""
     host = config["host"]
     port = config.get("port", 993)
