@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/audit")
+@router.get("")
 async def list_audit_entries(
     request: Request,
     page: int = Query(default=1, ge=1),
@@ -67,7 +67,7 @@ async def list_audit_entries(
         raise HTTPException(status_code=500, detail="Failed to retrieve audit entries")
 
 
-@router.get("/audit/summary")
+@router.get("/summary")
 async def audit_summary(
     request: Request,
     days_back: int = Query(default=30, ge=1, le=365),
@@ -97,7 +97,7 @@ async def audit_summary(
         raise HTTPException(status_code=500, detail="Failed to generate audit summary")
 
 
-@router.get("/audit/export")
+@router.get("/export")
 async def export_audit_log(
     request: Request,
     format: str = Query(default="csv", regex="^csv$"),  # Only CSV for now
@@ -181,7 +181,7 @@ async def export_audit_log(
         raise HTTPException(status_code=500, detail="Failed to export audit log")
 
 
-@router.get("/audit/actions")
+@router.get("/actions")
 async def get_available_actions(
     request: Request,
     db: AsyncSession = Depends(get_tenant_db),
@@ -218,7 +218,7 @@ async def get_available_actions(
         raise HTTPException(status_code=500, detail="Failed to retrieve available actions")
 
 
-@router.get("/audit/resource-types")
+@router.get("/resource-types")
 async def get_available_resource_types(
     request: Request,
     db: AsyncSession = Depends(get_tenant_db),

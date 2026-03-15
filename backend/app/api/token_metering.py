@@ -63,7 +63,7 @@ async def get_budget_status(
 ):
     """Get current user's token budget status across all tiers."""
     
-    org_id = get_org_id()
+    org_id = get_org_id(request)
     user_id = get_user_id()
     
     try:
@@ -86,7 +86,7 @@ async def get_usage_history(
     if days < 1 or days > 365:
         raise HTTPException(status_code=400, detail="Days must be between 1 and 365")
     
-    org_id = get_org_id()
+    org_id = get_org_id(request)
     user_id = get_user_id()
     
     try:
@@ -110,7 +110,7 @@ async def get_org_usage(
     if days < 1 or days > 365:
         raise HTTPException(status_code=400, detail="Days must be between 1 and 365")
     
-    org_id = get_org_id()
+    org_id = get_org_id(request)
     
     try:
         # No user_id filter for org-wide view
@@ -131,7 +131,7 @@ async def set_allocations(
 ):
     """Set token allocation for a tier (admin only)."""
     
-    org_id = get_org_id()
+    org_id = get_org_id(request)
     
     # Validate inputs
     if allocation.tier not in ['org', 'dept', 'user']:
@@ -185,7 +185,7 @@ async def enforce_token_limit(
     if estimated_tokens < 0:
         raise HTTPException(status_code=400, detail="Estimated tokens cannot be negative")
     
-    org_id = get_org_id()
+    org_id = get_org_id(request)
     user_id = get_user_id()
     
     try:
@@ -232,7 +232,7 @@ async def record_token_usage(
     if cost_usd < 0:
         raise HTTPException(status_code=400, detail="Cost cannot be negative")
     
-    org_id = get_org_id()
+    org_id = get_org_id(request)
     user_id = get_user_id()
     
     try:
