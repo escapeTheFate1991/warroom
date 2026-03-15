@@ -268,10 +268,7 @@ async def get_usage_summary(
     base_query = """
         SELECT 
             SUM(total_tokens) as total_tokens,
-            SUM(cost_usd) as total_cost,
-            model,
-            user_id,
-            agent_id
+            SUM(cost_usd) as total_cost
         FROM public.token_usage_log 
         WHERE org_id = :org_id 
         AND created_at >= :since
@@ -284,7 +281,7 @@ async def get_usage_summary(
         params["user_id"] = user_id
     
     # Get totals
-    totals_query = text(base_query + " GROUP BY ()")
+    totals_query = text(base_query)
     totals_result = await db.execute(totals_query, params)
     totals_row = totals_result.fetchone()
     
@@ -292,21 +289,21 @@ async def get_usage_summary(
     total_cost = float(totals_row[1]) if totals_row and totals_row[1] else 0.0
     
     # Breakdown by model
-    model_query = text(base_query + " GROUP BY model")
+    model_query = text("SELECT model, SUM(total_tokens) FROM public.token_usage_log WHERE org_id = :org_id AND created_at >= :since" + (" AND user_id = :user_id" if user_id else "") + " GROUP BY model")
     model_result = await db.execute(model_query, params)
-    breakdown_by_model = {row[2]: row[0] for row in model_result.fetchall()}
+    breakdown_by_model = {row[0]: row[1] for row in model_result.fetchall() if row[0]}
     
     # Breakdown by user (only for org-wide queries)
     breakdown_by_user = {}
     if user_id is None:
-        user_query = text(base_query + " GROUP BY user_id")
+        user_query = text("SELECT user_id, SUM(total_tokens) FROM public.token_usage_log WHERE org_id = :org_id AND created_at >= :since GROUP BY user_id")
         user_result = await db.execute(user_query, params)
-        breakdown_by_user = {str(row[3]): row[0] for row in user_result.fetchall() if row[3]}
+        breakdown_by_user = {str(row[0]): row[1] for row in user_result.fetchall() if row[0]}
     
     # Breakdown by agent
-    agent_query = text(base_query + " AND agent_id IS NOT NULL GROUP BY agent_id")
+    agent_query = text("SELECT agent_id, SUM(total_tokens) FROM public.token_usage_log WHERE org_id = :org_id AND created_at >= :since AND agent_id IS NOT NULL" + (" AND user_id = :user_id" if user_id else "") + " GROUP BY agent_id")
     agent_result = await db.execute(agent_query, params)
-    breakdown_by_agent = {row[4]: row[0] for row in agent_result.fetchall() if row[4]}
+    breakdown_by_agent = {row[0]: row[1] for row in agent_result.fetchall() if row[0]}
     
     return UsageSummary(
         total_tokens=total_tokens,
