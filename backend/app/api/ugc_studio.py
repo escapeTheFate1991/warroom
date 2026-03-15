@@ -35,7 +35,7 @@ GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 # ── DDL ────────────────────────────────────────────────────────────────
 
-TABLES_DDL = """
+DIGITAL_COPIES_DDL = """
 CREATE TABLE IF NOT EXISTS public.ugc_digital_copies (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,
@@ -47,8 +47,10 @@ CREATE TABLE IF NOT EXISTS public.ugc_digital_copies (
     preview_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+)
+"""
 
+VIDEO_TEMPLATES_DDL = """
 CREATE TABLE IF NOT EXISTS public.ugc_video_templates (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -63,8 +65,10 @@ CREATE TABLE IF NOT EXISTS public.ugc_video_templates (
     source_analysis JSONB DEFAULT '{}'::jsonb,
     user_id INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW()
-);
+)
+"""
 
+VIDEO_PROJECTS_DDL = """
 CREATE TABLE IF NOT EXISTS public.ugc_video_projects (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,
@@ -81,7 +85,7 @@ CREATE TABLE IF NOT EXISTS public.ugc_video_projects (
     error_message TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+)
 """
 
 VOICE_SAMPLES_DIR = os.getenv("UGC_VOICE_DIR", "/data/ugc-voices")
@@ -99,7 +103,9 @@ ALTER_DDL = [
 async def init_ugc_tables():
     """Create UGC tables if they don't exist."""
     async with leadgen_engine.begin() as conn:
-        await conn.execute(text(TABLES_DDL))
+        await conn.execute(text(DIGITAL_COPIES_DDL))
+        await conn.execute(text(VIDEO_TEMPLATES_DDL))
+        await conn.execute(text(VIDEO_PROJECTS_DDL))
         for stmt in ALTER_DDL:
             try:
                 await conn.execute(text(stmt))
