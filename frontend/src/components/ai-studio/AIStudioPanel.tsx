@@ -9,6 +9,16 @@ import {
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import ScrollTabs from "@/components/ui/ScrollTabs";
+import dynamic from "next/dynamic";
+
+const VideoEditor = dynamic(() => import("./VideoEditor"), {
+  loading: () => (
+    <div className="flex justify-center py-12">
+      <Loader2 className="animate-spin text-warroom-accent" size={24} />
+    </div>
+  ),
+  ssr: false,
+});
 
 /* ── Types ─────────────────────────────────────────────── */
 interface DigitalCopy {
@@ -86,7 +96,7 @@ interface CompetitorVideo {
   media_type: string;
 }
 
-type MainTab = "create-video" | "digital-copies" | "templatizer" | "projects" | "motion-control";
+type MainTab = "create-video" | "digital-copies" | "templatizer" | "projects" | "motion-control" | "video-editor";
 type WizardStep = "template" | "settings" | "script" | "storyboard" | "generate";
 
 export default function AIStudioPanel() {
@@ -425,6 +435,7 @@ export default function AIStudioPanel() {
       <ScrollTabs
         tabs={[
           { id: "create-video", label: "Create Video", icon: Wand2 },
+          { id: "video-editor", label: "Video Editor", icon: Play },
           { id: "motion-control", label: "Motion Control", icon: Video },
           { id: "digital-copies", label: "Digital Copies", icon: User },
           { id: "templatizer", label: "Templatizer", icon: Zap },
@@ -439,6 +450,7 @@ export default function AIStudioPanel() {
       <div className="flex-1 overflow-y-auto">
         {activeTab === "digital-copies" && renderDigitalCopies()}
         {activeTab === "create-video" && renderCreateVideo()}
+        {activeTab === "video-editor" && <VideoEditor />}
         {activeTab === "motion-control" && renderMotionControl()}
         {activeTab === "templatizer" && renderTemplatizer()}
         {activeTab === "projects" && renderProjects()}
