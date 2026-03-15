@@ -416,8 +416,9 @@ async def ensure_tables(db: AsyncSession):
             with open(migration_path, "r") as f:
                 migration_sql = f.read()
             
-            # Execute migration (will be idempotent due to IF NOT EXISTS)
-            await db.execute(text(migration_sql))
+            # Use raw driver_connection for multi-statement SQL (asyncpg limitation)
+            raw = await db.get_raw_connection()
+            await raw.driver_connection.execute(migration_sql)
             await db.commit()
             
             logger.info("Agent provisioning tables ensured")

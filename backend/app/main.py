@@ -28,10 +28,9 @@ async def _init_content_scheduler_tables(engine):
         with open(migration_path, 'r') as f:
             migration_sql = f.read()
         
-        from sqlalchemy import text
         async with engine.begin() as conn:
-            # Execute the migration SQL
-            await conn.execute(text(migration_sql))
+            raw = await conn.get_raw_connection()
+            await raw.driver_connection.execute(migration_sql)
         
         return True
         
