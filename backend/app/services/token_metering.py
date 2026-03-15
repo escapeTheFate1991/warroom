@@ -367,7 +367,8 @@ async def init_token_metering_tables(engine) -> None:
             migration_sql = f.read()
         
         async with engine.begin() as conn:
-            await conn.execute(text(migration_sql))
+            raw = await conn.get_raw_connection()
+            await raw.driver_connection.execute(migration_sql)
             
         logger.info("Token metering tables initialized")
         

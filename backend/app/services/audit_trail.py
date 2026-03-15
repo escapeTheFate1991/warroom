@@ -22,7 +22,8 @@ async def init_audit_trail_table(engine: AsyncEngine) -> bool:
             with open(migration_path, 'r') as f:
                 migration_sql = f.read()
             
-            await conn.execute(text(migration_sql))
+            raw = await conn.get_raw_connection()
+            await raw.driver_connection.execute(migration_sql)
             logger.info("Audit trail table initialized successfully")
             return True
     except Exception as e:
