@@ -275,8 +275,8 @@ async def signup(data: SignupRequest, db: AsyncSession = Depends(get_crm_db)):
     if len(existing_users) == 0:
         user.is_superadmin = True
 
-    # Assign default "member" role
-    role_result = await db.execute(select(Role).where(Role.name == "member"))
+    # Assign default "member" role  
+    role_result = await db.execute(select(Role).where(Role.name == "member").limit(1))
     member_role = role_result.scalar_one_or_none()
     if member_role:
         user.role_id = member_role.id
