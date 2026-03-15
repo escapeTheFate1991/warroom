@@ -24,5 +24,8 @@ ENV NODE_ENV=production
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+# Copy Remotion packages and their binaries for video processing
+COPY --from=builder /app/node_modules/@remotion ./node_modules/@remotion
+COPY --from=builder /app/node_modules/remotion ./node_modules/remotion
 EXPOSE 3000
 CMD ["node", "server.js"]

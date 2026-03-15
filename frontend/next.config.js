@@ -12,10 +12,15 @@ const nextConfig = {
         // Proxy all /api/* through the frontend domain so OAuth callbacks
         // (Google Calendar, social platforms) and REST calls work via
         // warroom.stuffnthings.io without hitting the auth gate.
+        // Extended timeout for content-intel endpoints (scraping operations)
         source: "/api/:path*",
         destination: `${backendUrl}/api/:path*`,
       },
     ];
+  },
+  // Configure proxy timeout for slow content-intel endpoints
+  experimental: {
+    proxyTimeout: 120000, // 2 minutes for scraping operations
   },
 };
 module.exports = nextConfig;
