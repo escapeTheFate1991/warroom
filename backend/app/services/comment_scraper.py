@@ -354,24 +354,41 @@ def _analyze_comments(comments: List[Dict], post_caption: str = "") -> Dict:
                 pain_points.append({"pain": match.group(0).strip()[:150], "likes": likes})
                 break
         
-        # Product/tool mentions
-        product_patterns = [
-            r"(?:use|using|try|tried|recommend|check out|switched to)\s+(\w[\w\s]{2,30})",
-            r"@(\w+)\s+(?:is|has|makes)",
-        ]
-        for pattern in product_patterns:
-            match = re.search(pattern, text)
-            if match:
-                product_mentions.append(match.group(1).strip()[:50])
-        
-        # Theme extraction (significant words, skip common filler)
-        stop_words = {"the", "and", "for", "this", "that", "you", "your", "with", "from", "have", "are",
+        # Product/tool mentions — look for capitalized names or @mentions
+        # Only match words that look like proper nouns (capitalized) after trigger verbs
+        original_text = (c.get("text") or "")
+        product_trigger = re.search(
+            r"(?:use|using|try|tried|recommend|check out|switched to|built with|powered by|running|works with)\s+"
+            r"([A-Z][\w]*(?:\s+[A-Z][\w]*){0,3})",
+            original_text,
+        )
+        if product_trigger:
+            product_name = product_trigger.group(1).strip()
+            if len(product_name) > 2 and product_name.lower() not in {"the", "this", "that", "it", "they", "you", "my"}:
+                product_mentions.append(product_name[:50])
+        # Also catch @mentions as products/tools
+        at_mentions = re.findall(r"@(\w{2,30})", text)
+        for mention in at_mentions:
+            if mention not in top_commenters and len(mention) > 2:
+                product_mentions.append(mention)
+
+        # Theme extraction — extract meaningful 2-4 word phrases, not single words
+        # Use noun-phrase-like patterns from the comment text
+        theme_stop = {"the", "and", "for", "this", "that", "you", "your", "with", "from", "have", "are",
                       "but", "not", "was", "were", "been", "being", "its", "just", "really", "very",
                       "would", "could", "should", "will", "can", "more", "about", "like", "what",
                       "how", "all", "they", "them", "their", "there", "here", "also", "than", "then",
-                      "too", "out", "get", "got", "has", "had", "did", "does", "don", "one", "who"}
-        sig_words = [w for w in re.findall(r'\b[a-z]{4,}\b', text) if w not in stop_words]
-        themes.update(sig_words)
+                      "too", "out", "get", "got", "has", "had", "did", "does", "don", "one", "who",
+                      "want", "know", "think", "make", "need", "some", "look", "going", "thing"}
+        # Extract 2-3 word phrases (bigrams/trigrams) as topic candidates
+        clean_words = re.findall(r'\b[a-z]{3,}\b', text)
+        clean_words = [w for w in clean_words if w not in theme_stop]
+        for i in range(len(clean_words) - 1):
+            bigram = f"{clean_words[i]} {clean_words[i+1]}"
+            themes[bigram] += 1
+            if i + 2 < len(clean_words):
+                trigram = f"{clean_words[i]} {clean_words[i+1]} {clean_words[i+2]}"
+                themes[trigram] += 1
         
         if username:
             top_commenters[username] += 1

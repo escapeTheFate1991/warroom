@@ -47,8 +47,7 @@ export function SafeMarkdown({
     // First pass: basic HTML sanitization
     const cleanHtml = DOMPurify.sanitize(children, {
       ALLOWED_TAGS: allowedTags,
-      ALLOWED_ATTR: DEFAULT_ALLOWED_ATTRIBUTES,
-      // Remove script tags and event handlers
+      ALLOWED_ATTR: ['href', 'title', 'src', 'alt', 'className', 'class'],
       FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed'],
       FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur']
     });

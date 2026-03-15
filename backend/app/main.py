@@ -90,6 +90,17 @@ async def lifespan(app: FastAPI):
         _agents_mod._tables_ready = True
         logger.info("Agent tables initialized (crm schema)")
         
+        # Agent Provisioning tables (crm schema — Anchor Agent templates and instances)
+        if crm_schema_ok:
+            try:
+                from app.api.agent_onboarding import ensure_tables as ensure_onboarding_tables, seed_default_template
+                async with crm_session() as db:
+                    await ensure_onboarding_tables(db)
+                    await seed_default_template(db, org_id=1)  # Seed default template for org 1
+                logger.info("Agent provisioning tables initialized with default template")
+            except Exception as e:
+                logger.error("Failed to initialize agent provisioning tables: %s", e)
+        
         # Contact submissions table (public schema)
         await contact_webhook.init_contact_table()
         logger.info("Contact submissions table initialized")
@@ -298,6 +309,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(kanban.router, prefix="/api/kanban", tags=["kanban"])
 app.include_router(team.router, prefix="/api/team", tags=["team"])
 app.include_router(agents.router, prefix="/api", tags=["agents"])
+app.include_router(agent_onboarding.router, tags=["agent-onboarding"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(leadgen.router, prefix="/api/leadgen", tags=["leadgen"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])

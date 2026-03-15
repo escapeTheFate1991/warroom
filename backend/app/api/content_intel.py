@@ -2470,6 +2470,7 @@ def _aggregate_audience_intel_rows(rows: List[Any]) -> AudienceIntelResponse:
 @router.get("/competitors/audience-intel", response_model=AudienceIntelResponse)
 async def get_global_audience_intel(
     request: Request,
+    days: int = 1,
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """Aggregate audience intelligence across all tracked competitor posts."""
@@ -2481,8 +2482,10 @@ async def get_global_audience_intel(
                 FROM crm.competitor_posts
                 WHERE comments_data IS NOT NULL
                   AND (comments_data->>'analyzed')::int > 0
+                  AND posted_at >= NOW() - MAKE_INTERVAL(days => :days)
                 ORDER BY engagement_score DESC
-            """)
+            """),
+            {"days": days},
         )
         return _aggregate_audience_intel_rows(result.fetchall())
     except Exception as e:

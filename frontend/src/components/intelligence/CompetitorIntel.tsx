@@ -965,7 +965,7 @@ export default function CompetitorIntel() {
   const fetchGlobalAudienceIntel = async () => {
     try {
       setLoadingGlobalAudienceIntel(true);
-      const response = await authFetch(`${API}/api/content-intel/competitors/audience-intel`);
+      const response = await authFetch(`${API}/api/content-intel/competitors/audience-intel?days=${contentTimeframeDays}`);
       if (response.ok) {
         setGlobalAudienceIntel(await response.json());
       }
@@ -1102,6 +1102,7 @@ export default function CompetitorIntel() {
     fetchTopContent();
     fetchHooks();
     fetchAggregateTopVideos();
+    fetchGlobalAudienceIntel();
   }, [contentTimeframeDays]);
 
   // Fetch active tab data on tab change
@@ -2020,7 +2021,7 @@ export default function CompetitorIntel() {
               ) : (
                 /* GRID VIEW - all competitors */
                 <>
-                  {/* Sync Status Bar */}
+                  {/* 1. Sync Status Bar */}
                   <div className="flex items-center justify-between bg-warroom-surface border border-warroom-border rounded-xl px-4 py-2.5">
                     <div className="flex items-center gap-3">
                       <div className={`w-2 h-2 rounded-full flex-shrink-0 ${syncing ? "bg-warroom-accent animate-pulse" : "bg-emerald-500"}`} />
@@ -2042,7 +2043,6 @@ export default function CompetitorIntel() {
                             const resp = await authFetch(`${API}/api/content-intel/sync-all`, { method: "POST" });
                             if (resp.ok) {
                               setSyncResult("Sync started...");
-                              // Poll for completion
                               const pollInterval = setInterval(async () => {
                                 try {
                                   const statusResp = await authFetch(`${API}/api/content-intel/sync-all/status`);
@@ -2058,7 +2058,6 @@ export default function CompetitorIntel() {
                                   }
                                 } catch { /* ignore poll errors */ }
                               }, 3000);
-                              // Safety timeout: stop polling after 5 minutes
                               setTimeout(() => { clearInterval(pollInterval); setSyncing(false); }, 300000);
                             } else {
                               setSyncResult("Sync failed to start");
@@ -2082,93 +2081,7 @@ export default function CompetitorIntel() {
                     </div>
                   </div>
 
-                  {loading ? (
-                    <div className="text-center py-16">
-                      <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
-                      <p className="text-sm text-warroom-muted">Loading competitors...</p>
-                    </div>
-                  ) : competitors.length === 0 ? (
-                    <div className="text-center py-16 text-warroom-muted">
-                      <Target size={48} className="mx-auto mb-4 opacity-20" />
-                      <p className="text-sm">No competitors tracked yet</p>
-                      <p className="text-xs mt-1">Add your first competitor to start gathering intelligence</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {[...competitors].sort((a, b) => (b.avg_engagement_rate || 0) - (a.avg_engagement_rate || 0)).map(comp => (
-                        <div key={comp.id}
-                          className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/30 hover:shadow-lg hover:shadow-warroom-accent/5 transition cursor-pointer flex flex-col group"
-                          onClick={() => focusOnCompetitor(comp)}
-                        >
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-warroom-accent/10 flex items-center justify-center text-lg font-bold text-warroom-accent group-hover:bg-warroom-accent/20 transition">
-                                {comp.handle.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <h4 className="font-semibold text-sm">@{comp.handle}</h4>
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[comp.platform] || "bg-gray-500/20 text-gray-400"}`}>{comp.platform}</span>
-                                  {comp.last_auto_sync && (
-                                    <span className="text-[9px] text-warroom-muted">
-                                      Last synced: {timeAgo(comp.last_auto_sync)}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            <button onClick={async (e) => {
-                                e.stopPropagation();
-                                const btn = e.currentTarget;
-                                btn.classList.add("animate-spin");
-                                try {
-                                  const resp = await authFetch(`${API}/api/scraper/instagram/${comp.handle}`, { method: "POST" });
-                                  if (resp.ok) {
-                                    await fetchCompetitors();
-                                  }
-                                } catch { /* ignore */ } finally {
-                                  btn.classList.remove("animate-spin");
-                                }
-                              }}
-                              className="text-warroom-muted hover:text-warroom-accent transition"
-                              title="Sync this competitor">
-                              <RefreshCw size={14} />
-                            </button>
-                            <button onClick={(e) => { e.stopPropagation(); deleteCompetitor(comp.id); }}
-                              className="text-warroom-muted hover:text-red-400 transition">
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-1 text-center mb-3">
-                            <div className="bg-warroom-bg rounded-lg py-2">
-                              <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.followers)}</p>
-                              <p className="text-[10px] text-warroom-muted">Followers</p>
-                            </div>
-                            <div className="bg-warroom-bg rounded-lg py-2">
-                              <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.post_count)}</p>
-                              <p className="text-[10px] text-warroom-muted">Posts</p>
-                            </div>
-                            <div className="bg-warroom-bg rounded-lg py-2">
-                              <p className="text-sm font-semibold text-warroom-text">{comp.avg_engagement_rate.toFixed(1)}%</p>
-                              <p className="text-[10px] text-warroom-muted">Eng Rate</p>
-                            </div>
-                          </div>
-
-                          {comp.bio && (
-                            <p className="text-xs text-warroom-muted line-clamp-2 mb-2 flex-1">{comp.bio}</p>
-                          )}
-
-                          <div className="flex items-center justify-between text-[10px] text-warroom-muted mt-auto pt-2 border-t border-warroom-border">
-                            <span>{comp.posting_frequency || "-"}</span>
-                            <span>{comp.last_auto_sync ? timeAgo(comp.last_auto_sync) : "Never synced"}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* ── Audience Intelligence ── */}
+                  {/* 2. Audience Intelligence */}
                   <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
                     <div className="flex items-center gap-2 mb-4">
                       <Users size={18} className="text-warroom-accent" />
@@ -2275,6 +2188,93 @@ export default function CompetitorIntel() {
                       <p className="text-xs text-warroom-muted py-2">No audience data yet. Refresh competitor data to generate analysis.</p>
                     )}
                   </div>
+
+                  {/* 3. Competitor Cards */}
+                  {loading ? (
+                    <div className="text-center py-16">
+                      <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
+                      <p className="text-sm text-warroom-muted">Loading competitors...</p>
+                    </div>
+                  ) : competitors.length === 0 ? (
+                    <div className="text-center py-16 text-warroom-muted">
+                      <Target size={48} className="mx-auto mb-4 opacity-20" />
+                      <p className="text-sm">No competitors tracked yet</p>
+                      <p className="text-xs mt-1">Add your first competitor to start gathering intelligence</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {[...competitors].sort((a, b) => (b.avg_engagement_rate || 0) - (a.avg_engagement_rate || 0)).map(comp => (
+                        <div key={comp.id}
+                          className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/30 hover:shadow-lg hover:shadow-warroom-accent/5 transition cursor-pointer flex flex-col group"
+                          onClick={() => focusOnCompetitor(comp)}
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-warroom-accent/10 flex items-center justify-center text-lg font-bold text-warroom-accent group-hover:bg-warroom-accent/20 transition">
+                                {comp.handle.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <h4 className="font-semibold text-sm">@{comp.handle}</h4>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[comp.platform] || "bg-gray-500/20 text-gray-400"}`}>{comp.platform}</span>
+                                  {comp.last_auto_sync && (
+                                    <span className="text-[9px] text-warroom-muted">
+                                      Last synced: {timeAgo(comp.last_auto_sync)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <button onClick={async (e) => {
+                                e.stopPropagation();
+                                const btn = e.currentTarget;
+                                btn.classList.add("animate-spin");
+                                try {
+                                  const resp = await authFetch(`${API}/api/scraper/instagram/${comp.handle}`, { method: "POST" });
+                                  if (resp.ok) {
+                                    await fetchCompetitors();
+                                  }
+                                } catch { /* ignore */ } finally {
+                                  btn.classList.remove("animate-spin");
+                                }
+                              }}
+                              className="text-warroom-muted hover:text-warroom-accent transition"
+                              title="Sync this competitor">
+                              <RefreshCw size={14} />
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); deleteCompetitor(comp.id); }}
+                              className="text-warroom-muted hover:text-red-400 transition">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-1 text-center mb-3">
+                            <div className="bg-warroom-bg rounded-lg py-2">
+                              <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.followers)}</p>
+                              <p className="text-[10px] text-warroom-muted">Followers</p>
+                            </div>
+                            <div className="bg-warroom-bg rounded-lg py-2">
+                              <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.post_count)}</p>
+                              <p className="text-[10px] text-warroom-muted">Posts</p>
+                            </div>
+                            <div className="bg-warroom-bg rounded-lg py-2">
+                              <p className="text-sm font-semibold text-warroom-text">{comp.avg_engagement_rate.toFixed(1)}%</p>
+                              <p className="text-[10px] text-warroom-muted">Eng Rate</p>
+                            </div>
+                          </div>
+
+                          {comp.bio && (
+                            <p className="text-xs text-warroom-muted line-clamp-2 mb-2 flex-1">{comp.bio}</p>
+                          )}
+
+                          <div className="flex items-center justify-between text-[10px] text-warroom-muted mt-auto pt-2 border-t border-warroom-border">
+                            <span>{comp.posting_frequency || "-"}</span>
+                            <span>{comp.last_auto_sync ? timeAgo(comp.last_auto_sync) : "Never synced"}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>
