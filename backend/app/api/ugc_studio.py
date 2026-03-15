@@ -17,7 +17,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.crm_db import get_tenant_db
-from app.services.tenant import get_org_id, leadgen_engine
+from app.services.tenant import get_org_id
+from app.db.leadgen_db import leadgen_engine
 from app.api.auth import get_current_user
 from app.models.crm.user import User
 from app.models.settings import Setting
