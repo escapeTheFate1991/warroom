@@ -65,7 +65,7 @@ async def get_budget_status(
     """Get current user's token budget status across all tiers."""
     
     org_id = get_org_id(request)
-    user_id = get_user_id()
+    user_id = get_user_id(request)
     
     try:
         budget = await token_metering.check_token_budget(db, org_id, user_id)
@@ -89,7 +89,7 @@ async def get_usage_history(
         raise HTTPException(status_code=400, detail="Days must be between 1 and 365")
     
     org_id = get_org_id(request)
-    user_id = get_user_id()
+    user_id = get_user_id(request)
     
     try:
         summary = await token_metering.get_usage_summary(db, org_id, user_id, days)
@@ -191,7 +191,7 @@ async def enforce_token_limit(
         raise HTTPException(status_code=400, detail="Estimated tokens cannot be negative")
     
     org_id = get_org_id(request)
-    user_id = get_user_id()
+    user_id = get_user_id(request)
     
     try:
         # This will raise HTTPException 402 if limits would be exceeded
@@ -239,7 +239,7 @@ async def record_token_usage(
         raise HTTPException(status_code=400, detail="Cost cannot be negative")
     
     org_id = get_org_id(request)
-    user_id = get_user_id()
+    user_id = get_user_id(request)
     
     try:
         await token_metering.record_usage(
