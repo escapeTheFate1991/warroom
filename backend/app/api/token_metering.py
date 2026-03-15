@@ -58,6 +58,7 @@ class UsageSummaryResponse(BaseModel):
 
 @router.get("/budget", response_model=TokenBudgetResponse)
 async def get_budget_status(
+    request: Request,
     db: AsyncSession = Depends(get_tenant_db),
     current_user: Dict = Depends(get_current_user)
 ):
@@ -77,6 +78,7 @@ async def get_budget_status(
 
 @router.get("/usage", response_model=UsageSummaryResponse)
 async def get_usage_history(
+    request: Request,
     days: int = Query(30, description="Number of days to look back"),
     db: AsyncSession = Depends(get_tenant_db),
     current_user: Dict = Depends(get_current_user)
@@ -100,6 +102,7 @@ async def get_usage_history(
 
 @router.get("/usage/org", response_model=UsageSummaryResponse)
 async def get_org_usage(
+    request: Request,
     days: int = Query(30, description="Number of days to look back"),
     db: AsyncSession = Depends(get_tenant_db),
     current_user: Dict = Depends(get_current_user),
@@ -124,6 +127,7 @@ async def get_org_usage(
 
 @router.put("/allocations")
 async def set_allocations(
+    request: Request,
     allocation: TokenAllocationRequest,
     db: AsyncSession = Depends(get_tenant_db),
     current_user: Dict = Depends(get_current_user),
@@ -172,6 +176,7 @@ async def set_allocations(
 
 @router.post("/enforce")
 async def enforce_token_limit(
+    request: Request,
     estimated_tokens: int,
     db: AsyncSession = Depends(get_tenant_db),
     current_user: Dict = Depends(get_current_user)
@@ -207,6 +212,7 @@ async def enforce_token_limit(
 
 @router.post("/record")
 async def record_token_usage(
+    request: Request,
     model: str,
     input_tokens: int,
     output_tokens: int,
