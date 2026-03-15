@@ -187,6 +187,59 @@ async def list_deals(
     return await serialize_deal_list(db, deals)
 
 
+@router.get("/deals/forecast", response_model=List[DealForecast])
+async def get_deals_forecast(request: Request, pipeline_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
+    """Get deal forecast (tenant-isolated)."""
+    org_id = get_org_id(request)
+    # Build join condition with org filter
+    join_cond = (Deal.stage_id == PipelineStage.id) & (Deal.status.is_(None))
+    if org_id:
+        join_cond = join_cond & (Deal.org_id == org_id)
+    
+    query = select(
+        PipelineStage.id.label("stage_id"),
+        PipelineStage.name.label("stage_name"),
+        func.count(Deal.id).label("deals_count"),
+        func.coalesce(func.sum(Deal.deal_value), 0).label("total_value"),
+        PipelineStage.probability
+    ).select_from(
+        PipelineStage
+    ).outerjoin(
+        Deal, join_cond
+    )
+    
+    if pipeline_id:
+        query = query.where(PipelineStage.pipeline_id == pipeline_id)
+    else:
+        # Use default pipeline if none specified
+        default_pipeline = await db.execute(select(Pipeline).where(Pipeline.is_default == True))
+        pipeline = default_pipeline.scalar_one_or_none()
+        if pipeline:
+            query = query.where(PipelineStage.pipeline_id == pipeline.id)
+    
+    query = query.group_by(PipelineStage.id, PipelineStage.name, PipelineStage.probability)
+    query = query.order_by(PipelineStage.sort_order)
+    
+    result = await db.execute(query)
+    forecasts = []
+    
+    for row in result.all():
+        total_value = Decimal(str(row.total_value or 0))
+        weighted_value = total_value * Decimal(str(row.probability)) / 100
+        
+        forecasts.append(DealForecast(
+            stage_id=row.stage_id,
+            stage_name=row.stage_name,
+            deals_count=row.deals_count or 0,
+            total_value=total_value,
+            weighted_value=weighted_value,
+            probability=row.probability
+        ))
+    
+    return forecasts
+
+
+
 @router.get("/deals/{deal_id}", response_model=DealResponse)
 async def get_deal(deal_id: int, request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Get single deal with related data (tenant-isolated)."""
@@ -479,58 +532,6 @@ async def move_deal_stage(deal_id: int, stage_move: DealStageMove, request: Requ
         raise HTTPException(status_code=404, detail="Deal not found")
 
     return await serialize_single_deal(db, serialized_deal)
-
-
-@router.get("/deals/forecast", response_model=List[DealForecast])
-async def get_deals_forecast(request: Request, pipeline_id: Optional[int] = None, db: AsyncSession = Depends(get_tenant_db)):
-    """Get deal forecast (tenant-isolated)."""
-    org_id = get_org_id(request)
-    # Build join condition with org filter
-    join_cond = (Deal.stage_id == PipelineStage.id) & (Deal.status.is_(None))
-    if org_id:
-        join_cond = join_cond & (Deal.org_id == org_id)
-    
-    query = select(
-        PipelineStage.id.label("stage_id"),
-        PipelineStage.name.label("stage_name"),
-        func.count(Deal.id).label("deals_count"),
-        func.coalesce(func.sum(Deal.deal_value), 0).label("total_value"),
-        PipelineStage.probability
-    ).select_from(
-        PipelineStage
-    ).outerjoin(
-        Deal, join_cond
-    )
-    
-    if pipeline_id:
-        query = query.where(PipelineStage.pipeline_id == pipeline_id)
-    else:
-        # Use default pipeline if none specified
-        default_pipeline = await db.execute(select(Pipeline).where(Pipeline.is_default == True))
-        pipeline = default_pipeline.scalar_one_or_none()
-        if pipeline:
-            query = query.where(PipelineStage.pipeline_id == pipeline.id)
-    
-    query = query.group_by(PipelineStage.id, PipelineStage.name, PipelineStage.probability)
-    query = query.order_by(PipelineStage.sort_order)
-    
-    result = await db.execute(query)
-    forecasts = []
-    
-    for row in result.all():
-        total_value = Decimal(str(row.total_value or 0))
-        weighted_value = total_value * Decimal(str(row.probability)) / 100
-        
-        forecasts.append(DealForecast(
-            stage_id=row.stage_id,
-            stage_name=row.stage_name,
-            deals_count=row.deals_count or 0,
-            total_value=total_value,
-            weighted_value=weighted_value,
-            probability=row.probability
-        ))
-    
-    return forecasts
 
 
 @router.post("/deals/convert-from-lead", response_model=DealResponse)
