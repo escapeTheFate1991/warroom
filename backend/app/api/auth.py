@@ -46,7 +46,13 @@ RATE_LIMIT_WINDOW_SECONDS = 15 * 60  # 15 minutes
 
 
 class _RateLimiter:
-    """Simple in-memory rate limiter for login attempts."""
+    """Simple in-memory rate limiter for login attempts.
+    
+    LIMITATION: This is single-instance only - won't work in load-balanced deployments.
+    For production scaling, replace with Redis-backed rate limiting.
+    
+    TODO: Migrate to distributed rate limiting solution when scaling beyond single instance.
+    """
 
     def __init__(self):
         self._attempts: dict[str, list[float]] = defaultdict(list)
@@ -54,29 +60,53 @@ class _RateLimiter:
         self._last_cleanup = time.monotonic()
 
     def _cleanup(self):
-        """Remove expired entries (called periodically)."""
+        """Remove expired entries to prevent memory leaks."""
         now = time.monotonic()
         if now - self._last_cleanup < 60:  # cleanup at most once per minute
             return
+        
         self._last_cleanup = now
         cutoff = now - RATE_LIMIT_WINDOW_SECONDS
         keys_to_delete = []
-        for key, timestamps in self._attempts.items():
+        
+        for key, timestamps in list(self._attempts.items()):
+            # Filter out expired timestamps
             self._attempts[key] = [t for t in timestamps if t > cutoff]
+            # Mark empty entries for deletion
             if not self._attempts[key]:
                 keys_to_delete.append(key)
+        
+        # Delete empty entries to prevent memory leaks
         for key in keys_to_delete:
             del self._attempts[key]
+        
+        # Log cleanup stats for monitoring
+        if keys_to_delete:
+            logger.debug("Rate limiter cleanup: removed %d expired entries", len(keys_to_delete))
 
     def check(self, key: str) -> bool:
-        """Record an attempt and return True if allowed, False if rate-limited."""
+        """Record an attempt and return True if allowed, False if rate-limited.
+        
+        Args:
+            key: Unique identifier for rate limiting (e.g., "email:user@example.com")
+            
+        Returns:
+            True if request is allowed, False if rate-limited
+        """
         with self._lock:
             self._cleanup()
             now = time.monotonic()
             cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+            
+            # Filter expired attempts for this key
             self._attempts[key] = [t for t in self._attempts[key] if t > cutoff]
+            
+            # Check if rate limit exceeded
             if len(self._attempts[key]) >= RATE_LIMIT_MAX_ATTEMPTS:
+                logger.warning("Rate limit exceeded for key: %s", key)
                 return False
+            
+            # Record this attempt
             self._attempts[key].append(now)
             return True
 

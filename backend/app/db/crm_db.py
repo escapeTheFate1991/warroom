@@ -15,7 +15,7 @@ Once all endpoints are migrated, deprecate get_crm_db.
 import logging
 from pathlib import Path
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import event, text
 
@@ -60,12 +60,17 @@ async def get_tenant_db(request: Request):
         await session.execute(text("SET search_path TO crm, public"))
         if org_id:
             # SET LOCAL scopes to current transaction — no cross-request leakage
-            # NOTE: SET cannot use parameterized queries in asyncpg, so we
-            # sanitize by casting to int first (prevents SQL injection)
-            safe_org_id = int(org_id)
-            await session.execute(
-                text(f"SET LOCAL app.current_org_id = '{safe_org_id}'")
-            )
+            # SECURITY: This f-string is safe because int() guarantees numeric output only.
+            # int() will raise ValueError on any non-integer input, preventing SQL injection.
+            # However, for defense in depth, we add error handling.
+            try:
+                safe_org_id = int(org_id)
+                await session.execute(
+                    text(f"SET LOCAL app.current_org_id = '{safe_org_id}'")
+                )
+            except ValueError:
+                logger.error("Invalid org_id provided: %s", org_id)
+                raise HTTPException(status_code=403, detail="Invalid organization ID")
         yield session
 
 

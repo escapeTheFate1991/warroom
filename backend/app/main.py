@@ -14,9 +14,31 @@ from app.models.lead import Base
 logger = logging.getLogger(__name__)
 
 
+def _validate_jwt_secret():
+    """Validate JWT secret strength at startup."""
+    from app.config import settings
+    
+    jwt_secret = settings.JWT_SECRET
+    if not jwt_secret:
+        logger.error("JWT_SECRET environment variable not set")
+        raise ValueError("JWT_SECRET is required")
+    
+    if len(jwt_secret) < 32:
+        logger.warning(
+            "JWT_SECRET is only %d characters - recommend at least 32 characters for security",
+            len(jwt_secret)
+        )
+        # Don't fail startup, but warn loudly
+        
+    logger.info("JWT secret validation passed (%d characters)", len(jwt_secret))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database tables on startup."""
+    # Validate JWT secret strength
+    _validate_jwt_secret()
+    
     try:
         # Ensure leadgen schema exists, then create tables
         from sqlalchemy import text as sa_text
@@ -200,6 +222,39 @@ async def verify_crm_schema():
 
 
 app = FastAPI(title="WAR ROOM", version="0.1.0", lifespan=lifespan)
+
+# Request size limits (10MB default) - add early in middleware stack
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+import asyncio
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Limit request body size to prevent DoS attacks."""
+    
+    def __init__(self, app, max_size: int = 10 * 1024 * 1024):  # 10MB default
+        super().__init__(app)
+        self.max_size = max_size
+    
+    async def dispatch(self, request: Request, call_next):
+        if request.headers.get("content-length"):
+            content_length = int(request.headers["content-length"])
+            if content_length > self.max_size:
+                return JSONResponse(
+                    status_code=413,
+                    content={"error": f"Request body too large (max {self.max_size // (1024*1024)}MB)", "code": "PAYLOAD_TOO_LARGE"}
+                )
+        return await call_next(request)
+
+app.add_middleware(RequestSizeLimitMiddleware)
+
+# Trusted host middleware 
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+# CSRF protection for state-changing operations
+from app.middleware.csrf_guard import CSRFGuardMiddleware
+app.add_middleware(CSRFGuardMiddleware)
 
 # Tenant guard — enforces org_id on authenticated requests.
 # Registered BEFORE AuthGuard so it executes AFTER auth (middleware runs in reverse).

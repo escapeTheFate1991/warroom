@@ -45,9 +45,12 @@ async def process_import(import_id: int, entity_type: str, csv_data: str,
     
     async with crm_session() as db:
         try:
-            # Get the import record
+            # Get the import record with null check
             import_result = await db.execute(select(Import).where(Import.id == import_id))
-            import_record = import_result.scalar_one()
+            import_record = import_result.scalar_one_or_none()
+            
+            if not import_record:
+                raise ValueError(f"Import record {import_id} not found")
             
             # Parse CSV data
             csv_file = io.StringIO(csv_data)
@@ -96,26 +99,34 @@ async def process_import(import_id: int, entity_type: str, csv_data: str,
                     db.add(entity)
                     processed_rows += 1
                     
-                    # Commit in batches
+                    # Commit in batches to prevent data loss
                     if processed_rows % 50 == 0:
-                        await db.commit()
-                        import_record.processed_rows = processed_rows
-                        await db.commit()
+                        try:
+                            await db.commit()
+                            import_record.processed_rows = processed_rows
+                            await db.commit()
+                        except Exception as e:
+                            await db.rollback()
+                            raise e
                 
                 except Exception as e:
                     error_msg = f"Row {row_num}: {str(e)}"
                     errors.append(error_msg)
                     logger.error("Import error: %s", error_msg)
             
-            # Final commit
-            await db.commit()
-            
-            # Update import record
-            import_record.processed_rows = processed_rows
-            import_record.errors = errors
-            import_record.status = "completed" if not errors else "completed_with_errors"
-            
-            await db.commit()
+            # SECURITY FIX: Final commit to prevent silent data loss
+            try:
+                await db.commit()
+                
+                # Update import record
+                import_record.processed_rows = processed_rows
+                import_record.errors = errors
+                import_record.status = "completed" if not errors else "completed_with_errors"
+                
+                await db.commit()
+            except Exception as e:
+                await db.rollback()
+                raise e
             
             # Log audit
             await log_audit(db, "import", import_id, "completed", user_id, 
@@ -132,9 +143,16 @@ async def process_import(import_id: int, entity_type: str, csv_data: str,
             
         except Exception as e:
             logger.error("Import %d failed: %s", import_id, e, exc_info=True)
-            import_record.status = "failed"
-            import_record.errors = [str(e)]
-            await db.commit()
+            try:
+                # Only update if import_record exists
+                if 'import_record' in locals() and import_record:
+                    import_record.status = "failed"
+                    import_record.errors = [str(e)]
+                    await db.commit()
+            except Exception as commit_error:
+                logger.error("Failed to update import record status: %s", commit_error)
+            # Re-raise the original error
+            raise e
 
 
 @router.post("/import", response_model=ImportResponse)
@@ -147,11 +165,17 @@ async def import_csv(request: Request, import_data: ImportRequest, background_ta
     if import_data.entity_type not in valid_types:
         raise HTTPException(status_code=400, detail=f"Invalid entity type. Must be one of: {valid_types}")
     
+    # SECURITY: Input validation for CSV data
+    # Validate file size (10MB max)
+    max_file_size = 10 * 1024 * 1024  # 10MB
+    if len(import_data.file_data) > max_file_size * 4 / 3:  # Account for base64 encoding overhead
+        raise HTTPException(status_code=400, detail="File too large (maximum 10MB)")
+    
     # Decode base64 CSV data
     try:
         csv_data = base64.b64decode(import_data.file_data).decode('utf-8')
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid CSV data: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid CSV data encoding")
     
     # Validate CSV format
     try:
@@ -188,9 +212,8 @@ async def import_csv(request: Request, import_data: ImportRequest, background_ta
 async def get_import_status(request: Request, import_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get import status."""
     org_id = get_org_id(request)
-    query = select(Import).where(Import.id == import_id)
-    if org_id:
-        query = query.where(Import.org_id == org_id)
+    # SECURITY: Must filter by org_id to prevent tenant data leak
+    query = select(Import).where(Import.id == import_id).where(Import.org_id == org_id)
     result = await db.execute(query)
     import_record = result.scalar_one_or_none()
     
@@ -211,10 +234,8 @@ async def list_imports(
 ):
     """List import history."""
     org_id = get_org_id(request)
-    query = select(Import)
-    
-    if org_id:
-        query = query.where(Import.org_id == org_id)
+    # SECURITY: Must filter by org_id to prevent tenant data leak
+    query = select(Import).where(Import.org_id == org_id)
     
     if entity_type:
         query = query.where(Import.entity_type == entity_type)
@@ -242,10 +263,8 @@ async def export_csv(request: Request, entity_type: str, db: AsyncSession = Depe
     writer = csv.writer(output)
     
     if entity_type == "deals":
-        # Export deals
-        query = select(Deal).order_by(Deal.created_at.desc())
-        if org_id:
-            query = query.where(Deal.org_id == org_id)
+        # Export deals - SECURITY: Must filter by org_id to prevent tenant data leak
+        query = select(Deal).where(Deal.org_id == org_id).order_by(Deal.created_at.desc())
         result = await db.execute(query)
         deals = result.scalars().all()
         
@@ -267,10 +286,8 @@ async def export_csv(request: Request, entity_type: str, db: AsyncSession = Depe
             ])
     
     elif entity_type == "persons":
-        # Export persons
-        query = select(Person).order_by(Person.name)
-        if org_id:
-            query = query.where(Person.org_id == org_id)
+        # Export persons - SECURITY: Must filter by org_id to prevent tenant data leak
+        query = select(Person).where(Person.org_id == org_id).order_by(Person.name)
         result = await db.execute(query)
         persons = result.scalars().all()
         
@@ -289,10 +306,8 @@ async def export_csv(request: Request, entity_type: str, db: AsyncSession = Depe
             ])
     
     elif entity_type == "organizations":
-        # Export organizations
-        query = select(Organization).order_by(Organization.name)
-        if org_id:
-            query = query.where(Organization.org_id == org_id)
+        # Export organizations - SECURITY: Must filter by org_id to prevent tenant data leak
+        query = select(Organization).where(Organization.org_id == org_id).order_by(Organization.name)
         result = await db.execute(query)
         orgs = result.scalars().all()
         
@@ -309,10 +324,8 @@ async def export_csv(request: Request, entity_type: str, db: AsyncSession = Depe
             ])
     
     elif entity_type == "products":
-        # Export products
-        query = select(Product).order_by(Product.name)
-        if org_id:
-            query = query.where(Product.org_id == org_id)
+        # Export products - SECURITY: Must filter by org_id to prevent tenant data leak
+        query = select(Product).where(Product.org_id == org_id).order_by(Product.name)
         result = await db.execute(query)
         products = result.scalars().all()
         
@@ -353,46 +366,53 @@ async def deduplicate_entities(request: Request, entity_type: str, dedup_request
     
     duplicates = []
     
+    # SECURITY: Using parameterized queries to prevent SQL injection
+    
     if entity_type == "persons":
-        # Find persons with same email or name
+        # Find persons with same email or name using safe ORM queries
         if "email" in dedup_request.match_fields:
-            # This would require custom SQL to search in JSONB emails array
-            sql = """
-                SELECT p1.id, p1.name, p1.emails, p2.id as dup_id, p2.name as dup_name
-                FROM crm.persons p1
-                JOIN crm.persons p2 ON p1.id < p2.id
-                WHERE p1.emails::text LIKE '%' || (p2.emails->>0->>'value') || '%'
-                   OR p2.emails::text LIKE '%' || (p1.emails->>0->>'value') || '%'
-            """
-            if org_id:
-                sql += " AND p1.org_id = :org_id AND p2.org_id = :org_id"
-            sql += " LIMIT 100"
+            # Use ORM-based approach instead of raw SQL to prevent injection
+            query = select(Person).where(Person.org_id == org_id)
+            result = await db.execute(query)
+            persons = result.scalars().all()
             
-            result = await db.execute(text(sql), {"org_id": org_id} if org_id else {})
-            
-            for row in result.all():
-                duplicates.append({
-                    "primary_id": row[0],
-                    "primary_name": row[1],
-                    "duplicate_id": row[3],
-                    "duplicate_name": row[4],
-                    "match_reason": "Similar email"
-                })
+            # Find duplicates in-memory (safer than raw SQL)
+            email_map = {}
+            for person in persons:
+                if person.email_addresses:
+                    for email_obj in person.email_addresses:
+                        email = email_obj.get("value", "").lower().strip()
+                        if email:
+                            if email in email_map:
+                                duplicates.append({
+                                    "primary_id": email_map[email].id,
+                                    "primary_name": email_map[email].name,
+                                    "duplicate_id": person.id,
+                                    "duplicate_name": person.name,
+                                    "match_reason": f"Same email: {email}"
+                                })
+                            else:
+                                email_map[email] = person
     
     elif entity_type == "organizations":
-        # Find organizations with same or similar names
+        # Find organizations with same names using safe parameterized queries
+        # SECURITY: Use parameterized query with configurable similarity threshold
+        similarity_threshold = 0.8
         sql = """
-            SELECT o1.id, o1.name, o2.id as dup_id, o2.name as dup_name
+            SELECT o1.id, o1.name, o2.id as dup_id, o2.name as dup_name,
+                   similarity(o1.name, o2.name) as sim_score
             FROM crm.organizations o1
             JOIN crm.organizations o2 ON o1.id < o2.id
-            WHERE LOWER(o1.name) = LOWER(o2.name)
-               OR similarity(o1.name, o2.name) > 0.8
+            WHERE o1.org_id = :org_id AND o2.org_id = :org_id
+              AND (LOWER(o1.name) = LOWER(o2.name)
+                   OR similarity(o1.name, o2.name) > :similarity_threshold)
+            LIMIT 100
         """
-        if org_id:
-            sql += " AND o1.org_id = :org_id AND o2.org_id = :org_id"
-        sql += " LIMIT 100"
         
-        result = await db.execute(text(sql), {"org_id": org_id} if org_id else {})
+        result = await db.execute(text(sql), {
+            "org_id": org_id,
+            "similarity_threshold": similarity_threshold
+        })
         
         for row in result.all():
             duplicates.append({
@@ -400,7 +420,7 @@ async def deduplicate_entities(request: Request, entity_type: str, dedup_request
                 "primary_name": row[1],
                 "duplicate_id": row[2],
                 "duplicate_name": row[3],
-                "match_reason": "Similar name"
+                "match_reason": f"Similar name (score: {row[4]:.2f})" if len(row) > 4 else "Similar name"
             })
     
     # Log audit
