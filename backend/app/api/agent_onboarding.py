@@ -417,7 +417,8 @@ async def ensure_tables(db: AsyncSession):
                 migration_sql = f.read()
             
             # Use raw driver_connection for multi-statement SQL (asyncpg limitation)
-            raw = await db.get_raw_connection()
+            conn = await db.connection()
+            raw = await conn.get_raw_connection()
             await raw.driver_connection.execute(migration_sql)
             await db.commit()
             
