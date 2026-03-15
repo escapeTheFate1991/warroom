@@ -186,7 +186,7 @@ async def seed_templates():
             for t in SEED_TEMPLATES:
                 await conn.execute(text("""
                     INSERT INTO public.ugc_video_templates (id, name, description, category, duration_seconds, scene_count, storyboard, prompt_template)
-                    VALUES (:id, :name, :description, :category, :duration_seconds, :scene_count, :storyboard::jsonb, :prompt_template)
+                    VALUES (:id, :name, :description, :category, :duration_seconds, :scene_count, CAST(:storyboard AS jsonb), :prompt_template)
                     ON CONFLICT (id) DO NOTHING
                 """), t)
             logger.info("Seeded %d UGC video templates", len(SEED_TEMPLATES))

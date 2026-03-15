@@ -113,18 +113,24 @@ async def lifespan(app: FastAPI):
         await twilio_voice._ensure_table()
         logger.info("Call intakes table initialized")
 
-        # UGC Studio tables (public schema) + seed templates
+    except Exception as e:
+        logger.error("Failed to initialize databases: %s", e)
+
+    # UGC Studio tables — isolated because of known jsonb cast issue
+    try:
         await ugc_studio.init_ugc_tables()
         await ugc_studio.seed_templates()
         logger.info("UGC Studio tables initialized")
+    except Exception as e:
+        logger.error("Failed to initialize UGC Studio tables: %s", e)
 
-        # Video Editor tables (Remotion-based) + seed templates
+    # Video Editor tables (Remotion-based) — isolated
+    try:
         await video_editor.init_video_editor_tables()
         await video_editor.seed_remotion_templates()
         logger.info("Video Editor tables initialized")
-
     except Exception as e:
-        logger.error("Failed to initialize databases: %s", e)
+        logger.error("Failed to initialize Video Editor tables: %s", e)
 
     # Multi-tenant migration (own try/except — must not be blocked by other init failures)
     try:
