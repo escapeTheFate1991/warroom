@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, agent_onboarding
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, agent_onboarding, video_copycat
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine, crm_session
@@ -177,6 +177,13 @@ async def lifespan(app: FastAPI):
         logger.info("Video Editor tables initialized")
     except Exception as e:
         logger.error("Failed to initialize Video Editor tables: %s", e)
+
+    # Video Copycat tables — isolated
+    try:
+        await video_copycat.init_video_copycat_tables()
+        logger.info("Video Copycat tables initialized")
+    except Exception as e:
+        logger.error("Failed to initialize Video Copycat tables: %s", e)
 
     # Multi-tenant migration (own try/except — must not be blocked by other init failures)
     try:
@@ -351,6 +358,7 @@ app.include_router(comms.router, prefix="/api/comms", tags=["communications"])
 app.include_router(stripe_settings.router, prefix="/api", tags=["stripe"])
 app.include_router(google_ai_studio.router, prefix="/api/ai-studio", tags=["google-ai-studio"])
 app.include_router(ugc_studio.router, prefix="/api/ai-studio/ugc", tags=["ugc-studio"])
+app.include_router(video_copycat.router, prefix="/api/video-copycat", tags=["video-copycat"])
 app.include_router(video_editor.router, prefix="/api/video", tags=["video-editor"])
 app.include_router(token_metering.router, prefix="/api/tokens", tags=["token-metering"])
 app.include_router(audit_trail.router, prefix="/api/audit", tags=["audit-trail"])
