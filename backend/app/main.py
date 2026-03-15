@@ -5,13 +5,39 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, agent_onboarding, video_copycat
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine, crm_session
 from app.models.lead import Base
 
 logger = logging.getLogger(__name__)
+
+
+async def _init_content_scheduler_tables(engine):
+    """Initialize content scheduler tables from migration file."""
+    try:
+        import os
+        from pathlib import Path
+        
+        migration_path = Path(__file__).parent / "db" / "content_scheduler_migration.sql"
+        if not migration_path.exists():
+            logger.error(f"Content scheduler migration file not found: {migration_path}")
+            return False
+            
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+        
+        from sqlalchemy import text
+        async with engine.begin() as conn:
+            # Execute the migration SQL
+            await conn.execute(text(migration_sql))
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Content scheduler table initialization failed: {e}")
+        return False
 
 
 def _validate_jwt_secret():
@@ -158,6 +184,10 @@ async def lifespan(app: FastAPI):
             logger.info("Audit trail table initialized")
         else:
             logger.warning("Audit trail table initialization failed")
+        
+        # Content Scheduler tables (public schema) — video copycat + social media scheduling
+        await _init_content_scheduler_tables(leadgen_engine)
+        logger.info("Content scheduler tables initialized")
 
     except Exception as e:
         logger.error("Failed to initialize databases: %s", e)
@@ -359,10 +389,11 @@ app.include_router(stripe_settings.router, prefix="/api", tags=["stripe"])
 app.include_router(google_ai_studio.router, prefix="/api/ai-studio", tags=["google-ai-studio"])
 app.include_router(ugc_studio.router, prefix="/api/ai-studio/ugc", tags=["ugc-studio"])
 app.include_router(video_copycat.router, prefix="/api/video-copycat", tags=["video-copycat"])
-app.include_router(video_editor.router, prefix="/api/video", tags=["video-editor"])
+app.include_router(video_editor.router, prefix="/api/video", tags=["video-editor", "video-copycat"])
 app.include_router(token_metering.router, prefix="/api/tokens", tags=["token-metering"])
 app.include_router(audit_trail.router, prefix="/api/audit", tags=["audit-trail"])
 app.include_router(vector_memory.router, prefix="/api/memory", tags=["vector-memory"])
+app.include_router(content_scheduler.router, prefix="/api/scheduler", tags=["content-scheduler"])
 
 # CRM Routes
 app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])

@@ -11,7 +11,7 @@ import logging
 import asyncio
 import subprocess
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
@@ -446,3 +446,223 @@ async def get_render_status(
         "created_at": str(job["created_at"]),
         "completed_at": str(job["completed_at"]) if job["completed_at"] else None,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Video Copycat Endpoints (Stages 5-6)
+# ═══════════════════════════════════════════════════════════════════
+
+class ComposeRequest(BaseModel):
+    """Request to compose video from storyboard and assets."""
+    script: dict = Field(..., description="Script data with scenes and timing")
+    assets: List[dict] = Field(..., description="List of generated assets")
+    render_mode: str = Field(default="remotion", description="Render mode: 'remotion' or 'ffmpeg'")
+
+class CaptionRequest(BaseModel):
+    """Request to add captions to video."""
+    video_path: str = Field(..., description="Path to input video")
+    script: dict = Field(..., description="Script with text and timing")
+    style: str = Field(default="hormozi", description="Caption style")
+
+
+@router.post("/storyboards/{storyboard_id}/compose")
+async def compose_video(
+    storyboard_id: int,
+    request_data: ComposeRequest,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """
+    Build composition + render video from storyboard and assets.
+    
+    Creates a Remotion-compatible composition and renders the final video.
+    """
+    from app.services.video_composer import build_composition, generate_remotion_config, render_with_ffmpeg
+    
+    logger.info(f"Composing video for storyboard {storyboard_id}")
+    org_id = get_org_id(request)
+    
+    try:
+        # Get storyboard data (mock for now since storyboards table is being created)
+        storyboard = {
+            "id": storyboard_id,
+            "scenes": [
+                {"duration": 3.0, "show_product": True},
+                {"duration": 4.0, "show_product": False},
+                {"duration": 3.0, "show_product": True}
+            ],
+            "caption_style": "hormozi"
+        }
+        
+        # Build composition from storyboard, script, and assets
+        composition = build_composition(storyboard, request_data.script, request_data.assets)
+        
+        # Store composition in database
+        composition_id = await _store_composition(db, storyboard_id, composition)
+        
+        # Generate output based on render mode
+        if request_data.render_mode == "ffmpeg":
+            # Render with ffmpeg fallback
+            output_path = render_with_ffmpeg(composition)
+            status = "completed"
+            remotion_config = None
+        else:
+            # Generate Remotion config (actual render would be separate step)
+            remotion_config = generate_remotion_config(composition)
+            output_path = None
+            status = "config_ready"
+        
+        # Update composition with results
+        await _update_composition(db, composition_id, output_path, status, remotion_config)
+        
+        return {
+            "success": True,
+            "storyboard_id": storyboard_id,
+            "composition_id": composition_id,
+            "status": status,
+            "output_path": output_path,
+            "remotion_config": remotion_config,
+            "layers_count": len(composition.layers),
+            "duration": composition.duration
+        }
+        
+    except Exception as e:
+        logger.error(f"Video composition failed for storyboard {storyboard_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Video composition failed: {str(e)}")
+
+
+@router.get("/storyboards/{storyboard_id}/composition")
+async def get_composition(
+    storyboard_id: int,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Get composition config for storyboard."""
+    org_id = get_org_id(request)
+    
+    query = text("""
+        SELECT 
+            id, remotion_config, rendered_video_path, render_status,
+            created_at, updated_at
+        FROM public.video_compositions 
+        WHERE storyboard_id = :storyboard_id
+        ORDER BY created_at DESC
+        LIMIT 1
+    """)
+    
+    result = await db.execute(query, {"storyboard_id": storyboard_id})
+    row = result.fetchone()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Composition not found")
+    
+    return {
+        "composition_id": row.id,
+        "storyboard_id": storyboard_id,
+        "remotion_config": row.remotion_config,
+        "rendered_video_path": row.rendered_video_path,
+        "render_status": row.render_status,
+        "created_at": row.created_at.isoformat(),
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+@router.post("/storyboards/{storyboard_id}/add-captions")
+async def add_captions_to_video(
+    storyboard_id: int,
+    caption_data: CaptionRequest,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Add captions to rendered video."""
+    from app.services.video_composer import add_captions
+    
+    logger.info(f"Adding captions to video for storyboard {storyboard_id}")
+    org_id = get_org_id(request)
+    
+    try:
+        # Add captions to video
+        captioned_video_path = add_captions(
+            caption_data.video_path,
+            caption_data.script,
+            caption_data.style
+        )
+        
+        # Update composition with captioned video path
+        update_query = text("""
+            UPDATE public.video_compositions 
+            SET rendered_video_path = :captioned_path,
+                updated_at = NOW()
+            WHERE storyboard_id = :storyboard_id
+        """)
+        
+        await db.execute(update_query, {
+            "captioned_path": captioned_video_path,
+            "storyboard_id": storyboard_id
+        })
+        await db.commit()
+        
+        return {
+            "success": True,
+            "storyboard_id": storyboard_id,
+            "original_path": caption_data.video_path,
+            "captioned_path": captioned_video_path,
+            "caption_style": caption_data.style
+        }
+        
+    except Exception as e:
+        logger.error(f"Caption addition failed for storyboard {storyboard_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Caption addition failed: {str(e)}")
+
+
+async def _store_composition(db: AsyncSession, storyboard_id: int, composition) -> int:
+    """Store composition in database."""
+    query = text("""
+        INSERT INTO public.video_compositions (
+            storyboard_id, composition_name, remotion_config, render_status
+        ) VALUES (
+            :storyboard_id, :name, CAST(:config AS jsonb), 'pending'
+        ) RETURNING id
+    """)
+    
+    result = await db.execute(query, {
+        "storyboard_id": storyboard_id,
+        "name": f"composition_{storyboard_id}",
+        "config": json.dumps(composition.to_dict())
+    })
+    
+    composition_id = result.scalar()
+    await db.commit()
+    return composition_id
+
+
+async def _update_composition(
+    db: AsyncSession, 
+    composition_id: int, 
+    output_path: Optional[str], 
+    status: str,
+    remotion_config: Optional[dict] = None
+) -> None:
+    """Update composition with render results."""
+    updates = ["render_status = :status", "updated_at = NOW()"]
+    params = {"composition_id": composition_id, "status": status}
+    
+    if output_path:
+        updates.append("rendered_video_path = :output_path")
+        params["output_path"] = output_path
+    
+    if remotion_config:
+        updates.append("remotion_config = CAST(:remotion_config AS jsonb)")
+        params["remotion_config"] = json.dumps(remotion_config)
+    
+    query = text(f"""
+        UPDATE public.video_compositions 
+        SET {', '.join(updates)}
+        WHERE id = :composition_id
+    """)
+    
+    await db.execute(query, params)
+    await db.commit()
