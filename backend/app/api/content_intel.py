@@ -774,18 +774,24 @@ def cluster_topics(topics: List[str], max_clusters: int = 5) -> Dict[str, List[s
         return dict(clusters)
 
 
-async def get_social_account_token(db: AsyncSession, org_id: int, platform: str) -> Optional[str]:
-    """Get access token for connected social account."""
+async def get_social_account_token(db: AsyncSession, user_id: int, org_id: int, platform: str) -> Optional[str]:
+    """Get access token for connected social account that user can access."""
     try:
-        result = await db.execute(
-            select(SocialAccount.access_token)
-            .where(SocialAccount.platform == platform)
-            .where(SocialAccount.org_id == org_id)
-            .where(SocialAccount.status == "connected")
-            .limit(1)
-        )
-        token_row = result.first()
-        return token_row[0] if token_row else None
+        from app.services.oauth_scoping import get_accessible_accounts
+        
+        # Get accounts user can access for this platform
+        accounts = await get_accessible_accounts(db, user_id, org_id, platform)
+        
+        if not accounts:
+            logger.warning("No accessible %s accounts for user %s in org %s", platform, user_id, org_id)
+            return None
+            
+        # Return the first available access token
+        for account in accounts:
+            if account.access_token and account.status == "connected":
+                return account.access_token
+                
+        return None
     except Exception as e:
         logger.error("Failed to get token for %s: %s", platform, e)
         return None

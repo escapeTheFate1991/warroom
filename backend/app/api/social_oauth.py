@@ -107,6 +107,7 @@ async def _upsert_social_account(
             following_count=following_count,
             post_count=post_count,
             status="connected",
+            visibility_type="private",  # New OAuth connections default to private
         )
         db.add(account)
 

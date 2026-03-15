@@ -7,7 +7,7 @@ import {
   PanelRightOpen, Copy, Check,
   Brain, Wrench, FileText, Search, Terminal, Globe, CheckCircle2, AlertCircle, ChevronRight,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import SafeMarkdown from "../SafeMarkdown";
 import remarkGfm from "remark-gfm";
 
 const MARKDOWN_PROSE = [
@@ -1621,7 +1621,7 @@ export default function ChatPanel() {
                         <UrlBox key={idx} url={segment.url} />
                       ) : segment.type === "text" ? (
                         <div key={idx} className={MARKDOWN_PROSE}>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.content}</ReactMarkdown>
+                          <SafeMarkdown>{segment.content}</SafeMarkdown>
                         </div>
                       ) : (
                         <div key={idx} className="my-3">
@@ -1674,7 +1674,7 @@ export default function ChatPanel() {
                 {/* Partial content from before tool calls — keeps text visible during tool execution */}
                 {!streamText && partialContent && activeTools.length > 0 && (
                   <div className={`${MARKDOWN_PROSE} opacity-70`}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{partialContent}</ReactMarkdown>
+                    <SafeMarkdown>{partialContent}</SafeMarkdown>
                   </div>
                 )}
 
@@ -1739,7 +1739,7 @@ export default function ChatPanel() {
                     ) : (
                       /* Normal text streaming */
                       <div className={MARKDOWN_PROSE}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamText}</ReactMarkdown>
+                        <SafeMarkdown>{streamText}</SafeMarkdown>
                         <span className="inline-block w-2 h-4 bg-warroom-accent/60 animate-pulse ml-0.5" />
                       </div>
                     )}

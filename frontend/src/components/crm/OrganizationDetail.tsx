@@ -809,7 +809,7 @@ export default function OrganizationDetail({
                           return (
                             <tr
                               key={deal.id}
-                              onClick={() => console.info("Deal row clicked", deal)}
+                              onClick={() => {/* Deal row clicked - implement navigation */}}
                               className="cursor-pointer border-b border-warroom-border/50 transition hover:bg-warroom-bg/50"
                             >
                               <td className="px-4 py-3 font-medium text-warroom-text">{deal.title}</td>

@@ -26,6 +26,8 @@ class SocialAccount(CrmBase):
     connected_at = Column(DateTime, default=func.now())
     last_synced = Column(DateTime)
     status = Column(String, default="connected")  # connected, expired, error
+    visibility_type = Column(String, default="private")  # private, shared_dept, shared_org
+    shared_by_user_id = Column(Integer, ForeignKey("crm.users.id", ondelete="SET NULL"), nullable=True)
 
     # Relationships
     analytics = relationship("SocialAnalytics", back_populates="account", cascade="all, delete-orphan")

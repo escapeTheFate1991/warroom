@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { X, Copy, ExternalLink, Check, FileCode, FileText, File, ChevronLeft, ChevronRight } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import SafeMarkdown from "../SafeMarkdown";
 import { API, authFetch } from "@/lib/api";
 
 export interface Artifact {
@@ -165,7 +165,7 @@ export default function ArtifactPanel({ artifacts, activeIndex, onClose, onSelec
           </div>
         ) : active.type === "text" ? (
           <div className="p-4 prose prose-invert prose-sm max-w-none [&>p]:mb-3 [&>h1]:text-lg [&>h2]:text-base [&>h3]:text-sm [&>code]:bg-black/30 [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded-md [&>code]:text-warroom-accent [&>pre]:bg-black/40 [&>pre]:rounded-xl [&>pre]:p-4">
-            <ReactMarkdown>{active.content}</ReactMarkdown>
+            <SafeMarkdown>{active.content}</SafeMarkdown>
           </div>
         ) : (
           <div className="p-4">

@@ -12,6 +12,7 @@ from app.api.agent_contract import AgentAssignmentSummary, load_agent_assignment
 from app.db.crm_db import get_tenant_db
 from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.social import SocialAccount, SocialAnalytics
+from app.services.oauth_scoping import get_accessible_accounts, set_visibility, get_account_visibility_info
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class SocialAccountResponse(BaseModel):
     connected_at: datetime
     last_synced: Optional[datetime]
     status: str
+    visibility_type: Optional[str] = "private"
+    shared_by_user_id: Optional[int] = None
     agent_assignments: list[AgentAssignmentSummary] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True)
 
@@ -97,6 +100,20 @@ class SocialAnalyticsSeriesPoint(BaseModel):
     comments: int
 
 
+class VisibilityUpdateRequest(BaseModel):
+    """Request to update account visibility."""
+    visibility_type: str  # private, shared_dept, shared_org
+
+
+class VisibilityInfoResponse(BaseModel):
+    """Visibility information for an account."""
+    visibility_type: str
+    shared_by_user_id: Optional[int]
+    owner_id: int
+    owner_name: Optional[str]
+    shared_by_name: Optional[str]
+
+
 def _shift_months(value: date, months: int) -> date:
     """Shift a month-start date backward or forward by a number of months."""
     month_index = (value.year * 12) + (value.month - 1) + months
@@ -134,18 +151,20 @@ def _format_bucket_label(bucket: date, granularity: str) -> str:
 
 @router.get("/accounts", response_model=List[SocialAccountResponse])
 async def get_social_accounts(request: Request, db: AsyncSession = Depends(get_tenant_db)):
-    """List all connected social media accounts."""
+    """List all connected social media accounts the user can access."""
     org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
     try:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.status == "connected", SocialAccount.org_id == org_id)
-        )
-        accounts = result.scalars().all()
+        # Use OAuth scoping service to get accessible accounts
+        accounts = await get_accessible_accounts(db, user_id, org_id)
+        
         assignment_map = await load_agent_assignment_map(
             db,
             entity_type="social_account",
             entity_ids=[str(account.id) for account in accounts],
         )
+        
         return [
             SocialAccountResponse.model_validate(account).model_copy(
                 update={"agent_assignments": assignment_map.get(str(account.id), [])}
@@ -660,6 +679,59 @@ async def get_platform_analytics(
     except Exception as e:
         logger.error("Failed to fetch platform analytics: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch platform analytics")
+
+
+@router.put("/accounts/{account_id}/visibility")
+async def update_account_visibility(
+    request: Request,
+    account_id: int,
+    visibility_request: VisibilityUpdateRequest,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Set visibility for a social account (owner or admin only)."""
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    try:
+        success = await set_visibility(
+            db, account_id, user_id, org_id, visibility_request.visibility_type
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=403, 
+                detail="Not authorized to modify this account or invalid visibility type"
+            )
+            
+        return {"message": f"Visibility updated to {visibility_request.visibility_type}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to update account visibility: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to update visibility")
+
+
+@router.get("/accounts/{account_id}/visibility", response_model=VisibilityInfoResponse)
+async def get_account_visibility(
+    request: Request,
+    account_id: int,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Get visibility information for a social account."""
+    org_id = get_org_id(request)
+    
+    try:
+        visibility_info = await get_account_visibility_info(db, account_id, org_id)
+        
+        if not visibility_info:
+            raise HTTPException(status_code=404, detail="Account not found")
+            
+        return VisibilityInfoResponse(**visibility_info)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get account visibility: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get visibility info")
 
 
 @router.post("/sync")
