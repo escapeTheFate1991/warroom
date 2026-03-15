@@ -152,7 +152,7 @@ async def seed_remotion_templates():
                     (id, name, description, category, composition_id,
                      duration_frames, fps, width, height, default_props)
                     VALUES (:id, :name, :description, :category, :composition_id,
-                            :duration_frames, :fps, :width, :height, :default_props::jsonb)
+                            :duration_frames, :fps, :width, :height, CAST(:default_props AS jsonb))
                     ON CONFLICT (id) DO NOTHING
                 """), t)
             logger.info("Seeded %d Remotion templates", len(SEED_TEMPLATES))
@@ -386,7 +386,7 @@ async def start_render(
     await db.execute(text("""
         INSERT INTO public.remotion_render_jobs
         (id, org_id, user_id, template_id, composition_id, props, status)
-        VALUES (:id, :org_id, :user_id, :template_id, :composition_id, :props::jsonb, 'queued')
+        VALUES (:id, :org_id, :user_id, :template_id, :composition_id, CAST(:props AS jsonb), 'queued')
     """), {
         "id": job_id,
         "org_id": org_id,
