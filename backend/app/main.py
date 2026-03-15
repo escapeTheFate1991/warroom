@@ -118,13 +118,19 @@ async def lifespan(app: FastAPI):
         await ugc_studio.seed_templates()
         logger.info("UGC Studio tables initialized")
 
-        # Multi-tenant migration (adds org_id to all tables — idempotent)
-        from app.db.crm_db import run_multi_tenant_migration
-        await run_multi_tenant_migration()
-        logger.info("Multi-tenant migration applied")
-
     except Exception as e:
         logger.error("Failed to initialize databases: %s", e)
+
+    # Multi-tenant migration (own try/except — must not be blocked by other init failures)
+    try:
+        from app.db.crm_db import run_multi_tenant_migration
+        mt_ok = await run_multi_tenant_migration()
+        if mt_ok:
+            logger.info("Multi-tenant migration applied")
+        else:
+            logger.warning("Multi-tenant migration skipped or failed")
+    except Exception as e:
+        logger.error("Multi-tenant migration error: %s", e)
 
     # Start background scheduler (competitor syncs, etc.)
     from app.services.scheduler import start_scheduler, stop_scheduler
