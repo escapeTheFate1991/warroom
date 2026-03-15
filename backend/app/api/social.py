@@ -138,7 +138,7 @@ async def get_social_accounts(request: Request, db: AsyncSession = Depends(get_t
     org_id = get_org_id(request)
     try:
         result = await db.execute(
-            select(SocialAccount).where(SocialAccount.status == "connected")
+            select(SocialAccount).where(SocialAccount.status == "connected", SocialAccount.org_id == org_id)
         )
         accounts = result.scalars().all()
         assignment_map = await load_agent_assignment_map(
@@ -166,9 +166,10 @@ async def connect_social_account(
     """Connect a new social media account."""
     org_id = get_org_id(request)
     try:
-        # For demo purposes, use user_id = 1
+        user_id = get_user_id(request)
         new_account = SocialAccount(
-            user_id=1,
+            user_id=user_id,
+            org_id=org_id,
             platform=account_data.platform,
             username=account_data.username,
             profile_url=account_data.profile_url,
@@ -198,7 +199,7 @@ async def disconnect_social_account(
     """Disconnect a social media account."""
     org_id = get_org_id(request)
     try:
-        result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
+        result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id, SocialAccount.org_id == org_id))
         account = result.scalar_one_or_none()
         
         if not account:
@@ -323,7 +324,7 @@ async def get_analytics_sparkline(
         start_date = end_date - timedelta(days=days)
         
         # Get all accounts
-        accounts_query = select(SocialAccount).where(SocialAccount.status == "connected")
+        accounts_query = select(SocialAccount).where(SocialAccount.status == "connected", SocialAccount.org_id == org_id)
         accounts_result = await db.execute(accounts_query)
         accounts = accounts_result.scalars().all()
         

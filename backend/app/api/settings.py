@@ -9,7 +9,9 @@ from pydantic import BaseModel
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.leadgen_db import get_leadgen_db
+from app.db.crm_db import get_tenant_db
+from starlette.requests import Request
+from app.services.tenant import get_org_id
 from app.models.settings import Setting, SettingsBase
 from app.api.auth import get_current_user, require_superadmin
 from app.models.crm.user import User
@@ -48,17 +50,17 @@ def _sync_setting_env(key: str, value: str) -> None:
         logger.info("Cleared %s from environment", env_name)
 
 
-async def _migrate_legacy_ai_setting(db: AsyncSession) -> bool:
+async def _migrate_legacy_ai_setting(db: AsyncSession, org_id: int = 1) -> bool:
     """Rename the legacy AI key so existing DB-stored values keep working."""
     legacy_key = "openai_api_key"
     canonical_key = _normalize_setting_key(legacy_key)
 
-    legacy_result = await db.execute(select(Setting).where(Setting.key == legacy_key))
+    legacy_result = await db.execute(select(Setting).where(Setting.key == legacy_key, Setting.org_id == org_id))
     legacy_setting = legacy_result.scalar_one_or_none()
     if not legacy_setting:
         return False
 
-    current_result = await db.execute(select(Setting).where(Setting.key == canonical_key))
+    current_result = await db.execute(select(Setting).where(Setting.key == canonical_key, Setting.org_id == org_id))
     current_setting = current_result.scalar_one_or_none()
 
     if current_setting:
@@ -402,12 +404,14 @@ async def init_settings_table(engine):
     # Seed defaults — upsert so new settings are always added
     from app.db.leadgen_db import leadgen_session
     async with leadgen_session() as db:
-        migrated = await _migrate_legacy_ai_setting(db)
+        # Use org_id=1 for init seeding (default org)
+        _init_org_id = 1
+        migrated = await _migrate_legacy_ai_setting(db, org_id=_init_org_id)
         seeded = 0
         for s in DEFAULT_SETTINGS:
-            existing = await db.execute(select(Setting).where(Setting.key == s["key"]))
+            existing = await db.execute(select(Setting).where(Setting.key == s["key"], Setting.org_id == _init_org_id))
             if not existing.scalar_one_or_none():
-                db.add(Setting(**s))
+                db.add(Setting(org_id=_init_org_id, **s))
                 seeded += 1
         if seeded or migrated:
             await db.commit()
@@ -416,7 +420,7 @@ async def init_settings_table(engine):
 
         # Load API keys from DB into environment so services can use them
         api_key_settings = await db.execute(
-            select(Setting).where(Setting.category == "api_keys")
+            select(Setting).where(Setting.category == "api_keys", Setting.org_id == _init_org_id)
         )
         for setting in api_key_settings.scalars().all():
             _sync_setting_env(setting.key, setting.value)
@@ -433,12 +437,14 @@ def _mask_value(value: str) -> str:
 
 @router.get("")
 async def list_settings(
+    request: Request,
     category: Optional[str] = None,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """List all settings, optionally filtered by category. Secret values masked for non-superadmin."""
-    query = select(Setting)
+    org_id = get_org_id(request)
+    query = select(Setting).where(Setting.org_id == org_id)
     if category:
         query = query.where(Setting.category == category)
     query = query.order_by(Setting.category, Setting.key)
@@ -492,14 +498,16 @@ LEAD_SCORING_DEFAULTS = {
 
 @router.get("/email")
 async def get_email_settings(
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Return email/SMTP configuration from stored settings."""
+    org_id = get_org_id(request)
     result = {}
     for field in EMAIL_DEFAULTS:
         key = f"email_{field}"
-        row = await db.execute(select(Setting).where(Setting.key == key))
+        row = await db.execute(select(Setting).where(Setting.key == key, Setting.org_id == org_id))
         setting = row.scalars().first()
         result[field] = setting.value if setting else EMAIL_DEFAULTS[field]
     return result
@@ -507,21 +515,24 @@ async def get_email_settings(
 
 @router.put("/email")
 async def update_email_settings(
+    request: Request,
     body: dict,
     user: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Save email/SMTP configuration."""
+    org_id = get_org_id(request)
     for field in EMAIL_DEFAULTS:
         if field not in body:
             continue
         key = f"email_{field}"
-        row = await db.execute(select(Setting).where(Setting.key == key))
+        row = await db.execute(select(Setting).where(Setting.key == key, Setting.org_id == org_id))
         setting = row.scalars().first()
         if setting:
             setting.value = str(body[field])
         else:
             db.add(Setting(
+                org_id=org_id,
                 key=key,
                 value=str(body[field]),
                 category="email",
@@ -534,6 +545,7 @@ async def update_email_settings(
 
 @router.post("/email/test")
 async def test_email_connection(
+    request: Request,
     body: dict,
     user: User = Depends(require_superadmin()),
 ):
@@ -557,12 +569,14 @@ async def test_email_connection(
 
 @router.get("/lead-scoring")
 async def get_lead_scoring_settings(
+    request: Request,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Return lead scoring weights and thresholds."""
+    org_id = get_org_id(request)
     import json as _json
-    row = await db.execute(select(Setting).where(Setting.key == "lead_scoring_config"))
+    row = await db.execute(select(Setting).where(Setting.key == "lead_scoring_config", Setting.org_id == org_id))
     setting = row.scalars().first()
     if setting and setting.value:
         try:
@@ -574,19 +588,22 @@ async def get_lead_scoring_settings(
 
 @router.put("/lead-scoring")
 async def update_lead_scoring_settings(
+    request: Request,
     body: dict,
     user: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Save lead scoring weights and thresholds."""
+    org_id = get_org_id(request)
     import json as _json
-    row = await db.execute(select(Setting).where(Setting.key == "lead_scoring_config"))
+    row = await db.execute(select(Setting).where(Setting.key == "lead_scoring_config", Setting.org_id == org_id))
     setting = row.scalars().first()
     payload = _json.dumps(body)
     if setting:
         setting.value = payload
     else:
         db.add(Setting(
+            org_id=org_id,
             key="lead_scoring_config",
             value=payload,
             category="lead_scoring",
@@ -599,13 +616,15 @@ async def update_lead_scoring_settings(
 
 @router.get("/{key}")
 async def get_setting(
+    request: Request,
     key: str,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get a single setting by key. Secret values masked for non-superadmin."""
+    org_id = get_org_id(request)
     key = _normalize_setting_key(key)
-    result = await db.execute(select(Setting).where(Setting.key == key))
+    result = await db.execute(select(Setting).where(Setting.key == key, Setting.org_id == org_id))
     setting = result.scalars().first()
     if not setting:
         raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
@@ -623,14 +642,16 @@ async def get_setting(
 
 @router.put("/{key}")
 async def update_setting(
+    request: Request,
     key: str,
     body: SettingUpdate,
     user: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Update a setting value."""
+    org_id = get_org_id(request)
     key = _normalize_setting_key(key)
-    result = await db.execute(select(Setting).where(Setting.key == key))
+    result = await db.execute(select(Setting).where(Setting.key == key, Setting.org_id == org_id))
     setting = result.scalars().first()
 
     if not setting:
@@ -638,6 +659,7 @@ async def update_setting(
         is_secret = key in API_KEY_ENV_MAP
         description = next((s["description"] for s in DEFAULT_SETTINGS if s["key"] == key), None)
         setting = Setting(
+            org_id=org_id,
             key=key,
             value=body.value,
             category="api_keys" if is_secret else "general",
@@ -664,18 +686,21 @@ async def update_setting(
 
 @router.post("")
 async def create_setting(
+    request: Request,
     body: SettingCreate,
     user: User = Depends(require_superadmin()),
-    db: AsyncSession = Depends(get_leadgen_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a new setting."""
+    org_id = get_org_id(request)
     body.key = _normalize_setting_key(body.key)
     # Check if key already exists
-    result = await db.execute(select(Setting).where(Setting.key == body.key))
+    result = await db.execute(select(Setting).where(Setting.key == body.key, Setting.org_id == org_id))
     if result.scalars().first():
         raise HTTPException(status_code=409, detail=f"Setting '{body.key}' already exists. Use PUT to update.")
 
     setting = Setting(
+        org_id=org_id,
         key=body.key,
         value=body.value,
         category=body.category,
@@ -696,15 +721,16 @@ async def create_setting(
 
 
 @router.delete("/{key}")
-async def delete_setting(key: str, user: User = Depends(require_superadmin()), db: AsyncSession = Depends(get_leadgen_db)):
+async def delete_setting(request: Request, key: str, user: User = Depends(require_superadmin()), db: AsyncSession = Depends(get_tenant_db)):
     """Delete a setting."""
+    org_id = get_org_id(request)
     key = _normalize_setting_key(key)
-    result = await db.execute(select(Setting).where(Setting.key == key))
+    result = await db.execute(select(Setting).where(Setting.key == key, Setting.org_id == org_id))
     setting = result.scalars().first()
     if not setting:
         raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
 
-    await db.execute(delete(Setting).where(Setting.key == key))
+    await db.execute(delete(Setting).where(Setting.key == key, Setting.org_id == org_id))
     await db.commit()
     _sync_setting_env(key, "")
     return {"status": "deleted", "key": key}

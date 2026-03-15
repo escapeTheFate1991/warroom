@@ -13,7 +13,8 @@ class Setting(SettingsBase):
     __table_args__ = {"schema": "public"}
 
     id = Column(Integer, primary_key=True)
-    key = Column(String(255), unique=True, nullable=False, index=True)
+    org_id = Column(Integer)
+    key = Column(String(255), nullable=False, index=True)
     value = Column(Text, nullable=False, default="")
     category = Column(String(100), nullable=False, default="general")
     description = Column(Text, nullable=True)

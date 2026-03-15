@@ -839,7 +839,7 @@ export default function CompetitorIntel() {
   const [loadingInstagramAdvice, setLoadingInstagramAdvice] = useState(false);
   const [hashtags, setHashtags] = useState<HashtagItem[]>([]);
   const [loadingHashtags, setLoadingHashtags] = useState(false);
-  const [contentTimeframeDays, setContentTimeframeDays] = useState<number>(30);
+  const [contentTimeframeDays, setContentTimeframeDays] = useState<number>(1);
 
   // Fetch competitors
   const fetchCompetitors = async (): Promise<Competitor[]> => {
@@ -1496,203 +1496,6 @@ export default function CompetitorIntel() {
           {/* COMPETITORS TAB */}
           {activeTab === "competitors" && (
             <div className="space-y-4">
-
-              {/* ── Follower Analysis Summary ── */}
-              {!focusedCompetitor && (
-                <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Users size={18} className="text-warroom-accent" />
-                    <h3 className="text-sm font-semibold">Audience Intelligence</h3>
-                  </div>
-
-                  {loadingGlobalAudienceIntel ? (
-                    <div className="flex items-center gap-2 text-sm text-warroom-muted py-4">
-                      <Loader2 size={16} className="animate-spin" /> Analyzing audience…
-                    </div>
-                  ) : globalAudienceIntel ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
-                          <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.posts_analyzed}</p>
-                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Posts analyzed</p>
-                        </div>
-                        <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
-                          <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.comments_analyzed.toLocaleString()}</p>
-                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Comments</p>
-                        </div>
-                        <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
-                          <p className={`text-lg font-bold capitalize ${AUDIENCE_SENTIMENT_COLORS[globalAudienceIntel.sentiment] || "text-warroom-text"}`}>
-                            {globalAudienceIntel.sentiment.replace(/_/g, " ")}
-                          </p>
-                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Sentiment</p>
-                        </div>
-                        <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
-                          <p className="text-lg font-bold text-warroom-accent">{globalAudienceIntel.sentiment_percentages.positive || 0}%</p>
-                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Positive</p>
-                        </div>
-                      </div>
-
-                      {Object.keys(globalAudienceIntel.content_formats || {}).length > 0 && (
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Content Formats</p>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(globalAudienceIntel.content_formats).map(([format, count]) => (
-                              <span key={format} className="px-2.5 py-1 bg-warroom-bg border border-warroom-border text-xs rounded-full text-warroom-text">
-                                {format.replace(/_/g, " ")} <span className="text-warroom-muted">({count})</span>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {globalAudienceIntel.themes.length > 0 && (
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Discussion Themes</p>
-                            <div className="flex flex-wrap gap-2">
-                              {globalAudienceIntel.themes.slice(0, 12).map((theme, i) => (
-                                <span key={i} className="px-2.5 py-1 bg-warroom-accent/10 text-warroom-accent text-xs rounded-full font-medium">
-                                  {theme.theme} ({theme.count})
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {globalAudienceIntel.product_mentions.length > 0 && (
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Products Mentioned</p>
-                            <div className="flex flex-wrap gap-2">
-                              {globalAudienceIntel.product_mentions.slice(0, 10).map((product, i) => (
-                                <span key={i} className="px-2.5 py-1 bg-purple-400/10 text-purple-400 text-xs rounded-full font-medium">
-                                  {product.product} ({product.count})
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {globalAudienceIntel.questions.length > 0 && (
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Top Questions</p>
-                            <div className="space-y-1.5">
-                              {globalAudienceIntel.questions.slice(0, 4).map((question, i) => (
-                                <div key={i} className="flex items-start gap-2 rounded-lg border border-blue-400/10 bg-blue-400/5 px-3 py-2">
-                                  <Sparkles size={12} className="text-blue-400 flex-shrink-0 mt-0.5" />
-                                  <p className="text-xs text-warroom-text flex-1">{question.question}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {globalAudienceIntel.pain_points.length > 0 && (
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Pain Points</p>
-                            <div className="space-y-1.5">
-                              {globalAudienceIntel.pain_points.slice(0, 4).map((painPoint, i) => (
-                                <div key={i} className="flex items-start gap-2 rounded-lg border border-red-400/10 bg-red-400/5 px-3 py-2">
-                                  <Sparkles size={12} className="text-red-400 flex-shrink-0 mt-0.5" />
-                                  <p className="text-xs text-warroom-text flex-1">{painPoint.pain}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-warroom-muted py-2">No audience data yet. Refresh competitor data to generate analysis.</p>
-                  )}
-                </div>
-              )}
-
-              {!focusedCompetitor && (
-                <div>
-                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                      <div className="flex items-center gap-2">
-                        <Film size={18} className="text-pink-400" />
-                        <div>
-                          <h3 className="text-sm font-semibold">Top Competitor Videos</h3>
-                          <p className="text-xs text-warroom-muted">One top video-style post per leading competitor for the selected window.</p>
-                        </div>
-                      </div>
-                      {renderTimeframeControls()}
-                    </div>
-
-                    {loadingAggregateTopVideos ? (
-                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-6">
-                        <Loader2 size={16} className="animate-spin" /> Ranking top competitor videos…
-                      </div>
-                    ) : aggregateTopVideos.length === 0 ? (
-                      <p className="text-xs text-warroom-muted py-4">No competitor videos available for this timeframe yet.</p>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {aggregateTopVideos.map((vid, idx) => (
-                          <div
-                            key={`${vid.competitor_id || idx}-${vid.id || idx}`}
-                            className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
-                            onClick={() => vid.id && setSelectedPostId(vid.id)}
-                          >
-                            <div className="flex items-start justify-between gap-3 mb-2">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-[10px] uppercase tracking-wider text-warroom-muted">{vid.competitor_handle ? `@${vid.competitor_handle}` : "Competitor"}</span>
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-400">{formatPlatformLabel(vid.platform || "instagram")}</span>
-                                </div>
-                                <p className="text-sm text-warroom-text font-medium line-clamp-2">{vid.title || "Untitled"}</p>
-                              </div>
-                              {(vid.media_type === "reel" || vid.media_type === "video") && <Film size={12} className="text-pink-400 flex-shrink-0" />}
-                            </div>
-
-                            {vid.hook && <p className="text-xs text-warroom-accent mb-2 line-clamp-2">🪝 {vid.hook}</p>}
-
-                            <div className="grid grid-cols-4 gap-2 text-center mb-3">
-                              <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
-                                <p className="text-xs font-semibold text-warroom-text">{formatNum(vid.likes)}</p>
-                                <p className="text-[10px] text-warroom-muted">Likes</p>
-                              </div>
-                              <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
-                                <p className="text-xs font-semibold text-warroom-text">{formatNum(vid.comments)}</p>
-                                <p className="text-[10px] text-warroom-muted">Comments</p>
-                              </div>
-                              <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
-                                <p className="text-xs font-semibold text-warroom-accent">{vid.engagement_score.toFixed(0)}</p>
-                                <p className="text-[10px] text-warroom-muted">Engage</p>
-                              </div>
-                              <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
-                                <p className="text-xs font-semibold text-pink-400">{vid.virality_score.toFixed(0)}</p>
-                                <p className="text-[10px] text-warroom-muted">Virality</p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center justify-between text-[10px] text-warroom-muted">
-                              <div className="flex items-center gap-2">
-                                {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
-                                {vid.has_transcript && <span className="text-emerald-400">Transcript</span>}
-                              </div>
-                              {vid.post_url && (
-                                <a
-                                  href={vid.post_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-warroom-muted hover:text-warroom-accent transition"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  <ExternalLink size={12} />
-                                </a>
-                              )}
-                            </div>
-
-                            <TopVideoInsights video={vid} compact />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
 
               {/* FOCUSED VIEW - single competitor detail */}
               {focusedCompetitor ? (
@@ -2364,6 +2167,114 @@ export default function CompetitorIntel() {
                       ))}
                     </div>
                   )}
+
+                  {/* ── Audience Intelligence ── */}
+                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Users size={18} className="text-warroom-accent" />
+                      <h3 className="text-sm font-semibold">Audience Intelligence</h3>
+                    </div>
+
+                    {loadingGlobalAudienceIntel ? (
+                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-4">
+                        <Loader2 size={16} className="animate-spin" /> Analyzing audience…
+                      </div>
+                    ) : globalAudienceIntel ? (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                            <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.posts_analyzed}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Posts analyzed</p>
+                          </div>
+                          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                            <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.comments_analyzed.toLocaleString()}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Comments</p>
+                          </div>
+                          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                            <p className={`text-lg font-bold capitalize ${AUDIENCE_SENTIMENT_COLORS[globalAudienceIntel.sentiment] || "text-warroom-text"}`}>
+                              {globalAudienceIntel.sentiment.replace(/_/g, " ")}
+                            </p>
+                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Sentiment</p>
+                          </div>
+                          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                            <p className="text-lg font-bold text-warroom-accent">{globalAudienceIntel.sentiment_percentages.positive || 0}%</p>
+                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Positive</p>
+                          </div>
+                        </div>
+
+                        {Object.keys(globalAudienceIntel.content_formats || {}).length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Content Formats</p>
+                            <div className="flex flex-wrap gap-2">
+                              {Object.entries(globalAudienceIntel.content_formats).map(([format, count]) => (
+                                <span key={format} className="px-2.5 py-1 bg-warroom-bg border border-warroom-border rounded-full text-[11px] text-warroom-text">
+                                  {format.replace(/_/g, " ")} <span className="text-warroom-muted">({count})</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {globalAudienceIntel.themes.length > 0 && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Discussion Themes</p>
+                              <div className="flex flex-wrap gap-2">
+                                {globalAudienceIntel.themes.slice(0, 12).map((theme, i) => (
+                                  <span key={i} className="px-2.5 py-1 bg-warroom-accent/10 text-warroom-accent text-xs rounded-full font-medium">
+                                    {theme.theme} ({theme.count})
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {globalAudienceIntel.product_mentions.length > 0 && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Products Mentioned</p>
+                              <div className="flex flex-wrap gap-2">
+                                {globalAudienceIntel.product_mentions.slice(0, 10).map((product, i) => (
+                                  <span key={i} className="px-2.5 py-1 bg-purple-400/10 text-purple-400 text-xs rounded-full font-medium">
+                                    {product.product} ({product.count})
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {globalAudienceIntel.questions.length > 0 && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Top Questions</p>
+                              <div className="space-y-1.5">
+                                {globalAudienceIntel.questions.slice(0, 4).map((question, i) => (
+                                  <div key={i} className="flex items-start gap-2 rounded-lg border border-blue-400/10 bg-blue-400/5 px-3 py-2">
+                                    <Sparkles size={12} className="text-blue-400 flex-shrink-0 mt-0.5" />
+                                    <p className="text-xs text-warroom-text flex-1">{question.question}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {globalAudienceIntel.pain_points.length > 0 && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">Pain Points</p>
+                              <div className="space-y-1.5">
+                                {globalAudienceIntel.pain_points.slice(0, 4).map((painPoint, i) => (
+                                  <div key={i} className="flex items-start gap-2 rounded-lg border border-red-400/10 bg-red-400/5 px-3 py-2">
+                                    <Sparkles size={12} className="text-red-400 flex-shrink-0 mt-0.5" />
+                                    <p className="text-xs text-warroom-text flex-1">{painPoint.pain}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-warroom-muted py-2">No audience data yet. Refresh competitor data to generate analysis.</p>
+                    )}
+                  </div>
                 </>
               )}
             </div>
@@ -2373,74 +2284,85 @@ export default function CompetitorIntel() {
           {activeTab === "top-content" && (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-warroom-muted">Top-performing posts across all tracked competitors for the selected {selectedTimeframeLabel.toLowerCase()} window, re-ranked by live virality and engagement on every refresh.</p>
+                <div className="flex items-center gap-2">
+                  <Film size={18} className="text-pink-400" />
+                  <div>
+                    <h3 className="text-sm font-semibold">Top Competitor Videos</h3>
+                    <p className="text-xs text-warroom-muted">One top video-style post per leading competitor for the selected window.</p>
+                  </div>
+                </div>
                 {renderTimeframeControls()}
               </div>
 
-              {loading ? (
-                <div className="text-center py-16">
-                  <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
-                  <p className="text-sm text-warroom-muted">Loading top content...</p>
+              {loadingAggregateTopVideos ? (
+                <div className="flex items-center gap-2 text-sm text-warroom-muted py-6">
+                  <Loader2 size={16} className="animate-spin" /> Ranking top competitor videos…
                 </div>
-              ) : topContent.length === 0 ? (
+              ) : aggregateTopVideos.length === 0 ? (
                 <div className="text-center py-16 text-warroom-muted">
                   <TrendingUp size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="text-sm">No top content available</p>
+                  <p className="text-sm">No competitor videos available for this timeframe yet.</p>
                   <p className="text-xs mt-1">Refresh competitor data to analyze their posts</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {topContent.map((post, idx) => (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {aggregateTopVideos.map((vid, idx) => (
                     <div
-                      key={idx}
-                      className={`bg-warroom-surface border border-warroom-border rounded-2xl p-4 transition ${post.id ? "cursor-pointer hover:border-warroom-accent/30" : ""}`}
-                      onClick={() => post.id && setSelectedPostId(post.id)}
+                      key={`${vid.competitor_id || idx}-${vid.id || idx}`}
+                      className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
+                      onClick={() => vid.id && setSelectedPostId(vid.id)}
                     >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[post.platform] || "bg-gray-500/20 text-gray-400"}`}>{post.platform}</span>
-                          <span className="text-xs text-warroom-muted">@{post.competitor_handle}</span>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] uppercase tracking-wider text-warroom-muted">{vid.competitor_handle ? `@${vid.competitor_handle}` : "Competitor"}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-400">{formatPlatformLabel(vid.platform || "instagram")}</span>
+                          </div>
+                          <p className="text-sm text-warroom-text font-medium line-clamp-2">{vid.title || "Untitled"}</p>
                         </div>
-                        {post.url && (
+                        {(vid.media_type === "reel" || vid.media_type === "video") && <Film size={12} className="text-pink-400 flex-shrink-0" />}
+                      </div>
+
+                      {vid.hook && <p className="text-xs text-warroom-accent mb-2 line-clamp-2">🪝 {vid.hook}</p>}
+
+                      <div className="grid grid-cols-4 gap-2 text-center mb-3">
+                        <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
+                          <p className="text-xs font-semibold text-warroom-text">{formatNum(vid.likes)}</p>
+                          <p className="text-[10px] text-warroom-muted">Likes</p>
+                        </div>
+                        <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
+                          <p className="text-xs font-semibold text-warroom-text">{formatNum(vid.comments)}</p>
+                          <p className="text-[10px] text-warroom-muted">Comments</p>
+                        </div>
+                        <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
+                          <p className="text-xs font-semibold text-warroom-accent">{vid.engagement_score.toFixed(0)}</p>
+                          <p className="text-[10px] text-warroom-muted">Engage</p>
+                        </div>
+                        <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
+                          <p className="text-xs font-semibold text-pink-400">{vid.virality_score.toFixed(0)}</p>
+                          <p className="text-[10px] text-warroom-muted">Virality</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[10px] text-warroom-muted">
+                        <div className="flex items-center gap-2">
+                          {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
+                          {vid.has_transcript && <span className="text-emerald-400">Transcript</span>}
+                        </div>
+                        {vid.post_url && (
                           <a
-                            href={post.url}
+                            href={vid.post_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={(event) => event.stopPropagation()}
                             className="text-warroom-muted hover:text-warroom-accent transition"
+                            onClick={(event) => event.stopPropagation()}
                           >
-                            <ExternalLink size={14} />
+                            <ExternalLink size={12} />
                           </a>
                         )}
                       </div>
 
-                      {post.hook && (
-                        <p className="text-sm font-medium text-warroom-accent mb-1">🪝 {post.hook}</p>
-                      )}
-                      <p className="text-xs text-warroom-text mb-3 line-clamp-3">{(post.text || "").slice(0, 200)}</p>
-
-                      <div className="flex items-center justify-between text-xs text-warroom-muted">
-                        <div className="flex gap-3">
-                          <span>❤️ {formatNum(post.likes)}</span>
-                          <span>💬 {formatNum(post.comments)}</span>
-                          {post.shares > 0 && <span>👁 {formatNum(post.shares)}</span>}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {/* Video chunk timestamps */}
-                          {(post.start_time !== undefined && post.end_time !== undefined) && (
-                            <span className="text-warroom-accent bg-warroom-bg px-1.5 py-0.5 rounded text-[10px] font-mono">
-                              {formatTime(post.start_time)}-{formatTime(post.end_time)}
-                            </span>
-                          )}
-                          {post.timestamp && <span>{timeAgo(post.timestamp)}</span>}
-                        </div>
-                      </div>
-
-                      <div className="mt-2 bg-warroom-bg rounded px-2 py-1 flex items-center justify-between gap-2">
-                        <span className="text-xs text-warroom-accent font-medium">Score: {post.engagement_score.toFixed(0)}</span>
-                        <span className="text-[10px] text-orange-300">Virality: {post.virality_score.toFixed(1)}</span>
-                        <span className="text-[10px] text-warroom-muted">#{idx + 1}</span>
-                      </div>
+                      <TopVideoInsights video={vid} compact />
                     </div>
                   ))}
                 </div>

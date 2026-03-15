@@ -18,6 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.config import settings
 from app.db.leadgen_db import leadgen_engine, leadgen_session
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -154,15 +155,17 @@ async def create_notification(
         raise HTTPException(400, f"Invalid type '{body.type}'. Must be one of: {', '.join(sorted(VALID_TYPES))}")
 
     user_id = body.user_id or request.state.user_id
+    org_id = get_org_id(request)
 
     result = await db.execute(
         text("""
-            INSERT INTO public.notifications (user_id, type, title, message, data, expires_at)
-            VALUES (:user_id, :type, :title, :message, CAST(:data AS jsonb), :expires_at)
+            INSERT INTO public.notifications (user_id, org_id, type, title, message, data, expires_at)
+            VALUES (:user_id, :org_id, :type, :title, :message, CAST(:data AS jsonb), :expires_at)
             RETURNING id, user_id, type, title, message, data, read, created_at, expires_at
         """),
         {
             "user_id": user_id,
+            "org_id": org_id,
             "type": body.type,
             "title": body.title,
             "message": body.message,

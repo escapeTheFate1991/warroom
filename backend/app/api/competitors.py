@@ -30,7 +30,7 @@ async def _background_sync_competitor(competitor_id: int, platform: str):
         async with crm_session() as db:
             # Get the competitor
             result = await db.execute(
-                select(Competitor).where(Competitor.id == competitor_id)
+                select(Competitor).where(Competitor.id == competitor_id, Competitor.org_id == org_id)
             )
             competitor = result.scalar_one_or_none()
             
@@ -336,7 +336,8 @@ async def create_competitor(
         existing_result = await db.execute(
             select(Competitor).where(
                 Competitor.handle == handle,
-                Competitor.platform == platform
+                Competitor.platform == platform,
+                Competitor.org_id == org_id
             )
         )
         if existing_result.scalar_one_or_none():
@@ -395,7 +396,7 @@ async def list_competitors(
     """List all competitors."""
     org_id = get_org_id(request)
     try:
-        query = select(Competitor).order_by(Competitor.created_at.desc())
+        query = select(Competitor).where(Competitor.org_id == org_id).order_by(Competitor.created_at.desc())
         
         if platform:
             query = query.where(Competitor.platform == platform.lower())
@@ -420,7 +421,7 @@ async def get_competitor(
     org_id = get_org_id(request)
     try:
         result = await db.execute(
-            select(Competitor).where(Competitor.id == competitor_id)
+            select(Competitor).where(Competitor.id == competitor_id, Competitor.org_id == org_id)
         )
         competitor = result.scalar_one_or_none()
         
@@ -447,7 +448,7 @@ async def update_competitor(
     org_id = get_org_id(request)
     try:
         result = await db.execute(
-            select(Competitor).where(Competitor.id == competitor_id)
+            select(Competitor).where(Competitor.id == competitor_id, Competitor.org_id == org_id)
         )
         competitor = result.scalar_one_or_none()
         
@@ -483,7 +484,7 @@ async def delete_competitor(
     org_id = get_org_id(request)
     try:
         result = await db.execute(
-            select(Competitor).where(Competitor.id == competitor_id)
+            select(Competitor).where(Competitor.id == competitor_id, Competitor.org_id == org_id)
         )
         competitor = result.scalar_one_or_none()
         
@@ -513,7 +514,7 @@ async def auto_populate_competitor(
     org_id = get_org_id(request)
     try:
         result = await db.execute(
-            select(Competitor).where(Competitor.id == competitor_id)
+            select(Competitor).where(Competitor.id == competitor_id, Competitor.org_id == org_id)
         )
         competitor = result.scalar_one_or_none()
 
@@ -549,7 +550,7 @@ async def sync_competitors(
     org_id = get_org_id(request)
     try:
         # Get competitors to sync
-        query = select(Competitor).where(Competitor.auto_sync_enabled == True)
+        query = select(Competitor).where(Competitor.auto_sync_enabled == True, Competitor.org_id == org_id)
         
         if platform:
             query = query.where(Competitor.platform == platform.lower())
@@ -652,7 +653,7 @@ async def sync_single_competitor(
     org_id = get_org_id(request)
     try:
         result = await db.execute(
-            select(Competitor).where(Competitor.id == competitor_id)
+            select(Competitor).where(Competitor.id == competitor_id, Competitor.org_id == org_id)
         )
         competitor = result.scalar_one_or_none()
         

@@ -67,9 +67,14 @@ async def _upsert_social_account(
     follower_count: int = 0, following_count: int = 0, post_count: int = 0,
     token_expires_at: Optional[datetime] = None,
     extra_data: dict = None,
-    user_id: int = 1,  # TODO: pass real user_id from auth context when OAuth callbacks support auth
+    user_id: int = 1,
+    org_id: int = 1,  # Default to org 1; OAuth callbacks don't have auth context yet
 ):
-    """Create or update a social account."""
+    """Create or update a social account (tenant-isolated).
+    
+    Note: org_id defaults to 1 because OAuth callbacks are public paths without JWT.
+    When multi-org is live, encode org_id in the OAuth state parameter.
+    """
     result = await db.execute(
         select(SocialAccount).where(
             SocialAccount.platform == platform,
@@ -87,9 +92,12 @@ async def _upsert_social_account(
         account.post_count = post_count or account.post_count
         account.status = "connected"
         account.last_synced = datetime.now()
+        if org_id and not account.org_id:
+            account.org_id = org_id
     else:
         account = SocialAccount(
             user_id=user_id,
+            org_id=org_id,
             platform=platform,
             username=username,
             access_token=access_token,

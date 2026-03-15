@@ -2783,11 +2783,12 @@ async def get_instagram_account_advice(
                 SELECT id, username, follower_count, following_count, post_count, last_synced, status
                 FROM crm.social_accounts
                 WHERE user_id = :user_id
+                  AND org_id = :org_id
                   AND lower(platform) = 'instagram'
                 ORDER BY COALESCE(last_synced, connected_at) DESC NULLS LAST, id DESC
                 LIMIT 1
             """),
-            {"user_id": user.id},
+            {"user_id": user.id, "org_id": org_id},
         )
         account_row = account_result.mappings().first()
 
@@ -3467,8 +3468,8 @@ async def get_competitor_dossier(
     audience = None
     try:
         result = await db.execute(
-            text("SELECT audience_analysis FROM crm.competitors WHERE id = :cid"),
-            {"cid": competitor_id},
+            text("SELECT audience_analysis FROM crm.competitors WHERE id = :cid AND org_id = :org_id"),
+            {"cid": competitor_id, "org_id": org_id},
         )
         row = result.first()
         if row and row[0]:
