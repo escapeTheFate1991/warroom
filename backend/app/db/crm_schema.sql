@@ -6,6 +6,20 @@ BEGIN;
 -- Create CRM schema
 CREATE SCHEMA IF NOT EXISTS crm;
 
+-- Tenant (Organization) — top-level multi-tenant container
+CREATE TABLE IF NOT EXISTS crm.organizations_tenant (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE NOT NULL,
+    domain TEXT,
+    logo_url TEXT,
+    is_active BOOLEAN DEFAULT true,
+    max_users INTEGER DEFAULT 10,
+    plan TEXT DEFAULT 'free',  -- free, pro, enterprise
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Users & ACL
 CREATE TABLE IF NOT EXISTS crm.roles (
     id SERIAL PRIMARY KEY,

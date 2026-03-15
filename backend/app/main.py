@@ -117,7 +117,12 @@ async def lifespan(app: FastAPI):
         await ugc_studio.init_ugc_tables()
         await ugc_studio.seed_templates()
         logger.info("UGC Studio tables initialized")
-        
+
+        # Multi-tenant migration (adds org_id to all tables — idempotent)
+        from app.db.crm_db import run_multi_tenant_migration
+        await run_multi_tenant_migration()
+        logger.info("Multi-tenant migration applied")
+
     except Exception as e:
         logger.error("Failed to initialize databases: %s", e)
 
@@ -165,6 +170,11 @@ async def verify_crm_schema():
 
 
 app = FastAPI(title="WAR ROOM", version="0.1.0", lifespan=lifespan)
+
+# Tenant guard — enforces org_id on authenticated requests.
+# Registered BEFORE AuthGuard so it executes AFTER auth (middleware runs in reverse).
+from app.middleware.tenant_guard import TenantGuardMiddleware
+app.add_middleware(TenantGuardMiddleware)
 
 # Auth guard — requires valid JWT for all /api/* routes except whitelist.
 # Must be added before CORS so CORS headers are always present (even on 401).
