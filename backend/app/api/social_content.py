@@ -39,7 +39,7 @@ INSTAGRAM_GRAPH = "https://graph.instagram.com"
 async def instagram_media(request: Request, limit: int = 25, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch recent Instagram posts with engagement metrics."""
     org_id = get_org_id(request)
-    acc = await _get_account(db, "instagram")
+    acc = await _get_account(db, "instagram", org_id)
 
     async with httpx.AsyncClient(timeout=15) as client:
         # Get user's media
@@ -97,7 +97,7 @@ async def instagram_media(request: Request, limit: int = 25, db: AsyncSession = 
 async def instagram_insights(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch Instagram account-level insights (requires Business/Creator account)."""
     org_id = get_org_id(request)
-    acc = await _get_account(db, "instagram")
+    acc = await _get_account(db, "instagram", org_id)
 
     async with httpx.AsyncClient(timeout=15) as client:
         # Account insights — last 30 days
@@ -127,7 +127,7 @@ YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
 async def youtube_videos(request: Request, limit: int = 25, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch recent YouTube videos with view/like/comment counts."""
     org_id = get_org_id(request)
-    acc = await _get_account(db, "youtube")
+    acc = await _get_account(db, "youtube", org_id)
 
     async with httpx.AsyncClient(timeout=15) as client:
         # Get channel info
@@ -159,8 +159,8 @@ async def youtube_videos(request: Request, limit: int = 25, db: AsyncSession = D
 
         # Update DB with real subscriber count
         await db.execute(
-            text("UPDATE crm.social_accounts SET follower_count = :f, post_count = :p, username = :u WHERE id = :id"),
-            {"f": channel_info["subscribers"], "p": channel_info["videos"], "u": channel_info["title"], "id": acc["id"]},
+            text("UPDATE crm.social_accounts SET follower_count = :f, post_count = :p, username = :u WHERE id = :id AND org_id = :org_id"),
+            {"f": channel_info["subscribers"], "p": channel_info["videos"], "u": channel_info["title"], "id": acc["id"], "org_id": org_id},
         )
         await db.commit()
 
@@ -214,7 +214,7 @@ FB_GRAPH = "https://graph.facebook.com/v21.0"
 async def facebook_posts(request: Request, limit: int = 25, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch recent Facebook page/profile posts."""
     org_id = get_org_id(request)
-    acc = await _get_account(db, "facebook")
+    acc = await _get_account(db, "facebook", org_id)
 
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(f"{FB_GRAPH}/me/posts", params={
@@ -255,7 +255,7 @@ X_API = "https://api.x.com/2"
 async def x_tweets(request: Request, limit: int = 25, db: AsyncSession = Depends(get_tenant_db)):
     """Fetch recent tweets with engagement metrics."""
     org_id = get_org_id(request)
-    acc = await _get_account(db, "x")
+    acc = await _get_account(db, "x", org_id)
     headers = {"Authorization": f"Bearer {acc['token']}"}
 
     async with httpx.AsyncClient(timeout=15) as client:
@@ -274,9 +274,9 @@ async def x_tweets(request: Request, limit: int = 25, db: AsyncSession = Depends
 
         # Update DB with real counts
         await db.execute(
-            text("UPDATE crm.social_accounts SET follower_count = :f, following_count = :fw, post_count = :p, username = :u WHERE id = :id"),
+            text("UPDATE crm.social_accounts SET follower_count = :f, following_count = :fw, post_count = :p, username = :u WHERE id = :id AND org_id = :org_id"),
             {"f": metrics.get("followers_count", 0), "fw": metrics.get("following_count", 0),
-             "p": metrics.get("tweet_count", 0), "u": me.get("username", acc["username"]), "id": acc["id"]},
+             "p": metrics.get("tweet_count", 0), "u": me.get("username", acc["username"]), "id": acc["id"], "org_id": org_id},
         )
         await db.commit()
 
@@ -326,7 +326,8 @@ async def content_summary(request: Request, db: AsyncSession = Depends(get_tenan
     """Quick summary of all connected platforms — content counts and top posts."""
     org_id = get_org_id(request)
     r = await db.execute(
-        text("SELECT platform, username, follower_count, post_count, following_count FROM crm.social_accounts WHERE status = 'connected'")
+        text("SELECT platform, username, follower_count, post_count, following_count FROM crm.social_accounts WHERE status = 'connected' AND org_id = :org_id"),
+        {"org_id": org_id}
     )
     accounts = r.fetchall()
 

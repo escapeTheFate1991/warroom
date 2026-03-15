@@ -198,7 +198,7 @@ async def list_campaigns(
 ):
     """List marketing campaigns."""
     org_id = get_org_id(request)
-    query = select(MarketingCampaign)
+    query = select(MarketingCampaign).where(MarketingCampaign.org_id == org_id)
     
     if status is not None:
         query = query.where(MarketingCampaign.status == status)
@@ -218,7 +218,7 @@ async def get_campaign(request: Request, campaign_id: int, db: AsyncSession = De
     """Get single marketing campaign."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(MarketingCampaign).where(MarketingCampaign.id == campaign_id)
+        select(MarketingCampaign).where(MarketingCampaign.id == campaign_id, MarketingCampaign.org_id == org_id)
     )
     campaign = result.scalar_one_or_none()
     
@@ -234,6 +234,7 @@ async def create_campaign(request: Request, campaign_data: MarketingCampaignCrea
     """Create a new marketing campaign."""
     org_id = get_org_id(request)
     payload = _normalize_campaign_payload(campaign_data)
+    payload["org_id"] = org_id
     campaign = MarketingCampaign(**payload)
     db.add(campaign)
     await db.commit()
@@ -253,7 +254,7 @@ async def update_campaign(request: Request, campaign_id: int, campaign_data: Mar
     """Update an existing marketing campaign."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(MarketingCampaign).where(MarketingCampaign.id == campaign_id)
+        select(MarketingCampaign).where(MarketingCampaign.id == campaign_id, MarketingCampaign.org_id == org_id)
     )
     campaign = result.scalar_one_or_none()
     
@@ -297,7 +298,7 @@ async def delete_campaign(request: Request, campaign_id: int, user_id: Optional[
     """Delete a marketing campaign."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(MarketingCampaign).where(MarketingCampaign.id == campaign_id)
+        select(MarketingCampaign).where(MarketingCampaign.id == campaign_id, MarketingCampaign.org_id == org_id)
     )
     campaign = result.scalar_one_or_none()
     
@@ -311,7 +312,7 @@ async def delete_campaign(request: Request, campaign_id: int, user_id: Optional[
         "status": campaign.status
     }
     
-    await db.execute(delete(MarketingCampaign).where(MarketingCampaign.id == campaign_id))
+    await db.execute(delete(MarketingCampaign).where(MarketingCampaign.id == campaign_id, MarketingCampaign.org_id == org_id))
     
     # Log audit
     await log_audit(db, "marketing_campaign", campaign_id, "deleted", user_id, old_values)
@@ -326,7 +327,7 @@ async def send_campaign(request: Request, campaign_id: int, user_id: Optional[in
     """Send/activate a marketing campaign."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(MarketingCampaign).where(MarketingCampaign.id == campaign_id)
+        select(MarketingCampaign).where(MarketingCampaign.id == campaign_id, MarketingCampaign.org_id == org_id)
     )
     campaign = result.scalar_one_or_none()
     
@@ -370,6 +371,7 @@ async def list_events(
     org_id = get_org_id(request)
     query = (
         select(MarketingEvent)
+        .where(MarketingEvent.org_id == org_id)
         .order_by(MarketingEvent.date.desc().nulls_last(), MarketingEvent.name)
         .offset(offset)
         .limit(limit)
@@ -384,7 +386,7 @@ async def get_event(request: Request, event_id: int, db: AsyncSession = Depends(
     """Get single marketing event."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(MarketingEvent).where(MarketingEvent.id == event_id)
+        select(MarketingEvent).where(MarketingEvent.id == event_id, MarketingEvent.org_id == org_id)
     )
     event = result.scalar_one_or_none()
     
@@ -399,7 +401,9 @@ async def create_event(request: Request, event_data: MarketingEventCreate, user_
                       db: AsyncSession = Depends(get_tenant_db)):
     """Create a new marketing event."""
     org_id = get_org_id(request)
-    event = MarketingEvent(**event_data.model_dump(exclude_unset=True))
+    event_payload = event_data.model_dump(exclude_unset=True)
+    event_payload["org_id"] = org_id
+    event = MarketingEvent(**event_payload)
     db.add(event)
     await db.commit()
     await db.refresh(event)
@@ -418,7 +422,7 @@ async def update_event(request: Request, event_id: int, event_data: MarketingEve
     """Update an existing marketing event."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(MarketingEvent).where(MarketingEvent.id == event_id)
+        select(MarketingEvent).where(MarketingEvent.id == event_id, MarketingEvent.org_id == org_id)
     )
     event = result.scalar_one_or_none()
     
@@ -453,7 +457,7 @@ async def delete_event(request: Request, event_id: int, user_id: Optional[int] =
     """Delete a marketing event."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(MarketingEvent).where(MarketingEvent.id == event_id)
+        select(MarketingEvent).where(MarketingEvent.id == event_id, MarketingEvent.org_id == org_id)
     )
     event = result.scalar_one_or_none()
     
@@ -462,7 +466,7 @@ async def delete_event(request: Request, event_id: int, user_id: Optional[int] =
     
     # Check if event is linked to campaigns
     campaigns_using_event = await db.execute(
-        select(MarketingCampaign).where(MarketingCampaign.event_id == event_id)
+        select(MarketingCampaign).where(MarketingCampaign.event_id == event_id, MarketingCampaign.org_id == org_id)
     )
     if campaigns_using_event.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Cannot delete event that is linked to campaigns")
@@ -472,7 +476,7 @@ async def delete_event(request: Request, event_id: int, user_id: Optional[int] =
         "date": event.date.isoformat() if event.date else None
     }
     
-    await db.execute(delete(MarketingEvent).where(MarketingEvent.id == event_id))
+    await db.execute(delete(MarketingEvent).where(MarketingEvent.id == event_id, MarketingEvent.org_id == org_id))
     
     # Log audit
     await log_audit(db, "marketing_event", event_id, "deleted", user_id, old_values)

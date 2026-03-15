@@ -23,7 +23,8 @@ router = APIRouter()
 
 
 async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: str, 
-                   user_id: Optional[int] = None, old_values: dict = None, new_values: dict = None):
+                   user_id: Optional[int] = None, old_values: dict = None, new_values: dict = None,
+                   org_id: Optional[int] = None):
     """Log audit trail for CRM operations."""
     audit_log = AuditLog(
         entity_type=entity_type,
@@ -31,13 +32,14 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
         action=action,
         user_id=user_id,
         old_values=old_values,
-        new_values=new_values
+        new_values=new_values,
+        org_id=org_id
     )
     db.add(audit_log)
 
 
 async def process_import(import_id: int, entity_type: str, csv_data: str, 
-                        mapping: Dict[str, str], user_id: Optional[int] = None):
+                        mapping: Dict[str, str], user_id: Optional[int] = None, org_id: Optional[int] = None):
     """Background task to process CSV import."""
     from app.db.crm_db import crm_session
     
@@ -76,18 +78,18 @@ async def process_import(import_id: int, entity_type: str, csv_data: str,
                     
                     # Create entity based on type
                     if entity_type == "deals":
-                        entity = Deal(**mapped_data)
+                        entity = Deal(**mapped_data, org_id=org_id)
                     elif entity_type == "persons":
                         # Handle emails as JSON array
                         if "emails" in mapped_data:
                             email_value = mapped_data["emails"]
                             if isinstance(email_value, str):
                                 mapped_data["emails"] = [{"value": email_value, "label": "work"}]
-                        entity = Person(**mapped_data)
+                        entity = Person(**mapped_data, org_id=org_id)
                     elif entity_type == "organizations":
-                        entity = Organization(**mapped_data)
+                        entity = Organization(**mapped_data, org_id=org_id)
                     elif entity_type == "products":
-                        entity = Product(**mapped_data)
+                        entity = Product(**mapped_data, org_id=org_id)
                     else:
                         raise ValueError(f"Unsupported entity type: {entity_type}")
                     
@@ -122,7 +124,7 @@ async def process_import(import_id: int, entity_type: str, csv_data: str,
                                "total_rows": total_rows,
                                "processed_rows": processed_rows,
                                "errors_count": len(errors)
-                           })
+                           }, org_id=org_id)
             await db.commit()
             
             logger.info("Import %d completed: %d/%d rows processed, %d errors", 
@@ -168,7 +170,8 @@ async def import_csv(request: Request, import_data: ImportRequest, background_ta
     # Create import record
     import_record = Import(
         entity_type=import_data.entity_type,
-        status="pending"
+        status="pending",
+        org_id=org_id
     )
     db.add(import_record)
     await db.commit()
@@ -176,7 +179,7 @@ async def import_csv(request: Request, import_data: ImportRequest, background_ta
     
     # Start background import process
     background_tasks.add_task(process_import, import_record.id, import_data.entity_type, 
-                             csv_data, import_data.mapping, user_id)
+                             csv_data, import_data.mapping, user_id, org_id)
     
     return import_record
 
@@ -185,7 +188,10 @@ async def import_csv(request: Request, import_data: ImportRequest, background_ta
 async def get_import_status(request: Request, import_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get import status."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Import).where(Import.id == import_id))
+    query = select(Import).where(Import.id == import_id)
+    if org_id:
+        query = query.where(Import.org_id == org_id)
+    result = await db.execute(query)
     import_record = result.scalar_one_or_none()
     
     if not import_record:
@@ -206,6 +212,9 @@ async def list_imports(
     """List import history."""
     org_id = get_org_id(request)
     query = select(Import)
+    
+    if org_id:
+        query = query.where(Import.org_id == org_id)
     
     if entity_type:
         query = query.where(Import.entity_type == entity_type)
@@ -235,6 +244,8 @@ async def export_csv(request: Request, entity_type: str, db: AsyncSession = Depe
     if entity_type == "deals":
         # Export deals
         query = select(Deal).order_by(Deal.created_at.desc())
+        if org_id:
+            query = query.where(Deal.org_id == org_id)
         result = await db.execute(query)
         deals = result.scalars().all()
         
@@ -258,6 +269,8 @@ async def export_csv(request: Request, entity_type: str, db: AsyncSession = Depe
     elif entity_type == "persons":
         # Export persons
         query = select(Person).order_by(Person.name)
+        if org_id:
+            query = query.where(Person.org_id == org_id)
         result = await db.execute(query)
         persons = result.scalars().all()
         
@@ -278,6 +291,8 @@ async def export_csv(request: Request, entity_type: str, db: AsyncSession = Depe
     elif entity_type == "organizations":
         # Export organizations
         query = select(Organization).order_by(Organization.name)
+        if org_id:
+            query = query.where(Organization.org_id == org_id)
         result = await db.execute(query)
         orgs = result.scalars().all()
         
@@ -296,6 +311,8 @@ async def export_csv(request: Request, entity_type: str, db: AsyncSession = Depe
     elif entity_type == "products":
         # Export products
         query = select(Product).order_by(Product.name)
+        if org_id:
+            query = query.where(Product.org_id == org_id)
         result = await db.execute(query)
         products = result.scalars().all()
         
@@ -340,14 +357,18 @@ async def deduplicate_entities(request: Request, entity_type: str, dedup_request
         # Find persons with same email or name
         if "email" in dedup_request.match_fields:
             # This would require custom SQL to search in JSONB emails array
-            result = await db.execute(text("""
+            sql = """
                 SELECT p1.id, p1.name, p1.emails, p2.id as dup_id, p2.name as dup_name
                 FROM crm.persons p1
                 JOIN crm.persons p2 ON p1.id < p2.id
                 WHERE p1.emails::text LIKE '%' || (p2.emails->>0->>'value') || '%'
                    OR p2.emails::text LIKE '%' || (p1.emails->>0->>'value') || '%'
-                LIMIT 100
-            """))
+            """
+            if org_id:
+                sql += " AND p1.org_id = :org_id AND p2.org_id = :org_id"
+            sql += " LIMIT 100"
+            
+            result = await db.execute(text(sql), {"org_id": org_id} if org_id else {})
             
             for row in result.all():
                 duplicates.append({
@@ -360,14 +381,18 @@ async def deduplicate_entities(request: Request, entity_type: str, dedup_request
     
     elif entity_type == "organizations":
         # Find organizations with same or similar names
-        result = await db.execute(text("""
+        sql = """
             SELECT o1.id, o1.name, o2.id as dup_id, o2.name as dup_name
             FROM crm.organizations o1
             JOIN crm.organizations o2 ON o1.id < o2.id
             WHERE LOWER(o1.name) = LOWER(o2.name)
                OR similarity(o1.name, o2.name) > 0.8
-            LIMIT 100
-        """))
+        """
+        if org_id:
+            sql += " AND o1.org_id = :org_id AND o2.org_id = :org_id"
+        sql += " LIMIT 100"
+        
+        result = await db.execute(text(sql), {"org_id": org_id} if org_id else {})
         
         for row in result.all():
             duplicates.append({
@@ -380,7 +405,8 @@ async def deduplicate_entities(request: Request, entity_type: str, dedup_request
     
     # Log audit
     await log_audit(db, entity_type, 0, "deduplication_scan", user_id, 
-                   new_values={"found_duplicates": len(duplicates), "match_fields": dedup_request.match_fields})
+                   new_values={"found_duplicates": len(duplicates), "match_fields": dedup_request.match_fields},
+                   org_id=org_id)
     await db.commit()
     
     return {

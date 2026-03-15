@@ -197,18 +197,20 @@ async def get_entity_attributes(request: Request, entity_type: str, entity_id: i
     """Get attribute values for an entity."""
     org_id = get_org_id(request)
     # Get all attributes for this entity type
-    attributes_result = await db.execute(
-        select(Attribute).where(Attribute.entity_type == entity_type)
-    )
+    attr_query = select(Attribute).where(Attribute.entity_type == entity_type)
+    if org_id:
+        attr_query = attr_query.where(Attribute.org_id == org_id)
+    attributes_result = await db.execute(attr_query)
     attributes = attributes_result.scalars().all()
     
     # Get all values for this entity
-    values_result = await db.execute(
-        select(AttributeValue).where(
-            AttributeValue.entity_type == entity_type,
-            AttributeValue.entity_id == entity_id
-        )
+    values_query = select(AttributeValue).where(
+        AttributeValue.entity_type == entity_type,
+        AttributeValue.entity_id == entity_id
     )
+    if org_id:
+        values_query = values_query.where(AttributeValue.org_id == org_id)
+    values_result = await db.execute(values_query)
     values = {v.attribute_id: v for v in values_result.scalars().all()}
     
     # Combine attributes with their values
@@ -257,19 +259,21 @@ async def set_entity_attributes(request: Request, entity_type: str, entity_id: i
         raise HTTPException(status_code=400, detail=f"Invalid entity type. Must be one of: {valid_types}")
     
     # Get existing values
-    existing_result = await db.execute(
-        select(AttributeValue).where(
-            AttributeValue.entity_type == entity_type,
-            AttributeValue.entity_id == entity_id
-        )
+    existing_query = select(AttributeValue).where(
+        AttributeValue.entity_type == entity_type,
+        AttributeValue.entity_id == entity_id
     )
+    if org_id:
+        existing_query = existing_query.where(AttributeValue.org_id == org_id)
+    existing_result = await db.execute(existing_query)
     existing_values = {v.attribute_id: v for v in existing_result.scalars().all()}
     
     # Get attributes to validate types
     attr_ids = list(values_data.attribute_values.keys())
-    attributes_result = await db.execute(
-        select(Attribute).where(Attribute.id.in_(attr_ids))
-    )
+    attr_query = select(Attribute).where(Attribute.id.in_(attr_ids))
+    if org_id:
+        attr_query = attr_query.where(Attribute.org_id == org_id)
+    attributes_result = await db.execute(attr_query)
     attributes = {a.id: a for a in attributes_result.scalars().all()}
     
     old_values = {}
@@ -289,7 +293,8 @@ async def set_entity_attributes(request: Request, entity_type: str, entity_id: i
             attr_value = AttributeValue(
                 entity_type=entity_type,
                 entity_id=entity_id,
-                attribute_id=attribute_id
+                attribute_id=attribute_id,
+                org_id=org_id
             )
             db.add(attr_value)
         else:
@@ -338,7 +343,7 @@ async def set_entity_attributes(request: Request, entity_type: str, entity_id: i
     # Log audit if there were changes
     if old_values or new_values:
         await log_audit(db, f"{entity_type}_attributes", entity_id, "attributes_updated", 
-                       user_id, old_values, new_values)
+                       user_id, old_values, new_values, org_id=org_id)
         await db.commit()
     
     return {"status": "updated", "entity_type": entity_type, "entity_id": entity_id}

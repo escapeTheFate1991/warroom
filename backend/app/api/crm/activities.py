@@ -495,7 +495,7 @@ async def update_activity(request: Request, activity_id: int, activity_data: Act
                          db: AsyncSession = Depends(get_tenant_db)):
     """Update an existing activity."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Activity).where(Activity.id == activity_id))
+    result = await db.execute(select(Activity).where(Activity.id == activity_id, Activity.org_id == org_id))
     activity = result.scalar_one_or_none()
     
     if not activity:
@@ -546,7 +546,7 @@ async def delete_activity(request: Request, activity_id: int, user_id: Optional[
                          db: AsyncSession = Depends(get_tenant_db)):
     """Delete an activity."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Activity).where(Activity.id == activity_id))
+    result = await db.execute(select(Activity).where(Activity.id == activity_id, Activity.org_id == org_id))
     activity = result.scalar_one_or_none()
     
     if not activity:
@@ -558,7 +558,7 @@ async def delete_activity(request: Request, activity_id: int, user_id: Optional[
         "is_done": activity.is_done
     }
     
-    await db.execute(delete(Activity).where(Activity.id == activity_id))
+    await db.execute(delete(Activity).where(Activity.id == activity_id, Activity.org_id == org_id))
     
     # Log audit
     await log_audit(db, "activity", activity_id, "deleted", user_id, old_values)
@@ -572,7 +572,7 @@ async def mark_activity_done(request: Request, activity_id: int, user_id: Option
                            db: AsyncSession = Depends(get_tenant_db)):
     """Mark activity as done."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Activity).where(Activity.id == activity_id))
+    result = await db.execute(select(Activity).where(Activity.id == activity_id, Activity.org_id == org_id))
     activity = result.scalar_one_or_none()
     
     if not activity:

@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,9 @@ async def get_audit_log(
     """Get filterable audit trail."""
     org_id = get_org_id(request)
     query = select(AuditLog)
+    
+    if org_id:
+        query = query.where(AuditLog.org_id == org_id)
     
     # Apply filters
     if entity_type:
@@ -68,16 +71,21 @@ async def get_audit_stats(
     org_id = get_org_id(request)
     cutoff_date = datetime.now() - timedelta(days=days_back)
     
+    # Base query filter
+    base_filter = AuditLog.created_at >= cutoff_date
+    if org_id:
+        base_filter = and_(base_filter, AuditLog.org_id == org_id)
+    
     # Total actions in period
     total_result = await db.execute(
-        select(func.count(AuditLog.id)).where(AuditLog.created_at >= cutoff_date)
+        select(func.count(AuditLog.id)).where(base_filter)
     )
     total_actions = total_result.scalar() or 0
     
     # Actions by type
     actions_result = await db.execute(
         select(AuditLog.action, func.count(AuditLog.id))
-        .where(AuditLog.created_at >= cutoff_date)
+        .where(base_filter)
         .group_by(AuditLog.action)
         .order_by(func.count(AuditLog.id).desc())
     )
@@ -86,16 +94,17 @@ async def get_audit_stats(
     # Actions by entity type
     entities_result = await db.execute(
         select(AuditLog.entity_type, func.count(AuditLog.id))
-        .where(AuditLog.created_at >= cutoff_date)
+        .where(base_filter)
         .group_by(AuditLog.entity_type)
         .order_by(func.count(AuditLog.id).desc())
     )
     actions_by_entity = [{"entity_type": row[0], "count": row[1]} for row in entities_result.all()]
     
     # Most active users
+    users_filter = and_(base_filter, AuditLog.user_id.isnot(None))
     users_result = await db.execute(
         select(AuditLog.user_id, func.count(AuditLog.id))
-        .where(and_(AuditLog.created_at >= cutoff_date, AuditLog.user_id.isnot(None)))
+        .where(users_filter)
         .group_by(AuditLog.user_id)
         .order_by(func.count(AuditLog.id).desc())
         .limit(10)
@@ -114,9 +123,12 @@ async def get_audit_stats(
         day_start = (datetime.now() - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
         
+        day_filter = and_(AuditLog.created_at >= day_start, AuditLog.created_at < day_end)
+        if org_id:
+            day_filter = and_(day_filter, AuditLog.org_id == org_id)
+        
         day_result = await db.execute(
-            select(func.count(AuditLog.id))
-            .where(and_(AuditLog.created_at >= day_start, AuditLog.created_at < day_end))
+            select(func.count(AuditLog.id)).where(day_filter)
         )
         count = day_result.scalar() or 0
         daily_activity.append({
@@ -140,7 +152,10 @@ async def get_audit_stats(
 async def get_audit_entry(request: Request, audit_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get detailed audit entry."""
     org_id = get_org_id(request)
-    result = await db.execute(select(AuditLog).where(AuditLog.id == audit_id))
+    query = select(AuditLog).where(AuditLog.id == audit_id)
+    if org_id:
+        query = query.where(AuditLog.org_id == org_id)
+    result = await db.execute(query)
     audit_entry = result.scalar_one_or_none()
     
     if not audit_entry:
@@ -172,12 +187,11 @@ async def get_entity_history(request: Request, entity_type: str, entity_id: int,
                             db: AsyncSession = Depends(get_tenant_db)):
     """Get audit history for a specific entity."""
     org_id = get_org_id(request)
-    result = await db.execute(
-        select(AuditLog)
-        .where(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id)
-        .order_by(AuditLog.created_at.desc())
-        .limit(limit)
-    )
+    query = select(AuditLog).where(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id)
+    if org_id:
+        query = query.where(AuditLog.org_id == org_id)
+    query = query.order_by(AuditLog.created_at.desc()).limit(limit)
+    result = await db.execute(query)
     
     entries = result.scalars().all()
     
@@ -211,9 +225,10 @@ async def get_entity_history(request: Request, entity_type: str, entity_id: int,
 async def get_available_actions(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Get list of available audit actions for filtering."""
     org_id = get_org_id(request)
-    result = await db.execute(
-        select(AuditLog.action).distinct().order_by(AuditLog.action)
-    )
+    query = select(AuditLog.action).distinct().order_by(AuditLog.action)
+    if org_id:
+        query = query.where(AuditLog.org_id == org_id)
+    result = await db.execute(query)
     actions = [row[0] for row in result.all()]
     return {"actions": actions}
 
@@ -222,9 +237,10 @@ async def get_available_actions(request: Request, db: AsyncSession = Depends(get
 async def get_available_entity_types(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Get list of available entity types for filtering."""
     org_id = get_org_id(request)
-    result = await db.execute(
-        select(AuditLog.entity_type).distinct().order_by(AuditLog.entity_type)
-    )
+    query = select(AuditLog.entity_type).distinct().order_by(AuditLog.entity_type)
+    if org_id:
+        query = query.where(AuditLog.org_id == org_id)
+    result = await db.execute(query)
     entity_types = [row[0] for row in result.all()]
     return {"entity_types": entity_types}
 
@@ -296,8 +312,11 @@ async def cleanup_old_audit_logs(
     cutoff_date = datetime.now() - timedelta(days=days_to_keep)
     
     # Count entries to be deleted
+    count_filter = AuditLog.created_at < cutoff_date
+    if org_id:
+        count_filter = and_(count_filter, AuditLog.org_id == org_id)
     count_result = await db.execute(
-        select(func.count(AuditLog.id)).where(AuditLog.created_at < cutoff_date)
+        select(func.count(AuditLog.id)).where(count_filter)
     )
     entries_to_delete = count_result.scalar() or 0
     
@@ -306,8 +325,11 @@ async def cleanup_old_audit_logs(
     
     # Delete old entries
     from sqlalchemy import delete
+    delete_filter = AuditLog.created_at < cutoff_date
+    if org_id:
+        delete_filter = and_(delete_filter, AuditLog.org_id == org_id)
     result = await db.execute(
-        delete(AuditLog).where(AuditLog.created_at < cutoff_date)
+        delete(AuditLog).where(delete_filter)
     )
     
     await db.commit()
@@ -318,6 +340,7 @@ async def cleanup_old_audit_logs(
         entity_id=0,
         action="cleanup",
         user_id=user_id,
+        org_id=org_id,
         new_values={
             "days_to_keep": days_to_keep,
             "entries_deleted": entries_to_delete,

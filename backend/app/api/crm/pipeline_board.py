@@ -61,9 +61,10 @@ async def advance_deal(
     org_id = get_org_id(request)
 
     # Get current deal with its stage info
-    result = await db.execute(
-        select(Deal).where(Deal.id == deal_id)
-    )
+    query = select(Deal).where(Deal.id == deal_id)
+    if org_id:
+        query = query.where(Deal.org_id == org_id)
+    result = await db.execute(query)
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(404, "Deal not found")
@@ -127,6 +128,7 @@ async def advance_deal(
         entity_type="deal",
         entity_id=deal_id,
         action="stage_advance",
+        org_id=org_id,
         new_values={
             "stage": target_stage.name,
             "reasoning": req.reasoning,

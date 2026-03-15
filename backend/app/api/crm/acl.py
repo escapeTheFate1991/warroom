@@ -40,7 +40,7 @@ async def log_audit(db: AsyncSession, entity_type: str, entity_id: int, action: 
 async def list_roles(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """List all roles."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Role).order_by(Role.name))
+    result = await db.execute(select(Role).where(Role.org_id == org_id).order_by(Role.name))
     return result.scalars().all()
 
 
@@ -48,7 +48,7 @@ async def list_roles(request: Request, db: AsyncSession = Depends(get_tenant_db)
 async def get_role(request: Request, role_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Get single role."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Role).where(Role.id == role_id))
+    result = await db.execute(select(Role).where(Role.id == role_id, Role.org_id == org_id))
     role = result.scalar_one_or_none()
     
     if not role:

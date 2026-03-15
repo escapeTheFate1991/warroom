@@ -188,7 +188,7 @@ async def list_emails(
         selectinload(Email.attachments),
         selectinload(Email.person),
         selectinload(Email.deal)
-    )
+    ).where(Email.org_id == org_id)
     
     if person_id:
         query = query.where(Email.person_id == person_id)
@@ -221,7 +221,7 @@ async def get_email(request: Request, email_id: int, mark_read: bool = Query(def
             selectinload(Email.children),  # Thread replies
             selectinload(Email.parent)     # Parent if this is a reply
         )
-        .where(Email.id == email_id)
+        .where(Email.id == email_id, Email.org_id == org_id)
     )
     email = result.scalar_one_or_none()
     
@@ -244,7 +244,9 @@ async def compose_email(request: Request, email_data: EmailCreate, user_id: Opti
     # For now, just store the email in the database
     # In a full implementation, this would integrate with SMTP/Gmail API
     
-    email = Email(**email_data.model_dump(exclude_unset=True))
+    email_payload = email_data.model_dump(exclude_unset=True)
+    email_payload["org_id"] = org_id
+    email = Email(**email_payload)
     
     # Generate a unique message_id for tracking
     import uuid
@@ -271,7 +273,7 @@ async def mark_email_read(request: Request, email_id: int, is_read: bool = True,
                          db: AsyncSession = Depends(get_tenant_db)):
     """Mark email as read/unread."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Email).where(Email.id == email_id))
+    result = await db.execute(select(Email).where(Email.id == email_id, Email.org_id == org_id))
     email = result.scalar_one_or_none()
     
     if not email:
@@ -288,7 +290,7 @@ async def move_email_folder(request: Request, email_id: int, folder: str,
                            db: AsyncSession = Depends(get_tenant_db)):
     """Move email to folder."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Email).where(Email.id == email_id))
+    result = await db.execute(select(Email).where(Email.id == email_id, Email.org_id == org_id))
     email = result.scalar_one_or_none()
     
     if not email:
@@ -309,7 +311,7 @@ async def delete_email(request: Request, email_id: int, user_id: Optional[int] =
                       db: AsyncSession = Depends(get_tenant_db)):
     """Delete an email."""
     org_id = get_org_id(request)
-    result = await db.execute(select(Email).where(Email.id == email_id))
+    result = await db.execute(select(Email).where(Email.id == email_id, Email.org_id == org_id))
     email = result.scalar_one_or_none()
     
     if not email:
@@ -321,7 +323,7 @@ async def delete_email(request: Request, email_id: int, user_id: Optional[int] =
         "message_id": email.message_id
     }
     
-    await db.execute(delete(Email).where(Email.id == email_id))
+    await db.execute(delete(Email).where(Email.id == email_id, Email.org_id == org_id))
     
     # Log audit
     await log_audit(db, "email", email_id, "deleted", user_id, old_values)
@@ -335,7 +337,7 @@ async def get_email_thread(request: Request, email_id: int, db: AsyncSession = D
     """Get full email thread."""
     org_id = get_org_id(request)
     # Get the root email
-    result = await db.execute(select(Email).where(Email.id == email_id))
+    result = await db.execute(select(Email).where(Email.id == email_id, Email.org_id == org_id))
     email = result.scalar_one_or_none()
     
     if not email:
@@ -345,7 +347,7 @@ async def get_email_thread(request: Request, email_id: int, db: AsyncSession = D
     root_email = email
     while root_email.parent_id:
         parent_result = await db.execute(
-            select(Email).where(Email.id == root_email.parent_id)
+            select(Email).where(Email.id == root_email.parent_id, Email.org_id == org_id)
         )
         parent = parent_result.scalar_one_or_none()
         if not parent:
@@ -364,7 +366,7 @@ async def get_email_thread(request: Request, email_id: int, db: AsyncSession = D
     
     result = await db.execute(
         select(Email)
-        .where(thread_condition)
+        .where(Email.org_id == org_id, thread_condition)
         .order_by(Email.created_at)
     )
 
@@ -378,7 +380,7 @@ async def get_unread_count(request: Request, person_id: Optional[int] = None, de
     org_id = get_org_id(request)
     from sqlalchemy import func
     
-    query = select(func.count(Email.id)).where(Email.is_read == False)
+    query = select(func.count(Email.id)).where(Email.org_id == org_id, Email.is_read == False)
     
     if person_id:
         query = query.where(Email.person_id == person_id)
@@ -398,7 +400,7 @@ async def list_email_templates(request: Request, db: AsyncSession = Depends(get_
     """List channel-aware templates on the existing email template path."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(EmailTemplate).order_by(EmailTemplate.name)
+        select(EmailTemplate).where(EmailTemplate.org_id == org_id).order_by(EmailTemplate.name)
     )
     return await _with_template_assignments(db, result.scalars().all())
 
@@ -408,7 +410,7 @@ async def get_email_template(request: Request, template_id: int, db: AsyncSessio
     """Get channel-aware template details."""
     org_id = get_org_id(request)
     result = await db.execute(
-        select(EmailTemplate).where(EmailTemplate.id == template_id)
+        select(EmailTemplate).where(EmailTemplate.id == template_id, EmailTemplate.org_id == org_id)
     )
     template = result.scalar_one_or_none()
     
@@ -423,6 +425,7 @@ async def create_email_template(request: Request, data: EmailTemplateCreate, db:
     """Create a new channel-aware template."""
     org_id = get_org_id(request)
     payload = _normalize_template_payload(data)
+    payload["org_id"] = org_id
     template = EmailTemplate(**payload)
     db.add(template)
     await db.commit()
@@ -434,7 +437,7 @@ async def create_email_template(request: Request, data: EmailTemplateCreate, db:
 async def update_email_template(request: Request, template_id: int, data: EmailTemplateUpdate, db: AsyncSession = Depends(get_tenant_db)):
     """Update a channel-aware template."""
     org_id = get_org_id(request)
-    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
+    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id, EmailTemplate.org_id == org_id))
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Email template not found")
@@ -451,11 +454,11 @@ async def update_email_template(request: Request, template_id: int, data: EmailT
 async def delete_email_template(request: Request, template_id: int, db: AsyncSession = Depends(get_tenant_db)):
     """Delete an email template."""
     org_id = get_org_id(request)
-    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
+    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id, EmailTemplate.org_id == org_id))
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Email template not found")
     
-    await db.execute(delete(EmailTemplate).where(EmailTemplate.id == template_id))
+    await db.execute(delete(EmailTemplate).where(EmailTemplate.id == template_id, EmailTemplate.org_id == org_id))
     await db.commit()
     return {"status": "deleted", "template_id": template_id}

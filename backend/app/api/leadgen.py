@@ -6,7 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, case, update, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from app.api.leadgen_schemas import (
     DeepAuditRequest, DeepAuditResponse,
 )
 from app.services.notify import send_notification
+from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -174,7 +175,7 @@ async def _ensure_review_columns(db: AsyncSession):
 # Background tasks
 # ---------------------------------------------------------------------------
 
-async def _run_search(job_id: int, request: SearchRequest):
+async def _run_search(job_id: int, request: SearchRequest, org_id: int):
     """Background task: search for businesses, insert leads with pending enrichment."""
     async with leadgen_session() as db:
         try:
@@ -187,7 +188,7 @@ async def _run_search(job_id: int, request: SearchRequest):
             inserted = 0
             for place in places:
                 existing = await db.execute(
-                    select(Lead).where(Lead.google_place_id == place.place_id)
+                    select(Lead).where(Lead.google_place_id == place.place_id).where(Lead.org_id == org_id)
                 )
                 if existing.scalar_one_or_none():
                     continue
@@ -212,12 +213,13 @@ async def _run_search(job_id: int, request: SearchRequest):
                     opening_hours=place.opening_hours,
                     has_website=bool(place.website),
                     enrichment_status="pending",
+                    org_id=org_id,
                 )
                 db.add(lead)
                 inserted += 1
 
             # Complete the search job — leads available
-            job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id))).scalar_one()
+            job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id).where(SearchJob.org_id == org_id))).scalar_one()
             job.total_found = len(places)
             job.status = "complete"
             await db.commit()
@@ -226,8 +228,8 @@ async def _run_search(job_id: int, request: SearchRequest):
             try:
                 for place in places:
                     await db.execute(
-                        text("UPDATE leadgen.leads SET lead_source = :src WHERE google_place_id = :pid"),
-                        {"src": place.source, "pid": place.place_id},
+                        text("UPDATE leadgen.leads SET lead_source = :src WHERE google_place_id = :pid AND org_id = :org_id"),
+                        {"src": place.source, "pid": place.place_id, "org_id": org_id},
                     )
                 await db.commit()
             except Exception:
@@ -253,7 +255,7 @@ async def _run_search(job_id: int, request: SearchRequest):
         except Exception as exc:
             logger.error("Search job %d failed: %s", job_id, exc, exc_info=True)
             try:
-                job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id))).scalar_one_or_none()
+                job = (await db.execute(select(SearchJob).where(SearchJob.id == job_id).where(SearchJob.org_id == org_id))).scalar_one_or_none()
                 if job:
                     job.status = "failed"
                     job.error_message = str(exc)[:500]
@@ -275,9 +277,9 @@ async def _run_enrichment_safe(job_id: int, db: AsyncSession):
                     UPDATE leadgen.leads
                     SET enrichment_status = 'failed',
                         enrichment_error = :err
-                    WHERE search_job_id = :jid AND enrichment_status = 'pending'
+                    WHERE search_job_id = :jid AND enrichment_status = 'pending' AND org_id = :org_id
                 """),
-                {"err": f"Batch enrichment error: {str(exc)[:200]}", "jid": job_id},
+                {"err": f"Batch enrichment error: {str(exc)[:200]}", "jid": job_id, "org_id": org_id},
             )
             await db.commit()
         except Exception:
@@ -301,6 +303,7 @@ async def _run_enrichment(job_id: int):
 
 @router.get("/leads", response_model=list[LeadResponse])
 async def list_leads(
+    request: Request,
     search_job_id: int | None = None,
     tier: str | None = None,
     enrichment_status: str | None = None,
@@ -317,8 +320,9 @@ async def list_leads(
 ):
     """List leads with filtering and sorting."""
     try:
+        org_id = get_org_id(request)
         await _ensure_review_columns(db)
-        query = select(Lead)
+        query = select(Lead).where(Lead.org_id == org_id)
 
         if search_job_id:
             query = query.where(Lead.search_job_id == search_job_id)
@@ -360,41 +364,43 @@ async def list_leads(
 
 
 @router.get("/leads/stats", response_model=StatsResponse)
-async def get_stats(search_job_id: int | None = None, db: AsyncSession = Depends(get_leadgen_db)):
+async def get_stats(request: Request, search_job_id: int | None = None, db: AsyncSession = Depends(get_leadgen_db)):
     """Get lead statistics."""
     try:
-        base = select(Lead)
+        org_id = get_org_id(request)
+        base = select(Lead).where(Lead.org_id == org_id)
         if search_job_id:
             base = base.where(Lead.search_job_id == search_job_id)
 
         total = (await db.execute(select(func.count(Lead.id)).select_from(base.subquery()))).scalar() or 0
         enriched = (await db.execute(
-            select(func.count(Lead.id)).where(Lead.enrichment_status == "enriched")
+            select(func.count(Lead.id)).where(Lead.enrichment_status == "enriched").where(Lead.org_id == org_id)
         )).scalar() or 0
         with_site = (await db.execute(
-            select(func.count(Lead.id)).where(Lead.has_website == True)
+            select(func.count(Lead.id)).where(Lead.has_website == True).where(Lead.org_id == org_id)
         )).scalar() or 0
         without_site = (await db.execute(
-            select(func.count(Lead.id)).where(Lead.has_website == False, Lead.enrichment_status == "enriched")
+            select(func.count(Lead.id)).where(Lead.has_website == False, Lead.enrichment_status == "enriched").where(Lead.org_id == org_id)
         )).scalar() or 0
 
-        hot = (await db.execute(select(func.count(Lead.id)).where(Lead.lead_tier == "hot"))).scalar() or 0
-        warm = (await db.execute(select(func.count(Lead.id)).where(Lead.lead_tier == "warm"))).scalar() or 0
-        cold = (await db.execute(select(func.count(Lead.id)).where(Lead.lead_tier == "cold"))).scalar() or 0
-        avg_score = (await db.execute(select(func.avg(Lead.lead_score)))).scalar() or 0.0
+        hot = (await db.execute(select(func.count(Lead.id)).where(Lead.lead_tier == "hot").where(Lead.org_id == org_id))).scalar() or 0
+        warm = (await db.execute(select(func.count(Lead.id)).where(Lead.lead_tier == "warm").where(Lead.org_id == org_id))).scalar() or 0
+        cold = (await db.execute(select(func.count(Lead.id)).where(Lead.lead_tier == "cold").where(Lead.org_id == org_id))).scalar() or 0
+        avg_score = (await db.execute(select(func.avg(Lead.lead_score)).where(Lead.org_id == org_id))).scalar() or 0.0
 
         cats = await db.execute(
             select(Lead.business_category, func.count(Lead.id).label("count"))
             .where(Lead.business_category.isnot(None))
+            .where(Lead.org_id == org_id)
             .group_by(Lead.business_category)
             .order_by(func.count(Lead.id).desc())
             .limit(10)
         )
         top_categories = [{"category": row[0], "count": row[1]} for row in cats.all()]
 
-        contacted = (await db.execute(select(func.count(Lead.id)).where(Lead.outreach_status != "none"))).scalar() or 0
-        won = (await db.execute(select(func.count(Lead.id)).where(Lead.contact_outcome == "won"))).scalar() or 0
-        lost = (await db.execute(select(func.count(Lead.id)).where(Lead.contact_outcome == "lost"))).scalar() or 0
+        contacted = (await db.execute(select(func.count(Lead.id)).where(Lead.outreach_status != "none").where(Lead.org_id == org_id))).scalar() or 0
+        won = (await db.execute(select(func.count(Lead.id)).where(Lead.contact_outcome == "won").where(Lead.org_id == org_id))).scalar() or 0
+        lost = (await db.execute(select(func.count(Lead.id)).where(Lead.contact_outcome == "lost").where(Lead.org_id == org_id))).scalar() or 0
 
         return StatsResponse(
             total_leads=total,
@@ -417,13 +423,15 @@ async def get_stats(search_job_id: int | None = None, db: AsyncSession = Depends
 
 @router.get("/leads/export")
 async def export_leads(
+    request: Request,
     search_job_id: int | None = None,
     tier: str | None = None,
     db: AsyncSession = Depends(get_leadgen_db),
 ):
     """Export leads to CSV."""
     try:
-        query = select(Lead)
+        org_id = get_org_id(request)
+        query = select(Lead).where(Lead.org_id == org_id)
         if search_job_id:
             query = query.where(Lead.search_job_id == search_job_id)
         if tier:
@@ -472,11 +480,12 @@ async def export_leads(
 # ---------------------------------------------------------------------------
 
 @router.get("/leads/freshness")
-async def get_freshness(db: AsyncSession = Depends(get_leadgen_db)):
+async def get_freshness(request: Request, db: AsyncSession = Depends(get_leadgen_db)):
     """Return freshness info for each search job — how old the data is."""
     try:
+        org_id = get_org_id(request)
         result = await db.execute(
-            select(SearchJob).order_by(SearchJob.created_at.desc())
+            select(SearchJob).where(SearchJob.org_id == org_id).order_by(SearchJob.created_at.desc())
         )
         jobs = result.scalars().all()
         now = datetime.now(timezone.utc)
@@ -513,16 +522,18 @@ async def get_freshness(db: AsyncSession = Depends(get_leadgen_db)):
 
 @router.delete("/leads/stale")
 async def delete_stale_leads(
+    request: Request,
     max_age_days: int = Query(default=30, ge=1, le=365),
     db: AsyncSession = Depends(get_leadgen_db),
 ):
     """Delete leads (and search jobs) older than max_age_days."""
     try:
+        org_id = get_org_id(request)
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
 
         # Find stale job IDs
         stale_jobs = await db.execute(
-            select(SearchJob.id).where(SearchJob.created_at < cutoff)
+            select(SearchJob.id).where(SearchJob.created_at < cutoff).where(SearchJob.org_id == org_id)
         )
         stale_job_ids = [row[0] for row in stale_jobs.all()]
 
@@ -531,13 +542,13 @@ async def delete_stale_leads(
 
         # Delete leads attached to stale jobs
         lead_result = await db.execute(
-            delete(Lead).where(Lead.search_job_id.in_(stale_job_ids))
+            delete(Lead).where(Lead.search_job_id.in_(stale_job_ids)).where(Lead.org_id == org_id)
         )
         leads_deleted = lead_result.rowcount
 
         # Delete stale jobs
         job_result = await db.execute(
-            delete(SearchJob).where(SearchJob.id.in_(stale_job_ids))
+            delete(SearchJob).where(SearchJob.id.in_(stale_job_ids)).where(SearchJob.org_id == org_id)
         )
         jobs_deleted = job_result.rowcount
 
@@ -555,24 +566,26 @@ async def delete_stale_leads(
 # ---------------------------------------------------------------------------
 
 @router.post("/search", response_model=SearchJobResponse)
-async def create_search(request: SearchRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_leadgen_db)):
+async def create_search(request_data: SearchRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_leadgen_db)):
     """Start a new business search."""
     try:
+        org_id = get_org_id(request)
         await _ensure_enrichment_error_column(db)
         await _ensure_source_column(db)
         await _ensure_review_columns(db)
 
         job = SearchJob(
-            query=request.query,
-            location=request.location,
-            radius_km=request.radius_km,
+            query=request_data.query,
+            location=request_data.location,
+            radius_km=request_data.radius_km,
             status="running",
+            org_id=org_id,
         )
         db.add(job)
         await db.commit()
         await db.refresh(job)
 
-        background_tasks.add_task(_run_search, job.id, request)
+        background_tasks.add_task(_run_search, job.id, request_data, org_id)
         return job
     except Exception as exc:
         logger.error("Failed to create search: %s", exc, exc_info=True)
@@ -580,10 +593,11 @@ async def create_search(request: SearchRequest, background_tasks: BackgroundTask
 
 
 @router.get("/search", response_model=list[SearchJobResponse])
-async def list_searches(db: AsyncSession = Depends(get_leadgen_db)):
+async def list_searches(request: Request, db: AsyncSession = Depends(get_leadgen_db)):
     """List all search jobs."""
     try:
-        result = await db.execute(select(SearchJob).order_by(SearchJob.created_at.desc()))
+        org_id = get_org_id(request)
+        result = await db.execute(select(SearchJob).where(SearchJob.org_id == org_id).order_by(SearchJob.created_at.desc()))
         return result.scalars().all()
     except Exception as exc:
         logger.error("Failed to list searches: %s", exc, exc_info=True)
@@ -591,10 +605,11 @@ async def list_searches(db: AsyncSession = Depends(get_leadgen_db)):
 
 
 @router.get("/search/{job_id}", response_model=SearchJobResponse)
-async def get_search(job_id: int, db: AsyncSession = Depends(get_leadgen_db)):
+async def get_search(job_id: int, request: Request, db: AsyncSession = Depends(get_leadgen_db)):
     """Get search job details."""
     try:
-        result = await db.execute(select(SearchJob).where(SearchJob.id == job_id))
+        org_id = get_org_id(request)
+        result = await db.execute(select(SearchJob).where(SearchJob.id == job_id).where(SearchJob.org_id == org_id))
         job = result.scalar_one_or_none()
         if not job:
             raise HTTPException(status_code=404, detail="Search job not found")
@@ -607,23 +622,25 @@ async def get_search(job_id: int, db: AsyncSession = Depends(get_leadgen_db)):
 
 
 @router.get("/search/{job_id}/status")
-async def get_search_status(job_id: int, db: AsyncSession = Depends(get_leadgen_db)):
+async def get_search_status(job_id: int, request: Request, db: AsyncSession = Depends(get_leadgen_db)):
     """Get detailed search job progress with status messages."""
     try:
-        result = await db.execute(select(SearchJob).where(SearchJob.id == job_id))
+        org_id = get_org_id(request)
+        result = await db.execute(select(SearchJob).where(SearchJob.id == job_id).where(SearchJob.org_id == org_id))
         job = result.scalar_one_or_none()
         if not job:
             raise HTTPException(status_code=404, detail="Search job not found")
 
         # Count lead statuses for this job
         total_leads = (await db.execute(
-            select(func.count(Lead.id)).where(Lead.search_job_id == job_id)
+            select(func.count(Lead.id)).where(Lead.search_job_id == job_id).where(Lead.org_id == org_id)
         )).scalar() or 0
 
         enriched = (await db.execute(
             select(func.count(Lead.id)).where(
                 Lead.search_job_id == job_id,
                 Lead.enrichment_status == "enriched",
+                Lead.org_id == org_id,
             )
         )).scalar() or 0
 
@@ -631,6 +648,7 @@ async def get_search_status(job_id: int, db: AsyncSession = Depends(get_leadgen_
             select(func.count(Lead.id)).where(
                 Lead.search_job_id == job_id,
                 Lead.enrichment_status == "pending",
+                Lead.org_id == org_id,
             )
         )).scalar() or 0
 
@@ -638,6 +656,7 @@ async def get_search_status(job_id: int, db: AsyncSession = Depends(get_leadgen_
             select(func.count(Lead.id)).where(
                 Lead.search_job_id == job_id,
                 Lead.enrichment_status == "failed",
+                Lead.org_id == org_id,
             )
         )).scalar() or 0
 
@@ -695,10 +714,11 @@ async def get_search_status(job_id: int, db: AsyncSession = Depends(get_leadgen_
 # ---------------------------------------------------------------------------
 
 @router.get("/leads/{lead_id}", response_model=LeadResponse)
-async def get_lead(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
+async def get_lead(lead_id: int, request: Request, db: AsyncSession = Depends(get_leadgen_db)):
     """Get a single lead by ID."""
     try:
-        result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        org_id = get_org_id(request)
+        result = await db.execute(select(Lead).where(Lead.id == lead_id).where(Lead.org_id == org_id))
         lead = result.scalar_one_or_none()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
@@ -718,10 +738,11 @@ async def get_lead(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
 
 
 @router.patch("/leads/{lead_id}", response_model=LeadResponse)
-async def update_lead(lead_id: int, body: LeadUpdate, db: AsyncSession = Depends(get_leadgen_db)):
+async def update_lead(lead_id: int, body: LeadUpdate, request: Request, db: AsyncSession = Depends(get_leadgen_db)):
     """Update editable fields on a lead."""
     try:
-        result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        org_id = get_org_id(request)
+        result = await db.execute(select(Lead).where(Lead.id == lead_id).where(Lead.org_id == org_id))
         lead = result.scalar_one_or_none()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
@@ -754,10 +775,11 @@ async def update_lead(lead_id: int, body: LeadUpdate, db: AsyncSession = Depends
 
 
 @router.post("/leads/{lead_id}/audit", response_model=WebsiteAuditResult)
-async def trigger_website_audit(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
+async def trigger_website_audit(lead_id: int, request: Request, db: AsyncSession = Depends(get_leadgen_db)):
     """Trigger website audit for a lead."""
     try:
-        result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        org_id = get_org_id(request)
+        result = await db.execute(select(Lead).where(Lead.id == lead_id).where(Lead.org_id == org_id))
         lead = result.scalar_one_or_none()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
@@ -790,10 +812,11 @@ async def trigger_website_audit(lead_id: int, db: AsyncSession = Depends(get_lea
 
 
 @router.get("/leads/{lead_id}/audit", response_model=WebsiteAuditResult)
-async def get_audit_results(lead_id: int, db: AsyncSession = Depends(get_leadgen_db)):
+async def get_audit_results(lead_id: int, request: Request, db: AsyncSession = Depends(get_leadgen_db)):
     """Get audit results for a lead."""
     try:
-        result = await db.execute(select(Lead).where(Lead.id == lead_id))
+        org_id = get_org_id(request)
+        result = await db.execute(select(Lead).where(Lead.id == lead_id).where(Lead.org_id == org_id))
         lead = result.scalar_one_or_none()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
@@ -821,6 +844,7 @@ async def get_audit_results(lead_id: int, db: AsyncSession = Depends(get_leadgen
 @router.post("/leads/{lead_id}/deep-audit", response_model=DeepAuditResponse)
 async def trigger_deep_audit(
     lead_id: int,
+    request: Request,
     body: DeepAuditRequest | None = None,
     db: AsyncSession = Depends(get_leadgen_db),
 ):
