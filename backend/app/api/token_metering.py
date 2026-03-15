@@ -6,7 +6,7 @@ All endpoints are tenant-isolated using get_tenant_db.
 import logging
 from typing import Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
