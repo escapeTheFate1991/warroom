@@ -74,7 +74,7 @@ async def create_template(
             SELECT r.permission_type, r.permissions
             FROM users u
             JOIN roles r ON u.role_id = r.id
-            WHERE u.id = :user_id AND u.id IN (SELECT user_id FROM organizations_tenant_users WHERE org_id = :org_id)
+            WHERE u.id = :user_id AND u.org_id = :org_id
         """),
         {"user_id": user_id, "org_id": org_id}
     )
@@ -194,7 +194,7 @@ async def update_template(
             SELECT r.permission_type, r.permissions
             FROM users u
             JOIN roles r ON u.role_id = r.id
-            WHERE u.id = :user_id AND u.id IN (SELECT user_id FROM organizations_tenant_users WHERE org_id = :org_id)
+            WHERE u.id = :user_id AND u.org_id = :org_id
         """),
         {"user_id": user_id, "org_id": org_id}
     )
@@ -265,7 +265,7 @@ async def provision_agent(
             SELECT r.permission_type, r.permissions
             FROM users u
             JOIN roles r ON u.role_id = r.id
-            WHERE u.id = :user_id AND u.id IN (SELECT user_id FROM organizations_tenant_users WHERE org_id = :org_id)
+            WHERE u.id = :user_id AND u.org_id = :org_id
         """),
         {"user_id": user_id, "org_id": org_id}
     )
@@ -303,7 +303,7 @@ async def deprovision_agent(
             SELECT r.permission_type, r.permissions
             FROM users u
             JOIN roles r ON u.role_id = r.id
-            WHERE u.id = :user_id AND u.id IN (SELECT user_id FROM organizations_tenant_users WHERE org_id = :org_id)
+            WHERE u.id = :user_id AND u.org_id = :org_id
         """),
         {"user_id": user_id, "org_id": org_id}
     )
@@ -388,7 +388,7 @@ async def list_org_agents(
             SELECT r.permission_type, r.permissions
             FROM users u
             JOIN roles r ON u.role_id = r.id
-            WHERE u.id = :user_id AND u.id IN (SELECT user_id FROM organizations_tenant_users WHERE org_id = :org_id)
+            WHERE u.id = :user_id AND u.org_id = :org_id
         """),
         {"user_id": user_id, "org_id": org_id}
     )

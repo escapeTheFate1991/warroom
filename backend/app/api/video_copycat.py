@@ -95,7 +95,8 @@ async def init_video_copycat_tables():
         migration_sql = f.read()
     
     async with leadgen_engine.begin() as conn:
-        await conn.execute(text(migration_sql))
+        raw = await conn.get_raw_connection()
+        await raw.driver_connection.execute(migration_sql)
     
     logger.info("Video copycat tables initialized")
 
