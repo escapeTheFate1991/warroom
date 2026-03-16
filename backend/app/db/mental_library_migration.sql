@@ -1,7 +1,6 @@
 -- Mental Library Migration — Creates ml_videos + ml_chunks tables in CRM schema
 -- This migration ensures the Mental Library tables exist with proper org_id filtering
 
-BEGIN;
 
 -- Create ml_videos table in CRM schema
 CREATE TABLE IF NOT EXISTS crm.ml_videos (
@@ -70,4 +69,3 @@ CREATE INDEX IF NOT EXISTS idx_ml_chunks_text_trgm ON crm.ml_chunks USING gin(te
 -- Enable pg_trgm extension for trigram search (if not already enabled)
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-COMMIT;
