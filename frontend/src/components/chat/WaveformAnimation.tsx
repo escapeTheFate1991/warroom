@@ -243,31 +243,7 @@ export function EnhancedWaveformIcon({
       stroke="currentColor" 
       strokeWidth="1.5" 
       strokeLinecap="round"
-      className={`transition-all duration-300 ${
-        isActive 
-          ? 'drop-shadow-[0_0_8px_currentColor] text-green-400' 
-          : 'text-current'
-      }`}
-      style={{
-        filter: isActive && hasActivity 
-          ? 'drop-shadow(0 0 12px currentColor) brightness(1.3)' 
-          : isActive 
-          ? 'drop-shadow(0 0 8px currentColor)' 
-          : 'none'
-      }}
     >
-      {/* Background glow for active state */}
-      {isActive && (
-        <defs>
-          <filter id="glow">
-            <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-            <feMerge> 
-              <feMergeNode in="coloredBlur"/>
-              <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-          </filter>
-        </defs>
-      )}
       
       {bars.map((bar, i) => {
         const height = animated && hasActivity
@@ -286,7 +262,7 @@ export function EnhancedWaveformIcon({
             x2={bar.x} 
             y1={12} 
             y2={12}
-            filter={isActive ? "url(#glow)" : "none"}
+            
           >
             <animate 
               attributeName="y1" 
@@ -314,7 +290,7 @@ export function EnhancedWaveformIcon({
             x2={bar.x} 
             y1={y1} 
             y2={y2} 
-            filter={isActive ? "url(#glow)" : "none"}
+            
           />
         );
       })}

@@ -46,7 +46,8 @@ const MARKDOWN_PROSE = [
 ].join(" ");
 import ArtifactPanel, { Artifact } from "./ArtifactPanel";
 import PromptImproverModal from "./PromptImproverModal";
-import WaveformAnimation, { EnhancedWaveformIcon } from "./WaveformAnimation";
+import { EnhancedWaveformIcon } from "./WaveformAnimation";
+import VoiceOrb from "./VoiceOrb";
 import type { AgentSummary } from "@/lib/agentAssignments";
 
 /* ── Types ─────────────────────────────────────────────── */
@@ -422,6 +423,9 @@ export default function ChatPanel() {
   const [isRecording, setIsRecording] = useState(false);
   const [isConversationMode, setIsConversationMode] = useState(false);
   const [hasVoiceActivity, setHasVoiceActivity] = useState(false);
+  const [isTTSPlaying, setIsTTSPlaying] = useState(false);
+  const [spokenText, setSpokenText] = useState<string | undefined>();
+  const [ttsDurationMs, setTtsDurationMs] = useState<number | undefined>();
   const [recordingDuration, setRecordingDuration] = useState(0);
 
   // Generation state — single source of truth for stop/send button
@@ -501,6 +505,7 @@ export default function ChatPanel() {
   const conversationRecorderRef = useRef<MediaRecorder | null>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const conversationActiveRef = useRef<boolean>(false);
+  const deviceChangeHandlerRef = useRef<(() => void) | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioQueueRef = useRef<(() => Promise<void>)[]>([]);
   const audioPlayingRef = useRef<boolean>(false);
@@ -1129,6 +1134,8 @@ export default function ChatPanel() {
     audioPlayingRef.current = true;
     await next();
     audioPlayingRef.current = false;
+    setIsTTSPlaying(false);
+    setSpokenText(undefined);
     // Play next in queue if any
     if (conversationActiveRef.current && audioQueueRef.current.length > 0) {
       processAudioQueue();
@@ -1148,24 +1155,44 @@ export default function ChatPanel() {
     lastSpokenTextRef.current = textHash;
     lastSpokenTimeRef.current = now;
 
+    // Strip markdown for clean spoken text
+    const cleanText = text.replace(/```[\s\S]*?```/g, "").replace(/[*_~`#>]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim();
+    const spokenSlice = cleanText.slice(0, 500);
+    // Estimate duration: ~150ms per word for edge-tts
+    const wordCount = spokenSlice.split(/\s+/).length;
+    const estimatedMs = wordCount * 150;
+
     const playTask = async () => {
       if (!conversationActiveRef.current) return;
       try {
-        const resp = await authFetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(text.slice(0, 500))}`, {
+        const resp = await authFetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(spokenSlice)}`, {
           method: "POST",
         });
         if (resp.ok && conversationActiveRef.current) {
           const blob = await resp.blob();
           const audio = new Audio(URL.createObjectURL(blob));
           currentAudioRef.current = audio;
+          // Update duration estimate from actual audio if possible
+          audio.onloadedmetadata = () => {
+            if (audio.duration && isFinite(audio.duration)) {
+              setTtsDurationMs(audio.duration * 1000);
+            }
+          };
           await new Promise<void>((resolve) => {
-            audio.onended = () => { currentAudioRef.current = null; resolve(); };
-            audio.onerror = () => { currentAudioRef.current = null; resolve(); };
-            audio.play().catch(() => resolve());
+            audio.onended = () => { currentAudioRef.current = null; setSpokenText(undefined); setIsTTSPlaying(false); resolve(); };
+            audio.onerror = (e) => { console.error("TTS audio error:", e); currentAudioRef.current = null; setSpokenText(undefined); setIsTTSPlaying(false); resolve(); };
+            audio.play().then(() => {
+              console.log("TTS playing, duration:", audio.duration);
+              // Only show captions + mark speaking AFTER play succeeds
+              setIsTTSPlaying(true);
+              setSpokenText(spokenSlice);
+              setTtsDurationMs(audio.duration && isFinite(audio.duration) ? audio.duration * 1000 : estimatedMs);
+            }).catch((err) => { console.error("TTS play() rejected:", err); setSpokenText(undefined); setIsTTSPlaying(false); resolve(); });
           });
         }
       } catch (err) {
         console.error("TTS failed:", err);
+        setSpokenText(undefined);
       }
     };
 
@@ -1563,8 +1590,9 @@ export default function ChatPanel() {
         </div>
       )}
 
-      {/* Messages area */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto min-h-0">
+      {/* Messages area wrapper (relative for orb overlay) */}
+      <div className="flex-1 min-h-0 relative">
+      <div ref={messagesContainerRef} className="absolute inset-0 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
           {messages.length === 0 && !streamText && (
             <div className="flex flex-col items-center justify-center pt-[20vh] text-warroom-muted">
@@ -1727,52 +1755,20 @@ export default function ChatPanel() {
                   </div>
                 )}
 
-                {/* Streaming text or wave animation */}
+                {/* Streaming text */}
                 {streamText && (
-                  <>
-                    {isConversationMode ? (
-                      /* Show wave animation instead of text when in conversation mode */
-                      <div className="relative w-full h-32 rounded-lg border border-warroom-border/30 bg-warroom-surface/20 overflow-hidden">
-                        <WaveformAnimation
-                          isActive={isConversationMode}
-                          hasVoiceActivity={hasVoiceActivity}
-                          isListening={!hasVoiceActivity}
-                          isSpeaking={hasVoiceActivity}
-                        />
-                        <div className="absolute top-2 right-2">
-                          <div className="text-xs text-warroom-muted/60 bg-black/20 backdrop-blur-sm rounded px-2 py-1">
-                            {streamText.length} chars
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      /* Normal text streaming */
-                      <div className={MARKDOWN_PROSE}>
-                        <SafeMarkdown>{streamText}</SafeMarkdown>
-                        <span className="inline-block w-2 h-4 bg-warroom-accent/60 animate-pulse ml-0.5" />
-                      </div>
-                    )}
-                  </>
+                  <div className={MARKDOWN_PROSE}>
+                    <SafeMarkdown>{streamText}</SafeMarkdown>
+                    <span className="inline-block w-2 h-4 bg-warroom-accent/60 animate-pulse ml-0.5" />
+                  </div>
                 )}
 
-                {/* Loading dots when no text yet but tools are active (and no partial content either) */}
-                {!streamText && !partialContent && !thinkingText && activeTools.length > 0 && activeTools.some(t => t.status === "running") && !isConversationMode && (
+                {/* Loading dots when no text yet but tools are active */}
+                {!streamText && !partialContent && !thinkingText && activeTools.length > 0 && activeTools.some(t => t.status === "running") && (
                   <div className="flex items-center gap-1 py-1">
                     <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:0ms]" />
                     <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:150ms]" />
                     <span className="w-1.5 h-1.5 bg-warroom-muted rounded-full animate-bounce [animation-delay:300ms]" />
-                  </div>
-                )}
-
-                {/* Wave animation during conversation mode when waiting or processing */}
-                {isConversationMode && !streamText && !partialContent && !thinkingText && (
-                  <div className="relative w-full h-24 rounded-lg border border-warroom-border/30 bg-warroom-surface/20 overflow-hidden">
-                    <WaveformAnimation
-                      isActive={isConversationMode}
-                      hasVoiceActivity={hasVoiceActivity}
-                      isListening={!hasVoiceActivity}
-                      isSpeaking={hasVoiceActivity}
-                    />
                   </div>
                 )}
               </div>
@@ -1811,24 +1807,11 @@ export default function ChatPanel() {
                 <Bot size={16} className="text-warroom-accent" />
               </div>
               <div className="flex-1 min-w-0">
-                {isConversationMode ? (
-                  /* Show wave animation during initial loading in conversation mode */
-                  <div className="relative w-full h-16 rounded-lg border border-warroom-border/30 bg-warroom-surface/20 overflow-hidden">
-                    <WaveformAnimation
-                      isActive={isConversationMode}
-                      hasVoiceActivity={hasVoiceActivity}
-                      isListening={!hasVoiceActivity}
-                      isSpeaking={hasVoiceActivity}
-                    />
-                  </div>
-                ) : (
-                  /* Normal loading dots */
-                  <div className="flex items-center gap-1 py-2">
-                    <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:0ms]" />
-                    <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:150ms]" />
-                    <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:300ms]" />
-                  </div>
-                )}
+                <div className="flex items-center gap-1 py-2">
+                  <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:0ms]" />
+                  <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:150ms]" />
+                  <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:300ms]" />
+                </div>
               </div>
             </div>
           )}
@@ -1837,8 +1820,18 @@ export default function ChatPanel() {
         </div>
       </div>
 
+      {/* Voice orb overlay — covers messages area during conversation mode */}
+      <VoiceOrb
+        isActive={isConversationMode}
+        isSpeaking={isTTSPlaying}
+        isListening={hasVoiceActivity}
+        isProcessing={isLoading || isGenerating}
+        spokenText={spokenText}
+        ttsDurationMs={ttsDurationMs}
+      />
+
       {/* Scroll to bottom */}
-      <div className={`absolute bottom-32 left-1/2 -translate-x-1/2 z-10 transition-all duration-200 ${showScrollButton ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-2 pointer-events-none"}`}>
+      <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-10 transition-all duration-200 ${showScrollButton ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-2 pointer-events-none"}`}>
         <button
           onClick={() => scrollToBottom(true)}
           className="bg-warroom-surface/90 border border-warroom-border rounded-full p-2 shadow-lg hover:bg-warroom-accent/20 transition-colors backdrop-blur-sm"
@@ -1846,6 +1839,7 @@ export default function ChatPanel() {
         >
           <ArrowDown size={16} className="text-warroom-text" />
         </button>
+      </div>
       </div>
 
       {/* Voice recording overlay (STT) */}
@@ -1871,34 +1865,6 @@ export default function ChatPanel() {
             </button>
             <button onClick={stopRecording} className="bg-warroom-accent rounded-full p-2 hover:bg-warroom-accent/80 transition">
               <StopCircle size={18} />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Conversation mode banner */}
-      {isConversationMode && !isRecording && (
-        <div className="mx-auto max-w-3xl w-full px-4 mb-2">
-          <div className="bg-warroom-surface border border-green-500/30 rounded-2xl p-4 flex items-center gap-4">
-            <div className={`w-3 h-3 rounded-full ${hasVoiceActivity ? "bg-green-500 animate-pulse" : "bg-green-500/40"}`} />
-            <span className="text-sm text-warroom-text">
-              {hasVoiceActivity ? "Listening..." : "Conversation mode — speak to chat"}
-            </span>
-            <div className="flex-1 flex items-center gap-0.5 h-6">
-              {Array.from({ length: 30 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="flex-1 bg-green-500/40 rounded-full transition-all duration-75"
-                  style={{
-                    height: hasVoiceActivity ? `${Math.random() * 100}%` : "4px",
-                    minHeight: "4px",
-                  }}
-                />
-              ))}
-            </div>
-            <button onClick={stopConversationMode} className="bg-red-500/20 text-red-400 rounded-full px-3 py-1.5 text-sm hover:bg-red-500/30 transition flex items-center gap-1.5">
-              <StopCircle size={14} />
-              End
             </button>
           </div>
         </div>
@@ -1983,7 +1949,7 @@ export default function ChatPanel() {
                 <button
                   onClick={toggleConversationMode}
                   disabled={isRecording}
-                  className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isConversationMode ? "text-green-400 bg-green-500/10" : "text-warroom-muted hover:text-warroom-text"} disabled:opacity-30`}
+                  className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isConversationMode ? "text-warroom-accent bg-warroom-accent/15" : "text-warroom-muted hover:text-warroom-text"} disabled:opacity-30`}
                   title="Voice conversation"
                 >
                   <EnhancedWaveformIcon 
@@ -1998,7 +1964,11 @@ export default function ChatPanel() {
               </div>
 
               <div className="flex items-center gap-1.5">
-                {isGenerating ? (
+                {isConversationMode ? (
+                  <button onClick={stopConversationMode} className="p-2 rounded-full bg-warroom-danger/20 text-warroom-danger hover:bg-warroom-danger/30 transition" title="End conversation">
+                    <StopCircle size={18} />
+                  </button>
+                ) : isGenerating ? (
                   <button onClick={abortResponse} className="p-2 rounded-full bg-warroom-danger/20 text-warroom-danger hover:bg-warroom-danger/30 transition" title="Stop generating">
                     <StopCircle size={18} />
                   </button>

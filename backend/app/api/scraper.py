@@ -535,7 +535,7 @@ async def _run_instagram_sync_in_background() -> None:
     try:
         async with crm_session() as db:
             await db.execute(text("SET search_path TO crm, public"))
-            result = await _execute_instagram_sync(db)
+            result = await _execute_instagram_sync(db, org_id=1)
             await db.commit()
             logger.info(
                 "Background Instagram sync finished: %s/%s succeeded, %s posts cached",

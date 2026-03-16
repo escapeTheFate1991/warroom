@@ -55,6 +55,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       # SQLite read-only mount from the mental-library skill volume
       MENTAL_LIBRARY_DB: ${MENTAL_LIBRARY_DB:-/data/mental-library/mental_library.db}
+      VOICE_IO_SCRIPTS_PATH: /voice-io-scripts
     restart: unless-stopped
     network_mode: host
     volumes:

@@ -49,11 +49,14 @@ async def transcribe_via_tcp(wav_data: bytes) -> dict:
 BT_SCAN_SCRIPT = os.path.join(VOICE_IO_SCRIPTS_PATH, "bt-scan.sh")
 
 
+def _bt_env():
+    return {**os.environ, "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000")}
+
 @router.get("/bt/status")
 async def bt_status():
     """Return current Bluetooth audio device status."""
     try:
-        proc = subprocess.run(["bash", BT_SCAN_SCRIPT, "info"], capture_output=True, timeout=5)
+        proc = subprocess.run(["bash", BT_SCAN_SCRIPT, "info"], capture_output=True, timeout=5, env=_bt_env())
         return json.loads(proc.stdout.decode().strip())
     except Exception as e:
         return {"connected": False, "error": str(e)}
@@ -61,30 +64,42 @@ async def bt_status():
 
 @router.post("/bt/hfp")
 async def bt_switch_hfp():
-    """Auto-discover BT device and switch to HFP (mic mode). Reconnects if needed."""
+    """Auto-discover BT device and switch to HFP (mic mode). No disconnect/reconnect."""
+    # Use uid 1000 (host user) for PipeWire access — container runs as root
     try:
         # Get current state
-        info_proc = subprocess.run(["bash", BT_SCAN_SCRIPT, "info"], capture_output=True, timeout=5)
+        info_proc = subprocess.run(["bash", BT_SCAN_SCRIPT, "info"], capture_output=True, timeout=5, env=_bt_env())
         info = json.loads(info_proc.stdout.decode().strip())
 
         if not info.get("connected"):
             return {"ok": False, "error": "No Bluetooth audio device connected"}
 
-        mac = info.get("mac", "")
-
         # If already in HFP with mic, just return
         if info.get("mic_active") and "headset-head-unit" in info.get("profile", ""):
             return {"ok": True, "device": info.get("name"), "action": "already_hfp"}
 
-        # Disconnect and reconnect to force fresh SCO transport
-        subprocess.run(["bluetoothctl", "disconnect", mac], capture_output=True, timeout=5)
-        await asyncio.sleep(2)
-        subprocess.run(["bluetoothctl", "connect", mac], capture_output=True, timeout=10)
-        await asyncio.sleep(3)
+        # Switch primary device to HFP, set others to A2DP to avoid conflicts
+        # Get all BT cards
+        all_cards = subprocess.run(
+            ["pactl", "list", "cards", "short"],
+            capture_output=True, timeout=5, env=_bt_env(), text=True
+        )
+        for line in all_cards.stdout.strip().split("\n"):
+            if "bluez_card" not in line:
+                continue
+            card_name = line.split()[1]
+            card_mac = card_name.replace("bluez_card.", "").replace("_", ":")
+            if card_mac == info.get("mac", ""):
+                # This is the primary — switch to HFP
+                continue
+            # Other devices — force to A2DP so they don't grab the mic
+            subprocess.run(
+                ["pactl", "set-card-profile", card_name, "a2dp-sink"],
+                capture_output=True, timeout=5, env=_bt_env()
+            )
 
-        # Switch to HFP
-        subprocess.run(["bash", BT_SCAN_SCRIPT, "hfp"], capture_output=True, timeout=5)
-        await asyncio.sleep(1)
+        subprocess.run(["bash", BT_SCAN_SCRIPT, "hfp"], capture_output=True, timeout=5, env=_bt_env())
+        await asyncio.sleep(0.5)
 
         # Set mic volume to 100%
         card = info.get("card", "")
@@ -92,7 +107,7 @@ async def bt_switch_hfp():
         subprocess.run(
             ["pactl", "set-source-volume", source, "100%"],
             capture_output=True, timeout=5,
-            env={**os.environ, "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"},
+            env=_bt_env(),
         )
 
         return {"ok": True, "device": info.get("name"), "action": "switched_to_hfp"}
@@ -104,7 +119,7 @@ async def bt_switch_hfp():
 async def bt_switch_a2dp():
     """Switch back to A2DP (hi-fi audio, no mic)."""
     try:
-        proc = subprocess.run(["bash", BT_SCAN_SCRIPT, "a2dp"], capture_output=True, timeout=5)
+        proc = subprocess.run(["bash", BT_SCAN_SCRIPT, "a2dp"], capture_output=True, timeout=5, env=_bt_env())
         return {"ok": True, "output": proc.stdout.decode().strip()}
     except Exception as e:
         return {"ok": False, "error": str(e)}
