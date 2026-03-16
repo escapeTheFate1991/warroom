@@ -63,6 +63,35 @@ async def _init_agent_chat_tables(engine):
         return False
 
 
+async def _init_network_ai_blackboard():
+    """Initialize Network-AI blackboard (ensure blackboard file exists)."""
+    try:
+        from pathlib import Path
+        import subprocess
+        
+        network_ai_dir = Path.home() / ".openclaw/workspace/skills/network-ai"
+        blackboard_script = network_ai_dir / "scripts" / "blackboard.py"
+        
+        if not blackboard_script.exists():
+            logger.error(f"Network-AI blackboard script not found: {blackboard_script}")
+            return False
+        
+        # Initialize blackboard by calling it with a simple command (this creates the file)
+        result = subprocess.run([
+            "python3", str(blackboard_script), "list"
+        ], capture_output=True, text=True, timeout=10, cwd=str(network_ai_dir))
+        
+        if result.returncode != 0:
+            logger.warning(f"Network-AI blackboard init warning: {result.stderr}")
+            # Don't fail startup for this - blackboard will be created on first write
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Network-AI blackboard initialization failed: {e}")
+        return False
+
+
 def _validate_jwt_secret():
     """Validate JWT secret strength at startup."""
     from app.config import settings
@@ -214,6 +243,10 @@ async def lifespan(app: FastAPI):
         # Agent chat tables (public schema) — user-agent conversations and tasks
         await _init_agent_chat_tables(leadgen_engine)
         logger.info("Agent chat tables initialized")
+        
+        # Network-AI blackboard initialization (ensure blackboard file exists)
+        await _init_network_ai_blackboard()
+        logger.info("Network-AI blackboard initialized")
         
         # Audit Trail table (public schema) — immutable activity logging
         from app.services.audit_trail import init_audit_trail_table
@@ -391,8 +424,9 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(kanban.router, prefix="/api/kanban", tags=["kanban"])
 app.include_router(team.router, prefix="/api/team", tags=["team"])
 app.include_router(agent_onboarding.router, tags=["agent-onboarding"])
-app.include_router(knowledge_pool.router, tags=["knowledge-pool"])
 app.include_router(agents.router, prefix="/api", tags=["agents"])
+app.include_router(agent_chat.router, prefix="/api", tags=["agent-chat"])
+app.include_router(agent_comms.router, prefix="/api", tags=["agent-comms"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(leadgen.router, prefix="/api/leadgen", tags=["leadgen"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])

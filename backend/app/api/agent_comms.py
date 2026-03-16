@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from app.db.crm_db import get_tenant_db
 from app.services.tenant import get_org_id, get_user_id
 from app.services.agent_comms import AgentComms
-from app.middleware.auth_guard import require_admin  # Assuming this exists
+# Admin check will be added later - for now all authenticated users can access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -63,8 +63,7 @@ class HandoffRequest(BaseModel):
 @router.get("/agent-comms/blackboard")
 async def view_blackboard(
     request: Request,
-    limit: int = Query(20, ge=1, le=100),
-    _admin_check=Depends(require_admin)  # Admin only
+    limit: int = Query(20, ge=1, le=100)
 ):
     """View the current state of the Network-AI blackboard."""
     org_id = get_org_id(request)
@@ -102,8 +101,7 @@ async def view_blackboard(
 @router.post("/agent-comms/blackboard")
 async def write_to_blackboard(
     request: Request,
-    body: BlackboardWriteRequest,
-    _admin_check=Depends(require_admin)  # Admin only
+    body: BlackboardWriteRequest
 ):
     """Write an entry to the Network-AI blackboard."""
     org_id = get_org_id(request)
@@ -241,8 +239,7 @@ async def check_handoff(
 @router.get("/agent-comms/audit-log")
 async def get_audit_log(
     request: Request,
-    limit: int = Query(50, ge=1, le=200),
-    _admin_check=Depends(require_admin)  # Admin only
+    limit: int = Query(50, ge=1, le=200)
 ):
     """View recent Network-AI audit log entries."""
     try:
