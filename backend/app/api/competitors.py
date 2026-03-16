@@ -574,7 +574,7 @@ async def sync_competitors(
         ]
 
         if instagram_competitors:
-            batch_result = await sync_instagram_competitor_batch(db, instagram_competitors)
+            batch_result = await sync_instagram_competitor_batch(db, instagram_competitors, org_id)
             instagram_lookup = {
                 competitor.handle.strip().lstrip("@").lower(): competitor
                 for competitor in instagram_competitors

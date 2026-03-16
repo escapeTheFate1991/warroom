@@ -486,10 +486,10 @@ function SocialFocus({ accounts, summary, trends, sparklineData, pipelineStats }
         {socialKpis.map((kpi, i) => {
           const Icon = kpi.icon;
           return (
-            <div key={i} className="bg-warroom-surface border border-warroom-border rounded-xl p-3 sm:p-4 relative overflow-hidden">
+            <div key={i} className="glass-card p-3 sm:p-4 relative overflow-hidden group">
               <div className="flex items-center justify-between mb-2 sm:mb-3">
-                <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg ${kpi.bg} flex items-center justify-center`}>
-                  <Icon size={14} className={kpi.color} />
+                <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-warroom-gradient flex items-center justify-center group-hover:shadow-glow-sm transition-all`}>
+                  <Icon size={14} className="text-white" />
                 </div>
                 {kpi.trend && (
                   <span className="flex items-center gap-0.5 text-[10px] sm:text-xs text-green-400 font-medium">
@@ -497,7 +497,7 @@ function SocialFocus({ accounts, summary, trends, sparklineData, pipelineStats }
                   </span>
                 )}
               </div>
-              <p className={`text-lg sm:text-xl font-bold ${kpi.color}`}>
+              <p className="text-lg sm:text-xl font-bold gradient-text">
                 {kpi.isRate ? `${(typeof kpi.value === "number" ? kpi.value : 0).toFixed(1)}%` : formatNum(typeof kpi.value === "number" ? kpi.value : 0)}
               </p>
               <p className="text-[10px] sm:text-xs text-warroom-muted mt-1 truncate">{kpi.label}</p>
@@ -507,14 +507,14 @@ function SocialFocus({ accounts, summary, trends, sparklineData, pipelineStats }
       </div>
 
       {/* Platform Performance Grid */}
-      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+      <div className="glass-card inner-glow p-5">
         <h3 className="text-sm font-semibold flex items-center gap-2 mb-4">
           <Share2 size={16} className="text-warroom-accent" /> Platform Performance
         </h3>
         {accounts.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {accounts.map(acc => (
-              <div key={acc.id} className="bg-warroom-bg border border-warroom-border rounded-xl p-3 sm:p-4 hover:border-warroom-accent/30 transition">
+              <div key={acc.id} className="stat-card p-3 sm:p-4 hover:shadow-glow-sm transition-all">
                 <div className="flex items-center justify-between mb-2 sm:mb-3">
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: PLATFORM_COLORS[acc.platform] || "#666" }} />
@@ -546,7 +546,7 @@ function SocialFocus({ accounts, summary, trends, sparklineData, pipelineStats }
       </div>
 
       {/* Top Performing Content */}
-      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+      <div className="glass-card inner-glow p-5">
         <h3 className="text-sm font-semibold flex items-center gap-2 mb-3">
           <Flame size={16} className="text-orange-400" /> Top Performing Content
         </h3>
@@ -580,7 +580,7 @@ function AIFocus({ agents, events }: {
         {agents.map(agent => {
           const isRunning = agent.status === "working" || agent.id === "friday";
           return (
-            <div key={agent.id} className="bg-warroom-surface border border-warroom-border rounded-xl p-3 sm:p-4 hover:border-warroom-accent/30 transition">
+            <div key={agent.id} className="glass-card p-3 sm:p-4 hover:shadow-glow-sm transition-all">
               <div className="flex items-center gap-2 sm:gap-2.5 mb-2 sm:mb-3">
                 <span className="text-xl sm:text-2xl">{agent.emoji}</span>
                 <div className="flex-1 min-w-0">

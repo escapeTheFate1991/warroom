@@ -65,12 +65,12 @@ export default function Sidebar({ menuSections, activeTab, setActiveTab, isChild
 
   // Desktop: static sidebar. Mobile: overlay drawer.
   const sidebarContent = (
-    <nav className={`${collapsed && !open ? "w-14" : "w-[220px]"} bg-warroom-surface flex flex-col py-3 gap-0.5 flex-shrink-0 overflow-y-auto scrollbar-thin scrollbar-thumb-warroom-border scrollbar-track-transparent transition-all duration-200 h-full`}>
+    <nav className={`${collapsed && !open ? "w-14" : "w-[220px]"} bg-warroom-surface flex flex-col py-3 gap-0.5 flex-shrink-0 overflow-y-auto scrollbar-thin scrollbar-thumb-warroom-border scrollbar-track-transparent transition-all duration-200 h-full relative`}>
       {/* Header */}
       <div className={`mb-3 flex items-center justify-between ${collapsed && !open ? "px-2" : "px-4"}`}>
         <div className={`flex items-center ${collapsed && !open ? "justify-center" : "gap-2.5"}`}>
-          <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-warroom-accent to-purple-600 flex-shrink-0">
-            <Zap size={16} className="text-white" />
+          <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-warroom-accent/15 flex-shrink-0">
+            <Zap size={16} className="text-warroom-accent" />
           </div>
           {(!collapsed || open) && <span className="text-sm font-bold tracking-wide text-warroom-text/90">WAR ROOM</span>}
         </div>
@@ -86,7 +86,7 @@ export default function Sidebar({ menuSections, activeTab, setActiveTab, isChild
       {menuSections.map((section, si) => (
         <div key={section.label} className={`w-full ${collapsed && !open ? "px-1" : "px-2"}`}>
           {si > 0 && <div className="h-px bg-warroom-border/40 my-2" />}
-          {(!collapsed || open) && <p className="text-[10px] text-warroom-text/40 font-semibold tracking-widest px-2 mb-1">{section.label}</p>}
+          {(!collapsed || open) && <p className="text-[10px] text-warroom-text/40 font-semibold tracking-[0.1em] px-2 mb-1.5">{section.label}</p>}
           {section.items.map((item) => {
             const Icon = item.icon;
             const hasChildren = item.children && item.children.length > 0;
@@ -102,10 +102,10 @@ export default function Sidebar({ menuSections, activeTab, setActiveTab, isChild
                     if (!hasChildren) handleSelect(item.id);
                     else if (item.children?.[0]) handleSelect(item.children[0].id);
                   }}
-                  className={`w-full h-9 rounded-lg flex items-center ${collapsed && !open ? "justify-center px-0" : "gap-2.5 px-2.5"} transition-all ${
+                  className={`w-full h-9 rounded-lg flex items-center ${collapsed && !open ? "justify-center px-0" : "gap-2.5 px-2.5"} transition-colors relative ${
                     isActive
-                      ? "bg-warroom-accent/15 text-warroom-accent"
-                      : "text-warroom-text/60 hover:text-warroom-text/90 hover:bg-warroom-border/30"
+                      ? "bg-warroom-accent/15 text-warroom-accent before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[3px] before:bg-warroom-accent before:rounded-r-full"
+                      : "text-warroom-text/60 hover:text-warroom-text/80 hover:bg-warroom-border/20"
                   }`}
                   title={item.label}
                 >
@@ -140,7 +140,7 @@ export default function Sidebar({ menuSections, activeTab, setActiveTab, isChild
                     style={{ top: dropdownPos.top, left: dropdownPos.left, zIndex: 9999 }}
                     onMouseEnter={() => openDropdown(item.id)}
                     onMouseLeave={scheduleClose}>
-                    <div className="bg-warroom-surface border border-warroom-border rounded-xl shadow-2xl shadow-black/40 py-1.5 min-w-[160px]">
+                    <div className="glass-card py-1.5 min-w-[160px] shadow-2xl shadow-black/40">
                       {item.children!.map((child) => {
                         const ChildIcon = child.icon;
                         return (

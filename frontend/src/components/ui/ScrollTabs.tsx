@@ -40,7 +40,7 @@ export default function ScrollTabs({ tabs, active, onChange, size = "md" }: Scro
   return (
     <div
       ref={scrollRef}
-      className="flex overflow-x-auto scrollbar-none border-b border-warroom-border bg-warroom-surface flex-shrink-0"
+      className="flex overflow-x-auto scrollbar-none border-b border-warroom-border bg-warroom-surface flex-shrink-0 relative after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-gradient-to-r after:from-transparent after:via-warroom-border after:to-transparent"
       style={{ WebkitOverflowScrolling: "touch" }}
     >
       {tabs.map((tab) => {
@@ -51,10 +51,10 @@ export default function ScrollTabs({ tabs, active, onChange, size = "md" }: Scro
             key={tab.id}
             ref={isActive ? activeRef : undefined}
             onClick={() => onChange(tab.id)}
-            className={`flex items-center gap-1.5 ${px} ${py} ${textSize} font-medium border-b-2 transition whitespace-nowrap flex-shrink-0 ${
+            className={`flex items-center gap-1.5 ${px} ${py} ${textSize} font-medium border-b-2 transition-all whitespace-nowrap flex-shrink-0 relative ${
               isActive
-                ? "text-warroom-accent border-warroom-accent bg-warroom-accent/5"
-                : "text-warroom-muted border-transparent hover:text-warroom-text"
+                ? "text-white bg-warroom-gradient rounded-t-lg border-transparent shadow-glow-sm"
+                : "text-warroom-muted border-transparent hover:text-warroom-text hover:bg-warroom-surface2/50"
             }`}
           >
             {Icon && <Icon size={size === "sm" ? 14 : 16} />}

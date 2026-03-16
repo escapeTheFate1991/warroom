@@ -174,7 +174,7 @@ function normalizeTab(tab: string | null): TabId {
 const PARENT_CHILDREN: Record<string, string[]> = {
   library: ["library-search", "library-educate"],
   marketing: ["marketing-campaigns", "marketing-templates"],
-  finance: ["invoices", "contracts", "reports-overview", "reports-revenue", "reports-sales"],
+  finance: ["invoices", "contracts"],
   reports: ["reports-overview", "reports-revenue", "reports-sales"],
 };
 

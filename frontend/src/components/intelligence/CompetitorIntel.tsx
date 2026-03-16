@@ -265,12 +265,12 @@ interface ScrapeStatusResponse {
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
-  instagram: "bg-pink-500/20 text-pink-400",
-  tiktok: "bg-cyan-500/20 text-cyan-400",
-  youtube: "bg-red-500/20 text-red-400",
-  x: "bg-gray-600/20 text-gray-300",
-  facebook: "bg-blue-500/20 text-blue-400",
-  threads: "bg-gray-500/20 text-gray-400",
+  instagram: "bg-gradient-to-r from-pink-500/20 to-purple-500/20 text-pink-400 border border-pink-500/20",
+  tiktok: "bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/20",
+  youtube: "bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-400 border border-red-500/20",
+  x: "bg-gradient-to-r from-gray-600/20 to-gray-500/20 text-gray-300 border border-gray-600/20",
+  facebook: "bg-gradient-to-r from-blue-500/20 to-indigo-500/20 text-blue-400 border border-blue-500/20",
+  threads: "bg-gradient-to-r from-gray-500/20 to-gray-600/20 text-gray-400 border border-gray-500/20",
 };
 
 const CONTENT_TIMEFRAME_OPTIONS = [
@@ -839,7 +839,7 @@ export default function CompetitorIntel() {
   const [loadingInstagramAdvice, setLoadingInstagramAdvice] = useState(false);
   const [hashtags, setHashtags] = useState<HashtagItem[]>([]);
   const [loadingHashtags, setLoadingHashtags] = useState(false);
-  const [contentTimeframeDays, setContentTimeframeDays] = useState<number>(1);
+  const [contentTimeframeDays, setContentTimeframeDays] = useState<number>(30);
 
   // Fetch competitors
   const fetchCompetitors = async (): Promise<Competitor[]> => {
@@ -1492,7 +1492,7 @@ export default function CompetitorIntel() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-6xl mx-auto">
+        <div className="w-full">
 
           {/* COMPETITORS TAB */}
           {activeTab === "competitors" && (
@@ -2082,7 +2082,7 @@ export default function CompetitorIntel() {
                   </div>
 
                   {/* 2. Audience Intelligence */}
-                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                  <div className="glass-card inner-glow p-5">
                     <div className="flex items-center gap-2 mb-4">
                       <Users size={18} className="text-warroom-accent" />
                       <h3 className="text-sm font-semibold">Audience Intelligence</h3>
@@ -2095,22 +2095,22 @@ export default function CompetitorIntel() {
                     ) : globalAudienceIntel ? (
                       <div className="space-y-4">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                          <div className="stat-card p-3">
                             <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.posts_analyzed}</p>
                             <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Posts analyzed</p>
                           </div>
-                          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                          <div className="stat-card p-3">
                             <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.comments_analyzed.toLocaleString()}</p>
                             <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Comments</p>
                           </div>
-                          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
+                          <div className="stat-card p-3">
                             <p className={`text-lg font-bold capitalize ${AUDIENCE_SENTIMENT_COLORS[globalAudienceIntel.sentiment] || "text-warroom-text"}`}>
                               {globalAudienceIntel.sentiment.replace(/_/g, " ")}
                             </p>
                             <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Sentiment</p>
                           </div>
-                          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3">
-                            <p className="text-lg font-bold text-warroom-accent">{globalAudienceIntel.sentiment_percentages.positive || 0}%</p>
+                          <div className="stat-card p-3">
+                            <p className="text-lg font-bold gradient-text">{globalAudienceIntel.sentiment_percentages.positive || 0}%</p>
                             <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Positive</p>
                           </div>
                         </div>
@@ -2197,7 +2197,9 @@ export default function CompetitorIntel() {
                     </div>
                   ) : competitors.length === 0 ? (
                     <div className="text-center py-16 text-warroom-muted">
-                      <Target size={48} className="mx-auto mb-4 opacity-20" />
+                      <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-warroom-gradient/20 flex items-center justify-center">
+                        <Target size={24} className="text-warroom-accent/40" />
+                      </div>
                       <p className="text-sm">No competitors tracked yet</p>
                       <p className="text-xs mt-1">Add your first competitor to start gathering intelligence</p>
                     </div>
@@ -2205,12 +2207,12 @@ export default function CompetitorIntel() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {[...competitors].sort((a, b) => (b.avg_engagement_rate || 0) - (a.avg_engagement_rate || 0)).map(comp => (
                         <div key={comp.id}
-                          className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/30 hover:shadow-lg hover:shadow-warroom-accent/5 transition cursor-pointer flex flex-col group"
+                          className="glass-card p-5 hover:shadow-glow transition-all cursor-pointer flex flex-col group"
                           onClick={() => focusOnCompetitor(comp)}
                         >
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-warroom-accent/10 flex items-center justify-center text-lg font-bold text-warroom-accent group-hover:bg-warroom-accent/20 transition">
+                              <div className="w-10 h-10 rounded-full bg-warroom-gradient flex items-center justify-center text-lg font-bold text-white group-hover:shadow-glow-sm transition-all">
                                 {comp.handle.charAt(0).toUpperCase()}
                               </div>
                               <div>
@@ -2249,22 +2251,25 @@ export default function CompetitorIntel() {
                           </div>
 
                           <div className="grid grid-cols-3 gap-1 text-center mb-3">
-                            <div className="bg-warroom-bg rounded-lg py-2">
+                            <div className="stat-card py-2">
                               <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.followers)}</p>
                               <p className="text-[10px] text-warroom-muted">Followers</p>
                             </div>
-                            <div className="bg-warroom-bg rounded-lg py-2">
+                            <div className="stat-card py-2">
                               <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.post_count)}</p>
                               <p className="text-[10px] text-warroom-muted">Posts</p>
                             </div>
-                            <div className="bg-warroom-bg rounded-lg py-2">
-                              <p className="text-sm font-semibold text-warroom-text">{comp.avg_engagement_rate.toFixed(1)}%</p>
+                            <div className="stat-card py-2">
+                              <p className="text-sm font-semibold gradient-text">{comp.avg_engagement_rate.toFixed(1)}%</p>
                               <p className="text-[10px] text-warroom-muted">Eng Rate</p>
                             </div>
                           </div>
 
                           {comp.bio && (
-                            <p className="text-xs text-warroom-muted line-clamp-2 mb-2 flex-1">{comp.bio}</p>
+                            <div className="relative mb-2 flex-1">
+                              <p className="text-xs text-warroom-muted line-clamp-2">{comp.bio}</p>
+                              <div className="absolute bottom-0 left-0 right-0 h-3 bg-gradient-to-t from-warroom-surface-2 to-transparent pointer-events-none"></div>
+                            </div>
                           )}
 
                           <div className="flex items-center justify-between text-[10px] text-warroom-muted mt-auto pt-2 border-t border-warroom-border">
@@ -2433,7 +2438,9 @@ export default function CompetitorIntel() {
               ) : scripts.length === 0 ? (
                 /* Empty state - centered generate form */
                 <div className="flex flex-col items-center justify-center py-16 max-w-md mx-auto">
-                  <Film size={48} className="text-warroom-muted/20 mb-4" />
+                  <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-warroom-gradient/20 flex items-center justify-center">
+                    <Film size={24} className="text-warroom-accent/40" />
+                  </div>
                   <h3 className="text-base font-semibold mb-1">No scripts yet</h3>
                   <p className="text-sm text-warroom-muted mb-6 text-center">Generate winning scripts aggregated from all your competitors' top-performing content.</p>
 
@@ -2728,6 +2735,41 @@ export default function CompetitorIntel() {
                     )}
                   </div>
 
+                  {/* Metrics snapshot — right below profile card */}
+                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                    <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Metrics snapshot</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.follower_count)}</p>
+                        <p className="text-[10px] text-warroom-muted">Followers</p>
+                      </div>
+                      <div className="text-center">
+                        <p className={`text-lg font-bold ${instagramAdvice.net_followers >= 0 ? "text-emerald-400" : "text-red-400"}`}>{instagramAdvice.net_followers >= 0 ? "+" : ""}{formatNum(instagramAdvice.net_followers)}</p>
+                        <p className="text-[10px] text-warroom-muted">Net followers</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-accent">{formatPercent(instagramAdvice.avg_engagement_rate, 2)}</p>
+                        <p className="text-[10px] text-warroom-muted">Engagement</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_reach)}</p>
+                        <p className="text-[10px] text-warroom-muted">Avg reach</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_video_views)}</p>
+                        <p className="text-[10px] text-warroom-muted">Avg views</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_profile_views)}</p>
+                        <p className="text-[10px] text-warroom-muted">Profile views</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.total_link_clicks)}</p>
+                        <p className="text-[10px] text-warroom-muted">Link clicks</p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Actionable Intelligence Cards */}
                   <div>
                     <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Actionable intelligence</h3>
@@ -2769,7 +2811,7 @@ export default function CompetitorIntel() {
                     </div>
                   </div>
 
-                  {/* Recent Posts from scrape */}
+                  {/* Recent Posts — stays at the bottom */}
                   {(instagramAdvice.recent_posts || []).length > 0 && (
                     <div>
                       <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Your recent posts</h3>
@@ -2799,41 +2841,6 @@ export default function CompetitorIntel() {
                       </div>
                     </div>
                   )}
-
-                  {/* Quick Stats - compact row at bottom */}
-                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
-                    <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Metrics snapshot</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.follower_count)}</p>
-                        <p className="text-[10px] text-warroom-muted">Followers</p>
-                      </div>
-                      <div className="text-center">
-                        <p className={`text-lg font-bold ${instagramAdvice.net_followers >= 0 ? "text-emerald-400" : "text-red-400"}`}>{instagramAdvice.net_followers >= 0 ? "+" : ""}{formatNum(instagramAdvice.net_followers)}</p>
-                        <p className="text-[10px] text-warroom-muted">Net followers</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-accent">{formatPercent(instagramAdvice.avg_engagement_rate, 2)}</p>
-                        <p className="text-[10px] text-warroom-muted">Engagement</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_reach)}</p>
-                        <p className="text-[10px] text-warroom-muted">Avg reach</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_video_views)}</p>
-                        <p className="text-[10px] text-warroom-muted">Avg views</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_profile_views)}</p>
-                        <p className="text-[10px] text-warroom-muted">Profile views</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.total_link_clicks)}</p>
-                        <p className="text-[10px] text-warroom-muted">Link clicks</p>
-                      </div>
-                    </div>
-                  </div>
                 </>
               )}
             </div>
@@ -2843,8 +2850,8 @@ export default function CompetitorIntel() {
 
       {/* Add Competitor Modal */}
       {showAddCompetitor && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50">
+          <div className="glass-card p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Add Competitor</h3>
               <button onClick={() => setShowAddCompetitor(false)} className="text-warroom-muted hover:text-warroom-text">
@@ -2860,7 +2867,7 @@ export default function CompetitorIntel() {
                     type="text"
                     value={newComp.handle}
                     onChange={e => setNewComp({ ...newComp, handle: e.target.value })}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
+                    className="w-full bg-warroom-surface2 border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent focus:shadow-glow-sm transition-all"
                     placeholder="handle"
                     autoFocus
                   />
@@ -2893,8 +2900,8 @@ export default function CompetitorIntel() {
 
       {/* Generate Script Modal */}
       {showGenerateScript && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50">
+          <div className="glass-card p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Generate Scripts</h3>
               <button onClick={() => setShowGenerateScript(false)} className="text-warroom-muted hover:text-warroom-text">

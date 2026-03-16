@@ -685,14 +685,23 @@ export default function ChatPanel() {
 
   // Scroll to bottom when panel becomes visible again (tab switch back)
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) scrollToBottom(true); },
-      { threshold: 0.1 }
-    );
-    const el = messagesEndRef.current;
-    if (el?.parentElement) observer.observe(el.parentElement);
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    let wasHidden = false;
+    const observer = new ResizeObserver(() => {
+      const visible = container.offsetHeight > 0;
+      if (visible && wasHidden && messages.length > 0) {
+        requestAnimationFrame(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+          showScrollBtnRef.current = false;
+          setShowScrollButton(false);
+        });
+      }
+      wasHidden = !visible;
+    });
+    observer.observe(container);
     return () => observer.disconnect();
-  }, [scrollToBottom]);
+  }, [messages.length]);
 
   // Scroll detection (throttled)
   const showScrollBtnRef = useRef(false);

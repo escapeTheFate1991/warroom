@@ -1480,7 +1480,7 @@ async def refresh_competitor_content(
         ]
 
         if instagram_competitors:
-            batch_result = await sync_instagram_competitor_batch(db, instagram_competitors)
+            batch_result = await sync_instagram_competitor_batch(db, instagram_competitors, org_id)
             refreshed += batch_result.success
 
             for profile in batch_result.profiles:
@@ -2483,9 +2483,10 @@ async def get_global_audience_intel(
                 WHERE comments_data IS NOT NULL
                   AND (comments_data->>'analyzed')::int > 0
                   AND posted_at >= NOW() - MAKE_INTERVAL(days => :days)
+                  AND org_id = :org_id
                 ORDER BY engagement_score DESC
             """),
-            {"days": days},
+            {"days": days, "org_id": org_id},
         )
         return _aggregate_audience_intel_rows(result.fetchall())
     except Exception as e:
@@ -3086,9 +3087,10 @@ async def get_aggregated_audience_intel(
                 WHERE competitor_id = :cid 
                   AND comments_data IS NOT NULL
                   AND (comments_data->>'analyzed')::int > 0
+                  AND org_id = :org_id
                 ORDER BY engagement_score DESC
             """),
-            {"cid": competitor_id},
+            {"cid": competitor_id, "org_id": org_id},
         )
         return _aggregate_audience_intel_rows(result.fetchall())
     
@@ -3237,7 +3239,9 @@ async def _run_sync_all():
             _sync_all_status["message"] = f"Scraping {len(competitors)} competitors..."
             print(f"[SYNC-ALL] Found {len(competitors)} competitors, starting batch scrape", flush=True)
             
-            batch_result = await sync_instagram_competitor_batch(db, competitors)
+            # Use org_id from first competitor (background task has no request context)
+            bg_org_id = competitors[0].org_id if competitors else 1
+            batch_result = await sync_instagram_competitor_batch(db, competitors, bg_org_id)
             print(f"[SYNC-ALL] Batch complete — success={batch_result.success} failed={batch_result.failed} posts={batch_result.posts_saved}", flush=True)
             await db.commit()
             

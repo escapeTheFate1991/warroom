@@ -80,27 +80,27 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenu
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={handleSearchKeyDown}
             placeholder={scope.placeholder}
-            className="w-full pl-9 pr-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm text-warroom-text placeholder:text-warroom-muted/50 focus:outline-none focus:border-warroom-accent/50"
+            className="glass-card inner-glow w-full pl-9 pr-4 py-2 text-sm text-warroom-text placeholder:text-warroom-muted/50 focus:outline-none focus:shadow-glow-sm focus:border-warroom-accent"
           />
         </div>
 
         {/* Actions sit right next to search */}
         <div className="flex items-center gap-1 flex-shrink-0">
-          <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-warroom-bg transition-colors text-warroom-muted hover:text-warroom-text" title="Toggle theme">
+          <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-warroom-surface2/50 hover:shadow-glow-sm transition-all text-warroom-muted hover:text-warroom-text" title="Toggle theme">
             {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
           </button>
 
           <NotificationBell />
 
           <div className="relative" ref={menuRef}>
-            <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center gap-1.5 rounded-lg p-1.5 hover:bg-warroom-bg transition-colors">
-              <div className="w-7 h-7 rounded-full bg-warroom-accent/20 flex items-center justify-center flex-shrink-0">
-                <User size={14} className="text-warroom-accent" />
+            <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center gap-1.5 rounded-lg p-1.5 hover:bg-warroom-surface2/50 hover:shadow-glow-sm transition-all">
+              <div className="w-7 h-7 rounded-full bg-warroom-gradient flex items-center justify-center flex-shrink-0">
+                <User size={14} className="text-white" />
               </div>
               <ChevronDown size={13} className="text-warroom-muted hidden sm:block" />
             </button>
             {showUserMenu && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl py-1 z-50">
+              <div className="absolute right-0 top-full mt-1 w-48 glass-card shadow-xl py-1 z-50">
                 <button
                   onClick={() => { setShowUserMenu(false); onNavigate?.("profile"); }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-warroom-text hover:bg-warroom-bg transition-colors border-b border-warroom-border"
