@@ -26,12 +26,12 @@ router = APIRouter()
 # ── Schema migrations ────────────────────────────────────────────
 
 MIGRATIONS = [
-    "ALTER TABLE ml_videos ADD COLUMN IF NOT EXISTS media_type TEXT DEFAULT 'video'",
-    "ALTER TABLE ml_videos ADD COLUMN IF NOT EXISTS source_url TEXT",
-    "ALTER TABLE ml_videos ADD COLUMN IF NOT EXISTS ingestion_method TEXT DEFAULT 'manual'",
-    "ALTER TABLE ml_chunks ADD COLUMN IF NOT EXISTS source_url TEXT",
-    "ALTER TABLE ml_chunks ADD COLUMN IF NOT EXISTS chunk_type TEXT DEFAULT 'transcript'",
-    "ALTER TABLE ml_chunks ADD COLUMN IF NOT EXISTS frame_data JSONB DEFAULT '{}'",
+    "ALTER TABLE crm.ml_videos ADD COLUMN IF NOT EXISTS media_type TEXT DEFAULT 'video'",
+    "ALTER TABLE crm.ml_videos ADD COLUMN IF NOT EXISTS source_url TEXT",
+    "ALTER TABLE crm.ml_videos ADD COLUMN IF NOT EXISTS ingestion_method TEXT DEFAULT 'manual'",
+    "ALTER TABLE crm.ml_chunks ADD COLUMN IF NOT EXISTS source_url TEXT",
+    "ALTER TABLE crm.ml_chunks ADD COLUMN IF NOT EXISTS chunk_type TEXT DEFAULT 'transcript'",
+    "ALTER TABLE crm.ml_chunks ADD COLUMN IF NOT EXISTS frame_data JSONB DEFAULT '{}'",
 ]
 
 
@@ -257,7 +257,7 @@ async def universal_ingest(request: Request, req: IngestURLRequest, db=Depends(g
 
     # Check for duplicate
     existing = await db.execute(
-        text("SELECT id FROM ml_videos WHERE source_url = :url OR url = :url LIMIT 1"),
+        text("SELECT id FROM crm.ml_videos WHERE source_url = :url OR url = :url LIMIT 1"),
         {"url": url},
     )
     if existing.first():
@@ -296,7 +296,7 @@ async def universal_ingest(request: Request, req: IngestURLRequest, db=Depends(g
             raise HTTPException(status_code=502, detail=f"Failed to fetch PDF: {exc}")
 
         return await _store_and_chunk(
-            db, pdf_data["title"], pdf_data.get("author", ""), pdf_data["text"],
+            db, org_id, pdf_data["title"], pdf_data.get("author", ""), pdf_data["text"],
             url, media_type="pdf", tags=req.tags, source=req.source,
             description=f"{pdf_data.get('page_count', 0)} pages",
         )
@@ -312,7 +312,7 @@ async def universal_ingest(request: Request, req: IngestURLRequest, db=Depends(g
             raise HTTPException(status_code=422, detail="Could not extract meaningful content from this URL")
 
         return await _store_and_chunk(
-            db, article["title"], "", article["text"],
+            db, org_id, article["title"], "", article["text"],
             url, media_type=media_type, tags=req.tags, source=req.source,
             description=article.get("description", ""),
         )
@@ -343,7 +343,7 @@ async def ingest_pdf_upload(
     source_url = f"upload://{file.filename}#{file_hash}"
 
     return await _store_and_chunk(
-        db, pdf_data["title"] or file.filename, pdf_data.get("author", ""),
+        db, org_id, pdf_data["title"] or file.filename, pdf_data.get("author", ""),
         pdf_data["text"], source_url,
         media_type="pdf", tags=tags, source="manual",
         description=f"{pdf_data.get('page_count', 0)} pages",
@@ -418,10 +418,11 @@ async def list_sources(request: Request, db=Depends(get_tenant_db)):
     result = await db.execute(text("""
         SELECT id, url, title, media_type, source_url, ingestion_method,
                status, chunk_count, processed_at
-        FROM ml_videos
+        FROM crm.ml_videos
+        WHERE org_id = :org_id
         ORDER BY id DESC
         LIMIT 100
-    """))
+    """), {"org_id": org_id})
     rows = result.mappings().all()
     return [
         {
@@ -442,7 +443,7 @@ async def list_sources(request: Request, db=Depends(get_tenant_db)):
 # ── Internal ─────────────────────────────────────────────────────
 
 async def _store_and_chunk(
-    db, title: str, author: str, text_content: str,
+    db, org_id: int, title: str, author: str, text_content: str,
     url: str, media_type: str, tags: str, source: str,
     description: str = "",
 ) -> IngestResponse:
@@ -451,10 +452,10 @@ async def _store_and_chunk(
 
     # Insert video record
     result = await db.execute(text("""
-        INSERT INTO ml_videos (url, title, author, description, media_type, source_url,
-                               ingestion_method, topic_tags, status, chunk_count, processed_at)
+        INSERT INTO crm.ml_videos (url, title, author, description, media_type, source_url,
+                               ingestion_method, topic_tags, status, chunk_count, processed_at, org_id)
         VALUES (:url, :title, :author, :desc, :media_type, :source_url,
-                :method, :tags, 'completed', :count, NOW())
+                :method, :tags, 'completed', :count, NOW(), :org_id)
         RETURNING id
     """), {
         "url": url,
@@ -466,14 +467,15 @@ async def _store_and_chunk(
         "method": source,
         "tags": tags,
         "count": len(chunks),
+        "org_id": org_id,
     })
     video_id = result.scalar_one()
 
     # Insert chunks
     for i, chunk in enumerate(chunks):
         await db.execute(text("""
-            INSERT INTO ml_chunks (video_id, chunk_index, text, token_count, chunk_type, source_url)
-            VALUES (:vid, :idx, :text, :tokens, :ctype, :url)
+            INSERT INTO crm.ml_chunks (video_id, chunk_index, text, token_count, chunk_type, source_url, org_id)
+            VALUES (:vid, :idx, :text, :tokens, :ctype, :url, :org_id)
         """), {
             "vid": video_id,
             "idx": i,
@@ -481,6 +483,7 @@ async def _store_and_chunk(
             "tokens": chunk["token_count"],
             "ctype": chunk["chunk_type"],
             "url": url,
+            "org_id": org_id,
         })
 
     await db.commit()

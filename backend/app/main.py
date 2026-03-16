@@ -63,6 +63,30 @@ async def _init_agent_chat_tables(engine):
         return False
 
 
+async def _run_mental_library_migration():
+    """Initialize Mental Library tables from migration file."""
+    try:
+        from pathlib import Path
+        
+        migration_path = Path(__file__).parent / "db" / "mental_library_migration.sql"
+        if not migration_path.exists():
+            logger.error(f"Mental Library migration file not found: {migration_path}")
+            return False
+            
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+        
+        async with crm_engine.begin() as conn:
+            raw = await conn.get_raw_connection()
+            await raw.driver_connection.execute(migration_sql)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Mental Library migration failed: {e}")
+        return False
+
+
 async def _init_network_ai_blackboard():
     """Initialize Network-AI blackboard (ensure blackboard file exists)."""
     try:
@@ -314,6 +338,13 @@ async def lifespan(app: FastAPI):
             logger.warning("OAuth scoping migration skipped or failed")
     except Exception as e:
         logger.error("OAuth scoping migration error: %s", e)
+
+    # Mental Library migration (creates crm.ml_videos + crm.ml_chunks)
+    try:
+        await _run_mental_library_migration()
+        logger.info("Mental Library migration applied")
+    except Exception as e:
+        logger.error("Mental Library migration error: %s", e)
 
     # Start background scheduler (competitor syncs, etc.)
     from app.services.scheduler import start_scheduler, stop_scheduler
