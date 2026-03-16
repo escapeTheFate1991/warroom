@@ -85,7 +85,7 @@ interface PublishedContentItem {
   title: string;
   platforms: string[];
   createdAt: string;
-  source: "pipeline" | "platform";
+  source: "pipeline" | "platform" | "api";
   description?: string;
   notes?: string;
   url?: string;
@@ -229,7 +229,7 @@ function loadPublishedContent(): PublishedContentItem[] {
       views: existing.views ?? item.views,
       likes: existing.likes ?? item.likes,
       comments: existing.comments ?? item.comments,
-      source: existing.source === "platform" ? existing.source : item.source,
+      source: existing.source === "api" ? "api" : existing.source === "platform" ? existing.source : item.source,
     });
   });
 
@@ -328,7 +328,15 @@ export default function SocialDashboard() {
       : PLATFORMS.find((platform) => platform.id === selectedPlatform)?.name || selectedPlatform;
 
   const loadLocalContent = useCallback(() => {
-    setPublishedContent(loadPublishedContent());
+    setPublishedContent((prev) => {
+      const local = loadPublishedContent();
+      // Keep any API-sourced items already in state
+      const apiItems = prev.filter((item) => item.source === "api");
+      // Dedupe by id
+      const seen = new Set(apiItems.map((item) => item.id));
+      const merged = [...apiItems, ...local.filter((item) => !seen.has(item.id))];
+      return merged;
+    });
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -348,7 +356,12 @@ export default function SocialDashboard() {
         timeSeriesParams.set("granularity", granularity);
       }
 
-      const [accResp, sumResp, sparkResp, seriesResp, velocityResp] = await Promise.all([
+      const recentPostsParams = new URLSearchParams();
+      if (selectedPlatform !== "all") {
+        recentPostsParams.set("platform", selectedPlatform);
+      }
+
+      const [accResp, sumResp, sparkResp, seriesResp, velocityResp, recentPostsResp] = await Promise.all([
         authFetch(`${API}/api/social/accounts`).catch(() => null),
         authFetch(`${API}/api/social/analytics${summaryParams.toString() ? `?${summaryParams.toString()}` : ""}`).catch(() => null),
         authFetch(`${API}/api/social/analytics/sparkline`).catch(() => null),
@@ -356,6 +369,7 @@ export default function SocialDashboard() {
           ? Promise.resolve(null)
           : authFetch(`${API}/api/social/analytics/timeseries?${timeSeriesParams.toString()}`).catch(() => null),
         authFetch(`${API}/api/social/analytics/engagement-velocity`).catch(() => null),
+        authFetch(`${API}/api/social/recent-posts${recentPostsParams.toString() ? `?${recentPostsParams.toString()}` : ""}`).catch(() => null),
       ]);
 
       if (accResp?.ok) {
@@ -387,6 +401,30 @@ export default function SocialDashboard() {
         setVelocityData(vData.points || []);
       } else {
         setVelocityData([]);
+      }
+
+      // Merge synced posts from API into published content
+      if (recentPostsResp?.ok) {
+        const apiPosts: any[] = await recentPostsResp.json();
+        if (apiPosts.length > 0) {
+          const apiItems: PublishedContentItem[] = apiPosts.map((p: any) => ({
+            id: `api-${p.platform}-${p.id}`,
+            title: p.media_type === "video" ? "Reel" : p.media_type === "carousel_album" ? "Carousel" : "Post",
+            platforms: [p.platform],
+            createdAt: new Date().toISOString(),
+            source: "api" as const,
+            url: p.permalink || undefined,
+            views: p.views || undefined,
+            likes: p.likes || undefined,
+            comments: p.comments || undefined,
+            description: p.permalink ? `@${p.username}` : undefined,
+          }));
+          setPublishedContent((prev) => {
+            const local = prev.filter((item) => item.source !== "api");
+            const seen = new Set(local.map((item) => item.id));
+            return [...apiItems.filter((item) => !seen.has(item.id)), ...local];
+          });
+        }
       }
     } catch (error) {
       console.error("Failed to fetch social dashboard data:", error);
@@ -943,7 +981,7 @@ export default function SocialDashboard() {
 
                           <div className="flex flex-wrap items-center gap-3 text-[11px] text-warroom-muted">
                             <span>Recorded {formatRecordedDate(item.createdAt)}</span>
-                            <span className="capitalize">Source: {item.source}</span>
+                            <span className="capitalize">Source: {item.source === "api" ? "synced" : item.source}</span>
                           </div>
                         </div>
 

@@ -734,6 +734,74 @@ async def get_account_visibility(
         raise HTTPException(status_code=500, detail="Failed to get visibility info")
 
 
+@router.get("/recent-posts")
+async def get_recent_posts(
+    request: Request,
+    platform: Optional[str] = None,
+    limit: int = 25,
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Get recent posts from synced social media data (media_insights JSON)."""
+    org_id = get_org_id(request)
+    try:
+        import json as _json
+
+        # Get latest media_insights from social_analytics for connected accounts
+        q = """
+            SELECT a.media_insights, s.platform, s.username, a.metric_date
+            FROM social_analytics a
+            JOIN social_accounts s ON s.id = a.account_id AND s.org_id = a.org_id
+            WHERE a.media_insights IS NOT NULL
+              AND s.status = 'connected'
+              AND a.org_id = :org_id
+        """
+        params: dict = {"org_id": org_id}
+        if platform:
+            q += " AND s.platform = :p"
+            params["p"] = platform
+        q += " ORDER BY a.metric_date DESC LIMIT 10"
+
+        r = await db.execute(text(q), params)
+        rows = r.fetchall()
+
+        posts = []
+        seen_ids: set = set()
+        for row in rows:
+            raw = row[0]
+            plat = row[1]
+            username = row[2]
+            insights = _json.loads(raw) if isinstance(raw, str) else raw
+            if not isinstance(insights, list):
+                continue
+            for item in insights:
+                post_id = item.get("id", "")
+                if post_id in seen_ids:
+                    continue
+                seen_ids.add(post_id)
+                posts.append({
+                    "id": post_id,
+                    "platform": plat,
+                    "username": username,
+                    "permalink": item.get("permalink", ""),
+                    "media_type": (item.get("type", "IMAGE") or "IMAGE").lower(),
+                    "likes": item.get("likes", 0),
+                    "comments": item.get("comments", 0),
+                    "shares": item.get("shares", 0),
+                    "saves": item.get("saved", 0),
+                    "views": item.get("views", 0),
+                    "reach": item.get("reach", 0),
+                    "total_interactions": item.get("total_interactions", 0),
+                })
+
+        # Sort by engagement (likes + comments + shares + saves) descending
+        posts.sort(key=lambda p: p["likes"] + p["comments"] + p["shares"] + p["saves"], reverse=True)
+        return posts[:limit]
+
+    except Exception as e:
+        logger.error("Failed to get recent posts: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get recent posts")
+
+
 @router.post("/sync")
 async def sync_social_data(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Trigger real sync of all connected social media accounts."""
