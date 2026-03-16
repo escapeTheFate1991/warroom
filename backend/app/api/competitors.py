@@ -21,7 +21,7 @@ from app.db.crm_db import crm_session
 logger = logging.getLogger(__name__)
 
 
-async def _background_sync_competitor(competitor_id: int, platform: str):
+async def _background_sync_competitor(competitor_id: int, platform: str, org_id: int = 1):
     """Background task to sync competitor after creation."""
     try:
         if platform.lower() != "instagram":
@@ -39,7 +39,7 @@ async def _background_sync_competitor(competitor_id: int, platform: str):
                 return
                 
             # Sync the competitor
-            sync_result = await sync_instagram_competitor(db, competitor)
+            sync_result = await sync_instagram_competitor(db, competitor, org_id)
             
             if sync_result["success"]:
                 await db.commit()
@@ -303,7 +303,7 @@ async def _sync_competitor_record(
     platform = competitor.platform.lower()
 
     if platform == "instagram":
-        sync_result = await sync_instagram_competitor(db, competitor)
+        sync_result = await sync_instagram_competitor(db, competitor, competitor.org_id)
         return sync_result["success"], sync_result["error"]
 
     auto_data = await auto_populate_competitor_data(
@@ -376,7 +376,8 @@ async def create_competitor(
         background_tasks.add_task(
             _background_sync_competitor, 
             new_competitor.id, 
-            new_competitor.platform
+            new_competitor.platform,
+            org_id
         )
         
         return CompetitorResponse.model_validate(new_competitor)
