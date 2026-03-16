@@ -42,6 +42,16 @@ const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter
 const ActivityCalendar = dynamic(() => import("@/components/dashboard/ActivityCalendar"), { loading: PanelLoader });
 const PlatformContent = dynamic(() => import("@/components/content/PlatformContent"), { loading: PanelLoader });
 const ContentTracker = dynamic(() => import("@/components/content/ContentTracker"), { loading: PanelLoader });
+
+// New Platform-Specific Pages
+const InstagramPage = dynamic(() => import("@/components/social/platforms/InstagramPage"), { loading: PanelLoader });
+const TikTokPage = dynamic(() => import("@/components/social/platforms/TikTokPage"), { loading: PanelLoader });
+const YouTubeShortsPage = dynamic(() => import("@/components/social/platforms/YouTubeShortsPage"), { loading: PanelLoader });
+const FacebookPage = dynamic(() => import("@/components/social/platforms/FacebookPage"), { loading: PanelLoader });
+
+// Scheduler Components
+const SchedulerCalendar = dynamic(() => import("@/components/scheduler/SchedulerCalendar"), { loading: PanelLoader });
+const RecyclePanel = dynamic(() => import("@/components/scheduler/RecyclePanel"), { loading: PanelLoader });
 const ContractsPanel = dynamic(() => import("@/components/contracts/ContractsPanel"), { loading: PanelLoader });
 const InvoicingPanel = dynamic(() => import("@/components/invoicing/InvoicingPanel"), { loading: PanelLoader });
 const EmailInbox = dynamic(() => import("@/components/email/EmailInbox"), { loading: PanelLoader });
@@ -88,10 +98,12 @@ const SECTIONS = [
     label: "CONTENT",
     items: [
       { id: "pipeline", label: "Pipeline", icon: Film },
-      { id: "content-instagram", label: "Instagram", icon: Instagram },
-      { id: "content-youtube", label: "YouTube", icon: Youtube },
-      { id: "content-facebook", label: "Facebook", icon: Facebook },
-      { id: "content-x", label: "X", icon: Twitter },
+      { id: "scheduler", label: "Scheduler", icon: CalendarDays },
+      { id: "recycle", label: "Recycle", icon: BarChart3 },
+      { id: "social-instagram", label: "Instagram", icon: Instagram },
+      { id: "social-tiktok", label: "TikTok", icon: Twitter },
+      { id: "social-youtube", label: "YouTube Shorts", icon: Youtube },
+      { id: "social-facebook", label: "Facebook", icon: Facebook },
     ],
   },
   {
@@ -138,6 +150,8 @@ const SECTIONS = [
 type TabId =
   | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
+  | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
+  | "scheduler" | "recycle"
   | "kanban" | "leadgen"
   | "pipeline-board" | "organizations" | "crm-contacts"
   | "library-search" | "library-educate"
@@ -266,6 +280,16 @@ function WarRoom() {
           {activeTab === "content-facebook" && <PlatformContent platform="facebook" />}
           {activeTab === "content-x" && <PlatformContent platform="x" />}
           {activeTab === "pipeline" && <ContentPipeline />}
+          
+          {/* New Platform-Specific Pages */}
+          {activeTab === "social-instagram" && <InstagramPage />}
+          {activeTab === "social-tiktok" && <TikTokPage />}
+          {activeTab === "social-youtube" && <YouTubeShortsPage />}
+          {activeTab === "social-facebook" && <FacebookPage />}
+          
+          {/* Scheduler Components */}
+          {activeTab === "scheduler" && <SchedulerCalendar />}
+          {activeTab === "recycle" && <RecyclePanel />}
           {activeTab === "intelligence" && <CompetitorIntel />}
           {activeTab === "kanban" && <KanbanPanel />}
           {activeTab === "leadgen" && <LeadgenPanel />}
