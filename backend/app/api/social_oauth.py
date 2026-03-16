@@ -18,6 +18,10 @@ from app.db.crm_db import get_tenant_db
 from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.social import SocialAccount
 
+# Default fallback user/org for backward-compatible state parsing
+_FALLBACK_USER_ID = 1
+_FALLBACK_ORG_ID = 1
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -29,6 +33,38 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8300")
 _OAUTH_TTL_SECONDS = 600
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+def _encode_state(platform: str, user_id: int, org_id: int) -> str:
+    """Encode platform, user_id, org_id, and a nonce into an OAuth state string."""
+    nonce = secrets.token_urlsafe(24)
+    state = f"{platform}:{user_id}:{org_id}:{nonce}"
+    _nonce_store(state)
+    return state
+
+
+def _decode_state(state: str) -> tuple:
+    """Decode an OAuth state string into (platform, user_id, org_id, nonce).
+    
+    Returns (platform, user_id, org_id, nonce) for new format.
+    Falls back gracefully for old format: platform:nonce → (platform, fallback, fallback, nonce).
+    """
+    parts = state.split(":")
+    if len(parts) >= 4:
+        platform = parts[0]
+        try:
+            user_id = int(parts[1])
+            org_id = int(parts[2])
+        except (ValueError, IndexError):
+            return parts[0], _FALLBACK_USER_ID, _FALLBACK_ORG_ID, ":".join(parts[1:])
+        nonce = ":".join(parts[3:])  # nonce may contain colons
+        return platform, user_id, org_id, nonce
+    elif len(parts) == 2:
+        # Old format: platform:nonce
+        return parts[0], _FALLBACK_USER_ID, _FALLBACK_ORG_ID, parts[1]
+    else:
+        # Just a nonce (X/Google old format)
+        return "", _FALLBACK_USER_ID, _FALLBACK_ORG_ID, state
+
 
 def _oauth_complete_page(success: bool, platform: str, error: str = "") -> HTMLResponse:
     """Return an HTML page that notifies the parent window and closes the popup."""
@@ -67,13 +103,13 @@ async def _upsert_social_account(
     follower_count: int = 0, following_count: int = 0, post_count: int = 0,
     token_expires_at: Optional[datetime] = None,
     extra_data: dict = None,
-    user_id: int = 1,
-    org_id: int = 1,  # Default to org 1; OAuth callbacks don't have auth context yet
+    user_id: int = _FALLBACK_USER_ID,
+    org_id: int = _FALLBACK_ORG_ID,
 ):
     """Create or update a social account (tenant-isolated).
     
-    Note: org_id defaults to 1 because OAuth callbacks are public paths without JWT.
-    When multi-org is live, encode org_id in the OAuth state parameter.
+    user_id and org_id are encoded in the OAuth state parameter and extracted
+    in callbacks. Defaults exist only for backward compatibility.
     """
     result = await db.execute(
         select(SocialAccount).where(
@@ -187,10 +223,9 @@ async def meta_authorize(
     if not client_id:
         raise HTTPException(400, f"App ID not configured for {platform}. Go to Settings → API Keys.")
 
-    # Encode requested platform in state so callback knows what to save
-    nonce = secrets.token_urlsafe(24)
-    state = f"{platform}:{nonce}"
-    _nonce_store(state)
+    # Encode user context in state so callbacks can associate with correct user
+    user_id = get_user_id(request)
+    state = _encode_state(platform, user_id, org_id)
 
     if platform == "instagram":
         # Instagram API with Instagram Login — goes to instagram.com, not facebook.com
@@ -232,20 +267,18 @@ async def meta_authorize(
 @router.get("/oauth/meta/callback")
 async def meta_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle Meta OAuth callback. Respects requested platform from state."""
-    org_id = get_org_id(request)
     if not state or not _nonce_validate(state):
         return _oauth_complete_page(False, "meta", "Invalid or expired OAuth state")
+
+    # Extract user context from state
+    requested_platform, user_id, org_id, _nonce = _decode_state(state)
+    requested_platform = requested_platform or "meta"
 
     client_id = await _get_setting(db, "meta_app_id")
     client_secret = await _get_setting(db, "meta_app_secret")
 
     if not client_id or not client_secret:
         raise HTTPException(400, "Meta credentials not configured")
-
-    # Parse requested platform from state (format: "platform:nonce")
-    requested_platform = "meta"  # default: save both FB + IG
-    if ":" in state:
-        requested_platform = state.split(":")[0]
 
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/meta/callback"
 
@@ -295,6 +328,7 @@ async def meta_callback(request: Request, code: str, state: str = "", db: AsyncS
             await _upsert_social_account(
                 db, "facebook", fb_name, access_token,
                 profile_url=f"https://facebook.com/{fb_id}",
+                user_id=user_id, org_id=org_id,
             )
             connected.append("facebook")
 
@@ -331,6 +365,7 @@ async def meta_callback(request: Request, code: str, state: str = "", db: AsyncS
                         follower_count=ig_data.get("followers_count", 0),
                         following_count=ig_data.get("follows_count", 0),
                         post_count=ig_data.get("media_count", 0),
+                        user_id=user_id, org_id=org_id,
                     )
                     connected.append("instagram")
                     ig_found = True
@@ -352,9 +387,10 @@ async def meta_callback(request: Request, code: str, state: str = "", db: AsyncS
 @router.get("/oauth/instagram/callback")
 async def instagram_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle Instagram OAuth callback (direct Instagram login, no Facebook Page needed)."""
-    org_id = get_org_id(request)
     if not state or not _nonce_validate(state):
         return _oauth_complete_page(False, "instagram", "Invalid or expired OAuth state")
+
+    _platform, user_id, org_id, _nonce = _decode_state(state)
 
     client_id = await _get_setting(db, "instagram_app_id") or await _get_setting(db, "meta_app_id")
     client_secret = await _get_setting(db, "instagram_app_secret") or await _get_setting(db, "meta_app_secret")
@@ -417,6 +453,7 @@ async def instagram_callback(request: Request, code: str, state: str = "", db: A
             follower_count=me_data.get("followers_count", 0),
             following_count=me_data.get("follows_count", 0),
             post_count=me_data.get("media_count", 0),
+            user_id=user_id, org_id=org_id,
         )
 
     return _oauth_complete_page(True, "instagram")
@@ -430,9 +467,10 @@ async def instagram_callback(request: Request, code: str, state: str = "", db: A
 @router.get("/oauth/threads/callback")
 async def threads_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle Threads OAuth callback (separate from Meta/Facebook)."""
-    org_id = get_org_id(request)
     if not state or not _nonce_validate(state):
         return _oauth_complete_page(False, "threads", "Invalid or expired OAuth state")
+
+    _platform, user_id, org_id, _nonce = _decode_state(state)
 
     client_id = await _get_setting(db, "threads_client_id") or await _get_setting(db, "meta_app_id")
     client_secret = await _get_setting(db, "threads_client_secret") or await _get_setting(db, "meta_app_secret")
@@ -485,6 +523,7 @@ async def threads_callback(request: Request, code: str, state: str = "", db: Asy
                 me_data.get("username", ""),
                 access_token,
                 profile_url=f"https://threads.net/@{me_data.get('username', '')}",
+                user_id=user_id, org_id=org_id,
             )
         else:
             logger.error("Threads profile fetch failed: %s", me_resp.text)
@@ -556,6 +595,7 @@ def _nonce_validate(nonce: str) -> bool:
 async def x_authorize(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Start X (Twitter) OAuth flow."""
     org_id = get_org_id(request)
+    user_id = get_user_id(request)
     client_id = await _get_setting(db, "x_client_id")
     if not client_id:
         raise HTTPException(400, "X Client ID not configured. Go to Settings → API Keys.")
@@ -568,9 +608,8 @@ async def x_authorize(request: Request, db: AsyncSession = Depends(get_tenant_db
         hashlib.sha256(code_verifier.encode()).digest()
     ).rstrip(b"=").decode()
 
-    state = secrets.token_urlsafe(32)
+    state = _encode_state("x", user_id, org_id)
     _store_put(state, code_verifier)
-    _nonce_store(state)
 
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/x/callback"
 
@@ -588,13 +627,15 @@ async def x_authorize(request: Request, db: AsyncSession = Depends(get_tenant_db
 
 @router.get("/oauth/x/callback")
 async def x_callback(request: Request, code: str = "", state: str = "", error: str = "", error_description: str = "", db: AsyncSession = Depends(get_tenant_db)):
-    org_id = get_org_id(request)
+    """Handle X OAuth callback."""
     if error:
         logger.error("X OAuth error: %s — %s", error, error_description)
         return _oauth_complete_page(False, "x", f"{error}: {error_description}")
-    """Handle X OAuth callback."""
+
     if not _nonce_validate(state):
         return _oauth_complete_page(False, "x", "Invalid or expired OAuth state")
+
+    _platform, user_id, org_id, _nonce = _decode_state(state)
 
     client_id = await _get_setting(db, "x_client_id")
     client_secret = await _get_setting(db, "x_client_secret")
@@ -641,6 +682,7 @@ async def x_callback(request: Request, code: str = "", state: str = "", error: s
             follower_count=metrics.get("followers_count", 0),
             following_count=metrics.get("following_count", 0),
             post_count=metrics.get("tweet_count", 0),
+            user_id=user_id, org_id=org_id,
         )
 
     return _oauth_complete_page(True, "x")
@@ -661,11 +703,11 @@ TIKTOK_SCOPES = ["user.info.basic", "user.info.stats", "video.list"]
 async def tiktok_authorize(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Start TikTok OAuth flow."""
     org_id = get_org_id(request)
+    user_id = get_user_id(request)
     client_key = await _get_setting(db, "tiktok_client_key")
     if not client_key:
         raise HTTPException(400, "TikTok Client Key not configured. Go to Settings → API Keys.")
 
-    state = secrets.token_urlsafe(32)
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/tiktok/callback"
 
     # PKCE
@@ -676,8 +718,9 @@ async def tiktok_authorize(request: Request, db: AsyncSession = Depends(get_tena
         hashlib.sha256(code_verifier.encode()).digest()
     ).rstrip(b"=").decode()
 
+    state = _encode_state("tiktok", user_id, org_id)
+    _nonce_store(f"tiktok_{state}")  # TikTok validates with prefix
     _store_put(f"tiktok_{state}", code_verifier)
-    _nonce_store(f"tiktok_{state}")
 
     params = {
         "client_key": client_key,
@@ -694,9 +737,10 @@ async def tiktok_authorize(request: Request, db: AsyncSession = Depends(get_tena
 @router.get("/oauth/tiktok/callback")
 async def tiktok_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle TikTok OAuth callback."""
-    org_id = get_org_id(request)
     if not _nonce_validate(f"tiktok_{state}"):
         return _oauth_complete_page(False, "tiktok", "Invalid or expired OAuth state")
+
+    _platform, user_id, org_id, _nonce = _decode_state(state)
 
     client_key = await _get_setting(db, "tiktok_client_key")
     client_secret = await _get_setting(db, "tiktok_client_secret")
@@ -743,6 +787,7 @@ async def tiktok_callback(request: Request, code: str, state: str = "", db: Asyn
             follower_count=user_data.get("follower_count", 0),
             following_count=user_data.get("following_count", 0),
             post_count=user_data.get("video_count", 0),
+            user_id=user_id, org_id=org_id,
         )
 
     return _oauth_complete_page(True, "tiktok")
@@ -766,12 +811,12 @@ GOOGLE_SCOPES = [
 async def google_authorize(request: Request, db: AsyncSession = Depends(get_tenant_db)):
     """Start Google/YouTube OAuth flow."""
     org_id = get_org_id(request)
+    user_id = get_user_id(request)
     client_id = await _get_setting(db, "google_oauth_client_id")
     if not client_id:
         raise HTTPException(400, "Google OAuth Client ID not configured. Go to Settings → API Keys.")
 
-    state = secrets.token_urlsafe(32)
-    _nonce_store(state)
+    state = _encode_state("google", user_id, org_id)
     redirect_uri = f"{BACKEND_URL}/api/social/oauth/google/callback"
 
     params = {
@@ -789,9 +834,10 @@ async def google_authorize(request: Request, db: AsyncSession = Depends(get_tena
 @router.get("/oauth/google/callback")
 async def google_callback(request: Request, code: str, state: str = "", db: AsyncSession = Depends(get_tenant_db)):
     """Handle Google OAuth callback."""
-    org_id = get_org_id(request)
     if not state or not _nonce_validate(state):
         return _oauth_complete_page(False, "youtube", "Invalid or expired OAuth state")
+
+    _platform, user_id, org_id, _nonce = _decode_state(state)
 
     client_id = await _get_setting(db, "google_oauth_client_id")
     client_secret = await _get_setting(db, "google_oauth_client_secret")
@@ -838,12 +884,14 @@ async def google_callback(request: Request, code: str, state: str = "", db: Asyn
                 profile_url=f"https://youtube.com/channel/{channel['id']}",
                 follower_count=int(stats.get("subscriberCount", 0)),
                 post_count=int(stats.get("videoCount", 0)),
+                user_id=user_id, org_id=org_id,
             )
         else:
             # Save with minimal data
             await _upsert_social_account(
                 db, "youtube", "YouTube Account", access_token,
                 refresh_token=refresh_token,
+                user_id=user_id, org_id=org_id,
             )
 
     return _oauth_complete_page(True, "youtube")
