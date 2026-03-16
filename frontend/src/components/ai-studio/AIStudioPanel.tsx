@@ -156,6 +156,23 @@ export default function AIStudioPanel() {
   const [durationPreset, setDurationPreset] = useState<"12s" | "7s" | "Auto">("12s");
   const [resolution, setResolution] = useState<"720p" | "1080p">("720p");
 
+  // Script Generator
+  const [scriptGenOpen, setScriptGenOpen] = useState(false);
+  const [scriptGenFormat, setScriptGenFormat] = useState("transformation");
+  const [scriptGenHook, setScriptGenHook] = useState("");
+  const [scriptGenTopic, setScriptGenTopic] = useState("");
+  const [generatingScript, setGeneratingScript] = useState(false);
+  const [showHookLibrary, setShowHookLibrary] = useState(false);
+  const scriptTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Schedule Post
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [schedulePlatforms, setSchedulePlatforms] = useState<Record<string, boolean>>({ instagram: false, tiktok: false, youtube: false, x: false });
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleCaption, setScheduleCaption] = useState("");
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleSuccess, setScheduleSuccess] = useState(false);
+
   // Motion Control
   const [mcModel, setMcModel] = useState("kling-3.0");
   const [mcMotionVideo, setMcMotionVideo] = useState<File | null>(null);
@@ -393,6 +410,103 @@ export default function AIStudioPanel() {
     }, 5000);
     return () => clearInterval(interval);
   }, [pollingProjectId, pollStatus, fetchProjects]);
+
+  // ── Script Generator ─────────────────────────────────────
+  const VIDEO_FORMATS = [
+    { id: "transformation", label: "Transformation (Before/After)", emoji: "🔄" },
+    { id: "myth-buster", label: "Myth Buster", emoji: "💥" },
+    { id: "pov", label: "POV", emoji: "👁️" },
+    { id: "expose", label: "The Exposé", emoji: "🔍" },
+    { id: "speed-run", label: "Speed Run", emoji: "⚡" },
+    { id: "challenge", label: "Challenge Format", emoji: "🏆" },
+    { id: "show-dont-tell", label: "Show Don't Tell", emoji: "🎬" },
+    { id: "direct-to-camera", label: "Direct-to-Camera (Gary Vee)", emoji: "📹" },
+  ];
+
+  const HOOK_FORMULAS = [
+    `[Person] + [conflict] → showed AI → mind changed`,
+    `Wait, you guys are still doing it the old way?`,
+    `Nobody talks about this but...`,
+    `I tested [X] for 30 days. Here's what happened.`,
+    `Stop doing [X]. Here's why.`,
+    `The [industry] doesn't want you to know this...`,
+    `I spent $[X] so you don't have to...`,
+    `3 things I wish I knew before [action]`,
+  ];
+
+  const TEMPLATE_FORMAT_MAP: Record<string, string> = {
+    "product showcase": "Transformation",
+    "testimonial": "Show Don't Tell",
+    "social media ad": "Direct-to-Camera",
+    "product": "Transformation",
+    "service": "Direct-to-Camera",
+    "tutorial": "Show Don't Tell",
+    "unboxing": "Speed Run",
+    "review": "The Exposé",
+  };
+
+  const getTemplateBadge = (category: string, name: string): string | null => {
+    const lower = `${category} ${name}`.toLowerCase();
+    for (const [key, badge] of Object.entries(TEMPLATE_FORMAT_MAP)) {
+      if (lower.includes(key)) return badge;
+    }
+    return null;
+  };
+
+  const generateScript = async () => {
+    setGeneratingScript(true);
+    try {
+      const r = await authFetch(`${API}/api/ai-studio/ugc/generate-script`, {
+        method: "POST",
+        body: JSON.stringify({ format: scriptGenFormat, hook: scriptGenHook, topic: scriptGenTopic }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        setWizardScript(d.script || d.content || "");
+      } else if (r.status === 404) {
+        setWizardScript(`[HOOK] "${scriptGenHook || "Wait, you guys are still doing it the old way?"}"\n\n[BODY] ${scriptGenTopic || "Your topic here"}...\n\n[CTA] Link in bio — trust me on this one.\n\n/* Script generation coming soon — write your script above */`);
+      } else {
+        const d = await r.json().catch(() => ({}));
+        alert(d.detail || d.error || "Script generation failed");
+      }
+    } catch {
+      setWizardScript(`[HOOK] "${scriptGenHook || "Wait, you guys are still doing it the old way?"}"\n\n[BODY] ${scriptGenTopic || "Your topic here"}...\n\n[CTA] Link in bio — trust me on this one.\n\n/* Script generation coming soon — write your script above */`);
+    } finally { setGeneratingScript(false); }
+  };
+
+  const insertHookAtCursor = (hook: string) => {
+    const ta = scriptTextareaRef.current;
+    if (ta) {
+      const start = ta.selectionStart ?? 0;
+      const before = wizardScript.slice(0, start);
+      const after = wizardScript.slice(start);
+      setWizardScript(`${before}${hook}${after}`);
+      setTimeout(() => { ta.focus(); ta.setSelectionRange(start + hook.length, start + hook.length); }, 50);
+    } else {
+      setWizardScript(`${hook}\n\n${wizardScript}`);
+    }
+    setShowHookLibrary(false);
+  };
+
+  const schedulePost = async (videoUrl: string) => {
+    setScheduling(true);
+    setScheduleSuccess(false);
+    try {
+      const platforms = Object.entries(schedulePlatforms).filter(([, v]) => v).map(([k]) => k);
+      const r = await authFetch(`${API}/api/scheduler/posts`, {
+        method: "POST",
+        body: JSON.stringify({ video_url: videoUrl, platforms, scheduled_at: scheduleDate, caption: scheduleCaption }),
+      });
+      if (r.ok) {
+        setScheduleSuccess(true);
+        setTimeout(() => { setShowScheduleForm(false); setScheduleSuccess(false); }, 2000);
+      } else {
+        const d = await r.json().catch(() => ({}));
+        alert(d.detail || d.error || "Scheduling failed");
+      }
+    } catch (e: any) { alert(e.message); }
+    finally { setScheduling(false); }
+  };
 
   // Reset wizard
   const resetWizard = () => {
@@ -653,9 +767,12 @@ export default function AIStudioPanel() {
                   </div>
                 </div>
                 <p className="text-[11px] text-warroom-muted mb-2">{tpl.description}</p>
-                <div className="flex items-center gap-2 text-[10px] text-warroom-muted">
+                <div className="flex items-center gap-2 text-[10px] text-warroom-muted flex-wrap">
                   <span className="flex items-center gap-0.5"><Clock size={10} /> {tpl.duration_seconds}s</span>
                   <span className="flex items-center gap-0.5"><FileText size={10} /> {tpl.scene_count} scenes</span>
+                  {getTemplateBadge(tpl.category, tpl.name) && (
+                    <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded-full text-[9px] font-medium">{getTemplateBadge(tpl.category, tpl.name)}</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -768,14 +885,83 @@ export default function AIStudioPanel() {
     return (
       <div className="space-y-5 max-w-2xl">
         <div>
-          <h2 className="text-sm font-semibold text-warroom-text">Paste Your Script</h2>
-          <p className="text-xs text-warroom-muted mt-0.5">The voiceover / dialogue for your video. This will be mapped to the storyboard scenes.</p>
+          <h2 className="text-sm font-semibold text-warroom-text">Write Your Script</h2>
+          <p className="text-xs text-warroom-muted mt-0.5">The voiceover / dialogue for your video. Use the AI generator or write manually below.</p>
         </div>
-        <textarea value={wizardScript} onChange={e => setWizardScript(e.target.value)}
-          placeholder={"[HOOK] \"Wait, you guys are still doing it the old way?\"\n\n[DEMO] So I just found this product and honestly...\n\n[CTA] Link in bio — trust me on this one."}
-          rows={12}
-          className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-4 py-3 text-sm text-warroom-text resize-none focus:outline-none focus:border-warroom-accent leading-relaxed font-mono"
-        />
+
+        {/* ✨ AI Script Generator (collapsible) */}
+        <div className="bg-warroom-surface border border-warroom-border rounded-xl overflow-hidden">
+          <button onClick={() => setScriptGenOpen(!scriptGenOpen)}
+            className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold text-warroom-text hover:bg-warroom-bg/50 transition">
+            <span className="flex items-center gap-2"><Sparkles size={14} className="text-warroom-accent" /> AI Script Generator</span>
+            <ChevronRight size={14} className={`text-warroom-muted transition-transform ${scriptGenOpen ? "rotate-90" : ""}`} />
+          </button>
+          {scriptGenOpen && (
+            <div className="px-4 pb-4 space-y-3 border-t border-warroom-border pt-3">
+              {/* Format grid */}
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1.5">Video Format</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {VIDEO_FORMATS.map(f => (
+                    <button key={f.id} onClick={() => setScriptGenFormat(f.id)}
+                      className={`px-2 py-2 rounded-lg text-[11px] text-left transition border ${scriptGenFormat === f.id ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent" : "border-warroom-border bg-warroom-bg text-warroom-muted hover:border-warroom-accent/30"}`}>
+                      <span className="mr-1">{f.emoji}</span> {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Hook input */}
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Hook (80% of performance)</label>
+                <input value={scriptGenHook} onChange={e => setScriptGenHook(e.target.value)}
+                  placeholder={`e.g. "Nobody talks about this but..."`}
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" />
+              </div>
+              {/* Topic input */}
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Topic / Product</label>
+                <input value={scriptGenTopic} onChange={e => setScriptGenTopic(e.target.value)}
+                  placeholder="e.g. AI-powered marketing dashboard for agencies"
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" />
+              </div>
+              <button onClick={generateScript} disabled={generatingScript}
+                className="w-full py-2.5 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 disabled:opacity-40 transition flex items-center justify-center gap-1.5 font-medium">
+                {generatingScript ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                {generatingScript ? "Generating..." : "Generate Script"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Hook Library + Textarea */}
+        <div className="relative">
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-[10px] uppercase tracking-wider text-warroom-muted">Script</label>
+            <div className="relative">
+              <button onClick={() => setShowHookLibrary(!showHookLibrary)}
+                className="flex items-center gap-1 px-2 py-1 bg-warroom-bg border border-warroom-border text-[10px] text-warroom-muted rounded-lg hover:border-warroom-accent/30 hover:text-warroom-accent transition">
+                <Zap size={10} /> Browse Hooks
+              </button>
+              {showHookLibrary && (
+                <div className="absolute right-0 top-full mt-1 w-80 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl z-20 p-2 space-y-0.5">
+                  <p className="text-[10px] text-warroom-muted px-2 py-1 font-medium">Proven Hook Formulas — click to insert</p>
+                  {HOOK_FORMULAS.map((h, i) => (
+                    <button key={i} onClick={() => insertHookAtCursor(h)}
+                      className="w-full text-left px-3 py-2 rounded-lg text-[11px] text-warroom-text hover:bg-warroom-accent/10 hover:text-warroom-accent transition">
+                      &ldquo;{h}&rdquo;
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <textarea ref={scriptTextareaRef} value={wizardScript} onChange={e => setWizardScript(e.target.value)}
+            placeholder={"[HOOK] \"Wait, you guys are still doing it the old way?\"\n\n[DEMO] So I just found this product and honestly...\n\n[CTA] Link in bio — trust me on this one."}
+            rows={12}
+            className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-4 py-3 text-sm text-warroom-text resize-none focus:outline-none focus:border-warroom-accent leading-relaxed font-mono"
+          />
+        </div>
+
         <div className="flex justify-between">
           <button onClick={() => setWizardStep("settings")} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Back</button>
           <button onClick={() => setWizardStep("storyboard")} className="px-4 py-2 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 transition flex items-center gap-1">Next <ChevronRight size={14} /></button>
@@ -902,6 +1088,61 @@ export default function AIStudioPanel() {
               </div>
             )}
             {generationResult.error && <p className="text-[11px] text-red-400 mt-1">{generationResult.error}</p>}
+          </div>
+        )}
+
+        {/* Schedule Post — shown when video is completed */}
+        {generationResult?.ok && pollStatus === "completed" && (
+          <div className="space-y-3">
+            {!showScheduleForm ? (
+              <button onClick={() => setShowScheduleForm(true)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-purple-500/20 text-purple-400 text-xs rounded-lg hover:bg-purple-500/30 transition font-medium">
+                <Clock size={14} /> Schedule Post
+              </button>
+            ) : (
+              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-warroom-text flex items-center gap-1.5"><Clock size={12} /> Schedule Post</h4>
+                  <button onClick={() => setShowScheduleForm(false)} className="p-1 text-warroom-muted hover:text-warroom-text"><X size={12} /></button>
+                </div>
+                {/* Platform checkboxes */}
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1.5">Platforms</label>
+                  <div className="flex flex-wrap gap-2">
+                    {(["instagram", "tiktok", "youtube", "x"] as const).map(p => (
+                      <label key={p} className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input type="checkbox" checked={schedulePlatforms[p]} onChange={e => setSchedulePlatforms(prev => ({ ...prev, [p]: e.target.checked }))}
+                          className="accent-warroom-accent w-3.5 h-3.5" />
+                        <span className="text-xs text-warroom-text capitalize">{p === "x" ? "𝕏" : p}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                {/* Datetime */}
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Schedule Date & Time</label>
+                  <input type="datetime-local" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)}
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" />
+                </div>
+                {/* Caption */}
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Caption</label>
+                  <textarea value={scheduleCaption} onChange={e => setScheduleCaption(e.target.value)}
+                    placeholder="Write your post caption..."
+                    rows={3} className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text resize-none focus:outline-none focus:border-warroom-accent" />
+                </div>
+                {scheduleSuccess ? (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-400"><CheckCircle size={14} /> Post scheduled successfully!</div>
+                ) : (
+                  <button onClick={() => { const proj = projects.find(p => p.id === pollingProjectId); schedulePost(proj?.video_url || ""); }}
+                    disabled={scheduling || !Object.values(schedulePlatforms).some(Boolean) || !scheduleDate}
+                    className="w-full py-2 bg-purple-500 text-white text-xs rounded-lg hover:bg-purple-500/80 disabled:opacity-40 transition flex items-center justify-center gap-1.5 font-medium">
+                    {scheduling ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
+                    {scheduling ? "Scheduling..." : "Schedule Post"}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
