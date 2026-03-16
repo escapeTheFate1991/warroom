@@ -134,7 +134,7 @@ async def _sync_video_from_ml_service(db, task_id: str, org_id: int):
                 "document_text": video_data.get("document_text", ""),
                 "org_id": org_id,
                 "ml_service_id": video_id,
-                "processed_at": video_data.get("processed_at")
+                "processed_at": datetime.fromisoformat(video_data["processed_at"]) if video_data.get("processed_at") else datetime.now()
             })
             
             war_room_video_id = video_insert_result.scalar()
