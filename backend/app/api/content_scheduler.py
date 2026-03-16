@@ -16,7 +16,7 @@ from app.db.leadgen_db import get_leadgen_db
 from app.api.auth import get_current_user
 from app.models.crm.user import User
 from app.services.tenant import get_org_id
-from app.services import content_scheduler, performance_tracker
+from app.services import content_scheduler, performance_tracker, content_recycler, optimal_timing, multi_account_poster
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,6 +56,35 @@ class MetricsRequest(BaseModel):
     saves: int = Field(default=0, description="Save count")
     watch_time_avg: float = Field(default=0.0, description="Average watch time")
     hook_retention: float = Field(default=0.0, description="Hook retention rate")
+
+
+class BulkPostRequest(BaseModel):
+    """Request to create multiple posts at once."""
+    posts: List[CreatePostRequest] = Field(..., description="List of posts to schedule")
+    distribution_strategy: str = Field(default="staggered", description="How to distribute posts")
+
+
+class RecyclePostRequest(BaseModel):
+    """Request to recycle a post."""
+    original_post_id: int = Field(..., description="ID of post to recycle")
+    account_id: Optional[int] = Field(default=None, description="Target social account")
+    scheduled_for: Optional[datetime] = Field(default=None, description="When to publish recycle")
+    caption_variation: Optional[str] = Field(default=None, description="Modified caption")
+
+
+class SeriesRequest(BaseModel):
+    """Request to create a multi-part story series."""
+    title: str = Field(..., description="Series title")
+    posts: List[CreatePostRequest] = Field(..., description="Posts in the series")
+    schedule_strategy: str = Field(default="daily", description="How to schedule series")
+    start_date: Optional[datetime] = Field(default=None, description="Series start date")
+
+
+class DistributeContentRequest(BaseModel):
+    """Request to distribute content across accounts."""
+    content: CreatePostRequest = Field(..., description="Content to distribute")
+    account_ids: List[int] = Field(..., description="Accounts to post to")
+    schedule_strategy: str = Field(default="staggered", description="Distribution strategy")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -446,3 +475,455 @@ async def get_post_performance(
     except Exception as e:
         logger.error(f"Failed to get performance for post {post_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get performance: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Content Recycling Endpoints
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/recycle/candidates")
+async def get_recyclable_content(
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+    platform: str = Query(..., description="Platform to get candidates for"),
+    min_engagement: float = Query(default=0.5, description="Minimum engagement score"),
+    limit: int = Query(default=10, description="Maximum candidates to return"),
+):
+    """Get recyclable content candidates."""
+    org_id = get_org_id(request)
+    
+    try:
+        candidates = await content_recycler.get_recyclable_content(
+            db=db,
+            org_id=org_id,
+            platform=platform,
+            min_engagement=min_engagement,
+            limit=limit
+        )
+        
+        return {
+            "success": True,
+            "candidates": candidates,
+            "platform": platform,
+            "count": len(candidates)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get recyclable content: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get candidates: {str(e)}")
+
+
+@router.post("/recycle/auto")
+async def trigger_auto_recycle(
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+    account_id: Optional[int] = Query(default=None, description="Specific account to recycle for"),
+):
+    """Trigger automatic content recycling."""
+    org_id = get_org_id(request)
+    
+    try:
+        recycled_id = await content_recycler.auto_schedule_recycle(
+            db=db,
+            org_id=org_id,
+            user_id=user.id,
+            account_id=account_id
+        )
+        
+        if recycled_id:
+            return {
+                "success": True,
+                "recycled_post_id": recycled_id,
+                "message": "Content recycled and scheduled automatically"
+            }
+        else:
+            return {
+                "success": False,
+                "message": "No suitable content found for recycling"
+            }
+        
+    except Exception as e:
+        logger.error(f"Failed to auto-recycle content: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to recycle: {str(e)}")
+
+
+@router.put("/posts/{post_id}/recycle")
+async def recycle_specific_post(
+    post_id: int,
+    recycle_data: RecyclePostRequest,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Manually recycle a specific post."""
+    org_id = get_org_id(request)
+    
+    try:
+        # Use provided schedule or suggest optimal time
+        scheduled_for = recycle_data.scheduled_for
+        if not scheduled_for:
+            scheduled_for = await optimal_timing.suggest_next_slot(
+                db=db,
+                org_id=org_id,
+                account_id=recycle_data.account_id
+            )
+        
+        recycled_id = await content_recycler.create_recycled_post(
+            db=db,
+            org_id=org_id,
+            user_id=user.id,
+            original_post_id=recycle_data.original_post_id,
+            account_id=recycle_data.account_id,
+            scheduled_for=scheduled_for,
+            caption_variation=recycle_data.caption_variation
+        )
+        
+        return {
+            "success": True,
+            "recycled_post_id": recycled_id,
+            "original_post_id": recycle_data.original_post_id,
+            "scheduled_for": scheduled_for.isoformat(),
+            "message": "Post recycled successfully"
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to recycle post {post_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to recycle post: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Optimal Timing Endpoints
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/optimal-times")
+async def get_optimal_posting_times(
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+    platform: str = Query(..., description="Platform to analyze"),
+    account_id: Optional[int] = Query(default=None, description="Specific account"),
+):
+    """Get best posting times for platform."""
+    org_id = get_org_id(request)
+    
+    try:
+        optimal_times = await optimal_timing.get_best_posting_times(
+            db=db,
+            org_id=org_id,
+            platform=platform,
+            account_id=account_id
+        )
+        
+        return {
+            "success": True,
+            "platform": platform,
+            "optimal_times": optimal_times,
+            "account_id": account_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get optimal times: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get optimal times: {str(e)}")
+
+
+@router.get("/heatmap")
+async def get_engagement_heatmap(
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+    platform: str = Query(..., description="Platform to analyze"),
+    days: int = Query(default=30, description="Days of history to include"),
+):
+    """Get engagement heatmap data."""
+    org_id = get_org_id(request)
+    
+    try:
+        heatmap = await optimal_timing.get_engagement_heatmap(
+            db=db,
+            org_id=org_id,
+            platform=platform,
+            days=days
+        )
+        
+        return {
+            "success": True,
+            "heatmap": heatmap
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get engagement heatmap: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get heatmap: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Bulk and Multi-Account Endpoints
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/posts/bulk")
+async def schedule_bulk_posts(
+    bulk_data: BulkPostRequest,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Schedule multiple posts at once."""
+    org_id = get_org_id(request)
+    
+    try:
+        scheduled_ids = []
+        
+        for i, post_data in enumerate(bulk_data.posts):
+            # Stagger posts based on strategy
+            if bulk_data.distribution_strategy == "staggered":
+                # Add hours between posts
+                post_data.scheduled_for = post_data.scheduled_for + timedelta(hours=i * 2)
+            elif bulk_data.distribution_strategy == "optimal":
+                # Use optimal timing
+                post_data.scheduled_for = await optimal_timing.suggest_next_slot(
+                    db=db,
+                    org_id=org_id,
+                    content_type=post_data.content_type
+                )
+                post_data.scheduled_for += timedelta(minutes=i * 30)
+            
+            # Create the post
+            post_id = await content_scheduler.schedule_post(
+                db=db,
+                org_id=org_id,
+                user_id=user.id,
+                platform=post_data.platform,
+                media_path=post_data.media_path,
+                caption=post_data.caption,
+                scheduled_for=post_data.scheduled_for,
+                storyboard_id=post_data.storyboard_id,
+                hashtags=post_data.hashtags or [],
+                content_type=post_data.content_type,
+                cloud_url=post_data.cloud_url
+            )
+            
+            scheduled_ids.append(post_id)
+        
+        return {
+            "success": True,
+            "scheduled_post_ids": scheduled_ids,
+            "count": len(scheduled_ids),
+            "strategy": bulk_data.distribution_strategy,
+            "message": f"Scheduled {len(scheduled_ids)} posts successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to schedule bulk posts: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to schedule bulk posts: {str(e)}")
+
+
+@router.post("/distribute")
+async def distribute_content_across_accounts(
+    distribute_data: DistributeContentRequest,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Distribute one piece of content across multiple accounts."""
+    org_id = get_org_id(request)
+    
+    try:
+        content_dict = {
+            "platform": distribute_data.content.platform,
+            "content_type": distribute_data.content.content_type,
+            "media_path": distribute_data.content.media_path,
+            "cloud_url": distribute_data.content.cloud_url,
+            "caption": distribute_data.content.caption,
+            "hashtags": distribute_data.content.hashtags,
+            "storyboard_id": distribute_data.content.storyboard_id
+        }
+        
+        scheduled_ids = await multi_account_poster.distribute_content(
+            db=db,
+            org_id=org_id,
+            user_id=user.id,
+            content=content_dict,
+            accounts=distribute_data.account_ids,
+            schedule_strategy=distribute_data.schedule_strategy
+        )
+        
+        return {
+            "success": True,
+            "scheduled_post_ids": scheduled_ids,
+            "account_count": len(distribute_data.account_ids),
+            "strategy": distribute_data.schedule_strategy,
+            "message": f"Content distributed to {len(distribute_data.account_ids)} accounts"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to distribute content: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to distribute content: {str(e)}")
+
+
+@router.get("/accounts")
+async def get_posting_accounts(
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+    platform: Optional[str] = Query(default=None, description="Filter by platform"),
+):
+    """Get all available posting accounts."""
+    org_id = get_org_id(request)
+    
+    try:
+        accounts = await multi_account_poster.get_posting_accounts(
+            db=db,
+            org_id=org_id,
+            platform=platform
+        )
+        
+        return {
+            "success": True,
+            "accounts": accounts,
+            "platform_filter": platform,
+            "count": len(accounts)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get posting accounts: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get accounts: {str(e)}")
+
+
+@router.get("/accounts/{account_id}/schedule")
+async def get_account_schedule(
+    account_id: int,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+    days_ahead: int = Query(default=7, description="Days ahead to show"),
+):
+    """Get schedule for specific social account."""
+    org_id = get_org_id(request)
+    
+    try:
+        # Get scheduled posts for this account
+        posts = await content_scheduler.get_scheduled_posts(
+            db=db,
+            org_id=org_id,
+            status="scheduled",
+            limit=100,
+            offset=0
+        )
+        
+        # Filter by account and date range
+        end_date = datetime.now(timezone.utc) + timedelta(days=days_ahead)
+        account_posts = [
+            post for post in posts 
+            if (hasattr(post, 'social_account_id') and post.social_account_id == account_id) and
+               post.scheduled_for <= end_date
+        ]
+        
+        # Get cadence info
+        cadence = await multi_account_poster.get_account_cadence(
+            db=db,
+            org_id=org_id,
+            account_id=account_id
+        )
+        
+        return {
+            "success": True,
+            "account_id": account_id,
+            "scheduled_posts": [post.to_dict() for post in account_posts],
+            "cadence": cadence,
+            "days_ahead": days_ahead,
+            "post_count": len(account_posts)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get account schedule: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get schedule: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Series Management Endpoints
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/series")
+async def create_content_series(
+    series_data: SeriesRequest,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Create a multi-part story series."""
+    org_id = get_org_id(request)
+    
+    try:
+        # Generate series ID (timestamp-based)
+        series_id = int(datetime.now(timezone.utc).timestamp() * 1000)
+        
+        # Determine start date
+        start_date = series_data.start_date or datetime.now(timezone.utc) + timedelta(hours=2)
+        
+        scheduled_ids = []
+        
+        for i, post_data in enumerate(series_data.posts):
+            # Calculate schedule based on strategy
+            if series_data.schedule_strategy == "daily":
+                post_schedule = start_date + timedelta(days=i)
+            elif series_data.schedule_strategy == "hourly":
+                post_schedule = start_date + timedelta(hours=i * 4)  # Every 4 hours
+            elif series_data.schedule_strategy == "weekly":
+                post_schedule = start_date + timedelta(weeks=i)
+            else:
+                # Default to daily
+                post_schedule = start_date + timedelta(days=i)
+            
+            # Add series info to caption
+            series_caption = f"Part {i+1}/{len(series_data.posts)}: {series_data.title}\n\n{post_data.caption}"
+            
+            # Schedule the post with series metadata
+            post_id = await content_scheduler.schedule_post(
+                db=db,
+                org_id=org_id,
+                user_id=user.id,
+                platform=post_data.platform,
+                media_path=post_data.media_path,
+                caption=series_caption,
+                scheduled_for=post_schedule,
+                storyboard_id=post_data.storyboard_id,
+                hashtags=post_data.hashtags or [],
+                content_type=post_data.content_type,
+                cloud_url=post_data.cloud_url
+            )
+            
+            # Update with series info
+            from sqlalchemy import text
+            update_query = text("""
+                UPDATE public.scheduled_posts 
+                SET series_id = :series_id, series_order = :series_order
+                WHERE id = :post_id
+            """)
+            
+            await db.execute(update_query, {
+                "series_id": series_id,
+                "series_order": i,
+                "post_id": post_id
+            })
+            
+            scheduled_ids.append(post_id)
+        
+        await db.commit()
+        
+        return {
+            "success": True,
+            "series_id": series_id,
+            "title": series_data.title,
+            "scheduled_post_ids": scheduled_ids,
+            "post_count": len(scheduled_ids),
+            "strategy": series_data.schedule_strategy,
+            "start_date": start_date.isoformat(),
+            "message": f"Series '{series_data.title}' created with {len(scheduled_ids)} posts"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create content series: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create series: {str(e)}")
