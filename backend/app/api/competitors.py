@@ -347,6 +347,7 @@ async def create_competitor(
             new_competitor = Competitor(
                 handle=handle,
                 platform=platform,
+                org_id=org_id,
                 is_auto_populated=False,
                 last_auto_sync=None,
             )
@@ -356,6 +357,7 @@ async def create_competitor(
             new_competitor = Competitor(
                 handle=handle,
                 platform=platform,
+                org_id=org_id,
                 followers=auto_data.followers,
                 following=auto_data.following,
                 post_count=auto_data.post_count,
