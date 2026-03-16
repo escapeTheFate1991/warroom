@@ -212,7 +212,7 @@ async def should_recycle_now(
             FROM public.scheduled_posts
             WHERE 
                 org_id = :org_id
-                AND (:account_id IS NULL OR social_account_id = :account_id)
+                AND (CAST(:account_id AS INTEGER) IS NULL OR social_account_id = CAST(:account_id AS INTEGER))
                 AND created_at >= :since_date
         ),
         latest_posts AS (
@@ -222,7 +222,7 @@ async def should_recycle_now(
                 FROM public.scheduled_posts
                 WHERE 
                     org_id = :org_id
-                    AND (:account_id IS NULL OR social_account_id = :account_id)
+                    AND (CAST(:account_id AS INTEGER) IS NULL OR social_account_id = CAST(:account_id AS INTEGER))
                     AND is_recycled = false
                     AND status IN ('scheduled', 'published')
                 ORDER BY created_at DESC

@@ -254,7 +254,7 @@ async def _get_data_driven_times(
         WHERE 
             org_id = :org_id
             AND platform = :platform
-            AND (:account_id IS NULL OR social_account_id = :account_id)
+            AND (CAST(:account_id AS INTEGER) IS NULL OR social_account_id = CAST(:account_id AS INTEGER))
             AND published_at >= :since_date
             AND engagement_score > 0
         GROUP BY EXTRACT(HOUR FROM published_at)
