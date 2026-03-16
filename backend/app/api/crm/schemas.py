@@ -3,7 +3,7 @@
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, validator
 
 from app.api.agent_contract import AgentAssignmentSummary
 
@@ -108,6 +108,23 @@ class PersonUpdate(BaseModel):
     organization_id: Optional[int] = None
     user_id: Optional[int] = None
 
+def _normalize_contact_list(val: Any) -> Optional[List[Dict[str, str]]]:
+    """Normalize emails/contact_numbers — accept both string lists and dict lists."""
+    if val is None:
+        return None
+    if not isinstance(val, list):
+        return None
+    result = []
+    for item in val:
+        if isinstance(item, dict):
+            result.append(item)
+        elif isinstance(item, str):
+            result.append({"label": "primary", "value": item})
+        else:
+            result.append({"label": "primary", "value": str(item)})
+    return result
+
+
 class OrganizationResponse(BaseSchema):
     id: int
     name: str
@@ -118,6 +135,10 @@ class OrganizationResponse(BaseSchema):
     leadgen_lead_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+
+    @validator("emails", "contact_numbers", pre=True)
+    def normalize_contacts(cls, v):
+        return _normalize_contact_list(v)
 
 class OrganizationCreate(BaseModel):
     name: str
