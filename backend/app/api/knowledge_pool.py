@@ -39,7 +39,7 @@ class KnowledgeSearch(BaseModel):
 
 # ── Contribution Endpoints ───────────────────────────────────────
 
-@router.post("/api/knowledge/contribute", response_model=Dict[str, Any])
+@router.post("/contribute", response_model=Dict[str, Any])
 async def contribute_knowledge(
     contribution: KnowledgeContribution,
     request: Request,
@@ -91,7 +91,7 @@ async def contribute_knowledge(
 
 # ── Search Endpoints ──────────────────────────────────────────────
 
-@router.get("/api/knowledge/search", response_model=List[Dict[str, Any]])
+@router.get("/search", response_model=List[Dict[str, Any]])
 async def search_knowledge(
     request: Request,
     db: AsyncSession = Depends(get_tenant_db),
@@ -130,7 +130,7 @@ async def search_knowledge(
 
 # ── Pool Statistics ───────────────────────────────────────────────
 
-@router.get("/api/knowledge/stats", response_model=Dict[str, Any])
+@router.get("/stats", response_model=Dict[str, Any])
 async def get_knowledge_stats(
     request: Request,
     db: AsyncSession = Depends(get_tenant_db)
@@ -150,7 +150,7 @@ async def get_knowledge_stats(
         raise HTTPException(status_code=500, detail="Failed to get statistics")
 
 
-@router.get("/api/knowledge/recent", response_model=List[Dict[str, Any]])
+@router.get("/recent", response_model=List[Dict[str, Any]])
 async def get_recent_knowledge(
     request: Request,
     db: AsyncSession = Depends(get_tenant_db),
@@ -200,7 +200,7 @@ async def get_recent_knowledge(
 
 # ── Usage Tracking ────────────────────────────────────────────────
 
-@router.post("/api/knowledge/{knowledge_id}/reference", response_model=Dict[str, bool])
+@router.post("/{knowledge_id}/reference", response_model=Dict[str, bool])
 async def record_knowledge_usage(
     knowledge_id: int,
     request: Request,
@@ -236,7 +236,7 @@ async def record_knowledge_usage(
 
 # ── Archive Management ────────────────────────────────────────────
 
-@router.put("/api/knowledge/{knowledge_id}/archive")
+@router.put("/{knowledge_id}/archive")
 async def archive_knowledge(
     knowledge_id: int,
     request: Request,
