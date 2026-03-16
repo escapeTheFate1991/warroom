@@ -740,7 +740,7 @@ async def sync_social_data(request: Request, db: AsyncSession = Depends(get_tena
     org_id = get_org_id(request)
     try:
         from app.api.social_sync import sync_all
-        return await sync_all(db)
+        return await sync_all(request=request, db=db)
     except HTTPException:
         raise
     except Exception as e:
