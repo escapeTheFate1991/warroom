@@ -64,7 +64,7 @@ async def get_recyclable_content(
         LIMIT :limit
     """)
     
-    min_date = datetime.now(timezone.utc) - timedelta(days=min_age_days)
+    min_date = datetime.utcnow() - timedelta(days=min_age_days)
     
     result = await db.execute(query, {
         "org_id": org_id,
@@ -150,7 +150,7 @@ async def create_recycled_post(
         RETURNING id
     """)
     
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     final_caption = caption_variation or original.caption
     
     result = await db.execute(insert_query, {
@@ -237,7 +237,7 @@ async def should_recycle_now(
         FROM recent_posts rp, latest_posts lp
     """)
     
-    since_date = datetime.now(timezone.utc) - timedelta(days=30)
+    since_date = datetime.utcnow() - timedelta(days=30)
     
     result = await db.execute(query, {
         "org_id": org_id,

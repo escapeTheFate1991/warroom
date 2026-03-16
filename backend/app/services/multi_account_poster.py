@@ -112,7 +112,7 @@ async def distribute_content(
     from .optimal_timing import suggest_next_slot
     
     scheduled_posts = []
-    base_time = datetime.now(timezone.utc)
+    base_time = datetime.utcnow()
     
     for i, account_id in enumerate(accounts):
         # Get account details
@@ -166,7 +166,7 @@ async def distribute_content(
             RETURNING id
         """)
         
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         
         result = await db.execute(insert_query, {
             "org_id": org_id,
@@ -274,7 +274,7 @@ async def _get_recent_post_count(
             AND created_at >= :since_date
     """)
     
-    since_date = datetime.now(timezone.utc) - timedelta(days=days)
+    since_date = datetime.utcnow() - timedelta(days=days)
     
     result = await db.execute(query, {
         "org_id": org_id,

@@ -117,7 +117,7 @@ async def suggest_next_slot(
     )
     
     # Find next available slot that's not already taken
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     for day_offset in range(days_ahead):
         check_date = now + timedelta(days=day_offset)
         
@@ -125,7 +125,7 @@ async def suggest_next_slot(
             candidate = datetime.combine(
                 check_date.date(),
                 time(hour=time_slot["hour"], minute=time_slot["minute"])
-            ).replace(tzinfo=timezone.utc)
+            )
             
             # Skip past times
             if candidate <= now:
@@ -194,7 +194,7 @@ async def get_engagement_heatmap(
         ORDER BY day_of_week, hour
     """)
     
-    since_date = datetime.now(timezone.utc) - timedelta(days=days)
+    since_date = datetime.utcnow() - timedelta(days=days)
     
     result = await db.execute(query, {
         "org_id": org_id,
@@ -263,7 +263,7 @@ async def _get_data_driven_times(
         LIMIT 5
     """)
     
-    since_date = datetime.now(timezone.utc) - timedelta(days=days_lookback)
+    since_date = datetime.utcnow() - timedelta(days=days_lookback)
     
     result = await db.execute(query, {
         "org_id": org_id,
