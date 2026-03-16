@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Mail, Phone, Building2, User, Clock, Plus, CheckCircle2, Circle } from "lucide-react";
+import { X, Mail, Phone, Building2, User, Clock, Plus, CheckCircle2, Circle, Pencil, Save, Loader2 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import AgentAssignmentCard from "@/components/agents/AgentAssignmentCard";
@@ -71,6 +71,14 @@ export default function PersonDrawer({ person, isOpen, onClose, onUpdate }: Pers
   const [activities, setActivities] = useState<Activity[]>([]);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    job_title: "",
+    emails: [{ label: "primary", value: "" }],
+    contact_numbers: [{ label: "primary", value: "" }],
+  });
+  const [saving, setSaving] = useState(false);
   const [showActivityForm, setShowActivityForm] = useState(false);
   const [activityForm, setActivityForm] = useState({
     type: "call",
@@ -88,8 +96,52 @@ export default function PersonDrawer({ person, isOpen, onClose, onUpdate }: Pers
         fetchActivities();
       }
       setNotes(person.notes || "");
+      setIsEditing(false);
     }
   }, [person, isOpen, activeTab]);
+
+  const startEditing = () => {
+    if (!person) return;
+    setEditForm({
+      name: person.name || "",
+      job_title: person.job_title || "",
+      emails: person.emails.length > 0 ? person.emails : [{ label: "primary", value: "" }],
+      contact_numbers: person.contact_numbers.length > 0 ? person.contact_numbers : [{ label: "primary", value: "" }],
+    });
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+  };
+
+  const handleSaveContact = async () => {
+    if (!person) return;
+    setSaving(true);
+    try {
+      const response = await authFetch(`${API}/api/crm/persons/${person.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editForm.name,
+          job_title: editForm.job_title || null,
+          emails: editForm.emails.filter(e => e.value.trim()),
+          contact_numbers: editForm.contact_numbers.filter(p => p.value.trim()),
+        }),
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setIsEditing(false);
+        if (onUpdate) onUpdate(updated);
+      } else {
+        console.error("Failed to update contact:", await response.text());
+      }
+    } catch (error) {
+      console.error("Failed to update contact:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const fetchDeals = async () => {
     if (!person) return;
@@ -200,45 +252,151 @@ export default function PersonDrawer({ person, isOpen, onClose, onUpdate }: Pers
               <div className="flex-1">
                 <div className="flex items-start gap-3">
                   <div className="flex-1">
-                    <h2 className="text-xl font-semibold text-gray-200 mb-2">
-                      {person.name}
-                    </h2>
+                    {isEditing ? (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Name</label>
+                          <input
+                            type="text"
+                            value={editForm.name}
+                            onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                            className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-gray-200 text-sm focus:outline-none focus:border-purple-500"
+                            placeholder="Contact name"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Job Title</label>
+                          <input
+                            type="text"
+                            value={editForm.job_title}
+                            onChange={(e) => setEditForm(prev => ({ ...prev, job_title: e.target.value }))}
+                            className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-gray-200 text-sm focus:outline-none focus:border-purple-500"
+                            placeholder="Job title"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Emails</label>
+                          {editForm.emails.map((email, idx) => (
+                            <div key={idx} className="flex gap-2 mb-1">
+                              <input
+                                type="email"
+                                value={email.value}
+                                onChange={(e) => {
+                                  const updated = [...editForm.emails];
+                                  updated[idx] = { ...updated[idx], value: e.target.value };
+                                  setEditForm(prev => ({ ...prev, emails: updated }));
+                                }}
+                                className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-gray-200 text-sm focus:outline-none focus:border-purple-500"
+                                placeholder="email@example.com"
+                              />
+                              {editForm.emails.length > 1 && (
+                                <button
+                                  onClick={() => setEditForm(prev => ({ ...prev, emails: prev.emails.filter((_, i) => i !== idx) }))}
+                                  className="text-gray-500 hover:text-red-400 p-2"
+                                ><X size={14} /></button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            onClick={() => setEditForm(prev => ({ ...prev, emails: [...prev.emails, { label: "other", value: "" }] }))}
+                            className="text-xs text-purple-400 hover:text-purple-300 mt-1"
+                          >+ Add email</button>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Phone Numbers</label>
+                          {editForm.contact_numbers.map((phone, idx) => (
+                            <div key={idx} className="flex gap-2 mb-1">
+                              <input
+                                type="tel"
+                                value={phone.value}
+                                onChange={(e) => {
+                                  const updated = [...editForm.contact_numbers];
+                                  updated[idx] = { ...updated[idx], value: e.target.value };
+                                  setEditForm(prev => ({ ...prev, contact_numbers: updated }));
+                                }}
+                                className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-gray-200 text-sm focus:outline-none focus:border-purple-500"
+                                placeholder="(555) 123-4567"
+                              />
+                              {editForm.contact_numbers.length > 1 && (
+                                <button
+                                  onClick={() => setEditForm(prev => ({ ...prev, contact_numbers: prev.contact_numbers.filter((_, i) => i !== idx) }))}
+                                  className="text-gray-500 hover:text-red-400 p-2"
+                                ><X size={14} /></button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            onClick={() => setEditForm(prev => ({ ...prev, contact_numbers: [...prev.contact_numbers, { label: "other", value: "" }] }))}
+                            className="text-xs text-purple-400 hover:text-purple-300 mt-1"
+                          >+ Add phone</button>
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                          <button
+                            onClick={handleSaveContact}
+                            disabled={saving || !editForm.name.trim()}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm font-medium transition"
+                          >
+                            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                            Save
+                          </button>
+                          <button
+                            onClick={cancelEditing}
+                            className="px-3 py-1.5 bg-[#21262d] hover:bg-[#30363d] rounded-lg text-sm text-gray-400 transition"
+                          >Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 mb-2">
+                          <h2 className="text-xl font-semibold text-gray-200">
+                            {person.name}
+                          </h2>
+                          <button
+                            onClick={startEditing}
+                            className="text-gray-500 hover:text-purple-400 transition p-1"
+                            title="Edit contact"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        </div>
                     
-                    {person.job_title && (
-                      <div className="text-sm text-gray-400 mb-2">
-                        {person.job_title}
-                      </div>
-                    )}
+                        {person.job_title && (
+                          <div className="text-sm text-gray-400 mb-2">
+                            {person.job_title}
+                          </div>
+                        )}
 
-                    {person.organization && (
-                      <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
-                        <Building2 size={14} />
-                        {person.organization.name}
-                      </div>
-                    )}
+                        {person.organization && (
+                          <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
+                            <Building2 size={14} />
+                            {person.organization.name}
+                          </div>
+                        )}
 
-                    {/* Contact Info */}
-                    <div className="space-y-2">
-                      {person.emails.map((email, index) => (
-                        <div key={index} className="flex items-center gap-2 text-sm">
-                          <Mail size={14} className="text-gray-400" />
-                          <span className="text-blue-400">{email.value}</span>
-                          {email.label && (
-                            <span className="text-xs text-gray-500">({email.label})</span>
-                          )}
-                        </div>
-                      ))}
+                        {/* Contact Info */}
+                        <div className="space-y-2">
+                          {person.emails.map((email, index) => (
+                            <div key={index} className="flex items-center gap-2 text-sm">
+                              <Mail size={14} className="text-gray-400" />
+                              <span className="text-blue-400">{email.value}</span>
+                              {email.label && (
+                                <span className="text-xs text-gray-500">({email.label})</span>
+                              )}
+                            </div>
+                          ))}
                       
-                      {person.contact_numbers.map((phone, index) => (
-                        <div key={index} className="flex items-center gap-2 text-sm">
-                          <Phone size={14} className="text-gray-400" />
-                          <span className="text-gray-300">{phone.value}</span>
-                          {phone.label && (
-                            <span className="text-xs text-gray-500">({phone.label})</span>
-                          )}
+                          {person.contact_numbers.map((phone, index) => (
+                            <div key={index} className="flex items-center gap-2 text-sm">
+                              <Phone size={14} className="text-gray-400" />
+                              <span className="text-gray-300">{phone.value}</span>
+                              {phone.label && (
+                                <span className="text-xs text-gray-500">({phone.label})</span>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </>
+                    )}
                   </div>
                   <button
                     onClick={onClose}
