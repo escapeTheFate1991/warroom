@@ -1244,3 +1244,102 @@ async def delete_voice_sample(
     await db.commit()
 
     return {"ok": True, "remaining": len(updated)}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  AI SCRIPT GENERATION (Viral Content Engine)
+# ═══════════════════════════════════════════════════════════════════════
+
+VIDEO_FORMATS = {
+    "transformation": "Transformation (Before/After) — showing dramatic change over time. People buy outcomes, not products.",
+    "myth_buster": "Myth Buster — take something everyone believes and flip it on its head. Creates instant engagement.",
+    "pov": "POV — point of view format. Relatable scenarios that pull the viewer in.",
+    "expose": "The Exposé — reveal industry secrets insiders don't want shared. Creates us-vs-them dynamic.",
+    "speed_run": "Speed Run — condense a long process into a rapid-fire video.",
+    "challenge": "Challenge Format — get people to try something for a specific timeframe. Creates community participation.",
+    "show_dont_tell": "Show Don't Tell — demonstrate products/outcomes visually instead of explaining.",
+    "direct_to_camera": "Direct-to-Camera (Gary Vee style) — raw, unfiltered takes straight to camera.",
+    "listicle": "Listicle — '5 things you need to know' format. Easy to consume, high saves.",
+    "day_in_the_life": "Day in the Life — authentic behind-the-scenes content.",
+    "tutorial": "Tutorial — step-by-step how-to content that provides immediate value.",
+    "reaction": "Reaction — respond to trending content or industry news.",
+}
+
+
+class GenerateScriptRequest(BaseModel):
+    format: str
+    hook: str
+    topic: str
+    target_audience: str = ""
+    tone: str = "energetic and authentic"
+    duration_seconds: int = 30
+
+
+@router.post("/generate-script")
+async def generate_script(
+    body: GenerateScriptRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Generate a short-form video script using AI based on format + hook + topic."""
+    org_id = get_org_id(request)
+    api_key = await _get_gemini_key(db)
+
+    format_desc = VIDEO_FORMATS.get(body.format, body.format)
+    audience_line = f"\nTarget audience: {body.target_audience}" if body.target_audience else ""
+
+    prompt = f"""You are an expert short-form video scriptwriter. Generate a {body.duration_seconds}-second video script.
+
+FORMAT: {format_desc}
+HOOK: "{body.hook}"
+TOPIC: {body.topic}{audience_line}
+TONE: {body.tone}
+
+Write the script with clear sections:
+[HOOK] — The first 2-3 seconds. Use the provided hook or improve it. This is the most important part.
+[BODY] — The main content. Keep it punchy, one idea per sentence.
+[CTA] — Call to action. 2-3 seconds max.
+
+Rules:
+- Write for speaking out loud, not reading
+- Use short sentences (5-10 words each)
+- Include [PAUSE] marks where dramatic pauses help
+- Include (camera direction) notes in parentheses
+- The hook MUST stop the scroll in the first 2 seconds
+- Total script should be speakable in ~{body.duration_seconds} seconds
+- No emojis in the script itself
+
+Return ONLY the script text, no explanations or metadata."""
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": 0.9, "maxOutputTokens": 1024},
+                },
+            )
+            if resp.status_code != 200:
+                logger.error("Script generation failed: %s", resp.text[:500])
+                raise HTTPException(500, "Script generation failed")
+
+            data = resp.json()
+            script_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+            if not script_text:
+                raise HTTPException(500, "Empty script generated")
+
+            return {
+                "script": script_text.strip(),
+                "format": body.format,
+                "format_description": format_desc,
+                "hook_used": body.hook,
+                "topic": body.topic,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Script generation error: %s", e)
+        raise HTTPException(500, f"Script generation failed: {str(e)[:200]}")
