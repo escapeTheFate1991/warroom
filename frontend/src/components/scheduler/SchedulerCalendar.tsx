@@ -60,7 +60,19 @@ export default function SchedulerCalendar() {
   const [optimalTimes, setOptimalTimes] = useState<OptimalTime[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<ScheduledPost | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // New post form state
+  const [newPost, setNewPost] = useState({
+    title: "",
+    content: "",
+    platforms: [] as string[],
+    scheduled_for: "",
+    media_urls: [] as string[],
+  });
 
   // Generate calendar grid
   const generateCalendar = useCallback((): CalendarDay[] => {
@@ -102,53 +114,117 @@ export default function SchedulerCalendar() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API calls
-      // const postsRes = await authFetch(`${API}/api/scheduler/calendar`);
-      // const postsData = await postsRes.json();
-      // setScheduledPosts(postsData.posts || []);
-      
-      // const timesRes = await authFetch(`${API}/api/scheduler/optimal-times`);
-      // const timesData = await timesRes.json();
-      // setOptimalTimes(timesData.times || []);
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth() + 1; // API expects 1-indexed month
 
-      // Mock data for development
-      const now = new Date();
-      const mockPosts: ScheduledPost[] = Array.from({ length: 15 }, (_, i) => {
-        const date = new Date(now);
-        date.setDate(now.getDate() + Math.floor(i / 3) - 5);
-        date.setHours(9 + (i % 12), 0, 0, 0);
-        
-        const platforms = ["instagram", "tiktok", "youtube", "facebook"];
-        const platform = platforms[i % platforms.length];
-        
-        return {
-          id: `post_${i}`,
-          content: `Sample ${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} post ${i + 1}. This is scheduled content that will be posted automatically.`,
-          platform,
-          scheduled_for: date.toISOString(),
-          status: "scheduled",
-          account_username: `@${platform}_account`
-        };
-      });
-      
-      setScheduledPosts(mockPosts);
-      setOptimalTimes([
-        { platform: "instagram", hour: 9, engagement_score: 85, day_of_week: 1 },
-        { platform: "instagram", hour: 18, engagement_score: 92, day_of_week: 1 },
-        { platform: "tiktok", hour: 19, engagement_score: 88, day_of_week: 1 },
-        { platform: "youtube", hour: 20, engagement_score: 79, day_of_week: 1 },
-        { platform: "facebook", hour: 15, engagement_score: 73, day_of_week: 1 },
+      const [calendarRes, timesRes] = await Promise.all([
+        authFetch(`${API}/api/scheduler/calendar?year=${year}&month=${month}`),
+        authFetch(`${API}/api/scheduler/optimal-times`),
       ]);
+
+      if (calendarRes.ok) {
+        const calendarData = await calendarRes.json();
+        setScheduledPosts(calendarData.posts || calendarData.data || calendarData || []);
+      } else {
+        console.error("Failed to fetch calendar:", calendarRes.status);
+        setScheduledPosts([]);
+      }
+
+      if (timesRes.ok) {
+        const timesData = await timesRes.json();
+        setOptimalTimes(timesData.times || timesData.data || timesData || []);
+      } else {
+        console.error("Failed to fetch optimal times:", timesRes.status);
+        setOptimalTimes([]);
+      }
     } catch (error) {
       console.error("Failed to load calendar data:", error);
+      setScheduledPosts([]);
+      setOptimalTimes([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentDate]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleCreatePost = async () => {
+    if (!newPost.content || !newPost.scheduled_for || newPost.platforms.length === 0) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await authFetch(`${API}/api/scheduler/posts`, {
+        method: "POST",
+        body: JSON.stringify(newPost),
+      });
+      if (res.ok) {
+        setShowAddModal(false);
+        setNewPost({ title: "", content: "", platforms: [], scheduled_for: "", media_urls: [] });
+        await loadData();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setError(errData.error || errData.message || "Failed to create post");
+      }
+    } catch (err) {
+      setError("Network error — could not create post");
+      console.error("Create post error:", err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePublishPost = async (postId: string) => {
+    try {
+      const res = await authFetch(`${API}/api/scheduler/posts/${postId}/publish`, { method: "POST" });
+      if (res.ok) {
+        setSelectedPost(null);
+        await loadData();
+      } else {
+        console.error("Failed to publish post:", res.status);
+      }
+    } catch (err) {
+      console.error("Publish error:", err);
+    }
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    try {
+      const res = await authFetch(`${API}/api/scheduler/posts/${postId}`, { method: "DELETE" });
+      if (res.ok) {
+        setSelectedPost(null);
+        await loadData();
+      } else {
+        console.error("Failed to delete post:", res.status);
+      }
+    } catch (err) {
+      console.error("Delete error:", err);
+    }
+  };
+
+  const handlePostClick = async (post: ScheduledPost) => {
+    try {
+      const res = await authFetch(`${API}/api/scheduler/posts/${post.id}`);
+      if (res.ok) {
+        const detail = await res.json();
+        setSelectedPost(detail.post || detail.data || detail);
+      } else {
+        setSelectedPost(post); // Fallback to calendar data
+      }
+    } catch {
+      setSelectedPost(post);
+    }
+  };
+
+  const togglePlatform = (platform: string) => {
+    setNewPost(prev => ({
+      ...prev,
+      platforms: prev.platforms.includes(platform)
+        ? prev.platforms.filter(p => p !== platform)
+        : [...prev.platforms, platform],
+    }));
+  };
 
   const navigateMonth = (direction: "prev" | "next") => {
     setCurrentDate(prev => {
@@ -268,8 +344,9 @@ export default function SchedulerCalendar() {
                     return (
                       <div
                         key={post.id}
-                        className={`text-xs px-2 py-1 rounded ${config.shortColor} text-white truncate`}
+                        className={`text-xs px-2 py-1 rounded ${config.shortColor} text-white truncate cursor-pointer hover:opacity-80`}
                         title={`${formatTime(post.scheduled_for)} - ${post.content}`}
+                        onClick={(e) => { e.stopPropagation(); handlePostClick(post); }}
                       >
                         {formatTime(post.scheduled_for)}
                       </div>
@@ -360,15 +437,134 @@ export default function SchedulerCalendar() {
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowAddModal(false)}>
           <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold mb-4">Schedule New Post</h3>
-            <div className="text-center py-8 text-warroom-muted">
-              <Calendar size={48} className="mx-auto mb-4 opacity-50" />
-              <p className="mb-4">Advanced scheduling interface coming soon!</p>
-              <p className="text-sm">This will include platform selection, content editor, 
-              media upload, optimal time suggestions, and bulk scheduling.</p>
+            {error && (
+              <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-warroom-muted block mb-1">Title (optional)</label>
+                <input
+                  type="text"
+                  value={newPost.title}
+                  onChange={(e) => setNewPost(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="Post title"
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-warroom-muted block mb-1">Content *</label>
+                <textarea
+                  value={newPost.content}
+                  onChange={(e) => setNewPost(prev => ({ ...prev, content: e.target.value }))}
+                  placeholder="Write your post content..."
+                  rows={4}
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-warroom-muted block mb-1">Platforms *</label>
+                <div className="flex gap-2">
+                  {Object.entries(PLATFORM_CONFIG).map(([key, config]) => {
+                    const Icon = config.icon;
+                    const selected = newPost.platforms.includes(key);
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => togglePlatform(key)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition ${
+                          selected
+                            ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
+                            : "border-warroom-border text-warroom-muted hover:border-warroom-accent/30"
+                        }`}
+                      >
+                        <Icon size={14} />
+                        {config.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-warroom-muted block mb-1">Scheduled For *</label>
+                <input
+                  type="datetime-local"
+                  value={newPost.scheduled_for}
+                  onChange={(e) => setNewPost(prev => ({ ...prev, scheduled_for: e.target.value }))}
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => { setShowAddModal(false); setError(null); }}
+                className="px-4 py-2 text-sm rounded-lg text-warroom-muted hover:text-warroom-text transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreatePost}
+                disabled={submitting || !newPost.content || !newPost.scheduled_for || newPost.platforms.length === 0}
+                className="px-4 py-2 text-sm rounded-lg bg-warroom-accent text-white hover:bg-warroom-accent/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submitting ? "Scheduling..." : "Schedule Post"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post Detail Modal */}
+      {selectedPost && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setSelectedPost(null)}>
+          <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-lg font-bold">Post Detail</h3>
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const config = PLATFORM_CONFIG[selectedPost.platform as keyof typeof PLATFORM_CONFIG];
+                  if (!config) return null;
+                  const Icon = config.icon;
+                  return <Icon size={16} style={{ color: config.color }} />;
+                })()}
+                <span className="text-xs text-warroom-muted">{selectedPost.platform}</span>
+              </div>
+            </div>
+            <p className="text-sm mb-2">{selectedPost.content}</p>
+            <div className="flex items-center gap-2 text-xs text-warroom-muted mb-4">
+              <Clock size={12} />
+              {new Date(selectedPost.scheduled_for).toLocaleString("en-US", {
+                weekday: "short", month: "short", day: "numeric",
+                hour: "numeric", minute: "2-digit", hour12: true,
+              })}
+            </div>
+            <div className="text-xs mb-4">
+              <span className={`px-2 py-0.5 rounded-full ${
+                selectedPost.status === "published" ? "bg-green-500/20 text-green-400" :
+                selectedPost.status === "failed" ? "bg-red-500/20 text-red-400" :
+                "bg-warroom-accent/20 text-warroom-accent"
+              }`}>
+                {selectedPost.status}
+              </span>
             </div>
             <div className="flex justify-end gap-2">
-              <button 
-                onClick={() => setShowAddModal(false)}
+              <button
+                onClick={() => handleDeletePost(selectedPost.id)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg text-red-400 hover:bg-red-500/10 transition"
+              >
+                <Trash2 size={14} />
+                Delete
+              </button>
+              {selectedPost.status === "scheduled" && (
+                <button
+                  onClick={() => handlePublishPost(selectedPost.id)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-warroom-accent text-white hover:bg-warroom-accent/80 transition"
+                >
+                  <Eye size={14} />
+                  Publish Now
+                </button>
+              )}
+              <button
+                onClick={() => setSelectedPost(null)}
                 className="px-4 py-2 text-sm rounded-lg text-warroom-muted hover:text-warroom-text transition"
               >
                 Close

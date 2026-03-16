@@ -65,56 +65,28 @@ export default function RecyclePanel() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API calls
-      // const contentRes = await authFetch(`${API}/api/scheduler/recycle/candidates`);
-      // const contentData = await contentRes.json();
-      // setRecyclableContent(contentData.candidates || []);
-      
-      // const settingsRes = await authFetch(`${API}/api/scheduler/recycle/settings`);
-      // const settingsData = await settingsRes.json();
-      // setRecycleSettings(settingsData.settings || []);
+      const contentRes = await authFetch(`${API}/api/scheduler/recycle/candidates`);
+      if (contentRes.ok) {
+        const contentData = await contentRes.json();
+        setRecyclableContent(contentData.candidates || contentData.data || contentData || []);
+      } else {
+        console.error("Failed to fetch recycle candidates:", contentRes.status);
+        setRecyclableContent([]);
+      }
 
-      // Mock data for development
-      const platforms = ["instagram", "tiktok", "youtube", "facebook"];
-      const mockContent: RecyclableContent[] = Array.from({ length: 12 }, (_, i) => {
-        const platform = platforms[i % platforms.length];
-        const pastDate = new Date();
-        pastDate.setDate(pastDate.getDate() - (7 + i * 3));
-        
-        return {
-          id: `recyclable_${i}`,
-          content: `Top performing ${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} post ${i + 1}. This content performed exceptionally well and is perfect for recycling to reach new audiences.`,
-          platform,
-          original_post_date: pastDate.toISOString(),
-          account_username: `@${platform}_account`,
-          performance: {
-            views: Math.floor(Math.random() * 50000) + 5000,
-            likes: Math.floor(Math.random() * 2000) + 100,
-            comments: Math.floor(Math.random() * 200) + 10,
-            shares: Math.floor(Math.random() * 100) + 5,
-            saves: platform === "instagram" ? Math.floor(Math.random() * 300) + 20 : undefined,
-            engagement_rate: parseFloat((Math.random() * 8 + 2).toFixed(1)),
-            viral_score: Math.floor(Math.random() * 40) + 60
-          },
-          recycle_count: Math.floor(Math.random() * 3),
-          optimal_cadence_days: 30 + Math.floor(Math.random() * 30),
-          last_recycled: i < 3 ? undefined : pastDate.toISOString()
-        };
-      });
-
-      const mockSettings: RecycleSettings[] = platforms.map(platform => ({
-        platform,
-        account_username: `@${platform}_account`,
-        auto_recycle_enabled: Math.random() > 0.5,
-        cadence_days: 30,
-        min_engagement_rate: 3.0,
-        max_recycles_per_post: 3
-      }));
-
-      setRecyclableContent(mockContent);
-      setRecycleSettings(mockSettings);
+      // Load settings — API may not exist yet, so gracefully fallback
+      try {
+        const settingsRes = await authFetch(`${API}/api/scheduler/recycle/settings`);
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          setRecycleSettings(settingsData.settings || settingsData.data || settingsData || []);
+        }
+      } catch {
+        // Settings endpoint may not exist; keep defaults
+      }
     } catch (error) {
       console.error("Failed to load recycle data:", error);
+      setRecyclableContent([]);
     } finally {
       setLoading(false);
     }
@@ -147,51 +119,46 @@ export default function RecyclePanel() {
 
   const handleRecyclePost = async (postId: string) => {
     try {
-      // TODO: Implement actual recycling API
-      // const response = await authFetch(`${API}/api/scheduler/recycle`, {
-      //   method: "POST",
-      //   body: JSON.stringify({ post_id: postId })
-      // });
-      
-      // if (response.ok) {
-      //   await loadData(); // Refresh data
-      // }
-      
-      console.log("Recycling post:", postId);
-      // Mock update
-      setRecyclableContent(prev => 
-        prev.map(content => 
-          content.id === postId 
-            ? { ...content, recycle_count: content.recycle_count + 1, last_recycled: new Date().toISOString() }
-            : content
-        )
-      );
+      const response = await authFetch(`${API}/api/scheduler/posts/${postId}/recycle`, {
+        method: "PUT",
+      });
+
+      if (response.ok) {
+        await loadData();
+      } else {
+        console.error("Failed to recycle post:", response.status);
+        // Optimistic fallback if API returns error but we still want UI feedback
+        setRecyclableContent(prev =>
+          prev.map(content =>
+            content.id === postId
+              ? { ...content, recycle_count: content.recycle_count + 1, last_recycled: new Date().toISOString() }
+              : content
+          )
+        );
+      }
     } catch (error) {
       console.error("Failed to recycle post:", error);
     }
   };
 
   const updateSettings = async (platform: string, updates: Partial<RecycleSettings>) => {
-    try {
-      // TODO: Implement actual settings update API
-      // const response = await authFetch(`${API}/api/scheduler/recycle/settings`, {
-      //   method: "PUT",
-      //   body: JSON.stringify({ platform, ...updates })
-      // });
-      
-      // if (response.ok) {
-      //   await loadData(); // Refresh data
-      // }
-      
-      console.log("Updating settings for", platform, updates);
-      // Mock update
-      setRecycleSettings(prev =>
-        prev.map(setting =>
-          setting.platform === platform ? { ...setting, ...updates } : setting
-        )
-      );
-    } catch (error) {
-      console.error("Failed to update settings:", error);
+    // Optimistic update for responsive UI
+    setRecycleSettings(prev =>
+      prev.map(setting =>
+        setting.platform === platform ? { ...setting, ...updates } : setting
+      )
+    );
+
+    // If toggling auto-recycle, hit the auto-recycle endpoint
+    if ("auto_recycle_enabled" in updates) {
+      try {
+        await authFetch(`${API}/api/scheduler/recycle/auto`, {
+          method: "POST",
+          body: JSON.stringify({ platform, enabled: updates.auto_recycle_enabled }),
+        });
+      } catch (error) {
+        console.error("Failed to toggle auto-recycle:", error);
+      }
     }
   };
 
@@ -440,7 +407,17 @@ export default function RecyclePanel() {
                 Cancel
               </button>
               <button 
-                onClick={() => setShowSettings(false)}
+                onClick={async () => {
+                  try {
+                    await authFetch(`${API}/api/scheduler/recycle/auto`, {
+                      method: "POST",
+                      body: JSON.stringify({ settings: recycleSettings }),
+                    });
+                  } catch (error) {
+                    console.error("Failed to save recycle settings:", error);
+                  }
+                  setShowSettings(false);
+                }}
                 className="px-4 py-2 text-sm rounded-lg bg-warroom-accent text-white hover:bg-warroom-accent/80 transition"
               >
                 Save Settings
