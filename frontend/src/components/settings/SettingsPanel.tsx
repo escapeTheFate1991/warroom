@@ -119,6 +119,16 @@ const SETTINGS_TABS = [
   { id: "access", label: "Access Control", icon: Shield },
 ] as const;
 
+// OAuth platform configuration - matches SocialDashboard
+const OAUTH_PLATFORMS: Record<string, { provider: string; params?: Record<string, string> }> = {
+  instagram: { provider: "meta", params: { platform: "instagram" } },
+  facebook: { provider: "meta", params: { platform: "facebook" } },
+  threads: { provider: "meta", params: { platform: "threads" } },
+  x: { provider: "x" },
+  tiktok: { provider: "tiktok" },
+  youtube: { provider: "google" },
+};
+
 type SettingsTab = typeof SETTINGS_TABS[number]["id"];
 
 interface EmailSettings {
@@ -179,6 +189,21 @@ interface User {
   email: string;
   role_id: number;
   status: boolean;
+}
+
+interface SocialAccount {
+  id: number;
+  platform: string;
+  username: string;
+  display_name: string | null;
+  profile_pic_url: string | null;
+  follower_count: number | null;
+  following_count: number | null;
+  post_count: number | null;
+  profile_url: string | null;
+  status: string;
+  connected_at: string;
+  visibility_type: string;
 }
 
 interface Product {
@@ -257,13 +282,9 @@ export default function SettingsPanel() {
   const gmailMessageHandlerRef = useRef<((event: MessageEvent) => void) | null>(null);
 
   // Social media state
-  const [socialConnections, setSocialConnections] = useState<Record<string, boolean>>({
-    facebook: false,
-    instagram: false,
-    linkedin: false,
-    twitter: false,
-    tiktok: false
-  });
+  const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([]);
+  const [socialLoading, setSocialLoading] = useState(false);
+  const [socialConnecting, setSocialConnecting] = useState<string | null>(null);
   
   // Lead scoring state
   const [scoringWeights, setScoringWeights] = useState<LeadScoringWeights>({
@@ -371,6 +392,21 @@ export default function SettingsPanel() {
       }
     } catch (error) {
       console.error("Failed to load users");
+    }
+  };
+
+  const loadSocialAccounts = async () => {
+    setSocialLoading(true);
+    try {
+      const resp = await authFetch(`${API}/api/social/accounts`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setSocialAccounts(data);
+      }
+    } catch (error) {
+      console.error("Failed to load social accounts");
+    } finally {
+      setSocialLoading(false);
     }
   };
 
@@ -590,6 +626,7 @@ export default function SettingsPanel() {
     loadUsers();
     loadGoogleCalStatus();
     loadEmailAccounts();
+    loadSocialAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSettings]);
 
@@ -600,6 +637,22 @@ export default function SettingsPanel() {
       cleanupGmailOAuth();
     };
   }, [cleanupGoogleOAuth, cleanupGmailOAuth]);
+
+  // Listen for OAuth completion messages
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === "oauth_complete") {
+        setSocialConnecting(null);
+        loadSocialAccounts();
+        if (event.data.status === "error" && event.data.error) {
+          alert(event.data.error);
+        }
+      }
+    };
+
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
 
   useEffect(() => {
     // Products tab now uses StripeSettingsPanel which handles its own loading
@@ -692,9 +745,50 @@ export default function SettingsPanel() {
     }
   };
 
-  const connectSocialPlatform = (platform: string) => {
-    // Placeholder for OAuth flow
-    alert(`Connect to ${platform} - Configure in Social Media settings`);
+  const connectSocialPlatform = async (platform: string) => {
+    const oauth = OAUTH_PLATFORMS[platform];
+    if (!oauth) {
+      alert(`${platform} not supported yet`);
+      return;
+    }
+
+    setSocialConnecting(platform);
+    try {
+      const params = new URLSearchParams(oauth.params || {});
+      const url = `${API}/api/social/oauth/${oauth.provider}/authorize${params.toString() ? `?${params.toString()}` : ""}`;
+      const res = await authFetch(url);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.auth_url) {
+          window.open(data.auth_url, "_blank", "width=600,height=700");
+          return;
+        }
+      }
+
+      if (res.status === 400) {
+        alert(`OAuth not configured for ${platform}. Add credentials in Settings → API Keys.`);
+      } else {
+        alert(`Failed to start OAuth for ${platform}`);
+      }
+    } catch (error) {
+      console.error(error);
+      alert(`Failed to connect ${platform}`);
+    } finally {
+      setSocialConnecting(null);
+    }
+  };
+
+  const disconnectSocialAccount = async (accountId: number) => {
+    if (!confirm("Disconnect this social account?")) return;
+    try {
+      const res = await authFetch(`${API}/api/social/accounts/${accountId}`, { method: "DELETE" });
+      if (res.ok) {
+        loadSocialAccounts();
+      }
+    } catch (error) {
+      console.error("Failed to disconnect social account");
+    }
   };
 
   const handleAddProduct = () => {
@@ -1661,51 +1755,157 @@ export default function SettingsPanel() {
 
   const renderSocialTab = () => {
     const platforms = [
-      { key: 'facebook', name: 'Facebook', color: 'bg-blue-600' },
-      { key: 'instagram', name: 'Instagram', color: 'bg-pink-600' },
-      { key: 'linkedin', name: 'LinkedIn', color: 'bg-blue-700' },
-      { key: 'twitter', name: 'Twitter', color: 'bg-sky-500' },
-      { key: 'tiktok', name: 'TikTok', color: 'bg-black' }
+      { key: 'instagram', name: 'Instagram', icon: '📷', color: 'bg-gradient-to-r from-purple-500 to-pink-500' },
+      { key: 'facebook', name: 'Facebook', icon: '📘', color: 'bg-blue-600' },
+      { key: 'threads', name: 'Threads', icon: '🧵', color: 'bg-gray-800' },
+      { key: 'x', name: 'X (Twitter)', icon: '🐦', color: 'bg-black' },
+      { key: 'tiktok', name: 'TikTok', icon: '📱', color: 'bg-black' },
+      { key: 'youtube', name: 'YouTube', icon: '🎥', color: 'bg-red-600' }
     ];
+
+    const formatNumber = (num: number | null) => {
+      if (!num) return "—";
+      if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+      if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+      return num.toString();
+    };
+
+    const getAccountsByPlatform = (platform: string) => {
+      return socialAccounts.filter(account => account.platform === platform);
+    };
+
+    if (socialLoading) {
+      return (
+        <div className="flex items-center justify-center py-20 text-warroom-muted">
+          <Loader2 size={24} className="animate-spin mr-3" />
+          Loading social accounts...
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-6">
         <div>
-          <h3 className="text-sm font-semibold text-warroom-text mb-4">Social Media Connections</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <h3 className="text-sm font-semibold text-warroom-text mb-1">Social Media Connections</h3>
+          <p className="text-xs text-warroom-muted mb-4">Connect and manage multiple accounts per platform for multi-account posting strategy</p>
+          
+          <div className="space-y-4">
             {platforms.map((platform) => {
-              const isConnected = socialConnections[platform.key];
+              const accounts = getAccountsByPlatform(platform.key);
+              const isConnecting = socialConnecting === platform.key;
+
               return (
-                <div key={platform.key} className="bg-warroom-surface border border-warroom-border rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
+                <div key={platform.key} className="bg-warroom-surface border border-warroom-border rounded-lg">
+                  {/* Platform header */}
+                  <div className="flex items-center justify-between p-4 border-b border-warroom-border/50">
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 ${platform.color} rounded-lg flex items-center justify-center text-white text-xs font-bold`}>
-                        {platform.name[0]}
+                      <div className={`w-10 h-10 ${platform.color} rounded-lg flex items-center justify-center text-white text-lg`}>
+                        {platform.icon}
                       </div>
-                      <span className="text-sm font-medium text-warroom-text">{platform.name}</span>
+                      <div>
+                        <h4 className="text-sm font-medium text-warroom-text">{platform.name}</h4>
+                        <p className="text-xs text-warroom-muted">
+                          {accounts.length === 0 ? "No accounts connected" : `${accounts.length} account${accounts.length > 1 ? 's' : ''} connected`}
+                        </p>
+                      </div>
                     </div>
-                    <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-                      isConnected 
-                        ? 'bg-green-500/20 text-green-400' 
-                        : 'bg-gray-500/20 text-gray-400'
-                    }`}>
-                      <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-gray-400'}`} />
-                      {isConnected ? 'Connected' : 'Disconnected'}
-                    </div>
+                    <button
+                      onClick={() => connectSocialPlatform(platform.key)}
+                      disabled={isConnecting}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 rounded-lg text-sm font-medium transition"
+                    >
+                      {isConnecting ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Connecting...
+                        </>
+                      ) : (
+                        <>
+                          <Plus size={14} />
+                          Add Account
+                        </>
+                      )}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => connectSocialPlatform(platform.name)}
-                    className={`w-full py-2 rounded-lg text-sm font-medium transition ${
-                      isConnected
-                        ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                        : 'bg-warroom-accent hover:bg-warroom-accent/80 text-white'
-                    }`}
-                  >
-                    {isConnected ? 'Disconnect' : 'Connect'}
-                  </button>
+
+                  {/* Connected accounts */}
+                  {accounts.length > 0 && (
+                    <div className="p-4 space-y-3">
+                      {accounts.map((account) => (
+                        <div key={account.id} className="flex items-center justify-between p-3 bg-warroom-bg rounded-lg border border-warroom-border/30">
+                          <div className="flex items-center gap-3">
+                            {account.profile_pic_url ? (
+                              <img
+                                src={account.profile_pic_url}
+                                alt={account.display_name || account.username}
+                                className="w-8 h-8 rounded-full"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 bg-warroom-muted/20 rounded-full flex items-center justify-center">
+                                <span className="text-xs text-warroom-muted">{(account.display_name || account.username)?.[0]?.toUpperCase()}</span>
+                              </div>
+                            )}
+                            <div>
+                              <p className="text-sm font-medium text-warroom-text">
+                                {account.display_name || account.username}
+                              </p>
+                              <div className="flex items-center gap-3 text-xs text-warroom-muted">
+                                <span>@{account.username}</span>
+                                {account.follower_count && (
+                                  <span>{formatNumber(account.follower_count)} followers</span>
+                                )}
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                  account.visibility_type === 'shared_org' 
+                                    ? 'bg-blue-500/20 text-blue-400'
+                                    : account.visibility_type === 'shared'
+                                    ? 'bg-green-500/20 text-green-400'
+                                    : 'bg-gray-500/20 text-gray-400'
+                                }`}>
+                                  {account.visibility_type === 'shared_org' ? 'Org' : 
+                                   account.visibility_type === 'shared' ? 'Shared' : 'Private'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-green-400" title="Connected" />
+                            <button
+                              onClick={() => disconnectSocialAccount(account.id)}
+                              className="p-1.5 text-warroom-muted hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
+                              title="Disconnect account"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Empty state */}
+                  {accounts.length === 0 && (
+                    <div className="p-8 text-center text-warroom-muted">
+                      <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-warroom-accent/10 flex items-center justify-center text-xl">
+                        {platform.icon}
+                      </div>
+                      <p className="text-sm">No {platform.name} accounts connected</p>
+                      <p className="text-xs mt-1">Connect your first account to get started with multi-account posting</p>
+                    </div>
+                  )}
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        {/* Help text */}
+        <div className="bg-warroom-bg/50 border border-warroom-border/50 rounded-lg p-4">
+          <h4 className="text-sm font-medium text-warroom-text mb-2">Multi-Account Strategy</h4>
+          <div className="space-y-1 text-xs text-warroom-muted">
+            <p>• <strong>Private:</strong> Only you can post to this account</p>
+            <p>• <strong>Shared:</strong> Team members can post to this account</p>
+            <p>• <strong>Organization:</strong> Account is shared across your organization</p>
+            <p>• Connect multiple accounts per platform to diversify your content reach</p>
           </div>
         </div>
       </div>

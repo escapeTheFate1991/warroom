@@ -385,26 +385,80 @@ async def get_video_document(request: Request, video_id: int, db=Depends(get_ten
         raise HTTPException(status_code=404, detail="Video not found")
     
     row = dict(r)
+    
+    # If document_text exists and is not empty, return it
+    if row["document_text"] and row["document_text"].strip():
+        return {
+            "title": row["title"],
+            "author": row["author"], 
+            "description": row["description"],
+            "document": row["document_text"],
+            "processed_at": str(row["processed_at"]) if row["processed_at"] else None,
+            "source_url": row["url"],
+            "generated": False
+        }
+    
+    # Otherwise, generate from chunks
+    chunks_result = await db.execute(text(
+        "SELECT chunk_index, text, start_time, end_time, topic_tags FROM crm.ml_chunks "
+        "WHERE video_id = :vid AND org_id = :org_id ORDER BY chunk_index"
+    ), {"vid": video_id, "org_id": org_id})
+    chunks = chunks_result.mappings().all()
+    
+    if not chunks:
+        # No chunks available
+        return {
+            "title": row["title"],
+            "author": row["author"], 
+            "description": row["description"],
+            "document": f"# {row['title']}\n\nNo content available.",
+            "processed_at": str(row["processed_at"]) if row["processed_at"] else None,
+            "source_url": row["url"],
+            "generated": True
+        }
+    
+    # Build markdown document
+    doc = f"# {row['title']}\n\n"
+    if row["author"]:
+        doc += f"**By {row['author']}**\n\n"
+    if row["description"]:
+        doc += f"> {row['description']}\n\n"
+    doc += "---\n\n"
+    
+    for chunk in chunks:
+        time_str = _format_timestamp(chunk["start_time"])
+        section_title = _extract_section_title(chunk["text"])
+        doc += f"## {section_title}\n"
+        doc += f"*[{time_str}]*\n\n"
+        doc += f"{chunk['text']}\n\n"
+    
+    # Cache it back to the database
+    await db.execute(text(
+        "UPDATE crm.ml_videos SET document_text = :doc WHERE id = :vid AND org_id = :org_id"
+    ), {"doc": doc, "vid": video_id, "org_id": org_id})
+    await db.commit()
+    
     return {
         "title": row["title"],
         "author": row["author"], 
         "description": row["description"],
-        "document_text": row["document_text"],
+        "document": doc,
         "processed_at": str(row["processed_at"]) if row["processed_at"] else None,
-        "source_url": row["url"]
+        "source_url": row["url"],
+        "generated": True
     }
 
 
 @router.post("/videos/{video_id}/convert-to-skill")
 async def convert_video_to_skill(request: Request, video_id: int, db=Depends(get_tenant_db)):
-    """Convert a processed video into an agent skill."""
+    """Convert a processed video into an agent skill with existing skill matching."""
     org_id = get_org_id(request)
     user_id = get_user_id(request)
     await ensure_tables(db)
     
     # Check if video exists and belongs to this org
     result = await db.execute(text(
-        "SELECT title, author, document_text, url FROM crm.ml_videos "
+        "SELECT title, author, document_text, url, topic_tags FROM crm.ml_videos "
         "WHERE id = :vid AND org_id = :org_id AND status = 'completed'"
     ), {"vid": video_id, "org_id": org_id})
     video = result.mappings().first()
@@ -413,51 +467,206 @@ async def convert_video_to_skill(request: Request, video_id: int, db=Depends(get
     
     # Get chunks for additional context
     chunks_result = await db.execute(text(
-        "SELECT text, start_time, end_time FROM crm.ml_chunks "
-        "WHERE video_id = :vid ORDER BY chunk_index"
-    ), {"vid": video_id})
+        "SELECT text, start_time, end_time, topic_tags FROM crm.ml_chunks "
+        "WHERE video_id = :vid AND org_id = :org_id ORDER BY chunk_index"
+    ), {"vid": video_id, "org_id": org_id})
     chunks = chunks_result.mappings().all()
     
-    # Generate skill content
+    # Scan existing skills
+    existing_skills = _scan_existing_skills()
+    
+    # Analyze video content for matching
+    video_dict = dict(video)
+    matches = _find_matching_skills(video_dict, [dict(c) for c in chunks], existing_skills)
+    
+    # Generate a new skill draft
+    new_skill_draft = _generate_skill_draft(video_dict, [dict(c) for c in chunks])
+    
+    return {
+        "video_id": video_id,
+        "video_title": video_dict["title"],
+        "matching_skills": matches[:5],  # top 5 matches
+        "new_skill_draft": new_skill_draft,
+        "recommendation": "enhance_existing" if matches and matches[0]["relevance_score"] > 5 else "create_new"
+    }
+
+
+def _scan_existing_skills() -> List[dict]:
+    """Scan existing skills directory and extract skill metadata."""
+    from pathlib import Path
+    import re
+    
+    skills_dir = Path.home() / ".openclaw/workspace/skills"
+    existing_skills = []
+    
+    if not skills_dir.exists():
+        return existing_skills
+    
+    for skill_path in skills_dir.iterdir():
+        if skill_path.is_dir() and (skill_path / "SKILL.md").exists():
+            try:
+                skill_md = (skill_path / "SKILL.md").read_text()
+                name = skill_path.name
+                
+                # Extract description from frontmatter or first paragraph
+                desc = ""
+                lines = skill_md.split("\n")
+                
+                # Try frontmatter first
+                in_frontmatter = False
+                for line in lines:
+                    if line.strip() == "---":
+                        in_frontmatter = not in_frontmatter
+                        continue
+                    if in_frontmatter and line.startswith("description:"):
+                        desc = line.replace("description:", "").strip().strip('"')
+                        break
+                
+                # If no frontmatter description, get first paragraph after title
+                if not desc:
+                    for i, line in enumerate(lines):
+                        if line.startswith("#") and i > 0:  # Found title
+                            # Look for next non-empty line that's not markdown syntax
+                            for j in range(i+1, min(i+10, len(lines))):
+                                potential_desc = lines[j].strip()
+                                if potential_desc and not potential_desc.startswith(("#", "**", "-", "*")):
+                                    desc = potential_desc[:200]
+                                    break
+                            break
+                
+                existing_skills.append({
+                    "name": name,
+                    "description": desc,
+                    "path": str(skill_path),
+                    "content_preview": skill_md[:500]
+                })
+                
+            except Exception as e:
+                logger.warning(f"Failed to read skill {skill_path}: {e}")
+                continue
+    
+    return existing_skills
+
+
+def _find_matching_skills(video: dict, chunks: List[dict], existing_skills: List[dict]) -> List[dict]:
+    """Find existing skills that match the video content."""
+    import re
+    
+    # Prepare video content for analysis
+    video_text = " ".join([c["text"] for c in chunks]).lower()
+    video_title = video["title"].lower()
+    video_tags = set()
+    
+    if video.get("topic_tags"):
+        video_tags.update([tag.strip().lower() for tag in video["topic_tags"].split(",")])
+    
+    # Extract keywords from chunks
+    for chunk in chunks:
+        if chunk.get("topic_tags"):
+            video_tags.update([tag.strip().lower() for tag in chunk["topic_tags"].split(",")])
+    
+    matches = []
+    
+    for skill in existing_skills:
+        score = 0
+        skill_text = (skill["name"] + " " + skill["description"] + " " + skill["content_preview"]).lower()
+        
+        # Title similarity
+        skill_name_words = set(skill["name"].lower().replace("-", " ").split())
+        video_title_words = set(video_title.replace("-", " ").split())
+        title_overlap = skill_name_words & video_title_words
+        score += len(title_overlap) * 3
+        
+        # Tag overlap
+        for tag in video_tags:
+            if tag and len(tag) > 2 and tag in skill_text:
+                score += 2
+        
+        # Content word overlap (first 1000 chars to avoid noise)
+        skill_words = set(re.findall(r'\b\w{4,}\b', skill_text[:1000]))  # Words 4+ chars
+        video_words = set(re.findall(r'\b\w{4,}\b', video_text[:1000]))
+        content_overlap = skill_words & video_words
+        score += min(len(content_overlap), 10)  # Cap at 10 to avoid spam
+        
+        # Domain/technology keywords
+        tech_keywords = ["api", "react", "python", "javascript", "ai", "ml", "docker", "kubernetes", 
+                        "database", "frontend", "backend", "mobile", "web", "security", "testing"]
+        for keyword in tech_keywords:
+            if keyword in video_text and keyword in skill_text:
+                score += 1
+        
+        if score > 0:
+            matches.append({
+                **skill,
+                "relevance_score": score,
+                "match_reasons": _explain_match(skill, video, score)
+            })
+    
+    matches.sort(key=lambda x: x["relevance_score"], reverse=True)
+    return matches
+
+
+def _explain_match(skill: dict, video: dict, score: int) -> str:
+    """Generate explanation for why a skill matches."""
+    reasons = []
+    if score > 10:
+        reasons.append("Strong content overlap")
+    elif score > 5:
+        reasons.append("Good content similarity")
+    else:
+        reasons.append("Some shared concepts")
+    
+    return ", ".join(reasons)
+
+
+def _generate_skill_draft(video: dict, chunks: List[dict]) -> dict:
+    """Generate a new skill draft from video content."""
     skill_name = _sanitize_skill_name(video["title"])
     skill_content = _generate_skill_content(
-        title=video["title"], 
+        title=video["title"],
         author=video["author"],
         url=video["url"],
-        document_text=video["document_text"],
-        chunks=[dict(c) for c in chunks]
+        document_text=video.get("document_text", ""),
+        chunks=chunks
     )
     
-    # Store in knowledge pool
-    try:
-        await db.execute(text("""
-            INSERT INTO org_knowledge_pool (
-                org_id, user_id, title, content, task_type, source_url, 
-                created_at, status, content_type
-            ) VALUES (
-                :org_id, :user_id, :title, :content, 'skill', :source_url,
-                NOW(), 'completed', 'agent_skill'
-            )
-        """), {
-            "org_id": org_id,
-            "user_id": user_id,
-            "title": f"Skill: {skill_name}",
-            "content": skill_content,
-            "source_url": video["url"]
-        })
-        await db.commit()
-        
-        return {
-            "message": "Skill successfully created and stored",
-            "video_id": video_id,
-            "skill_name": skill_name,
-            "status": "completed",
-            "skill_content_preview": skill_content[:500] + "..." if len(skill_content) > 500 else skill_content
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to store skill: {e}")
-        raise HTTPException(status_code=500, detail="Failed to store skill in knowledge pool")
+    return {
+        "name": skill_name,
+        "content": skill_content,
+        "preview": skill_content[:300] + "..." if len(skill_content) > 300 else skill_content
+    }
+
+
+def _format_timestamp(seconds: float) -> str:
+    """Format timestamp as MM:SS or HH:MM:SS."""
+    if not seconds:
+        return "00:00"
+    
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    else:
+        return f"{minutes}:{secs:02d}"
+
+
+def _extract_section_title(text: str) -> str:
+    """Extract a section title from chunk text (first sentence or meaningful phrase)."""
+    if not text:
+        return "Content"
+    
+    # Try to get first sentence
+    import re
+    sentences = re.split(r'[.!?]+', text.strip())
+    first_sentence = sentences[0].strip() if sentences else text[:50]
+    
+    # Clean up and limit length
+    title = re.sub(r'\s+', ' ', first_sentence)
+    title = title[:80] if len(title) > 80 else title
+    
+    return title if title else "Content"
 
 
 def _sanitize_skill_name(title: str) -> str:
