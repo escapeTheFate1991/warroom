@@ -159,3 +159,32 @@ async def run_oauth_scoping_migration():
     except Exception as e:
         logger.error("OAuth scoping migration failed: %s", e)
         return False
+
+
+async def run_agent_multi_instance_migration():
+    """Run the agent multi-instance migration (extends agent_instances + adds knowledge pool).
+
+    Safe to run multiple times — all statements are idempotent (IF NOT EXISTS).
+    """
+    migration_file = Path(__file__).parent / "agent_multi_instance_migration.sql"
+
+    if not migration_file.exists():
+        logger.warning("Agent multi-instance migration file not found: %s", migration_file)
+        return False
+
+    try:
+        with open(migration_file, "r") as f:
+            migration_sql = f.read()
+
+        # Use raw asyncpg connection for multi-statement execution
+        async with crm_engine.connect() as conn:
+            raw_conn = await conn.get_raw_connection()
+            await raw_conn.driver_connection.execute(migration_sql)
+            await conn.commit()
+
+        logger.info("Agent multi-instance migration completed successfully")
+        return True
+
+    except Exception as e:
+        logger.error("Agent multi-instance migration failed: %s", e)
+        return False

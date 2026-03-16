@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine, crm_session
@@ -36,6 +36,30 @@ async def _init_content_scheduler_tables(engine):
         
     except Exception as e:
         logger.error(f"Content scheduler table initialization failed: {e}")
+        return False
+
+
+async def _init_agent_chat_tables(engine):
+    """Initialize agent chat tables from migration file."""
+    try:
+        from pathlib import Path
+        
+        migration_path = Path(__file__).parent / "db" / "agent_chat_migration.sql"
+        if not migration_path.exists():
+            logger.error(f"Agent chat migration file not found: {migration_path}")
+            return False
+            
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+        
+        async with engine.begin() as conn:
+            raw = await conn.get_raw_connection()
+            await raw.driver_connection.execute(migration_sql)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Agent chat table initialization failed: {e}")
         return False
 
 
@@ -118,13 +142,24 @@ async def lifespan(app: FastAPI):
         # Agent Provisioning tables (crm schema — Anchor Agent templates and instances)
         if crm_schema_ok:
             try:
-                from app.api.agent_onboarding import ensure_tables as ensure_onboarding_tables, seed_default_template
+                from app.api.agent_onboarding import ensure_tables as ensure_onboarding_tables, seed_skill_templates
                 async with crm_session() as db:
                     await ensure_onboarding_tables(db)
-                    await seed_default_template(db, org_id=1)  # Seed default template for org 1
-                logger.info("Agent provisioning tables initialized with default template")
+                    await seed_skill_templates(db, org_id=1)  # Seed skill templates for org 1
+                logger.info("Agent provisioning tables initialized with skill templates")
             except Exception as e:
                 logger.error("Failed to initialize agent provisioning tables: %s", e)
+                
+        # Agent Multi-Instance migration (crm schema + public knowledge pool)
+        try:
+            from app.db.crm_db import run_agent_multi_instance_migration
+            multi_ok = await run_agent_multi_instance_migration()
+            if multi_ok:
+                logger.info("Agent multi-instance migration applied")
+            else:
+                logger.warning("Agent multi-instance migration skipped or failed")
+        except Exception as e:
+            logger.error("Agent multi-instance migration error: %s", e)
         
         # Contact submissions table (public schema)
         await contact_webhook.init_contact_table()
@@ -175,6 +210,10 @@ async def lifespan(app: FastAPI):
         from app.services.token_metering import init_token_metering_tables
         await init_token_metering_tables(leadgen_engine)
         logger.info("Token metering system initialized")
+        
+        # Agent chat tables (public schema) — user-agent conversations and tasks
+        await _init_agent_chat_tables(leadgen_engine)
+        logger.info("Agent chat tables initialized")
         
         # Audit Trail table (public schema) — immutable activity logging
         from app.services.audit_trail import init_audit_trail_table
@@ -352,6 +391,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(kanban.router, prefix="/api/kanban", tags=["kanban"])
 app.include_router(team.router, prefix="/api/team", tags=["team"])
 app.include_router(agent_onboarding.router, tags=["agent-onboarding"])
+app.include_router(knowledge_pool.router, tags=["knowledge-pool"])
 app.include_router(agents.router, prefix="/api", tags=["agents"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(leadgen.router, prefix="/api/leadgen", tags=["leadgen"])

@@ -52,6 +52,24 @@ class AgentSoulUpdate(BaseModel):
     soul_md: str = Field(..., max_length=50000)
 
 
+class CustomAgentCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    skills: List[str] = Field(default_factory=list)
+    model: str = Field(default="anthropic/claude-sonnet-4-20250514")
+    avatar_emoji: str = Field(default="🤖", max_length=2)
+    soul_template_id: Optional[int] = None
+
+
+class CustomAgentUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
+    skills: Optional[List[str]] = None
+    model: Optional[str] = None
+    avatar_emoji: Optional[str] = Field(None, max_length=2)
+    soul_md: Optional[str] = Field(None, max_length=50000)
+
+
 # ── Template Management ──────────────────────────────────────────
 
 @router.post("/api/agents/templates", response_model=Dict[str, Any])
@@ -367,6 +385,306 @@ async def update_my_agent_soul(
     return {"updated": True, "soul_updated": True}
 
 
+# ── Multiple Agent Management (User's Own Agents) ─────────────────
+
+@router.post("/api/agents/my-agents", response_model=Dict[str, Any])
+async def create_my_agent(
+    agent: CustomAgentCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Create a new custom agent (not anchor)."""
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    if not org_id or not user_id:
+        raise HTTPException(status_code=400, detail="Organization and user required")
+    
+    await db.execute(text("SET search_path TO crm, public"))
+    
+    # Get soul template if provided
+    soul_md = ""
+    if agent.soul_template_id:
+        template_result = await db.execute(
+            text("""
+                SELECT soul_template FROM agent_templates 
+                WHERE id = :template_id AND org_id = :org_id
+            """),
+            {"template_id": agent.soul_template_id, "org_id": org_id}
+        )
+        template = template_result.fetchone()
+        if template:
+            soul_md = template[0]
+    
+    # Generate memory namespace
+    memory_namespace = f"org_{org_id}_user_{user_id}_agent_{agent.name.lower().replace(' ', '_')}"
+    
+    # Create custom agent
+    result = await db.execute(
+        text("""
+            INSERT INTO agent_instances (
+                org_id, user_id, agent_name, soul_md, memory_namespace, 
+                is_anchor, agent_type, skills, model, description, avatar_emoji
+            ) VALUES (
+                :org_id, :user_id, :name, :soul_md, :memory_namespace,
+                false, 'custom', CAST(:skills AS jsonb), :model, :description, :avatar_emoji
+            ) RETURNING id, created_at
+        """),
+        {
+            "org_id": org_id,
+            "user_id": user_id,
+            "name": agent.name,
+            "soul_md": soul_md,
+            "memory_namespace": memory_namespace,
+            "skills": str(agent.skills).replace("'", '"'),
+            "model": agent.model,
+            "description": agent.description,
+            "avatar_emoji": agent.avatar_emoji
+        }
+    )
+    
+    row = result.fetchone()
+    await db.commit()
+    
+    logger.info("Created custom agent %d for user %d in org %d", row[0], user_id, org_id)
+    
+    return {
+        "id": row[0],
+        "name": agent.name,
+        "type": "custom",
+        "memory_namespace": memory_namespace,
+        "created_at": row[1]
+    }
+
+
+@router.get("/api/agents/my-agents", response_model=List[Dict[str, Any]])
+async def list_my_agents(
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """List ALL of current user's agents (anchor + custom)."""
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    if not org_id or not user_id:
+        raise HTTPException(status_code=400, detail="Organization and user required")
+    
+    await db.execute(text("SET search_path TO crm, public"))
+    result = await db.execute(
+        text("""
+            SELECT id, agent_name, soul_md, memory_namespace, status, config,
+                   last_active, created_at, template_id, is_anchor, agent_type,
+                   skills, model, description, avatar_emoji
+            FROM agent_instances
+            WHERE org_id = :org_id AND user_id = :user_id
+            ORDER BY is_anchor DESC, created_at DESC
+        """),
+        {"org_id": org_id, "user_id": user_id}
+    )
+    
+    agents = []
+    for row in result:
+        agents.append({
+            "id": row[0],
+            "name": row[1],
+            "soul_md": row[2],
+            "memory_namespace": row[3],
+            "status": row[4],
+            "config": row[5],
+            "last_active": row[6],
+            "created_at": row[7],
+            "template_id": row[8],
+            "is_anchor": row[9],
+            "type": row[10] or ("anchor" if row[9] else "custom"),
+            "skills": row[11] or [],
+            "model": row[12] or "anthropic/claude-sonnet-4-20250514",
+            "description": row[13] or "",
+            "avatar_emoji": row[14] or "🤖"
+        })
+    
+    return agents
+
+
+@router.get("/api/agents/my-agents/{agent_id}", response_model=Dict[str, Any])
+async def get_my_agent(
+    agent_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Get specific agent (user can only access their own)."""
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    if not org_id or not user_id:
+        raise HTTPException(status_code=400, detail="Organization and user required")
+    
+    await db.execute(text("SET search_path TO crm, public"))
+    result = await db.execute(
+        text("""
+            SELECT id, agent_name, soul_md, memory_namespace, status, config,
+                   last_active, created_at, template_id, is_anchor, agent_type,
+                   skills, model, description, avatar_emoji
+            FROM agent_instances
+            WHERE id = :agent_id AND org_id = :org_id AND user_id = :user_id
+        """),
+        {"agent_id": agent_id, "org_id": org_id, "user_id": user_id}
+    )
+    
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    return {
+        "id": row[0],
+        "name": row[1],
+        "soul_md": row[2],
+        "memory_namespace": row[3],
+        "status": row[4],
+        "config": row[5],
+        "last_active": row[6],
+        "created_at": row[7],
+        "template_id": row[8],
+        "is_anchor": row[9],
+        "type": row[10] or ("anchor" if row[9] else "custom"),
+        "skills": row[11] or [],
+        "model": row[12] or "anthropic/claude-sonnet-4-20250514",
+        "description": row[13] or "",
+        "avatar_emoji": row[14] or "🤖"
+    }
+
+
+@router.put("/api/agents/my-agents/{agent_id}", response_model=Dict[str, Any])
+async def update_my_agent(
+    agent_id: int,
+    updates: CustomAgentUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Update agent (name, skills, model, soul)."""
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    if not org_id or not user_id:
+        raise HTTPException(status_code=400, detail="Organization and user required")
+    
+    await db.execute(text("SET search_path TO crm, public"))
+    
+    # Build update query dynamically
+    update_fields = []
+    params = {"agent_id": agent_id, "org_id": org_id, "user_id": user_id}
+    
+    for field, value in updates.dict(exclude_unset=True).items():
+        if field == "skills":
+            update_fields.append("skills = CAST(:skills AS jsonb)")
+            params["skills"] = str(value).replace("'", '"')
+        elif field == "name":
+            update_fields.append("agent_name = :agent_name")
+            params["agent_name"] = value
+        else:
+            update_fields.append(f"{field} = :{field}")
+            params[field] = value
+    
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    update_query = f"""
+        UPDATE agent_instances
+        SET {', '.join(update_fields)}, updated_at = NOW()
+        WHERE id = :agent_id AND org_id = :org_id AND user_id = :user_id
+    """
+    
+    result = await db.execute(text(update_query), params)
+    
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    await db.commit()
+    
+    logger.info("Updated agent %d for user %d in org %d", agent_id, user_id, org_id)
+    
+    return {"id": agent_id, "updated": True}
+
+
+@router.delete("/api/agents/my-agents/{agent_id}")
+async def delete_my_agent(
+    agent_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Delete custom agent (cannot delete anchor)."""
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    if not org_id or not user_id:
+        raise HTTPException(status_code=400, detail="Organization and user required")
+    
+    await db.execute(text("SET search_path TO crm, public"))
+    
+    # Check if it's an anchor agent (cannot delete)
+    check_result = await db.execute(
+        text("""
+            SELECT is_anchor FROM agent_instances
+            WHERE id = :agent_id AND org_id = :org_id AND user_id = :user_id
+        """),
+        {"agent_id": agent_id, "org_id": org_id, "user_id": user_id}
+    )
+    
+    agent = check_result.fetchone()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    if agent[0]:  # is_anchor
+        raise HTTPException(status_code=400, detail="Cannot delete anchor agent")
+    
+    # Delete the custom agent
+    result = await db.execute(
+        text("""
+            DELETE FROM agent_instances
+            WHERE id = :agent_id AND org_id = :org_id AND user_id = :user_id
+        """),
+        {"agent_id": agent_id, "org_id": org_id, "user_id": user_id}
+    )
+    
+    await db.commit()
+    
+    logger.info("Deleted custom agent %d for user %d in org %d", agent_id, user_id, org_id)
+    
+    return {"deleted": True, "agent_id": agent_id}
+
+
+@router.post("/api/agents/my-agents/{agent_id}/chat", response_model=Dict[str, str])
+async def chat_with_agent(
+    agent_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Placeholder for agent chat (explains OpenClaw connection)."""
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    if not org_id or not user_id:
+        raise HTTPException(status_code=400, detail="Organization and user required")
+    
+    # Verify user owns this agent
+    await db.execute(text("SET search_path TO crm, public"))
+    result = await db.execute(
+        text("""
+            SELECT agent_name FROM agent_instances
+            WHERE id = :agent_id AND org_id = :org_id AND user_id = :user_id
+        """),
+        {"agent_id": agent_id, "org_id": org_id, "user_id": user_id}
+    )
+    
+    agent = result.fetchone()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    return {
+        "message": f"To chat with {agent[0]}, connect via OpenClaw sessions. "
+                  f"Use the agent's memory namespace for context persistence."
+    }
+
+
 # ── Admin Agent Management ───────────────────────────────────────
 
 @router.get("/api/agents/instances", response_model=List[Dict[str, Any]])
@@ -432,57 +750,112 @@ async def ensure_tables(db: AsyncSession):
         raise
 
 
-async def seed_default_template(db: AsyncSession, org_id: int = 1):
-    """Seed default template for organization."""
+async def seed_skill_templates(db: AsyncSession, org_id: int = 1):
+    """Seed skill-based agent templates for organization."""
     await db.execute(text("SET search_path TO crm, public"))
     
-    # Check if default template already exists
-    existing = await db.execute(
-        text("SELECT id FROM agent_templates WHERE org_id = :org_id AND is_default = true"),
-        {"org_id": org_id}
-    )
-    
-    if existing.fetchone():
-        logger.info("Default agent template already exists for org %d", org_id)
-        return
-    
-    soul_template = """# {{agent_name}} — Personal Assistant for {{user_name}}
-
-You are {{agent_name}}, a personal AI assistant for {{user_name}} at {{org_name}}.
-
-## Your Role
-- Help {{user_name}} with their daily tasks
-- Manage their CRM data, emails, and calendar
-- Provide insights from their deals and contacts
-- Execute tasks assigned to you
-
-## Boundaries
-- You can only access data within your organization
-- You cannot access other users' private data unless shared
-- Follow the organization's policies and guidelines
-"""
-    
+    # Mark existing agents as anchor agents (migration compatibility)
     try:
         await db.execute(
             text("""
-                INSERT INTO agent_templates (
-                    org_id, name, soul_template, default_skills, default_model, 
-                    max_daily_tokens, description, is_default
-                ) VALUES (
-                    :org_id, 'Default Assistant', :soul_template, CAST('[]' AS jsonb),
-                    'anthropic/claude-sonnet-4-20250514', 100000, 
-                    'Default template for new employee onboarding', true
-                )
+                UPDATE agent_instances 
+                SET is_anchor = true, agent_type = 'anchor'
+                WHERE is_anchor IS NULL AND org_id = :org_id
             """),
-            {
-                "org_id": org_id,
-                "soul_template": soul_template
-            }
+            {"org_id": org_id}
         )
+        await db.commit()
+        logger.info("Marked existing agents as anchor agents for org %d", org_id)
+    except Exception as e:
+        logger.error("Failed to update existing agents: %s", e)
+        await db.rollback()
+    
+    # Check if templates already exist
+    existing = await db.execute(
+        text("SELECT COUNT(*) FROM agent_templates WHERE org_id = :org_id"),
+        {"org_id": org_id}
+    )
+    
+    if existing.fetchone()[0] > 0:
+        logger.info("Agent templates already exist for org %d", org_id)
+        return
+    
+    SKILL_TEMPLATES = {
+        "frontend-dev": {
+            "name": "Frontend Developer",
+            "emoji": "🎨",
+            "skills": ["react", "nextjs", "tailwind", "typescript", "css"],
+            "model": "anthropic/claude-sonnet-4-20250514",
+            "soul_template": "# {{agent_name}} — Frontend Developer for {{user_name}}\n\nYou are {{agent_name}}, a frontend developer specializing in React, Next.js, and modern CSS. You help {{user_name}} build beautiful, responsive user interfaces.\n\n## Your Expertise\n- React & Next.js applications\n- Tailwind CSS & responsive design\n- TypeScript development\n- Component architecture\n- Performance optimization\n\n## Your Style\n- Write clean, maintainable code\n- Focus on user experience\n- Use modern best practices\n- Collaborate effectively with backend teams"
+        },
+        "backend-dev": {
+            "name": "Backend Developer", 
+            "emoji": "⚙️",
+            "skills": ["python", "fastapi", "postgresql", "docker", "api-design"],
+            "model": "anthropic/claude-sonnet-4-20250514",
+            "soul_template": "# {{agent_name}} — Backend Developer for {{user_name}}\n\nYou are {{agent_name}}, a backend developer specializing in Python, FastAPI, and PostgreSQL. You help {{user_name}} build robust, scalable server-side applications.\n\n## Your Expertise\n- Python & FastAPI development\n- PostgreSQL database design\n- RESTful API architecture\n- Docker containerization\n- System integration\n\n## Your Style\n- Write secure, efficient code\n- Design scalable architectures\n- Follow API best practices\n- Ensure data integrity"
+        },
+        "security-analyst": {
+            "name": "Security Analyst",
+            "emoji": "🔒",
+            "skills": ["penetration-testing", "code-audit", "owasp", "compliance"],
+            "model": "anthropic/claude-sonnet-4-20250514",
+            "soul_template": "# {{agent_name}} — Security Analyst for {{user_name}}\n\nYou are {{agent_name}}, a security analyst specializing in application security, penetration testing, and compliance. You help {{user_name}} identify and mitigate security risks.\n\n## Your Expertise\n- Penetration testing & vulnerability assessment\n- Code security audits\n- OWASP compliance\n- Security best practices\n- Risk assessment\n\n## Your Style\n- Think like an attacker\n- Provide actionable recommendations\n- Explain risks clearly\n- Balance security with usability"
+        },
+        "content-writer": {
+            "name": "Content Writer",
+            "emoji": "✍️",
+            "skills": ["copywriting", "seo", "social-media", "brand-voice"],
+            "model": "anthropic/claude-sonnet-4-20250514",
+            "soul_template": "# {{agent_name}} — Content Writer for {{user_name}}\n\nYou are {{agent_name}}, a content writer specializing in compelling copy, SEO optimization, and social media content. You help {{user_name}} create content that engages and converts.\n\n## Your Expertise\n- Persuasive copywriting\n- SEO-optimized content\n- Social media strategy\n- Brand voice development\n- Content marketing\n\n## Your Style\n- Write with personality and purpose\n- Optimize for both humans and search engines\n- Adapt tone to audience\n- Focus on results"
+        },
+        "data-analyst": {
+            "name": "Data Analyst",
+            "emoji": "📊",
+            "skills": ["sql", "analytics", "reporting", "visualization"],
+            "model": "anthropic/claude-sonnet-4-20250514",
+            "soul_template": "# {{agent_name}} — Data Analyst for {{user_name}}\n\nYou are {{agent_name}}, a data analyst specializing in SQL, business intelligence, and data visualization. You help {{user_name}} make data-driven decisions.\n\n## Your Expertise\n- SQL query optimization\n- Business intelligence\n- Data visualization\n- Statistical analysis\n- Reporting & dashboards\n\n## Your Style\n- Turn data into insights\n- Ask the right questions\n- Present findings clearly\n- Focus on business impact"
+        },
+        "research-agent": {
+            "name": "Researcher",
+            "emoji": "🔍",
+            "skills": ["web-research", "competitor-analysis", "market-research"],
+            "model": "anthropic/claude-haiku-3-5-20241022",
+            "soul_template": "# {{agent_name}} — Research Specialist for {{user_name}}\n\nYou are {{agent_name}}, a research specialist who finds, verifies, and synthesizes information. You help {{user_name}} make informed decisions with quality research.\n\n## Your Expertise\n- Web research & fact-checking\n- Competitive analysis\n- Market research\n- Information synthesis\n- Trend identification\n\n## Your Style\n- Be thorough and accurate\n- Cite reliable sources\n- Provide actionable insights\n- Question assumptions"
+        }
+    }
+    
+    try:
+        for template_key, template_data in SKILL_TEMPLATES.items():
+            await db.execute(
+                text("""
+                    INSERT INTO agent_templates (
+                        org_id, name, soul_template, default_skills, default_model, 
+                        max_daily_tokens, description, is_default
+                    ) VALUES (
+                        :org_id, :name, :soul_template, CAST(:skills AS jsonb),
+                        :model, 100000, :description, :is_default
+                    )
+                """),
+                {
+                    "org_id": org_id,
+                    "name": template_data["name"],
+                    "soul_template": template_data["soul_template"],
+                    "skills": str(template_data["skills"]).replace("'", '"'),
+                    "model": template_data["model"],
+                    "description": f"{template_data['name']} template for specialized tasks",
+                    "is_default": template_key == "frontend-dev"  # Make frontend-dev the default
+                }
+            )
         
         await db.commit()
-        logger.info("Seeded default agent template for org %d", org_id)
+        logger.info("Seeded %d skill templates for org %d", len(SKILL_TEMPLATES), org_id)
         
     except Exception as e:
-        logger.error("Failed to seed default template for org %d: %s", org_id, e)
+        logger.error("Failed to seed skill templates for org %d: %s", org_id, e)
         await db.rollback()
+
+
+async def seed_default_template(db: AsyncSession, org_id: int = 1):
+    """Seed default template for organization (legacy function - now calls skill templates)."""
+    await seed_skill_templates(db, org_id)
