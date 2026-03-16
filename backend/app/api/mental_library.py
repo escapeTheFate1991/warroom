@@ -94,8 +94,8 @@ async def list_videos(request: Request, db=Depends(get_tenant_db)):
     result = await db.execute(text(
         "SELECT id, url, title, author, duration, thumbnail_url, processed_at, "
         "topic_tags, chunk_count, status FROM ml_videos "
-        "WHERE status='completed' ORDER BY id DESC"
-    ))
+        "WHERE status='completed' AND org_id = :org_id ORDER BY id DESC"
+    ), {"org_id": org_id})
     rows = result.mappings().all()
     return [_video_row_to_dict(dict(r)) for r in rows]
 
@@ -133,9 +133,9 @@ async def delete_video(request: Request, video_id: int, db=Depends(get_tenant_db
     org_id = get_org_id(request)
     await ensure_tables(db)
 
-    # Delete from our DB
-    await db.execute(text("DELETE FROM ml_chunks WHERE video_id = :vid"), {"vid": video_id})
-    result = await db.execute(text("DELETE FROM ml_videos WHERE id = :vid RETURNING id"), {"vid": video_id})
+    # Delete from our DB (with org_id filter)
+    await db.execute(text("DELETE FROM ml_chunks WHERE video_id = :vid AND org_id = :org_id"), {"vid": video_id, "org_id": org_id})
+    result = await db.execute(text("DELETE FROM ml_videos WHERE id = :vid AND org_id = :org_id RETURNING id"), {"vid": video_id, "org_id": org_id})
     await db.commit()
 
     if not result.first():
@@ -155,7 +155,7 @@ async def delete_video(request: Request, video_id: int, db=Depends(get_tenant_db
 async def get_video(request: Request, video_id: int, db=Depends(get_tenant_db)):
     org_id = get_org_id(request)
     await ensure_tables(db)
-    result = await db.execute(text("SELECT * FROM ml_videos WHERE id = :vid"), {"vid": video_id})
+    result = await db.execute(text("SELECT * FROM ml_videos WHERE id = :vid AND org_id = :org_id"), {"vid": video_id, "org_id": org_id})
     r = result.mappings().first()
     if not r:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -172,9 +172,10 @@ async def get_video_chunks(request: Request, video_id: int, db=Depends(get_tenan
     org_id = get_org_id(request)
     await ensure_tables(db)
     result = await db.execute(text(
-        "SELECT id, chunk_index, text, start_time, end_time, token_count, topic_tags "
-        "FROM ml_chunks WHERE video_id = :vid ORDER BY chunk_index"
-    ), {"vid": video_id})
+        "SELECT c.id, c.chunk_index, c.text, c.start_time, c.end_time, c.token_count, c.topic_tags "
+        "FROM ml_chunks c JOIN ml_videos v ON c.video_id = v.id "
+        "WHERE c.video_id = :vid AND v.org_id = :org_id ORDER BY c.chunk_index"
+    ), {"vid": video_id, "org_id": org_id})
     return [
         {
             "id": r["id"],
@@ -193,9 +194,9 @@ async def get_video_chunks(request: Request, video_id: int, db=Depends(get_tenan
 async def stats(request: Request, db=Depends(get_tenant_db)):
     org_id = get_org_id(request)
     await ensure_tables(db)
-    videos = await db.execute(text("SELECT count(*) as c FROM ml_videos WHERE status='completed'"))
-    chunks = await db.execute(text("SELECT count(*) as c FROM ml_chunks"))
-    duration = await db.execute(text("SELECT coalesce(sum(duration),0) as d FROM ml_videos WHERE status='completed'"))
+    videos = await db.execute(text("SELECT count(*) as c FROM ml_videos WHERE status='completed' AND org_id = :org_id"), {"org_id": org_id})
+    chunks = await db.execute(text("SELECT count(*) as c FROM ml_chunks c JOIN ml_videos v ON c.video_id = v.id WHERE v.org_id = :org_id"), {"org_id": org_id})
+    duration = await db.execute(text("SELECT coalesce(sum(duration),0) as d FROM ml_videos WHERE status='completed' AND org_id = :org_id"), {"org_id": org_id})
     return {
         "total_videos": videos.scalar() or 0,
         "total_chunks": chunks.scalar() or 0,
@@ -210,7 +211,7 @@ async def search_videos(request: Request, q: str = "", db=Depends(get_tenant_db)
     await ensure_tables(db)
 
     if not q.strip():
-        return await list_videos(db)
+        return await list_videos(request, db)
 
     pattern = f"%{q}%"
     result = await db.execute(text(
@@ -218,10 +219,61 @@ async def search_videos(request: Request, q: str = "", db=Depends(get_tenant_db)
         "v.processed_at, v.topic_tags, v.chunk_count, v.status "
         "FROM ml_videos v "
         "LEFT JOIN ml_chunks c ON c.video_id = v.id "
-        "WHERE v.status = 'completed' AND ("
+        "WHERE v.status = 'completed' AND v.org_id = :org_id AND ("
         "  v.title ILIKE :q OR v.author ILIKE :q OR v.topic_tags ILIKE :q "
         "  OR v.description ILIKE :q OR c.text ILIKE :q"
         ") ORDER BY v.id DESC LIMIT 50"
-    ), {"q": pattern})
+    ), {"q": pattern, "org_id": org_id})
     rows = result.mappings().all()
     return [_video_row_to_dict(dict(r)) for r in rows]
+
+
+@router.get("/videos/{video_id}/document")
+async def get_video_document(request: Request, video_id: int, db=Depends(get_tenant_db)):
+    """Get the full processed document for a video."""
+    org_id = get_org_id(request)
+    await ensure_tables(db)
+    result = await db.execute(text(
+        "SELECT title, author, description, document_text, processed_at, url "
+        "FROM ml_videos WHERE id = :vid AND org_id = :org_id"
+    ), {"vid": video_id, "org_id": org_id})
+    r = result.mappings().first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    row = dict(r)
+    return {
+        "title": row["title"],
+        "author": row["author"], 
+        "description": row["description"],
+        "document_text": row["document_text"],
+        "processed_at": str(row["processed_at"]) if row["processed_at"] else None,
+        "source_url": row["url"]
+    }
+
+
+@router.post("/videos/{video_id}/convert-to-skill")
+async def convert_video_to_skill(request: Request, video_id: int, db=Depends(get_tenant_db)):
+    """Convert a processed video into an agent skill (placeholder for now)."""
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    await ensure_tables(db)
+    
+    # Check if video exists and belongs to this org
+    result = await db.execute(text(
+        "SELECT title, author, document_text FROM ml_videos "
+        "WHERE id = :vid AND org_id = :org_id AND status = 'completed'"
+    ), {"vid": video_id, "org_id": org_id})
+    video = result.mappings().first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found or not processed")
+    
+    # TODO: Implement actual skill generation logic
+    # For now, return a placeholder response
+    return {
+        "message": "Skill conversion initiated",
+        "video_id": video_id,
+        "skill_name": f"skill-{video['title'][:50].lower().replace(' ', '-')}",
+        "status": "placeholder",
+        "note": "This feature is not yet implemented - placeholder for skill conversion pipeline"
+    }

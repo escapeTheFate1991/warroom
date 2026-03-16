@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   GraduationCap, Link, Send, Loader2, CheckCircle, AlertCircle,
   Clock, User, Hash, Calendar, ExternalLink, Eye, Trash2, RefreshCw,
+  FileText, Layers3, Settings
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
@@ -74,6 +75,8 @@ export default function EducatePanel() {
   const [loading, setLoading] = useState(false);
   const [task, setTask] = useState<ProcessingTask | null>(null);
   const [error, setError] = useState("");
+  const [viewingDocument, setViewingDocument] = useState<any>(null);
+  const [viewingChunks, setViewingChunks] = useState<any>(null);
 
   const loadVideos = useCallback(async () => {
     try {
@@ -136,6 +139,42 @@ export default function EducatePanel() {
       await authFetch(`${ML_API}/videos/${id}`, { method: "DELETE" });
       setVideos((prev) => prev.filter((v) => v.id !== id));
     } catch {}
+  };
+
+  const viewDocument = async (videoId: number) => {
+    try {
+      const resp = await authFetch(`${ML_API}/videos/${videoId}/document`);
+      if (resp.ok) {
+        setViewingDocument(await resp.json());
+      }
+    } catch {
+      console.error("Failed to load document");
+    }
+  };
+
+  const viewChunks = async (videoId: number) => {
+    try {
+      const resp = await authFetch(`${ML_API}/videos/${videoId}/chunks`);
+      if (resp.ok) {
+        setViewingChunks(await resp.json());
+      }
+    } catch {
+      console.error("Failed to load chunks");
+    }
+  };
+
+  const convertToSkill = async (videoId: number) => {
+    try {
+      const resp = await authFetch(`${ML_API}/videos/${videoId}/convert-to-skill`, {
+        method: "POST"
+      });
+      if (resp.ok) {
+        const result = await resp.json();
+        alert(`${result.message}\nSkill: ${result.skill_name}\n\n${result.note}`);
+      }
+    } catch {
+      console.error("Failed to convert to skill");
+    }
   };
 
   const totalChunks = videos.reduce((s, v) => s + (v.chunk_count || 0), 0);
@@ -292,14 +331,28 @@ export default function EducatePanel() {
                     )}
 
                     {/* Actions */}
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-1 mb-2">
+                      <button onClick={() => viewDocument(video.id)}
+                        className="text-center bg-warroom-accent/10 hover:bg-warroom-accent/20 text-warroom-accent py-1.5 rounded text-xs font-medium transition flex items-center justify-center gap-1">
+                        <FileText size={10} /> Document
+                      </button>
+                      <button onClick={() => viewChunks(video.id)}
+                        className="text-center bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 py-1.5 rounded text-xs font-medium transition flex items-center justify-center gap-1">
+                        <Layers3 size={10} /> Chunks
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <button onClick={() => convertToSkill(video.id)}
+                        className="text-center bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 py-1.5 rounded text-xs font-medium transition flex items-center justify-center gap-1">
+                        <Settings size={10} /> Skill
+                      </button>
                       <a href={video.url} target="_blank" rel="noopener noreferrer"
-                        className="flex-1 text-center bg-warroom-border/50 hover:bg-warroom-border py-1.5 rounded text-xs font-medium transition flex items-center justify-center gap-1">
-                        <ExternalLink size={10} /> Original
+                        className="text-center bg-warroom-border/50 hover:bg-warroom-border py-1.5 rounded text-xs font-medium transition flex items-center justify-center gap-1">
+                        <ExternalLink size={10} /> Source
                       </a>
                       <button onClick={() => deleteVideo(video.id)}
-                        className="bg-warroom-danger/10 hover:bg-warroom-danger/20 text-warroom-danger py-1.5 px-3 rounded text-xs transition">
-                        <Trash2 size={12} />
+                        className="bg-warroom-danger/10 hover:bg-warroom-danger/20 text-warroom-danger py-1.5 rounded text-xs transition flex items-center justify-center">
+                        <Trash2 size={10} />
                       </button>
                     </div>
                   </div>
@@ -309,6 +362,78 @@ export default function EducatePanel() {
           </div>
         )}
       </div>
+
+      {/* Document Modal */}
+      {viewingDocument && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-warroom-surface border border-warroom-border rounded-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+            <div className="p-4 border-b border-warroom-border flex items-center justify-between">
+              <h3 className="font-semibold flex items-center gap-2">
+                <FileText size={16} className="text-warroom-accent" />
+                Document: {viewingDocument.title}
+              </h3>
+              <button onClick={() => setViewingDocument(null)} className="text-warroom-muted hover:text-warroom-text">
+                ✕
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              <div className="mb-4 text-sm text-warroom-muted">
+                <p><strong>Author:</strong> {viewingDocument.author}</p>
+                <p><strong>Source:</strong> <a href={viewingDocument.source_url} target="_blank" className="text-warroom-accent hover:underline">{viewingDocument.source_url}</a></p>
+                <p><strong>Processed:</strong> {viewingDocument.processed_at}</p>
+              </div>
+              {viewingDocument.description && (
+                <div className="mb-4">
+                  <h4 className="text-sm font-medium mb-2">Description</h4>
+                  <p className="text-sm text-warroom-muted">{viewingDocument.description}</p>
+                </div>
+              )}
+              <div>
+                <h4 className="text-sm font-medium mb-2">Full Document</h4>
+                <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4 text-sm whitespace-pre-wrap">
+                  {viewingDocument.document_text || "No document text available"}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Chunks Modal */}
+      {viewingChunks && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-warroom-surface border border-warroom-border rounded-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+            <div className="p-4 border-b border-warroom-border flex items-center justify-between">
+              <h3 className="font-semibold flex items-center gap-2">
+                <Layers3 size={16} className="text-blue-400" />
+                Chunks ({viewingChunks.length} total)
+              </h3>
+              <button onClick={() => setViewingChunks(null)} className="text-warroom-muted hover:text-warroom-text">
+                ✕
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[60vh] space-y-3">
+              {viewingChunks.map((chunk: any, i: number) => (
+                <div key={chunk.id} className="bg-warroom-bg border border-warroom-border rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2 text-xs text-warroom-muted">
+                    <span>Chunk #{chunk.chunk_index}</span>
+                    <span>{Math.floor(chunk.start_time / 60)}:{(chunk.start_time % 60).toFixed(0).padStart(2, '0')} - {Math.floor(chunk.end_time / 60)}:{(chunk.end_time % 60).toFixed(0).padStart(2, '0')}</span>
+                    <span>{chunk.token_count} tokens</span>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap">{chunk.text}</p>
+                  {chunk.topic_tags?.length > 0 && (
+                    <div className="flex gap-1 mt-2">
+                      {chunk.topic_tags.map((tag: string, j: number) => (
+                        <span key={j} className="text-[10px] bg-warroom-accent/10 text-warroom-accent px-1.5 py-0.5 rounded-full">{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
