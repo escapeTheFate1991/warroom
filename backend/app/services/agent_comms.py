@@ -21,7 +21,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 # Network-AI configuration
-NETWORK_AI_DIR = Path.home() / ".openclaw/workspace/skills/network-ai"
+NETWORK_AI_DIR = Path("/network-ai") if Path("/network-ai").exists() else Path.home() / ".openclaw/workspace/skills/network-ai"
 SCRIPTS_DIR = NETWORK_AI_DIR / "scripts"
 
 class AgentComms:

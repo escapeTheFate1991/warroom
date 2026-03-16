@@ -100,7 +100,8 @@ async def send_message_to_agent(
     org_id = get_org_id(request)
     user_id = get_user_id(request)
     
-    await _init_agent_chat_tables(db)
+    # Removed: tables created at startup
+    #     await _init_agent_chat_tables(db)
     
     try:
         result = await AgentChatService.send_to_agent(
@@ -124,7 +125,8 @@ async def get_conversation_history(
     org_id = get_org_id(request)
     user_id = get_user_id(request)
     
-    await _init_agent_chat_tables(db)
+    # Removed: tables created at startup
+    #     await _init_agent_chat_tables(db)
     
     try:
         messages = await AgentChatService.get_conversation(
@@ -154,7 +156,8 @@ async def clear_conversation(
     org_id = get_org_id(request)
     user_id = get_user_id(request)
     
-    await _init_agent_chat_tables(db)
+    # Removed: tables created at startup
+    #     await _init_agent_chat_tables(db)
     
     try:
         result = await AgentChatService.clear_conversation(
@@ -180,7 +183,8 @@ async def assign_task_to_agent(
     org_id = get_org_id(request)
     user_id = get_user_id(request)
     
-    await _init_agent_chat_tables(db)
+    # Removed: tables created at startup
+    #     await _init_agent_chat_tables(db)
     
     try:
         result = await AgentChatService.assign_task(
@@ -204,7 +208,8 @@ async def get_agent_tasks(
     org_id = get_org_id(request)
     user_id = get_user_id(request)
     
-    await _init_agent_chat_tables(db)
+    # Removed: tables created at startup
+    #     await _init_agent_chat_tables(db)
     
     try:
         tasks = await AgentChatService.get_agent_tasks(
@@ -229,7 +234,8 @@ async def update_task_status(
     org_id = get_org_id(request)
     user_id = get_user_id(request)
     
-    await _init_agent_chat_tables(db)
+    # Removed: tables created at startup
+    #     await _init_agent_chat_tables(db)
     
     try:
         result = await AgentChatService.update_task_status(
@@ -251,7 +257,8 @@ async def get_task_queue(
     org_id = get_org_id(request)
     user_id = get_user_id(request)
     
-    await _init_agent_chat_tables(db)
+    # Removed: tables created at startup
+    #     await _init_agent_chat_tables(db)
     
     try:
         tasks = await AgentChatService.get_task_queue(db, org_id, user_id)
@@ -273,7 +280,8 @@ async def agent_respond(
     """Endpoint for agents to post responses (internal use)."""
     org_id = get_org_id(request)
     
-    await _init_agent_chat_tables(db)
+    # Removed: tables created at startup
+    #     await _init_agent_chat_tables(db)
     
     try:
         result = await AgentChatService.agent_respond(
