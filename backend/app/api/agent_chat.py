@@ -54,7 +54,7 @@ class TaskAssignmentRequest(BaseModel):
     priority: int = Field(default=5, ge=1, le=10)
 
 class TaskUpdateRequest(BaseModel):
-    status: str = Field(..., regex=r"^(pending|assigned|in_progress|completed|failed|cancelled)$")
+    status: str = Field(..., pattern=r"^(pending|assigned|in_progress|completed|failed|cancelled)$")
     result: Optional[Dict[str, Any]] = None
 
 class TaskItem(BaseModel):
