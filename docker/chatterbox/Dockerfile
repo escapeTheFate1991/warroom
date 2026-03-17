@@ -5,14 +5,10 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    libsox-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Install Python dependencies (lightweight for Phase 1)
 RUN pip install --no-cache-dir \
-    chatterbox-tts \
-    torch \
-    torchaudio \
     fastapi \
     uvicorn \
     python-multipart \

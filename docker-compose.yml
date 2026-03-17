@@ -100,7 +100,7 @@ services:
       context: ./docker/chatterbox
     container_name: warroom-chatterbox
     ports:
-      - "8400:8400"
+      - "8401:8400"
     volumes:
       - ./data/chatterbox_voices:/app/voices
       - ./data/chatterbox_cache:/app/cache
