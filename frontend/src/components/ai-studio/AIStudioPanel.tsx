@@ -243,8 +243,8 @@ export default function AIStudioPanel() {
   const fetchCopies = useCallback(async () => {
     setLoadingCopies(true);
     try {
-      const r = await authFetch(`${API}/api/ai-studio/ugc/digital-copies`);
-      if (r.ok) { const d = await r.json(); setCopies(d.copies || []); }
+      const r = await authFetch(`${API}/api/digital-copies`);
+      if (r.ok) { const d = await r.json(); setCopies(d.digital_copies || []); }
     } catch { }
     setLoadingCopies(false);
   }, []);
@@ -737,133 +737,7 @@ export default function AIStudioPanel() {
   /* ═══════════════════════════════════════════════════════
    *  TAB: DIGITAL COPIES
    * ═══════════════════════════════════════════════════════ */
-  function renderDigitalCopies() {
-    return (
-      <div className="p-5 space-y-5">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-warroom-text">Your Digital Copies</h2>
-            <p className="text-xs text-warroom-muted mt-0.5">Upload multiple angles of yourself to create a reusable AI avatar for your videos.</p>
-          </div>
-          <button onClick={() => setShowCreateCopy(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 transition">
-            <Plus size={14} /> New Digital Copy
-          </button>
-        </div>
 
-        {/* Create form */}
-        {showCreateCopy && (
-          <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 space-y-3">
-            <input value={newCopyName} onChange={e => setNewCopyName(e.target.value)} placeholder="Name (e.g. 'My Avatar')" className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
-            <input value={newCopyDesc} onChange={e => setNewCopyDesc(e.target.value)} placeholder="Description (optional)" className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
-            <div className="flex gap-2">
-              <button onClick={createDigitalCopy} disabled={creatingCopy || !newCopyName.trim()} className="px-3 py-1.5 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-40">
-                {creatingCopy ? <Loader2 size={12} className="animate-spin" /> : "Create"}
-              </button>
-              <button onClick={() => setShowCreateCopy(false)} className="px-3 py-1.5 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {/* Copy list */}
-        {loadingCopies ? (
-          <div className="flex justify-center py-12"><Loader2 className="animate-spin text-warroom-accent" size={24} /></div>
-        ) : copies.length === 0 ? (
-          <div className="flex flex-col items-center py-16 text-warroom-muted gap-3">
-            <User size={36} className="text-warroom-accent/30" />
-            <p className="text-sm">No digital copies yet</p>
-            <p className="text-xs text-center max-w-sm">Create a digital copy of yourself by uploading photos from multiple angles — front, side, 3/4 view, etc.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {copies.map(copy => (
-              <div key={copy.id} onClick={() => setSelectedCopy(selectedCopy?.id === copy.id ? null : copy)}
-                className={`bg-warroom-surface border rounded-xl p-4 cursor-pointer transition hover:border-warroom-accent/30 ${selectedCopy?.id === copy.id ? "border-warroom-accent" : "border-warroom-border"}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-warroom-text">{copy.name}</h3>
-                  <button onClick={e => { e.stopPropagation(); deleteDigitalCopy(copy.id); }} className="p-1 rounded hover:bg-red-500/20 text-warroom-muted hover:text-red-400 transition"><Trash2 size={13} /></button>
-                </div>
-                {copy.description && <p className="text-xs text-warroom-muted mb-2">{copy.description}</p>}
-                <div className="flex items-center gap-2 text-[11px] text-warroom-muted">
-                  <Camera size={12} /> {copy.assets?.length || 0} assets
-                  <span className="text-warroom-border">·</span>
-                  {new Date(copy.created_at).toLocaleDateString()}
-                </div>
-
-                {/* Asset grid (when selected) */}
-                {selectedCopy?.id === copy.id && (
-                  <div className="mt-3 pt-3 border-t border-warroom-border space-y-3">
-                    <div className="grid grid-cols-3 gap-2">
-                      {(copy.assets || []).map(a => (
-                        <div key={a.id} className="relative aspect-square bg-warroom-bg rounded-lg overflow-hidden border border-warroom-border group">
-                          {a.content_type?.startsWith("image/") ? (
-                            <div className="w-full h-full flex items-center justify-center text-warroom-muted"><Image size={20} /></div>
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-warroom-muted"><Video size={20} /></div>
-                          )}
-                          <div className="absolute bottom-0 inset-x-0 bg-black/60 text-[9px] text-white px-1.5 py-0.5 truncate">{a.angle}</div>
-                        </div>
-                      ))}
-                      {/* Upload button */}
-                      <button onClick={e => { e.stopPropagation(); fileInputRef.current?.click(); }}
-                        className="aspect-square bg-warroom-bg border-2 border-dashed border-warroom-border rounded-lg flex flex-col items-center justify-center text-warroom-muted hover:border-warroom-accent hover:text-warroom-accent transition">
-                        {uploadingAsset ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={16} /><span className="text-[9px] mt-1">Add</span></>}
-                      </button>
-                    </div>
-                    <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const angle = prompt("What angle is this? (e.g. front, left-side, 3/4, back)") || "front";
-                        await uploadAsset(copy.id, file, angle);
-                        e.target.value = "";
-                      }}
-                    />
-
-                    {/* Voice Samples */}
-                    <div className="pt-3 border-t border-warroom-border">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-semibold text-warroom-text flex items-center gap-1.5"><Mic size={12} /> Voice Samples</h4>
-                        <button onClick={e => { e.stopPropagation(); voiceInputRef.current?.click(); }}
-                          className="flex items-center gap-1 px-2 py-1 bg-warroom-accent/20 text-warroom-accent text-[10px] rounded-lg hover:bg-warroom-accent/30 transition">
-                          {uploadingVoice ? <Loader2 size={10} className="animate-spin" /> : <><Upload size={10} /> Upload</>}
-                        </button>
-                      </div>
-                      {((copy as any).voice_samples || []).length === 0 ? (
-                        <p className="text-[11px] text-warroom-muted">No voice samples yet. Upload audio recordings to clone your voice for video narration.</p>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {((copy as any).voice_samples || []).map((vs: VoiceSample) => (
-                            <div key={vs.filename} className="flex items-center justify-between bg-warroom-bg rounded-lg px-3 py-2 text-xs">
-                              <div className="flex items-center gap-2 text-warroom-text">
-                                <Mic size={12} className="text-warroom-accent" />
-                                <span>{vs.label}</span>
-                                <span className="text-warroom-muted text-[10px]">{vs.size_kb} KB</span>
-                              </div>
-                              <button onClick={e => { e.stopPropagation(); deleteVoiceSample(copy.id, vs.filename); }}
-                                className="p-1 rounded hover:bg-red-500/20 text-warroom-muted hover:text-red-400"><Trash2 size={11} /></button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <input ref={voiceInputRef} type="file" accept="audio/*" className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          await uploadVoiceSample(copy.id, file);
-                          e.target.value = "";
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
 
   /* ═══════════════════════════════════════════════════════
    *  TAB: CREATE VIDEO (Wizard)
