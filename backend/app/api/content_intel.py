@@ -592,6 +592,92 @@ def classify_post_format(post_text: str, hook: str = "", content_analysis: dict 
     return "unclassified"
 
 
+def classify_post_format_v2(post_text: str, hook: str = "", content_analysis: dict = None) -> tuple[str, float]:
+    """Classify post format with confidence score.
+    Returns (format_slug, confidence) where confidence is 0.0-1.0.
+    Low confidence (<0.5) + high engagement = potential emerging format.
+    """
+    text = f"{hook} {post_text}".lower()
+    
+    # Format patterns with weighted scores
+    format_patterns = {
+        "myth_buster": [
+            "myth", "everyone thinks", "they told you", "actually wrong", "lie", 
+            "misconception", "false", "debunk", "truth is", "reality is", 
+            "stop believing", "common mistake", "actually", "wrong about",
+            "don't believe", "not true", "fact check", "busted"
+        ],
+        "expose": [
+            "nobody talks about", "secret", "they don't want you to know", "hidden", 
+            "behind the scenes", "what really happens", "insider", "truth about",
+            "exposed", "reveal", "industry secret", "never tell you", "won't admit",
+            "dirty secret", "what they hide", "real story", "leaked", "confession"
+        ],
+        "transformation": [
+            "before", "after", "transformed", "went from", "journey", "change",
+            "transformation", "from zero to", "how i became", "evolution",
+            "progress", "growth", "metamorphosis", "makeover", "upgrade",
+            "before vs after", "then vs now", "my story", "changed everything"
+        ],
+        "pov": [
+            "pov:", "pov ", "when you", "that moment when", "imagine", "picture this",
+            "you know that feeling", "we've all been there", "relatable", "me when",
+            "anyone else", "is it just me", "that awkward moment", "scenario"
+        ],
+        "speed_run": [
+            "step by step", "tutorial", "how to", "guide", "in under", "quick way",
+            "fast", "speed", "rapid", "minutes", "seconds", "steps", "process",
+            "method", "technique", "shortcut", "hack", "easy way", "simple steps"
+        ],
+        "challenge": [
+            "try this", "challenge", "for 7 days", "for 30 days", "dare", "bet you",
+            "can you", "challenge accepted", "who else", "join me", "attempt",
+            "test", "experiment", "see if you can", "i dare you", "let's see"
+        ],
+        "show_dont_tell": [
+            "watch this", "look at this", "see what happens", "no words needed",
+            "just watch", "observe", "check this out", "visual", "demonstration",
+            "see the difference", "watch how", "look closely", "notice", "witness"
+        ],
+        "direct_to_camera": [
+            "hot take", "unpopular opinion", "hear me out", "i think", "rant",
+            "honestly", "real talk", "truth bomb", "let me tell you", "my take",
+            "controversial", "bold statement", "authentic", "raw", "unfiltered"
+        ]
+    }
+    
+    # Calculate confidence scores for each format
+    format_scores = {}
+    for format_name, patterns in format_patterns.items():
+        matches = sum(1 for pattern in patterns if pattern in text)
+        if matches > 0:
+            # Confidence based on pattern matches and text length
+            text_length = len(text.split())
+            confidence = min(0.95, 0.3 + (matches * 0.15) + min(0.2, text_length / 100))
+            format_scores[format_name] = confidence
+    
+    # Enhanced classification using content_analysis if available
+    if content_analysis:
+        format_hints = content_analysis.get("content_format", "").lower()
+        if format_hints in ["transformation", "before_after"]:
+            format_scores["transformation"] = format_scores.get("transformation", 0) + 0.3
+        elif format_hints in ["tutorial", "how_to", "educational"]:
+            format_scores["speed_run"] = format_scores.get("speed_run", 0) + 0.3
+        elif format_hints in ["opinion", "commentary", "rant"]:
+            format_scores["direct_to_camera"] = format_scores.get("direct_to_camera", 0) + 0.3
+        elif format_hints in ["demonstration", "visual_proof"]:
+            format_scores["show_dont_tell"] = format_scores.get("show_dont_tell", 0) + 0.3
+    
+    # Find best match
+    if format_scores:
+        best_format = max(format_scores.items(), key=lambda x: x[1])
+        confidence = min(0.95, best_format[1])
+        return best_format[0], confidence
+    
+    # Return unclassified with very low confidence
+    return "unclassified", 0.1
+
+
 def _derive_topic_label(post: Dict[str, Any]) -> str:
     """Derive a compact topic label from a cached post."""
     text = post.get("post_text", "") or ""
