@@ -142,7 +142,7 @@ class APIValidator {
       } else {
         result.error = `Schema validation failed: ${parseResult.error.message}`;
         result.missingFields = parseResult.error.issues
-          .filter(issue => issue.code === 'invalid_type' && issue.received === 'undefined')
+          .filter(issue => issue.code === 'invalid_type' && (issue as any).received === 'undefined')
           .map(issue => issue.path.join('.'));
         console.log(`❌ ${result.endpoint} - Schema validation failed`);
         console.log(`   Error: ${result.error}`);
