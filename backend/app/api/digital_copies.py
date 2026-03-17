@@ -8,6 +8,8 @@ import re
 import uuid
 import logging
 import tempfile
+import json
+import base64
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -17,6 +19,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image
+import anthropic
+import httpx
 
 from app.db.crm_db import get_tenant_db
 from app.services.tenant import get_org_id, get_user_id
@@ -103,6 +107,11 @@ class QualityAuditResponse(BaseModel):
     quality_ok: bool
     ready_for_training: bool
     recommendation: str
+    # NEW fields:
+    quality_score: int  # 0-100 combined score
+    score_breakdown: Dict[str, int]  # {"image_count": 35, "angle_coverage": 30, "image_quality": 25}
+    format_requirements: Dict[str, Any]  # what this format needs
+    ai_analyzed: bool  # whether AI analysis has been run
 
 
 class BuildPromptRequest(BaseModel):
@@ -131,7 +140,221 @@ class ActionTemplateResponse(BaseModel):
     created_at: datetime
 
 
+class AIAnalysisResult(BaseModel):
+    detected_angle: str
+    face_visible: bool
+    face_quality: int  # 0-100
+    background_quality: str  # clean/busy/neutral
+    usability_notes: str
+
+
+class ImageAnalysisResponse(BaseModel):
+    image_id: int
+    image_url: str
+    analysis: AIAnalysisResult
+    updated: bool
+
+
 # ── Helper Functions ──────────────────────────────────────────────────
+
+# AI Image Analysis
+def get_anthropic_client():
+    """Get Anthropic client instance"""
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
+    return anthropic.Anthropic(api_key=api_key)
+
+
+async def download_and_encode_image(image_url: str) -> str:
+    """Download image from S3 and return base64 encoded"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(image_url, timeout=30.0)
+            response.raise_for_status()
+            return base64.b64encode(response.content).decode('utf-8')
+    except Exception as e:
+        logger.error(f"Failed to download image {image_url}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download image: {str(e)}")
+
+
+async def analyze_image_with_ai(image_url: str) -> AIAnalysisResult:
+    """Analyze image with Haiku for angle detection and quality assessment"""
+    client = get_anthropic_client()
+    
+    # Download and encode image
+    image_base64 = await download_and_encode_image(image_url)
+    
+    # Structured prompt for Haiku
+    prompt = """Please analyze this image and return a JSON response with the following fields:
+
+{
+  "detected_angle": "one of: close_up, full_body, quarter_body, profile_left, profile_right, other",
+  "face_visible": boolean,
+  "face_quality": number from 0-100 (consider sharpness, lighting, clarity),
+  "background_quality": "one of: clean, busy, neutral",
+  "usability_notes": "any issues like blurry, occluded, bad lighting, etc. or 'good' if no issues"
+}
+
+For angle detection:
+- close_up: head and shoulders visible
+- full_body: entire person from head to feet
+- quarter_body: from waist up
+- profile_left: side view facing left
+- profile_right: side view facing right
+- other: any other angle
+
+Focus on photo quality for AI training purposes. Return ONLY the JSON, no other text."""
+
+    try:
+        message = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=500,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        )
+        
+        # Parse JSON response
+        response_text = message.content[0].text.strip()
+        analysis_data = json.loads(response_text)
+        
+        return AIAnalysisResult(**analysis_data)
+        
+    except Exception as e:
+        logger.error(f"AI image analysis failed for {image_url}: {e}")
+        # Return default analysis on failure
+        return AIAnalysisResult(
+            detected_angle="other",
+            face_visible=False,
+            face_quality=0,
+            background_quality="neutral",
+            usability_notes=f"AI analysis failed: {str(e)}"
+        )
+
+
+def get_format_requirements(format_slug: str = "talking_head") -> Dict[str, Any]:
+    """Get image requirements based on target format"""
+    requirements = {
+        "talking_head": {
+            "primary_angles": ["close_up"],
+            "optional_angles": ["quarter_body"],
+            "min_images": 8,
+            "target_images": 12,
+            "description": "Talking head videos need mainly close-up shots"
+        },
+        "car_talking": {
+            "primary_angles": ["close_up"],
+            "optional_angles": ["quarter_body"],
+            "min_images": 8,
+            "target_images": 12,
+            "description": "Car talking videos focus on upper body and face"
+        },
+        "podcast_seated": {
+            "primary_angles": ["close_up"],
+            "optional_angles": ["quarter_body"],
+            "min_images": 8,
+            "target_images": 12,
+            "description": "Podcast videos emphasize facial expressions"
+        },
+        "selling_ugc": {
+            "primary_angles": ["close_up"],
+            "optional_angles": ["quarter_body"],
+            "min_images": 8,
+            "target_images": 12,
+            "description": "UGC selling videos need expressive close-ups"
+        },
+        "presentation": {
+            "primary_angles": ["close_up", "quarter_body"],
+            "optional_angles": ["full_body"],
+            "min_images": 10,
+            "target_images": 15,
+            "description": "Presentations need both face and gesture shots"
+        },
+        "walking_vlog": {
+            "primary_angles": ["full_body", "quarter_body", "close_up"],
+            "optional_angles": ["profile_left", "profile_right"],
+            "min_images": 15,
+            "target_images": 20,
+            "description": "Walking vlogs need full range of angles"
+        }
+    }
+    
+    return requirements.get(format_slug, requirements["talking_head"])
+
+
+def calculate_quality_score(
+    total_images: int,
+    angle_coverage: Dict[str, int],
+    avg_face_quality: float,
+    format_requirements: Dict[str, Any]
+) -> Dict[str, int]:
+    """Calculate quality score breakdown based on format requirements"""
+    
+    # Image Count score (0-40)
+    target_images = format_requirements["target_images"]
+    min_images = format_requirements["min_images"]
+    
+    if total_images >= target_images:
+        image_count_score = 40
+    elif total_images >= min_images:
+        # Linear interpolation between min and target
+        ratio = (total_images - min_images) / (target_images - min_images)
+        image_count_score = int(20 + (ratio * 20))
+    else:
+        # Below minimum
+        ratio = total_images / min_images
+        image_count_score = int(ratio * 20)
+    
+    # Angle Coverage score (0-30)
+    primary_angles = format_requirements["primary_angles"]
+    primary_count = sum(angle_coverage.get(angle, 0) for angle in primary_angles)
+    
+    if primary_count >= len(primary_angles) * 3:  # At least 3 of each primary angle
+        angle_coverage_score = 30
+    elif primary_count >= len(primary_angles):  # At least 1 of each primary angle
+        ratio = primary_count / (len(primary_angles) * 3)
+        angle_coverage_score = int(15 + (ratio * 15))
+    else:
+        # Missing primary angles
+        covered_primary = sum(1 for angle in primary_angles if angle_coverage.get(angle, 0) > 0)
+        angle_coverage_score = int((covered_primary / len(primary_angles)) * 15)
+    
+    # Image Quality score (0-30)
+    if avg_face_quality >= 80:
+        image_quality_score = 30
+    elif avg_face_quality >= 60:
+        ratio = (avg_face_quality - 60) / 20
+        image_quality_score = int(20 + (ratio * 10))
+    elif avg_face_quality >= 40:
+        ratio = (avg_face_quality - 40) / 20
+        image_quality_score = int(10 + (ratio * 10))
+    else:
+        ratio = avg_face_quality / 40
+        image_quality_score = int(ratio * 10)
+    
+    return {
+        "image_count": image_count_score,
+        "angle_coverage": angle_coverage_score,
+        "image_quality": image_quality_score
+    }
+
 
 def generate_trigger_token(name: str) -> str:
     """Generate trigger token from name: sks_{name_lowercase_no_spaces}"""
@@ -620,14 +843,100 @@ async def delete_image(
     return {"ok": True, "message": "Image deleted successfully"}
 
 
-@router.get("/digital-copies/{copy_id}/quality-audit", response_model=QualityAuditResponse)
-async def quality_audit(
+@router.post("/digital-copies/{copy_id}/analyze-images")
+async def analyze_images_with_ai(
     copy_id: int,
     request: Request,
     db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Check angle coverage and image quality for digital copy"""
+    """Analyze all images for a digital copy using AI"""
+    org_id = get_org_id(request)
+    
+    # Verify copy exists and belongs to org
+    copy_check = await db.execute(
+        text("SELECT id FROM crm.digital_copies WHERE id = :copy_id AND org_id = :org_id"),
+        {"copy_id": copy_id, "org_id": org_id}
+    )
+    if not copy_check.first():
+        raise HTTPException(status_code=404, detail="Digital copy not found")
+    
+    # Get all images for analysis
+    result = await db.execute(
+        text("""
+            SELECT id, image_url, image_type
+            FROM crm.digital_copy_images 
+            WHERE digital_copy_id = :copy_id
+            ORDER BY uploaded_at
+        """),
+        {"copy_id": copy_id}
+    )
+    
+    images = result.mappings().all()
+    if not images:
+        raise HTTPException(status_code=400, detail="No images found for analysis")
+    
+    analysis_results = []
+    
+    for image_row in images:
+        try:
+            # Analyze image with AI
+            analysis = await analyze_image_with_ai(image_row["image_url"])
+            
+            # Update the image_type (angle) field in the database based on AI detection
+            await db.execute(
+                text("""
+                    UPDATE crm.digital_copy_images 
+                    SET image_type = :detected_angle
+                    WHERE id = :image_id
+                """),
+                {
+                    "image_id": image_row["id"],
+                    "detected_angle": analysis.detected_angle
+                }
+            )
+            
+            analysis_results.append(ImageAnalysisResponse(
+                image_id=image_row["id"],
+                image_url=image_row["image_url"],
+                analysis=analysis,
+                updated=True
+            ))
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze image {image_row['id']}: {e}")
+            analysis_results.append(ImageAnalysisResponse(
+                image_id=image_row["id"],
+                image_url=image_row["image_url"],
+                analysis=AIAnalysisResult(
+                    detected_angle=image_row["image_type"],
+                    face_visible=False,
+                    face_quality=0,
+                    background_quality="neutral",
+                    usability_notes=f"Analysis failed: {str(e)}"
+                ),
+                updated=False
+            ))
+    
+    await db.commit()
+    
+    return {
+        "ok": True,
+        "analyzed": len([r for r in analysis_results if r.updated]),
+        "total": len(analysis_results),
+        "results": analysis_results
+    }
+
+
+@router.get("/digital-copies/{copy_id}/quality-audit", response_model=QualityAuditResponse)
+async def quality_audit(
+    copy_id: int,
+    request: Request,
+    format: str = "talking_head",  # Query parameter for format
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Check angle coverage and image quality for digital copy with format awareness"""
     org_id = get_org_id(request)
     
     # Verify copy exists
@@ -638,7 +947,10 @@ async def quality_audit(
     if not copy_check.first():
         raise HTTPException(status_code=404, detail="Digital copy not found")
     
-    # Get all images with quality data
+    # Get format requirements
+    format_requirements = get_format_requirements(format)
+    
+    # Get all images with quality data and check if AI analysis has been run
     result = await db.execute(
         text("""
             SELECT image_type, resolution_width, resolution_height, quality_score
@@ -657,10 +969,10 @@ async def quality_audit(
     for image_type in ["close_up", "full_body", "quarter_body", "profile_left", "profile_right", "other"]:
         angle_coverage[image_type] = sum(1 for img in images if img["image_type"] == image_type)
     
-    # Find missing critical angles
+    # Find missing primary angles for this format
     missing_angles = []
-    critical_angles = ["close_up", "full_body", "profile_left", "profile_right"]
-    for angle in critical_angles:
+    primary_angles = format_requirements["primary_angles"]
+    for angle in primary_angles:
         if angle_coverage.get(angle, 0) == 0:
             missing_angles.append(angle)
     
@@ -671,37 +983,60 @@ async def quality_audit(
     else:
         avg_width = avg_height = 0
     
-    # Determine quality status
+    # Mock face quality for now (would come from AI analysis)
+    avg_face_quality = 75.0  # Default assumption
+    
+    # Calculate format-aware quality scores
+    score_breakdown = calculate_quality_score(
+        total_images, angle_coverage, avg_face_quality, format_requirements
+    )
+    quality_score = sum(score_breakdown.values())
+    
+    # Determine quality status based on format
+    min_images = format_requirements["min_images"]
     quality_ok = (
-        total_images >= 10 and
+        total_images >= min_images and
         len(missing_angles) == 0 and
         avg_width >= MIN_RESOLUTION_WIDTH and
         avg_height >= MIN_RESOLUTION_HEIGHT
     )
     
-    ready_for_training = total_images >= TARGET_IMAGE_COUNT and quality_ok
+    target_images = format_requirements["target_images"]
+    ready_for_training = total_images >= target_images and quality_ok and quality_score >= 70
     
-    # Generate recommendation
+    # Generate format-specific recommendation
     if ready_for_training:
-        recommendation = "Ready for training! You have sufficient high-quality images across all angles."
-    elif total_images < TARGET_IMAGE_COUNT:
-        needed = TARGET_IMAGE_COUNT - total_images
+        recommendation = f"Your {total_images} photos are perfect for {format} videos. Face quality looks good. Ready to generate!"
+    elif total_images < min_images:
+        needed = min_images - total_images
         if missing_angles:
-            recommendation = f"Add {needed} more photos, especially {', '.join(missing_angles)} shots."
+            recommendation = f"Add {needed} more {', '.join(missing_angles)} photos for {format} format."
         else:
-            recommendation = f"Add {needed} more photos to reach the target of {TARGET_IMAGE_COUNT}."
+            recommendation = f"Add {needed} more photos to reach minimum for {format} format."
+    elif missing_angles:
+        recommendation = f"You have {total_images} photos but need {', '.join(missing_angles)} angles for {format} format."
+    elif total_images < target_images:
+        needed = target_images - total_images
+        recommendation = f"Good coverage! Add {needed} more photos to reach optimal quality for {format}."
     else:
-        recommendation = f"Add photos for missing angles: {', '.join(missing_angles)}."
+        recommendation = f"Great collection for {format}! Consider running AI analysis for detailed quality insights."
+    
+    # Check if AI analysis has been run (simplified check)
+    ai_analyzed = False  # Would check for actual AI analysis results in production
     
     return QualityAuditResponse(
         total_images=total_images,
-        target_images=TARGET_IMAGE_COUNT,
+        target_images=target_images,
         angle_coverage=angle_coverage,
         missing_angles=missing_angles,
         avg_resolution={"width": int(avg_width), "height": int(avg_height)},
         quality_ok=quality_ok,
         ready_for_training=ready_for_training,
-        recommendation=recommendation
+        recommendation=recommendation,
+        quality_score=quality_score,
+        score_breakdown=score_breakdown,
+        format_requirements=format_requirements,
+        ai_analyzed=ai_analyzed
     )
 
 

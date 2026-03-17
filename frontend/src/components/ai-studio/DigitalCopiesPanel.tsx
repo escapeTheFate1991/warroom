@@ -47,6 +47,21 @@ interface QualityAudit {
   };
   ready_for_training: boolean;
   recommendation: string;
+  // NEW fields:
+  quality_score: number;  // 0-100 combined score
+  score_breakdown: {
+    image_count: number;
+    angle_coverage: number;
+    image_quality: number;
+  };
+  format_requirements: {
+    primary_angles: string[];
+    optional_angles: string[];
+    min_images: number;
+    target_images: number;
+    description: string;
+  };
+  ai_analyzed: boolean;
 }
 
 type CreatorStep = "name" | "upload" | "audit";
@@ -142,6 +157,8 @@ export default function DigitalCopiesPanel() {
   const [uploading, setUploading] = useState(false);
   const [qualityAudit, setQualityAudit] = useState<QualityAudit | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [selectedFormat, setSelectedFormat] = useState("talking_head");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -248,7 +265,7 @@ export default function DigitalCopiesPanel() {
 
     try {
       setAuditLoading(true);
-      const response = await authFetch(`${API}/api/digital-copies/${currentCopyId}/quality-audit`);
+      const response = await authFetch(`${API}/api/digital-copies/${currentCopyId}/quality-audit?format=${selectedFormat}`);
       if (response.ok) {
         const data = await response.json();
         setQualityAudit(data);
@@ -261,6 +278,32 @@ export default function DigitalCopiesPanel() {
       alert(error instanceof Error ? error.message : "Quality audit failed");
     } finally {
       setAuditLoading(false);
+    }
+  };
+
+  const analyzeImagesWithAI = async () => {
+    if (!currentCopyId) return;
+
+    try {
+      setAiAnalyzing(true);
+      const response = await authFetch(`${API}/api/digital-copies/${currentCopyId}/analyze-images`, {
+        method: "POST"
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Refresh quality audit after AI analysis
+        await performQualityAudit();
+        alert(`AI analysis complete! Analyzed ${data.analyzed} out of ${data.total} images.`);
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "AI analysis failed");
+      }
+    } catch (error) {
+      console.error("Error analyzing images with AI:", error);
+      alert(error instanceof Error ? error.message : "AI analysis failed");
+    } finally {
+      setAiAnalyzing(false);
     }
   };
 
@@ -295,6 +338,8 @@ export default function DigitalCopiesPanel() {
     setSelectedAngle("close_up");
     setUploadedImages([]);
     setQualityAudit(null);
+    setAiAnalyzing(false);
+    setSelectedFormat("talking_head");
   };
 
   const getStatusBadge = (status: DigitalCopy["status"]) => {
@@ -385,6 +430,13 @@ export default function DigitalCopiesPanel() {
       performQualityAudit();
     }
   }, [creatorStep, currentCopyId, qualityAudit]);
+
+  // Refresh audit when format changes
+  useEffect(() => {
+    if (creatorStep === "audit" && currentCopyId && selectedFormat) {
+      performQualityAudit();
+    }
+  }, [selectedFormat]);
 
   // ── Render ─────────────────────────────────────────────
   return (
@@ -773,6 +825,45 @@ export default function DigitalCopiesPanel() {
                   <div>
                     <h3 className="text-lg font-semibold text-warroom-text mb-4">Quality Audit</h3>
                     
+                    {/* Format Selection */}
+                    <div className="mb-6">
+                      <h4 className="text-sm font-medium text-warroom-text mb-3">Target Format</h4>
+                      <select
+                        value={selectedFormat}
+                        onChange={(e) => {
+                          setSelectedFormat(e.target.value);
+                          setQualityAudit(null); // Reset audit when format changes
+                        }}
+                        className="w-full px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text focus:outline-none focus:border-warroom-accent"
+                      >
+                        <option value="talking_head">Talking Head</option>
+                        <option value="car_talking">Car Talking</option>
+                        <option value="podcast_seated">Podcast Seated</option>
+                        <option value="selling_ugc">Selling UGC</option>
+                        <option value="presentation">Presentation</option>
+                        <option value="walking_vlog">Walking Vlog</option>
+                      </select>
+                    </div>
+
+                    {/* AI Analysis Button */}
+                    <div className="mb-6">
+                      <button
+                        onClick={analyzeImagesWithAI}
+                        disabled={aiAnalyzing || uploadedImages.length === 0}
+                        className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      >
+                        {aiAnalyzing ? (
+                          <Loader2 size={20} className="animate-spin" />
+                        ) : (
+                          <Sparkles size={20} />
+                        )}
+                        {aiAnalyzing ? "Analyzing with AI..." : "🔍 Analyze Images with AI"}
+                      </button>
+                      <p className="text-xs text-warroom-muted mt-2 text-center">
+                        AI will analyze image angles and quality to provide detailed feedback
+                      </p>
+                    </div>
+                    
                     {auditLoading ? (
                       <div className="flex flex-col items-center justify-center py-12">
                         <Loader2 className="animate-spin text-warroom-accent mb-4" size={32} />
@@ -780,34 +871,108 @@ export default function DigitalCopiesPanel() {
                       </div>
                     ) : qualityAudit ? (
                       <div className="space-y-6">
-                        {/* Gauges */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                          {renderGauge(qualityAudit.total_images, qualityAudit.target_images, "Image Count")}
-                          {renderGauge(qualityAudit.quality_ok ? 100 : 50, 100, "Quality Check")}
+                        {/* Format Context */}
+                        <div className="bg-warroom-bg rounded-lg p-4">
+                          <h4 className="text-sm font-semibold text-warroom-text mb-2">
+                            Optimized for: {selectedFormat.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </h4>
+                          <p className="text-sm text-warroom-muted">
+                            {qualityAudit.format_requirements?.description}
+                          </p>
+                        </div>
+
+                        {/* Overall Score */}
+                        <div className="text-center">
+                          <div className="text-4xl font-bold text-warroom-text mb-2">
+                            {qualityAudit.quality_score}/100
+                          </div>
+                          <div className="text-sm text-warroom-muted mb-4">Overall Quality Score</div>
+                          
+                          {/* Score Breakdown */}
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="bg-warroom-surface rounded-lg p-3">
+                              <div className="text-lg font-semibold text-warroom-text">
+                                {qualityAudit.score_breakdown?.image_count || 0}/40
+                              </div>
+                              <div className="text-xs text-warroom-muted">Image Count</div>
+                            </div>
+                            <div className="bg-warroom-surface rounded-lg p-3">
+                              <div className="text-lg font-semibold text-warroom-text">
+                                {qualityAudit.score_breakdown?.angle_coverage || 0}/30
+                              </div>
+                              <div className="text-xs text-warroom-muted">Angle Coverage</div>
+                            </div>
+                            <div className="bg-warroom-surface rounded-lg p-3">
+                              <div className="text-lg font-semibold text-warroom-text">
+                                {qualityAudit.score_breakdown?.image_quality || 0}/30
+                              </div>
+                              <div className="text-xs text-warroom-muted">Image Quality</div>
+                            </div>
+                          </div>
                         </div>
 
                         {/* Angle Coverage */}
                         <div>
                           <h4 className="text-sm font-semibold text-warroom-text mb-3">Angle Coverage</h4>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {Object.entries(qualityAudit.angle_coverage).map(([angle, count]) => (
-                              <div key={angle} className={`p-3 rounded-lg border ${
-                                count > 0 ? "border-green-500/30 bg-green-500/10" : "border-red-500/30 bg-red-500/10"
-                              }`}>
-                                <div className="flex items-center gap-2">
-                                  {count > 0 ? (
-                                    <CheckCircle size={16} className="text-green-400" />
-                                  ) : (
-                                    <X size={16} className="text-red-400" />
-                                  )}
-                                  <span className="text-sm font-medium text-warroom-text capitalize">
-                                    {angle.replace("_", " ")} ({count})
-                                  </span>
+                            {Object.entries(qualityAudit.angle_coverage).map(([angle, count]) => {
+                              const isPrimary = qualityAudit.format_requirements?.primary_angles?.includes(angle);
+                              const isOptional = qualityAudit.format_requirements?.optional_angles?.includes(angle);
+                              const isNeeded = isPrimary || isOptional;
+                              
+                              return (
+                                <div key={angle} className={`p-3 rounded-lg border ${
+                                  !isNeeded ? "border-gray-500/30 bg-gray-500/10" :
+                                  count > 0 ? "border-green-500/30 bg-green-500/10" : "border-red-500/30 bg-red-500/10"
+                                }`}>
+                                  <div className="flex items-center gap-2">
+                                    {!isNeeded ? (
+                                      <span className="w-4 h-4 rounded-full bg-gray-500/30" />
+                                    ) : count > 0 ? (
+                                      <CheckCircle size={16} className="text-green-400" />
+                                    ) : (
+                                      <X size={16} className="text-red-400" />
+                                    )}
+                                    <div className="flex-1">
+                                      <span className="text-sm font-medium text-warroom-text capitalize">
+                                        {angle.replace("_", " ")}
+                                      </span>
+                                      <div className="text-xs text-warroom-muted">
+                                        {count} photos
+                                        {isPrimary && " (required)"}
+                                        {isOptional && " (optional)"}
+                                      </div>
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
+
+                        {/* AI Analysis Status */}
+                        {qualityAudit.ai_analyzed !== undefined && (
+                          <div className={`p-3 rounded-lg border ${
+                            qualityAudit.ai_analyzed ? "border-green-500/30 bg-green-500/10" : "border-yellow-500/30 bg-yellow-500/10"
+                          }`}>
+                            <div className="flex items-center gap-2">
+                              {qualityAudit.ai_analyzed ? (
+                                <CheckCircle size={16} className="text-green-400" />
+                              ) : (
+                                <AlertCircle size={16} className="text-yellow-400" />
+                              )}
+                              <span className="text-sm font-medium text-warroom-text">
+                                {qualityAudit.ai_analyzed ? "AI Analysis Complete" : "AI Analysis Recommended"}
+                              </span>
+                            </div>
+                            <p className="text-xs text-warroom-muted mt-1">
+                              {qualityAudit.ai_analyzed 
+                                ? "Images have been analyzed with AI for detailed quality insights"
+                                : "Run AI analysis for precise angle detection and quality scores"
+                              }
+                            </p>
+                          </div>
+                        )}
 
                         {/* Recommendation */}
                         {qualityAudit.recommendation && (
