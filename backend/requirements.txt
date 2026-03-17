@@ -25,3 +25,4 @@ scrapling
 arq==0.26.1
 redis>=5.0.0
 stripe
+Pillow>=10.0.0
