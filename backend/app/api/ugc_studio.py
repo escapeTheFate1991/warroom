@@ -102,6 +102,7 @@ ALTER_DDL = [
     "ALTER TABLE public.ugc_video_templates ADD COLUMN IF NOT EXISTS source_url TEXT",
     "ALTER TABLE public.ugc_video_templates ADD COLUMN IF NOT EXISTS source_analysis JSONB DEFAULT '{}'::jsonb",
     "ALTER TABLE public.ugc_video_templates ADD COLUMN IF NOT EXISTS user_id INTEGER",
+    "ALTER TABLE public.ugc_video_projects ADD COLUMN IF NOT EXISTS format_slug TEXT",
 ]
 
 
@@ -417,6 +418,7 @@ class VideoProjectCreate(BaseModel):
     title: str = "Untitled Video"
     script: str = ""
     content_mode: str = "product"  # product | service
+    format_slug: Optional[str] = None
 
 
 @router.post("/projects")
@@ -443,13 +445,13 @@ async def create_project(
 
     await db.execute(text("""
         INSERT INTO public.ugc_video_projects
-            (id, user_id, template_id, digital_copy_id, title, script, content_mode, storyboard)
-        VALUES (:id, :uid, :tpl, :dc, :title, :script, :mode, :sb::jsonb)
+            (id, user_id, template_id, digital_copy_id, title, script, content_mode, storyboard, format_slug)
+        VALUES (:id, :uid, :tpl, :dc, :title, :script, :mode, :sb::jsonb, :format)
     """), {
         "id": project_id, "uid": user.id, "tpl": body.template_id,
         "dc": body.digital_copy_id, "title": body.title,
         "script": body.script, "mode": body.content_mode,
-        "sb": json.dumps(storyboard),
+        "sb": json.dumps(storyboard), "format": body.format_slug,
     })
     await db.commit()
     return {"id": project_id, "title": body.title, "storyboard": storyboard}
@@ -462,7 +464,7 @@ async def list_projects(
     db: AsyncSession = Depends(get_tenant_db),
 ):
     rows = await db.execute(text("""
-        SELECT id, title, template_id, digital_copy_id, content_mode, status, video_url, created_at
+        SELECT id, title, template_id, digital_copy_id, content_mode, status, video_url, created_at, format_slug
         FROM public.ugc_video_projects WHERE user_id = :uid ORDER BY created_at DESC
     """), {"uid": user.id})
     projects = []
