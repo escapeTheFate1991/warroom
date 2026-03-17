@@ -5,6 +5,7 @@ caption variations, staggered scheduling, and visibility scoring.
 """
 
 import hashlib
+import json
 import logging
 import random
 import re

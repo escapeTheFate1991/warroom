@@ -4,6 +4,7 @@ Provides endpoints for scheduling, publishing, and tracking social media content
 Integrates with Video Copycat pipeline for automated content distribution.
 """
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
