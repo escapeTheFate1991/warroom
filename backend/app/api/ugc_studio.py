@@ -27,6 +27,8 @@ from app.models.settings import Setting
 from app.api.content_intel import load_cached_posts, _sorted_posts_for_analysis, extract_hook_from_text
 from sqlalchemy import select
 import httpx
+from app.services.competitor_script_engine import get_top_scripts, generate_script_from_reference, extract_hook_body_cta
+from app.services.editing_dna import extract_visual_layout, synthesize_editing_dna, process_competitor_for_dna, map_dna_to_remotion_config, seed_default_dna_templates
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -112,6 +114,9 @@ async def init_ugc_tables():
         await conn.execute(text(DIGITAL_COPIES_DDL))
         await conn.execute(text(VIDEO_TEMPLATES_DDL))
         await conn.execute(text(VIDEO_PROJECTS_DDL))
+        # Initialize Editing DNA table
+        from app.services.editing_dna import EDITING_DNA_DDL
+        await conn.execute(text(EDITING_DNA_DDL))
         for stmt in ALTER_DDL:
             try:
                 await conn.execute(text(stmt))
@@ -1873,3 +1878,471 @@ async def delete_voice_endpoint(
     except Exception as e:
         logger.error(f"Failed to delete voice {speaker_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete voice: {str(e)}")
+
+
+# ── Editing DNA Endpoints ──────────────────────────────────────
+# Visual Format Extraction for Remotion Templates
+
+from app.services.editing_dna import (
+    init_editing_dna_table,
+    extract_visual_layout,
+    synthesize_editing_dna,
+    process_competitor_for_dna,
+    map_dna_to_remotion_config,
+    seed_default_dna_templates,
+    get_dna_by_id,
+    list_dna_templates,
+    validate_dna_structure
+)
+
+class EditingDnaExtractRequest(BaseModel):
+    post_id: Optional[int] = None
+    video_url: Optional[str] = None
+
+class EditingDnaCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    layout_type: str
+    layers: list
+    audio_logic: dict = {}
+    timing_dna: dict = {}
+
+
+@router.post("/editing-dna/extract")
+async def extract_editing_dna(
+    body: EditingDnaExtractRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Extract visual layout from competitor post or video URL and create Editing DNA."""
+    org_id = get_org_id(request)
+    api_key = await _get_gemini_key(db)
+    
+    # Initialize table if needed
+    await init_editing_dna_table(db)
+    
+    # Seed default templates if needed
+    await seed_default_dna_templates(db, org_id)
+    
+    if body.post_id:
+        # Extract from competitor post
+        try:
+            result = await process_competitor_for_dna(db, body.post_id, org_id, api_key)
+            return {
+                "success": True,
+                "dna_id": result["id"],
+                "name": result["name"],
+                "layout_type": result["layout_type"],
+                "source": "competitor_post",
+                "source_id": body.post_id
+            }
+        except Exception as e:
+            logger.error(f"Failed to extract DNA from post {body.post_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+            
+    elif body.video_url:
+        # Extract from direct URL
+        try:
+            # Extract visual layout
+            raw_layout = await extract_visual_layout(body.video_url, api_key)
+            
+            # Synthesize to DNA
+            dna = await synthesize_editing_dna(raw_layout)
+            
+            # Save to database
+            layout_type = raw_layout.get("layout_type", "fullscreen")
+            name = f"Manual Extract - {layout_type}"
+            description = f"Extracted from {body.video_url}"
+            
+            from app.services.editing_dna import LAYOUT_TO_REMOTION_COMPOSITION
+            remotion_composition = LAYOUT_TO_REMOTION_COMPOSITION.get(layout_type, "UniversalTemplate")
+            
+            result = await db.execute(text("""
+                INSERT INTO crm.editing_dna (
+                    org_id, name, description, layout_type, aspect_ratio,
+                    layers, audio_logic, timing_dna, remotion_composition
+                ) VALUES (
+                    :org_id, :name, :description, :layout_type, :aspect_ratio,
+                    :layers::jsonb, :audio_logic::jsonb, :timing_dna::jsonb, :remotion_composition
+                ) RETURNING id
+            """), {
+                "org_id": org_id,
+                "name": name,
+                "description": description,
+                "layout_type": layout_type,
+                "aspect_ratio": dna["meta"]["aspect_ratio"],
+                "layers": json.dumps(dna["layers"]),
+                "audio_logic": json.dumps(dna["audio_logic"]),
+                "timing_dna": json.dumps(dna["timing_dna"]),
+                "remotion_composition": remotion_composition
+            })
+            
+            dna_id = result.scalar()
+            await db.commit()
+            
+            return {
+                "success": True,
+                "dna_id": dna_id,
+                "name": name,
+                "layout_type": layout_type,
+                "source": "video_url",
+                "raw_analysis": raw_layout
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to extract DNA from URL {body.video_url}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        raise HTTPException(status_code=400, detail="Must provide either post_id or video_url")
+
+
+@router.get("/editing-dna")
+async def list_editing_dna(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """List all saved Editing DNA templates for the organization."""
+    org_id = get_org_id(request)
+    
+    # Initialize table if needed
+    await init_editing_dna_table(db)
+    
+    # Seed default templates if needed
+    await seed_default_dna_templates(db, org_id)
+    
+    try:
+        templates = await list_dna_templates(db, org_id)
+        return {"dna_templates": templates}
+    except Exception as e:
+        logger.error(f"Failed to list DNA templates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/editing-dna/{dna_id}")
+async def get_editing_dna_detail(
+    dna_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Get full detail of one DNA template including all layers and timing."""
+    org_id = get_org_id(request)
+    
+    try:
+        dna = await get_dna_by_id(db, dna_id, org_id)
+        if not dna:
+            raise HTTPException(status_code=404, detail="DNA template not found")
+        return dna
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get DNA template {dna_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/editing-dna/{dna_id}/to-remotion")
+async def convert_dna_to_remotion(
+    dna_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Convert DNA to Remotion props that can be used directly by the frontend renderer."""
+    org_id = get_org_id(request)
+    
+    try:
+        # Get the DNA template
+        dna = await get_dna_by_id(db, dna_id, org_id)
+        if not dna:
+            raise HTTPException(status_code=404, detail="DNA template not found")
+        
+        # Convert to Remotion config
+        remotion_config = map_dna_to_remotion_config(dna["dna"])
+        
+        return {
+            "success": True,
+            "dna_id": dna_id,
+            "remotion_config": remotion_config,
+            "composition": dna.get("remotion_composition", "UniversalTemplate")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to convert DNA {dna_id} to Remotion: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/editing-dna/create")
+async def create_custom_dna(
+    body: EditingDnaCreateRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Create a custom DNA template manually."""
+    org_id = get_org_id(request)
+    
+    # Initialize table if needed
+    await init_editing_dna_table(db)
+    
+    try:
+        # Build the DNA structure
+        dna = {
+            "layout_id": f"custom_{uuid.uuid4().hex[:8]}",
+            "meta": {
+                "composition_type": "custom",
+                "aspect_ratio": "9:16",
+                "source_reference_id": "manual_creation"
+            },
+            "layers": body.layers,
+            "audio_logic": body.audio_logic,
+            "timing_dna": body.timing_dna
+        }
+        
+        # Validate structure
+        issues = validate_dna_structure(dna)
+        if issues:
+            return {
+                "success": False,
+                "errors": issues
+            }
+        
+        from app.services.editing_dna import LAYOUT_TO_REMOTION_COMPOSITION
+        remotion_composition = LAYOUT_TO_REMOTION_COMPOSITION.get(body.layout_type, "UniversalTemplate")
+        
+        # Save to database
+        result = await db.execute(text("""
+            INSERT INTO crm.editing_dna (
+                org_id, name, description, layout_type, aspect_ratio,
+                layers, audio_logic, timing_dna, remotion_composition
+            ) VALUES (
+                :org_id, :name, :description, :layout_type, :aspect_ratio,
+                :layers::jsonb, :audio_logic::jsonb, :timing_dna::jsonb, :remotion_composition
+            ) RETURNING id
+        """), {
+            "org_id": org_id,
+            "name": body.name,
+            "description": body.description,
+            "layout_type": body.layout_type,
+            "aspect_ratio": dna["meta"]["aspect_ratio"],
+            "layers": json.dumps(body.layers),
+            "audio_logic": json.dumps(body.audio_logic),
+            "timing_dna": json.dumps(body.timing_dna),
+            "remotion_composition": remotion_composition
+        })
+        
+        dna_id = result.scalar()
+        await db.commit()
+        
+        return {
+            "success": True,
+            "dna_id": dna_id,
+            "name": body.name,
+            "layout_type": body.layout_type
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create custom DNA: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  COMPETITOR SCRIPT ENGINE — Generate scripts from competitor intel
+# ═══════════════════════════════════════════════════════════════════════
+
+class GenerateScriptFromCompetitorRequest(BaseModel):
+    reference_post_id: int
+    brand_name: str = "Stuff N Things"
+    product_name: str = "AI Website Management"
+    target_audience: str = "local businesses"  
+    key_message: str = "We handle your entire web presence"
+
+
+@router.get("/competitor-scripts")
+async def get_competitor_scripts(
+    request: Request,
+    format: Optional[str] = None,
+    limit: int = 20,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Returns top competitor scripts ranked by engagement.
+    
+    Each entry: post_id, hook, body_preview, cta, format, likes, engagement, thumbnail_url, media_url
+    This powers the "side drawer" in the frontend.
+    """
+    from app.services.competitor_script_engine import get_top_scripts
+    
+    org_id = get_org_id(request)
+    
+    try:
+        scripts = await get_top_scripts(db, org_id, format_filter=format, limit=limit)
+        
+        # Convert to response format for the side drawer
+        script_list = []
+        for script in scripts:
+            # Get additional post data for thumbnails, etc.
+            post_query = """
+                SELECT cp.post_url, cp.likes, cp.comments, cp.thumbnail_url, 
+                       cp.media_url, c.handle, c.platform
+                FROM crm.competitor_posts cp
+                JOIN crm.competitors c ON cp.competitor_id = c.id
+                WHERE cp.id = :post_id
+            """
+            result = await db.execute(text(post_query), {"post_id": script.source_post_id})
+            post_data = result.mappings().first()
+            
+            script_entry = {
+                "post_id": script.source_post_id,
+                "hook": script.hook,
+                "body_preview": " ".join(script.body[:2]) + "..." if len(script.body) > 2 else " ".join(script.body),
+                "cta": script.cta,
+                "format": script.format_type,
+                "likes": post_data["likes"] if post_data else 0,
+                "engagement_score": int(script.engagement_score),
+                "thumbnail_url": post_data["thumbnail_url"] if post_data else "",
+                "media_url": post_data["media_url"] if post_data else "",
+                "handle": post_data["handle"] if post_data else "",
+                "platform": post_data["platform"] if post_data else "",
+                "total_duration": script.total_duration
+            }
+            script_list.append(script_entry)
+            
+        return {"scripts": script_list}
+        
+    except Exception as e:
+        logger.error(f"Failed to get competitor scripts: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load competitor scripts")
+
+
+@router.post("/generate-script")
+async def generate_script_from_competitor(
+    body: GenerateScriptFromCompetitorRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Uses the reference post's structure to generate a new script.
+    
+    Returns: {hook, body, cta, visual_directions, total_duration, source_reference}
+    """
+    from app.services.competitor_script_engine import generate_script_from_reference, _get_google_api_key
+    
+    org_id = get_org_id(request)
+    
+    try:
+        # Get API key
+        api_key = await _get_google_api_key(db)
+        if not api_key:
+            raise HTTPException(status_code=503, detail="Google AI Studio API key not configured")
+            
+        # Build brand context
+        brand_context = {
+            "brand_name": body.brand_name,
+            "product_name": body.product_name,
+            "target_audience": body.target_audience,
+            "key_message": body.key_message
+        }
+        
+        # Generate script
+        generated_script = await generate_script_from_reference(
+            db, body.reference_post_id, brand_context, api_key
+        )
+        
+        if not generated_script:
+            raise HTTPException(status_code=400, detail="Failed to generate script from reference")
+            
+        return {
+            "hook": generated_script.hook,
+            "body": generated_script.body,
+            "cta": generated_script.cta,
+            "visual_directions": generated_script.visual_directions,
+            "total_duration": generated_script.total_duration,
+            "source_reference": body.reference_post_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate script: {e}")
+        raise HTTPException(status_code=500, detail=f"Script generation failed: {str(e)}")
+
+
+@router.get("/competitor-scripts/{post_id}/detail")
+async def get_competitor_script_detail(
+    post_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Returns full detail for a single competitor post.
+    
+    Used when the side drawer item is clicked for preview.
+    Returns: hook, full transcript, content_analysis, format, engagement metrics
+    """
+    org_id = get_org_id(request)
+    
+    try:
+        # Get full post details
+        query = """
+            SELECT cp.*, c.handle, c.platform, c.followers
+            FROM crm.competitor_posts cp
+            JOIN crm.competitors c ON cp.competitor_id = c.id
+            WHERE cp.id = :post_id AND c.org_id = :org_id
+        """
+        result = await db.execute(text(query), {"post_id": post_id, "org_id": org_id})
+        post_data = result.mappings().first()
+        
+        if not post_data:
+            raise HTTPException(status_code=404, detail="Competitor post not found")
+            
+        # Parse JSON fields
+        content_analysis = post_data["content_analysis"]
+        if isinstance(content_analysis, str):
+            try:
+                content_analysis = json.loads(content_analysis)
+            except json.JSONDecodeError:
+                content_analysis = {}
+        elif not isinstance(content_analysis, dict):
+            content_analysis = {}
+            
+        transcript_data = post_data["transcript"]
+        if isinstance(transcript_data, str):
+            try:
+                transcript_data = json.loads(transcript_data)
+            except json.JSONDecodeError:
+                transcript_data = {}
+        elif not isinstance(transcript_data, dict):
+            transcript_data = {}
+            
+        return {
+            "post_id": post_id,
+            "hook": post_data["hook"],
+            "full_transcript": transcript_data.get("text", ""),
+            "content_analysis": content_analysis,
+            "format": post_data["detected_format"],
+            "engagement_metrics": {
+                "likes": post_data["likes"],
+                "comments": post_data["comments"], 
+                "shares": post_data["shares"],
+                "engagement_score": float(post_data["engagement_score"] or 0)
+            },
+            "competitor_info": {
+                "handle": post_data["handle"],
+                "platform": post_data["platform"],
+                "followers": post_data["followers"]
+            },
+            "post_url": post_data["post_url"],
+            "media_url": post_data["media_url"],
+            "thumbnail_url": post_data["thumbnail_url"],
+            "posted_at": str(post_data["posted_at"]) if post_data["posted_at"] else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get competitor script detail: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load script detail")

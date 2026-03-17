@@ -30,3 +30,9 @@ export type { BRollProps } from "./BRoll";
 
 export { CodeWalkthrough } from "./CodeWalkthrough";
 export type { CodeWalkthroughProps } from "./CodeWalkthrough";
+
+export { UniversalTemplate } from "./UniversalTemplate";
+export type { UniversalTemplateProps } from "./UniversalTemplate";
+
+export { EditingDNASchema, LayerSchema } from "./EditingDNASchema";
+export type { EditingDNA, Layer } from "./EditingDNASchema";

@@ -15,6 +15,8 @@ import HookLab from "./HookLab";
 import DistributionPanel from "./DistributionPanel";
 import PerformanceDashboard from "./PerformanceDashboard";
 import DigitalCopiesPanel from "./DigitalCopiesPanel";
+import CompetitorScriptDrawer from "./CompetitorScriptDrawer";
+import EditingDNADrawer from "./EditingDNADrawer";
 
 const VideoEditor = dynamic(() => import("./VideoEditor"), {
   loading: () => (
@@ -229,6 +231,11 @@ export default function AIStudioPanel() {
   const [scheduleCaption, setScheduleCaption] = useState("");
   const [scheduling, setScheduling] = useState(false);
   const [scheduleSuccess, setScheduleSuccess] = useState(false);
+
+  // Drawer states
+  const [scriptDrawerOpen, setScriptDrawerOpen] = useState(false);
+  const [dnaDrawerOpen, setDnaDrawerOpen] = useState(false);
+  const [selectedEditingDna, setSelectedEditingDna] = useState<any>(null);
 
   // Motion Control
   const [mcModel, setMcModel] = useState("kling-3.0");
@@ -771,6 +778,30 @@ export default function AIStudioPanel() {
         {activeTab === "projects" && renderProjects()}
         {activeTab === "performance" && <PerformanceDashboard />}
       </div>
+
+      {/* Side Drawers */}
+      <CompetitorScriptDrawer
+        isOpen={scriptDrawerOpen}
+        onClose={() => setScriptDrawerOpen(false)}
+        onApplyScript={(script, preview) => {
+          setWizardScript(script);
+          // Show notification
+          console.log(`Script generated from ${preview}`);
+        }}
+        brandName={wizardTitle || ""}
+        productName={wizardTitle || ""}
+        targetAudience={wizardMode === "product" ? "product users" : "service seekers"}
+        keyMessage=""
+      />
+
+      <EditingDNADrawer
+        isOpen={dnaDrawerOpen}
+        onClose={() => setDnaDrawerOpen(false)}
+        onSelectDNA={(dna) => {
+          setSelectedEditingDna(dna);
+          console.log("Selected DNA template:", dna.name);
+        }}
+      />
     </div>
   );
 
@@ -1167,24 +1198,34 @@ export default function AIStudioPanel() {
             <div className="relative">
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-[10px] uppercase tracking-wider text-warroom-muted">Script</label>
-                <div className="relative">
-                  <button onClick={() => setShowHookLibrary(!showHookLibrary)}
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setScriptDrawerOpen(true)}
                     className="flex items-center gap-1 px-2 py-1 bg-warroom-bg border border-warroom-border text-[10px] text-warroom-muted rounded-lg hover:border-warroom-accent/30 hover:text-warroom-accent transition">
-                    <Zap size={10} /> Browse Hooks
+                    <TrendingUp size={10} /> Competitor Intel
                   </button>
-                  {showHookLibrary && (
-                    <div className="absolute right-0 top-full mt-1 w-80 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl z-20 p-2 space-y-0.5">
-                      <p className="text-[10px] text-warroom-muted px-2 py-1 font-medium">Proven Hook Formulas — click to insert</p>
-                      {HOOK_FORMULAS.map((h, i) => (
-                        <button key={i} onClick={() => insertHookAtCursor(h)}
-                          className="w-full text-left px-3 py-2 rounded-lg text-[11px] text-warroom-text hover:bg-warroom-accent/10 hover:text-warroom-accent transition">
-                          &ldquo;{h}&rdquo;
-                        </button>
-                      ))}
+                  <button onClick={() => setDnaDrawerOpen(true)}
+                    className="flex items-center gap-1 px-2 py-1 bg-warroom-bg border border-warroom-border text-[10px] text-warroom-muted rounded-lg hover:border-warroom-accent/30 hover:text-warroom-accent transition">
+                    <Settings size={10} /> Visual Template
+                  </button>
+                    <div className="relative">
+                      <button onClick={() => setShowHookLibrary(!showHookLibrary)}
+                        className="flex items-center gap-1 px-2 py-1 bg-warroom-bg border border-warroom-border text-[10px] text-warroom-muted rounded-lg hover:border-warroom-accent/30 hover:text-warroom-accent transition">
+                        <Zap size={10} /> Browse Hooks
+                      </button>
+                      {showHookLibrary && (
+                        <div className="absolute right-0 top-full mt-1 w-80 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl z-20 p-2 space-y-0.5">
+                          <p className="text-[10px] text-warroom-muted px-2 py-1 font-medium">Proven Hook Formulas — click to insert</p>
+                          {HOOK_FORMULAS.map((h, i) => (
+                            <button key={i} onClick={() => insertHookAtCursor(h)}
+                              className="w-full text-left px-3 py-2 rounded-lg text-[11px] text-warroom-text hover:bg-warroom-accent/10 hover:text-warroom-accent transition">
+                              &ldquo;{h}&rdquo;
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
               <textarea ref={scriptTextareaRef} value={wizardScript} onChange={e => setWizardScript(e.target.value)}
                 placeholder={"[HOOK] \"Wait, you guys are still doing it the old way?\"\n\n[DEMO] So I just found this product and honestly...\n\n[CTA] Link in bio — trust me on this one."}
                 rows={12}
