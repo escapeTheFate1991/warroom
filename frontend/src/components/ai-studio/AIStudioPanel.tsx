@@ -756,42 +756,86 @@ export default function AIStudioPanel() {
 
   // ── Step 1: Pick Template ──────────────────────────────
   function renderStepTemplate() {
+    const canProceed = wizardTemplate !== null || selectedFormat !== null;
+    
     return (
       <div className="space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-warroom-text">Choose a Video Template</h2>
-          <p className="text-xs text-warroom-muted mt-0.5">Each template comes with a prebaked storyboard and scene structure.</p>
+          <h2 className="text-sm font-semibold text-warroom-text">Choose Your Starting Point</h2>
+          <p className="text-xs text-warroom-muted mt-0.5">Pick a template with prebaked storyboard or a viral format with competitor intelligence.</p>
         </div>
-        {loadingTemplates ? (
-          <div className="flex justify-center py-12"><Loader2 className="animate-spin text-warroom-accent" size={24} /></div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-warroom-border">
+          <button
+            onClick={() => setTemplateTab("templates")}
+            className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+              templateTab === "templates"
+                ? "border-warroom-accent text-warroom-accent"
+                : "border-transparent text-warroom-muted hover:text-warroom-text"
+            }`}
+          >
+            Templates
+          </button>
+          <button
+            onClick={() => setTemplateTab("viral-formats")}
+            className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+              templateTab === "viral-formats"
+                ? "border-warroom-accent text-warroom-accent"
+                : "border-transparent text-warroom-muted hover:text-warroom-text"
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <Sparkles size={12} />
+              Viral Formats
+            </span>
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        {templateTab === "templates" ? (
+          loadingTemplates ? (
+            <div className="flex justify-center py-12"><Loader2 className="animate-spin text-warroom-accent" size={24} /></div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {templates.map(tpl => (
+                <div key={tpl.id} onClick={() => { setWizardTemplate(tpl); setSelectedFormat(null); setWizardStoryboard(tpl.storyboard || []); setWizardTitle(tpl.name); }}
+                  className={`bg-warroom-surface border rounded-xl p-4 cursor-pointer transition hover:border-warroom-accent/30 ${wizardTemplate?.id === tpl.id ? "border-warroom-accent ring-1 ring-warroom-accent/30" : "border-warroom-border"}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${tpl.category === "product" ? "bg-blue-500/20" : "bg-purple-500/20"}`}>
+                      <Film size={16} className={tpl.category === "product" ? "text-blue-400" : "text-purple-400"} />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-semibold text-warroom-text">{tpl.name}</h3>
+                      <p className="text-[10px] text-warroom-muted">{tpl.category} · {tpl.duration_seconds}s</p>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-warroom-muted mb-2">{tpl.description}</p>
+                  <div className="flex items-center gap-2 text-[10px] text-warroom-muted flex-wrap">
+                    <span className="flex items-center gap-0.5"><Clock size={10} /> {tpl.duration_seconds}s</span>
+                    <span className="flex items-center gap-0.5"><FileText size={10} /> {tpl.scene_count} scenes</span>
+                    {getTemplateBadge(tpl.category, tpl.name) && (
+                      <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded-full text-[9px] font-medium">{getTemplateBadge(tpl.category, tpl.name)}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {templates.map(tpl => (
-              <div key={tpl.id} onClick={() => { setWizardTemplate(tpl); setWizardStoryboard(tpl.storyboard || []); setWizardTitle(tpl.name); }}
-                className={`bg-warroom-surface border rounded-xl p-4 cursor-pointer transition hover:border-warroom-accent/30 ${wizardTemplate?.id === tpl.id ? "border-warroom-accent ring-1 ring-warroom-accent/30" : "border-warroom-border"}`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${tpl.category === "product" ? "bg-blue-500/20" : "bg-purple-500/20"}`}>
-                    <Film size={16} className={tpl.category === "product" ? "text-blue-400" : "text-purple-400"} />
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-semibold text-warroom-text">{tpl.name}</h3>
-                    <p className="text-[10px] text-warroom-muted">{tpl.category} · {tpl.duration_seconds}s</p>
-                  </div>
-                </div>
-                <p className="text-[11px] text-warroom-muted mb-2">{tpl.description}</p>
-                <div className="flex items-center gap-2 text-[10px] text-warroom-muted flex-wrap">
-                  <span className="flex items-center gap-0.5"><Clock size={10} /> {tpl.duration_seconds}s</span>
-                  <span className="flex items-center gap-0.5"><FileText size={10} /> {tpl.scene_count} scenes</span>
-                  {getTemplateBadge(tpl.category, tpl.name) && (
-                    <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded-full text-[9px] font-medium">{getTemplateBadge(tpl.category, tpl.name)}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          <FormatPicker
+            onSelect={(format) => {
+              setSelectedFormat(format.slug);
+              setWizardTemplate(null);
+              setWizardTitle(format.name);
+              setWizardStoryboard([]);
+            }}
+            selectedFormat={selectedFormat || undefined}
+          />
         )}
+
         <div className="flex justify-end">
-          <button onClick={() => setWizardStep("settings")} disabled={!wizardTemplate}
+          <button onClick={() => setWizardStep("settings")} disabled={!canProceed}
             className="px-4 py-2 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-40 hover:bg-warroom-accent/80 transition flex items-center gap-1">
             Next <ChevronRight size={14} />
           </button>
