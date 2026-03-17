@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate
 from app.api import entities, goals, approvals, task_checkout, budget
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
@@ -169,6 +169,36 @@ async def _run_content_distribution_migration():
 
     except Exception as e:
         logger.error(f"Content Distribution migration failed: {e}")
+        return False
+
+
+async def _run_swarm_personas_migration():
+    """Run Swarm Personas migration (Mirofish Predictive Sandbox system)."""
+    try:
+        from pathlib import Path
+        import re
+
+        migration_path = Path(__file__).parent / "db" / "swarm_personas_migration.sql"
+        if not migration_path.exists():
+            logger.error(f"Swarm Personas migration file not found: {migration_path}")
+            return False
+
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+
+        # Strip SQL comments (-- to end of line) then split on semicolons
+        cleaned = re.sub(r'--[^\n]*', '', migration_sql)
+        statements = [s.strip() for s in cleaned.split(';') if s.strip()]
+
+        async with crm_engine.begin() as conn:
+            raw = await conn.get_raw_connection()
+            for stmt in statements:
+                await raw.driver_connection.execute(stmt)
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Swarm Personas migration failed: {e}")
         return False
 
 
@@ -452,6 +482,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Content Distribution migration error: %s", e)
 
+    # Swarm Personas migration (Mirofish Predictive Sandbox system)
+    try:
+        await _run_swarm_personas_migration()
+        logger.info("Swarm Personas migration applied")
+    except Exception as e:
+        logger.error("Swarm Personas migration error: %s", e)
+
     # Start background scheduler (competitor syncs, etc.)
     from app.services.scheduler import start_scheduler, stop_scheduler
     await start_scheduler()
@@ -615,6 +652,7 @@ app.include_router(audit_trail.router, prefix="/api/audit", tags=["audit-trail"]
 app.include_router(vector_memory.router, prefix="/api/memory", tags=["vector-memory"])
 app.include_router(content_scheduler.router, prefix="/api/scheduler", tags=["content-scheduler"])
 app.include_router(video_formats.router, prefix="/api", tags=["video-formats"])
+app.include_router(simulate.router, prefix="/api/simulate", tags=["simulate"])
 
 # Paperclip Architecture Routes
 app.include_router(entities.router, prefix="/api/entities", tags=["entities"])
