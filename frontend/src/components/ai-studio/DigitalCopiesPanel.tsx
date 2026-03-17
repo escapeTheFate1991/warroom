@@ -137,6 +137,7 @@ export default function DigitalCopiesPanel() {
     baseModel: "veo-3.1" as "veo-3.1" | "nano-banana"
   });
   const [currentCopyId, setCurrentCopyId] = useState<number | null>(null);
+  const [selectedAngle, setSelectedAngle] = useState<string>("close_up");
   const [uploadedImages, setUploadedImages] = useState<DigitalCopyImage[]>([]);
   const [uploading, setUploading] = useState(false);
   const [qualityAudit, setQualityAudit] = useState<QualityAudit | null>(null);
@@ -291,6 +292,7 @@ export default function DigitalCopiesPanel() {
     setCreatorStep("name");
     setCreatorData({ name: "", baseModel: "veo-3.1" });
     setCurrentCopyId(null);
+    setSelectedAngle("close_up");
     setUploadedImages([]);
     setQualityAudit(null);
   };
@@ -311,8 +313,23 @@ export default function DigitalCopiesPanel() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     files.forEach(file => {
-      // Default to "other" image type - user will need to select proper type
-      uploadImage(file, "other");
+      uploadImage(file, selectedAngle);
+    });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = Array.from(e.dataTransfer.files);
+    files.forEach(file => {
+      if (file.type.startsWith('image/')) {
+        uploadImage(file, selectedAngle);
+      }
     });
   };
 
@@ -585,18 +602,54 @@ export default function DigitalCopiesPanel() {
                   <div>
                     <h3 className="text-lg font-semibold text-warroom-text mb-4">Upload Images</h3>
                     
+                    {/* Angle Selector */}
+                    <div className="mb-6">
+                      <h4 className="text-sm font-medium text-warroom-text mb-3">Select Image Type</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {IMAGE_TYPES.map(type => (
+                          <button
+                            key={type.value}
+                            onClick={() => setSelectedAngle(type.value)}
+                            className={`px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                              selectedAngle === type.value
+                                ? "border-warroom-accent bg-warroom-accent text-white"
+                                : "border-warroom-border bg-warroom-surface text-warroom-text hover:border-warroom-accent/50"
+                            }`}
+                          >
+                            {type.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-warroom-muted mt-2">
+                        Selected: <span className="text-warroom-accent">{IMAGE_TYPES.find(t => t.value === selectedAngle)?.description}</span>
+                      </p>
+                    </div>
+                    
                     {/* Upload Zone */}
                     <div 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="border-2 border-dashed border-warroom-border rounded-xl p-8 text-center cursor-pointer hover:border-warroom-accent/50 transition"
+                      onClick={() => !uploading && fileInputRef.current?.click()}
+                      onDragOver={handleDragOver}
+                      onDrop={handleDrop}
+                      className={`border-2 border-dashed border-warroom-border rounded-xl p-8 text-center transition ${
+                        uploading 
+                          ? "cursor-not-allowed opacity-60"
+                          : "cursor-pointer hover:border-warroom-accent/50"
+                      }`}
                     >
                       <div className="flex flex-col items-center">
-                        <Upload size={32} className="text-warroom-muted mb-4" />
+                        {uploading ? (
+                          <Loader2 size={32} className="text-warroom-accent mb-4 animate-spin" />
+                        ) : (
+                          <Upload size={32} className="text-warroom-muted mb-4" />
+                        )}
                         <h4 className="text-lg font-medium text-warroom-text mb-2">
-                          Drag and drop images or click to upload
+                          {uploading ? "Uploading..." : "Drag and drop images or click to upload"}
                         </h4>
                         <p className="text-sm text-warroom-muted">
                           Upload multiple photos from different angles for best results
+                        </p>
+                        <p className="text-xs text-warroom-accent mt-2 font-medium">
+                          New images will be tagged as: {IMAGE_TYPES.find(t => t.value === selectedAngle)?.label}
                         </p>
                       </div>
                     </div>
@@ -622,27 +675,43 @@ export default function DigitalCopiesPanel() {
                       </div>
                     </div>
 
-                    {/* Uploaded Images Grid */}
+                    {/* Uploaded Images Grouped by Angle */}
                     {uploadedImages.length > 0 && (
-                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 mt-6">
-                        {uploadedImages.map(image => (
-                          <div key={image.id} className="relative group">
-                            <div className="aspect-square bg-warroom-bg rounded-lg overflow-hidden border border-warroom-border">
-                              <div className="w-full h-full flex items-center justify-center">
-                                <Image size={24} className="text-warroom-muted" />
+                      <div className="mt-6 space-y-4">
+                        <h4 className="text-sm font-medium text-warroom-text">Uploaded Images by Angle</h4>
+                        {IMAGE_TYPES.map(type => {
+                          const imagesOfType = uploadedImages.filter(img => img.image_type === type.value);
+                          if (imagesOfType.length === 0) return null;
+                          
+                          return (
+                            <div key={type.value} className="bg-warroom-surface rounded-lg p-4 border border-warroom-border">
+                              <div className="flex items-center justify-between mb-3">
+                                <h5 className="text-sm font-medium text-warroom-text flex items-center gap-2">
+                                  <span className="w-3 h-3 rounded-full bg-warroom-accent"></span>
+                                  {type.label} ({imagesOfType.length})
+                                </h5>
+                                <span className="text-xs text-warroom-muted">{type.description}</span>
+                              </div>
+                              <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                                {imagesOfType.map(image => (
+                                  <div key={image.id} className="relative group">
+                                    <div className="aspect-square bg-warroom-bg rounded-lg overflow-hidden border border-warroom-border">
+                                      <div className="w-full h-full flex items-center justify-center">
+                                        <Image size={16} className="text-warroom-muted" />
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={() => deleteImage(image.id)}
+                                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                                    >
+                                      <X size={10} className="text-white" />
+                                    </button>
+                                  </div>
+                                ))}
                               </div>
                             </div>
-                            <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 rounded-b-lg">
-                              {IMAGE_TYPES.find(t => t.value === image.image_type)?.label || image.image_type}
-                            </div>
-                            <button
-                              onClick={() => deleteImage(image.id)}
-                              className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
-                            >
-                              <X size={12} className="text-white" />
-                            </button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
