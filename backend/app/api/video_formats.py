@@ -36,8 +36,8 @@ class VideoFormatResponse(BaseModel):
     name: str
     description: Optional[str] = None
     why_it_works: Optional[str] = None
-    hook_patterns: List[str] = Field(default_factory=list)
-    scene_structure: List[Dict[str, str]] = Field(default_factory=list)
+    hook_patterns: List[Any] = Field(default_factory=list)
+    scene_structure: List[Dict[str, Any]] = Field(default_factory=list)
     avg_engagement_score: Optional[float] = None
     post_count: int = 0
     is_system: bool = True
