@@ -8,8 +8,10 @@ import uuid
 import json
 import logging
 import base64
+import re
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+from collections import Counter, defaultdict
 
 from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File, Form
 from pydantic import BaseModel, Field
@@ -22,6 +24,7 @@ from app.db.leadgen_db import leadgen_engine
 from app.api.auth import get_current_user
 from app.models.crm.user import User
 from app.models.settings import Setting
+from app.api.content_intel import load_cached_posts, _sorted_posts_for_analysis, extract_hook_from_text
 from sqlalchemy import select
 import httpx
 
@@ -1273,6 +1276,119 @@ class GenerateScriptRequest(BaseModel):
     target_audience: str = ""
     tone: str = "energetic and authentic"
     duration_seconds: int = 30
+    use_competitor_intel: bool = False
+
+
+async def extract_competitor_context(posts: List[Dict[str, Any]], format_slug: str = None) -> Dict[str, Any]:
+    """Extract competitor intelligence context from posts."""
+    # Filter by format if specified
+    if format_slug:
+        filtered_posts = [p for p in posts if p.get('detected_format') == format_slug]
+        if filtered_posts:
+            posts = filtered_posts
+    
+    # Extract top hooks
+    hooks_with_engagement = []
+    for post in posts[:30]:
+        hook = post.get('hook') or extract_hook_from_text(post.get('post_text', ''))
+        if hook and len(hook) >= 10:
+            engagement = post.get('engagement_score', 0) or (
+                (post.get('likes', 0) or 0) + 
+                (post.get('comments', 0) or 0) + 
+                (post.get('shares', 0) or 0)
+            )
+            hooks_with_engagement.append((hook, engagement, post.get('handle', '')))
+    
+    # Sort by engagement and take top 10
+    top_hooks = sorted(hooks_with_engagement, key=lambda x: x[1], reverse=True)[:10]
+    
+    # Extract audience demand signals from comments
+    audience_themes = []
+    comment_texts = []
+    
+    for post in posts[:15]:  # Check comments from top 15 posts
+        comments_data = post.get('comments_data')
+        if comments_data:
+            try:
+                if isinstance(comments_data, str):
+                    comments_json = json.loads(comments_data)
+                else:
+                    comments_json = comments_data
+                
+                if isinstance(comments_json, list):
+                    for comment in comments_json:
+                        if isinstance(comment, dict) and comment.get('text'):
+                            comment_texts.append(comment['text'])
+                elif isinstance(comments_json, dict):
+                    if 'comments' in comments_json:
+                        for comment in comments_json['comments']:
+                            if isinstance(comment, dict) and comment.get('text'):
+                                comment_texts.append(comment['text'])
+            except (json.JSONDecodeError, TypeError):
+                continue
+    
+    # Extract themes from comment texts
+    question_patterns = []
+    for text in comment_texts[:100]:  # Limit to avoid processing too many
+        text_clean = text.lower().strip()
+        if ('?' in text_clean or 
+            text_clean.startswith(('how', 'what', 'why', 'where', 'when', 'does', 'can', 'will', 'is'))):
+            # Clean and extract key question
+            clean_question = re.sub(r'[^a-zA-Z0-9\s\?]', '', text_clean)
+            if len(clean_question) > 10 and len(clean_question) < 100:
+                question_patterns.append(clean_question)
+    
+    # Count recurring themes
+    theme_counter = Counter()
+    for question in question_patterns:
+        # Extract key phrases (simple approach)
+        words = question.split()
+        if len(words) >= 3:
+            for i in range(len(words) - 2):
+                phrase = ' '.join(words[i:i+3])
+                theme_counter[phrase] += 1
+    
+    audience_themes = [theme for theme, count in theme_counter.most_common(5) if count >= 2]
+    
+    # Extract format patterns (simplified)
+    format_patterns = []
+    if format_slug:
+        format_patterns = [
+            f"Strong visual hook in first 2 seconds",
+            f"Direct address to camera",
+            f"Clear value proposition early",
+            f"Quick pace with short sentences",
+            f"Strong call-to-action at end"
+        ]
+    
+    # Get source handles
+    source_handles = list(set(post.get('handle', '') for post in posts[:10] if post.get('handle')))
+    
+    return {
+        'top_hooks': top_hooks,
+        'audience_themes': audience_themes,
+        'format_patterns': format_patterns,
+        'source_handles': source_handles,
+        'total_posts': len(posts)
+    }
+
+
+def parse_script_response(response_text: str) -> Dict[str, str]:
+    """Parse AI response to extract script and 'why this works' section."""
+    # Look for 'WHY THIS WORKS' section
+    why_match = re.search(r'(?:WHY THIS WORKS|WHY IT WORKS)[:\n](.*?)(?:\n\n|\n(?=AUDIENCE DEMAND)|$)', 
+                         response_text, re.DOTALL | re.IGNORECASE)
+    why_section = why_match.group(1).strip() if why_match else ""
+    
+    # Extract main script (everything before WHY THIS WORKS)
+    script_text = response_text
+    if why_match:
+        script_text = response_text[:why_match.start()].strip()
+    
+    return {
+        'script': script_text,
+        'why_this_works': why_section
+    }
 
 
 @router.post("/generate-script")
@@ -1287,8 +1403,88 @@ async def generate_script(
 
     format_desc = VIDEO_FORMATS.get(body.format, body.format)
     audience_line = f"\nTarget audience: {body.target_audience}" if body.target_audience else ""
+    
+    # Initialize competitor intelligence variables
+    competitor_context = ""
+    competitor_powered = False
+    why_this_works = ""
+    audience_demand_signals = []
+    source_competitors = []
+    
+    # If competitor intel is requested, gather data
+    if body.use_competitor_intel:
+        try:
+            # Load cached posts from last 45 days
+            posts = await load_cached_posts(db, org_id, days=45)
+            
+            if posts:
+                # Sort by engagement and take top 30
+                ranked_posts = _sorted_posts_for_analysis(posts)[:30]
+                
+                # Extract competitor context
+                context_data = await extract_competitor_context(ranked_posts, body.format)
+                
+                top_hooks = context_data['top_hooks']
+                audience_themes = context_data['audience_themes']
+                format_patterns = context_data['format_patterns']
+                source_competitors = context_data['source_handles']
+                audience_demand_signals = audience_themes
+                
+                # Build competitor context for prompt
+                competitor_context = f"""
+COMPETITOR INTELLIGENCE (from {context_data['total_posts']} top-performing posts):
 
-    prompt = f"""You are an expert short-form video scriptwriter. Generate a {body.duration_seconds}-second video script.
+TOP HOOKS THAT WENT VIRAL:
+{chr(10).join(f'- "{h}" ({int(eng)} engagement)' for h, eng, handle in top_hooks[:8])}
+
+AUDIENCE DEMAND SIGNALS (from comments analysis):
+{chr(10).join(f'- {theme}' for theme in audience_themes[:5])}
+
+PROVEN PATTERNS FOR {body.format.upper()} FORMAT:
+{chr(10).join(f'- {pattern}' for pattern in format_patterns[:5])}
+"""
+                competitor_powered = True
+                
+        except Exception as e:
+            logger.warning(f"Failed to load competitor intel: {e}")
+            # Continue without competitor intel
+
+    # Build the prompt
+    if competitor_powered:
+        prompt = f"""You are an expert short-form video scriptwriter using proven viral strategies.
+
+{competitor_context}
+
+Generate a {body.duration_seconds}-second video script.
+FORMAT: {format_desc}
+HOOK: "{body.hook}" (enhance this using the viral hook patterns above)
+TOPIC: {body.topic}{audience_line}
+TONE: {body.tone}
+
+Write the script with clear sections:
+[HOOK] — The first 2-3 seconds. Use the provided hook or improve it. This is the most important part.
+[BODY] — The main content. Keep it punchy, one idea per sentence.
+[CTA] — Call to action. 2-3 seconds max.
+
+Rules:
+- Write for speaking out loud, not reading
+- Use short sentences (5-10 words each)
+- Include [PAUSE] marks where dramatic pauses help
+- Include (camera direction) notes in parentheses
+- The hook MUST stop the scroll in the first 2 seconds
+- Total script should be speakable in ~{body.duration_seconds} seconds
+- No emojis in the script itself
+
+IMPORTANT:
+- Your hook MUST incorporate patterns from the top-performing hooks above
+- Address at least one audience demand signal in the body
+- After the script, include a "WHY THIS WORKS" section explaining which competitor patterns you used
+- Include "AUDIENCE DEMAND" noting which comment themes you addressed
+
+Return the script followed by analysis sections."""
+    else:
+        # Original prompt for backwards compatibility
+        prompt = f"""You are an expert short-form video scriptwriter. Generate a {body.duration_seconds}-second video script.
 
 FORMAT: {format_desc}
 HOOK: "{body.hook}"
@@ -1325,21 +1521,169 @@ Return ONLY the script text, no explanations or metadata."""
                 raise HTTPException(500, "Script generation failed")
 
             data = resp.json()
-            script_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            response_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
 
-            if not script_text:
+            if not response_text:
                 raise HTTPException(500, "Empty script generated")
 
-            return {
+            # Parse the response
+            if competitor_powered:
+                parsed = parse_script_response(response_text)
+                script_text = parsed['script']
+                why_this_works = parsed['why_this_works']
+            else:
+                script_text = response_text.strip()
+
+            # Build response
+            response = {
                 "script": script_text.strip(),
                 "format": body.format,
                 "format_description": format_desc,
                 "hook_used": body.hook,
                 "topic": body.topic,
             }
+            
+            # Add competitor intel fields if used
+            if competitor_powered:
+                response.update({
+                    "competitor_powered": True,
+                    "why_this_works": why_this_works,
+                    "audience_demand_signals": audience_demand_signals,
+                    "source_competitors": source_competitors,
+                })
+
+            return response
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Script generation error: %s", e)
         raise HTTPException(500, f"Script generation failed: {str(e)[:200]}")
+
+
+@router.get("/competitor-hooks")
+async def get_competitor_hooks(
+    request: Request,
+    format_slug: str = None,
+    limit: int = 8,
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Get top-performing hooks from competitor data for the Hook Lab sidebar."""
+    org_id = get_org_id(request)
+    
+    try:
+        # Load cached posts from last 45 days
+        posts = await load_cached_posts(db, org_id, days=45)
+        
+        if not posts:
+            return {"hooks": [], "audience_demands": []}
+        
+        # Sort by engagement and take top 30
+        ranked_posts = _sorted_posts_for_analysis(posts)[:30]
+        
+        # Filter by format if specified
+        if format_slug:
+            filtered_posts = [p for p in ranked_posts if p.get('detected_format') == format_slug]
+            if filtered_posts:
+                ranked_posts = filtered_posts
+        
+        # Extract hooks with metadata
+        hooks_data = []
+        for post in ranked_posts[:limit]:
+            hook = post.get('hook') or extract_hook_from_text(post.get('post_text', ''))
+            if hook and len(hook) >= 10:
+                engagement_score = post.get('engagement_score', 0) or (
+                    (post.get('likes', 0) or 0) + 
+                    (post.get('comments', 0) or 0) + 
+                    (post.get('shares', 0) or 0)
+                )
+                
+                hooks_data.append({
+                    "hook_text": hook,
+                    "handle": post.get('handle', ''),
+                    "likes": post.get('likes', 0) or 0,
+                    "engagement_score": int(engagement_score),
+                    "format": post.get('detected_format', ''),
+                    "post_url": post.get('post_url', '')
+                })
+        
+        # Sort by engagement and take the requested limit
+        hooks_data.sort(key=lambda x: x['engagement_score'], reverse=True)
+        top_hooks = hooks_data[:limit]
+        
+        # Extract audience demand signals from comments
+        audience_demands = []
+        comment_texts = []
+        competitor_themes = defaultdict(list)
+        
+        for post in ranked_posts[:15]:  # Check comments from top 15 posts
+            comments_data = post.get('comments_data')
+            handle = post.get('handle', '')
+            
+            if comments_data:
+                try:
+                    if isinstance(comments_data, str):
+                        comments_json = json.loads(comments_data)
+                    else:
+                        comments_json = comments_data
+                    
+                    post_questions = []
+                    
+                    if isinstance(comments_json, list):
+                        for comment in comments_json:
+                            if isinstance(comment, dict) and comment.get('text'):
+                                text = comment['text'].lower().strip()
+                                if ('?' in text or 
+                                    text.startswith(('how', 'what', 'why', 'where', 'when', 'does', 'can', 'will', 'is'))):
+                                    clean_question = re.sub(r'[^a-zA-Z0-9\s\?]', '', text)
+                                    if 10 <= len(clean_question) <= 100:
+                                        post_questions.append(clean_question)
+                    elif isinstance(comments_json, dict):
+                        if 'comments' in comments_json:
+                            for comment in comments_json['comments']:
+                                if isinstance(comment, dict) and comment.get('text'):
+                                    text = comment['text'].lower().strip()
+                                    if ('?' in text or 
+                                        text.startswith(('how', 'what', 'why', 'where', 'when', 'does', 'can', 'will', 'is'))):
+                                        clean_question = re.sub(r'[^a-zA-Z0-9\s\?]', '', text)
+                                        if 10 <= len(clean_question) <= 100:
+                                            post_questions.append(clean_question)
+                    
+                    # Group questions by competitor
+                    for question in post_questions:
+                        competitor_themes[handle].append(question)
+                        
+                except (json.JSONDecodeError, TypeError):
+                    continue
+        
+        # Count recurring themes across all competitors
+        theme_counter = Counter()
+        theme_sources = defaultdict(set)
+        
+        for handle, questions in competitor_themes.items():
+            for question in questions:
+                # Extract key phrases (simple approach)
+                words = question.split()
+                if len(words) >= 3:
+                    for i in range(len(words) - 2):
+                        phrase = ' '.join(words[i:i+3])
+                        theme_counter[phrase] += 1
+                        theme_sources[phrase].add(handle)
+        
+        # Build audience demands response
+        for theme, frequency in theme_counter.most_common(5):
+            if frequency >= 2:  # Only themes that appear multiple times
+                audience_demands.append({
+                    "theme": theme,
+                    "frequency": frequency,
+                    "source_competitors": list(theme_sources[theme])
+                })
+        
+        return {
+            "hooks": top_hooks,
+            "audience_demands": audience_demands
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to load competitor hooks: {e}")
+        return {"hooks": [], "audience_demands": []}
