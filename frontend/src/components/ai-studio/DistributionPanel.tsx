@@ -258,11 +258,20 @@ export default function DistributionPanel({
     
     setLaunching(true);
     try {
+      // Map selected account IDs to account objects with platform and account_id
+      const selectedAccountObjects = Array.from(selectedAccounts).map(accountId => {
+        const account = accounts.find(acc => acc.id === accountId);
+        return {
+          platform: account?.platform || "unknown",
+          account_id: accountId.toString()
+        };
+      });
+
       const payload = {
         video_project_id: videoProjectId,
         video_url: videoUrl,
         caption,
-        accounts: Array.from(selectedAccounts),
+        accounts: selectedAccountObjects,  // Send account objects, not just IDs
         config
       };
       

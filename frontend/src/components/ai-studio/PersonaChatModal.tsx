@@ -107,7 +107,7 @@ export default function PersonaChatModal({
         method: "POST",
         body: JSON.stringify({
           persona_id: personaId,
-          message: message,
+          user_message: message,  // API expects 'user_message' not 'message'
           script: script,
           format_slug: formatSlug,
           conversation_history: messages.map(m => ({
