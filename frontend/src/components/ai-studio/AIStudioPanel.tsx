@@ -31,7 +31,11 @@ interface DigitalCopy {
   name: string;
   description: string;
   assets: Asset[];
+  images: { id: number; image_url: string; image_type: string }[];
   created_at: string;
+  status: string;
+  character_dna?: any;
+  reference_sheet_url?: string;
 }
 interface Asset {
   id: string;
@@ -170,6 +174,10 @@ export default function AIStudioPanel() {
   const [generating, setGenerating] = useState(false);
   const [generationResult, setGenerationResult] = useState<{ ok: boolean; generation_id?: string; prompt_used?: string; error?: string } | null>(null);
 
+  // Character DNA and Reference Sheet for selected character
+  const [wizardCharacterDna, setWizardCharacterDna] = useState<any>(null);
+  const [wizardReferenceSheet, setWizardReferenceSheet] = useState<string | null>(null);
+
   // Character and action selection
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const [selectedActionSlug, setSelectedActionSlug] = useState<string | null>(null);
@@ -233,6 +241,34 @@ export default function AIStudioPanel() {
   const mcMotionVideoRef = useRef<HTMLInputElement>(null);
   const mcCharacterImageRef = useRef<HTMLInputElement>(null);
 
+  // ── Hash-based tab routing ─────────────────────────────
+  const validTabs: MainTab[] = ["create-video", "digital-copies", "templatizer", "projects", "performance", "motion-control", "video-editor"];
+  
+  const handleTabChange = (tab: MainTab) => {
+    setActiveTab(tab);
+    window.location.hash = tab;
+  };
+
+  // On mount, read hash and set active tab
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', '') as MainTab;
+    if (hash && validTabs.includes(hash)) {
+      setActiveTab(hash);
+    }
+  }, []);
+
+  // Listen for hashchange events for back/forward navigation
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '') as MainTab;
+      if (hash && validTabs.includes(hash)) {
+        setActiveTab(hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   // ── Init ────────────────────────────────────────────────
   useEffect(() => {
     authFetch(`${API}/api/ai-studio/status`)
@@ -244,7 +280,7 @@ export default function AIStudioPanel() {
     setLoadingCopies(true);
     try {
       const r = await authFetch(`${API}/api/digital-copies`);
-      if (r.ok) { const d = await r.json(); setCopies(d.digital_copies || []); }
+      if (r.ok) { const d = await r.json(); setCopies(Array.isArray(d) ? d : d.digital_copies || d.data || []); }
     } catch { }
     setLoadingCopies(false);
   }, []);
@@ -592,7 +628,29 @@ export default function AIStudioPanel() {
     finally { setScheduling(false); }
   };
 
-  // Reset wizard
+  // Reset wizard - moved before fetchFormatSceneStructure
+  const resetWizard = () => {
+    setWizardStep("template");
+    setWizardTemplate(null);
+    setWizardCopyId(null);
+    setWizardMode("product");
+    setWizardTitle("");
+    setWizardScript("");
+    setWizardStoryboard([]);
+    setStoryboardScenes([]);
+    setGenerationResult(null);
+    setPollingProjectId(null);
+    setPollStatus(null);
+    setSelectedFormat(null);
+    setScriptParts({ hook: "", body: "", cta: "" });
+    setCreativeMethod("ai-avatar");
+    setScriptTab("hook-lab");
+    setSelectedCharacterId(null);
+    setSelectedActionSlug(null);
+    setWizardCharacterDna(null);
+    setWizardReferenceSheet(null);
+  };
+
   const fetchFormatSceneStructure = async (formatSlug: string) => {
     try {
       const response = await authFetch(`${API}/api/video-formats/${formatSlug}`);
@@ -662,25 +720,7 @@ export default function AIStudioPanel() {
     }
   };
 
-  const resetWizard = () => {
-    setWizardStep("template");
-    setWizardTemplate(null);
-    setWizardCopyId(null);
-    setWizardMode("product");
-    setWizardTitle("");
-    setWizardScript("");
-    setWizardStoryboard([]);
-    setStoryboardScenes([]);
-    setGenerationResult(null);
-    setPollingProjectId(null);
-    setPollStatus(null);
-    setSelectedFormat(null);
-    setScriptParts({ hook: "", body: "", cta: "" });
-    setCreativeMethod("ai-avatar");
-    setScriptTab("hook-lab");
-    setSelectedCharacterId(null);
-    setSelectedActionSlug(null);
-  };
+
 
   // ── Not configured ─────────────────────────────────────
   if (configured === false) {
@@ -717,7 +757,7 @@ export default function AIStudioPanel() {
           { id: "performance", label: "Performance", icon: BarChart },
         ]}
         active={activeTab}
-        onChange={(id) => { setActiveTab(id as MainTab); if (id === "templatizer" && competitorVideos.length === 0) fetchCompetitorVideos(); }}
+        onChange={(id) => { handleTabChange(id as MainTab); if (id === "templatizer" && competitorVideos.length === 0) fetchCompetitorVideos(); }}
         size="sm"
       />
 
@@ -897,7 +937,12 @@ export default function AIStudioPanel() {
           <div className="flex gap-3 overflow-x-auto pb-2">
             {/* No Character Option */}
             <div 
-              onClick={() => { setSelectedCharacterId(null); setWizardCopyId(null); }}
+              onClick={() => { 
+                setSelectedCharacterId(null); 
+                setWizardCopyId(null);
+                setWizardCharacterDna(null);
+                setWizardReferenceSheet(null);
+              }}
               className={`flex-shrink-0 cursor-pointer transition ${selectedCharacterId === null ? "ring-2 ring-warroom-accent" : ""}`}
             >
               <div className="w-20 h-20 rounded-xl bg-warroom-surface border border-warroom-border flex flex-col items-center justify-center p-2">
@@ -912,15 +957,15 @@ export default function AIStudioPanel() {
                 key={copy.id}
                 onClick={() => { 
                   setSelectedCharacterId(Number(copy.id)); 
-                  setWizardCopyId(copy.id); 
+                  setWizardCopyId(copy.id);
+                  setWizardCharacterDna((copy as any).character_dna || null);
+                  setWizardReferenceSheet((copy as any).reference_sheet_url || null);
                 }}
                 className={`flex-shrink-0 cursor-pointer transition ${selectedCharacterId === Number(copy.id) ? "ring-2 ring-warroom-accent" : ""}`}
               >
                 <div className="w-20 h-20 rounded-xl overflow-hidden bg-warroom-surface border border-warroom-border">
-                  {copy.assets && copy.assets.length > 0 ? (
-                    <div className="w-full h-full flex items-center justify-center text-warroom-muted">
-                      <User size={24} />
-                    </div>
+                  {copy.images && copy.images.length > 0 ? (
+                    <img src={copy.images[0].image_url} alt={copy.name} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-warroom-muted">
                       <User size={24} />
@@ -933,7 +978,7 @@ export default function AIStudioPanel() {
 
             {/* Create New Character */}
             <div 
-              onClick={() => setActiveTab("digital-copies")}
+              onClick={() => handleTabChange("digital-copies")}
               className="flex-shrink-0 cursor-pointer"
             >
               <div className="w-20 h-20 rounded-xl border-2 border-dashed border-warroom-border bg-warroom-surface hover:border-warroom-accent hover:bg-warroom-accent/5 transition flex flex-col items-center justify-center">
@@ -1650,7 +1695,7 @@ export default function AIStudioPanel() {
                     <CheckCircle size={12} /> Saved
                   </span>
                 )}
-                <button onClick={() => { setActiveTab("create-video"); resetWizard(); }}
+                <button onClick={() => { handleTabChange("create-video"); resetWizard(); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent/20 text-warroom-accent text-xs rounded-lg hover:bg-warroom-accent/30 transition">
                   <Wand2 size={12} /> Use Template
                 </button>
@@ -1882,7 +1927,7 @@ export default function AIStudioPanel() {
           <div className="flex flex-col items-center py-16 text-warroom-muted gap-3">
             <Film size={36} className="text-warroom-accent/30" />
             <p className="text-sm">No projects yet</p>
-            <button onClick={() => { setActiveTab("create-video"); resetWizard(); }} className="text-xs text-warroom-accent underline">Create your first video</button>
+            <button onClick={() => { handleTabChange("create-video"); resetWizard(); }} className="text-xs text-warroom-accent underline">Create your first video</button>
           </div>
         ) : (
           <div className="space-y-3">

@@ -2,8 +2,9 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
-  User, Plus, Upload, Camera, Trash2, Image, X, Eye, ChevronRight,
-  CheckCircle, AlertCircle, Loader2, Sparkles, Clock, ImageOff
+  User, Plus, Upload, Camera, Trash2, X, ChevronLeft, Loader2, Sparkles,
+  Clock, ImageOff, CheckCircle, MoreHorizontal, Play, Settings, 
+  ChevronDown, ChevronUp, RotateCcw
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
@@ -18,6 +19,8 @@ interface DigitalCopy {
   images?: DigitalCopyImage[];
   image_count?: number;
   thumbnail_url?: string;
+  reference_sheet_url?: string;
+  character_dna?: any;
 }
 
 interface DigitalCopyImage {
@@ -26,18 +29,50 @@ interface DigitalCopyImage {
   content_type: string;
   image_type: string;
   path: string;
+  image_url: string;
   uploaded_at: string;
 }
 
-interface QualityAudit {
-  total_images: number;
-  avg_resolution: {
-    width: number;
-    height: number;
-  };
+interface LocalImage {
+  file: File;
+  preview: string;
 }
 
-/* ── Image Component with 403 Fallback ────────────────── */
+interface Toast {
+  id: string;
+  message: string;
+  type: "success" | "error" | "info";
+}
+
+/* ── Toast Component ───────────────────────────────────── */
+function ToastContainer({ toasts, onRemove }: { toasts: Toast[], onRemove: (id: string) => void }) {
+  return (
+    <div className="fixed top-4 right-4 z-50 space-y-2">
+      {toasts.map(toast => (
+        <div 
+          key={toast.id}
+          className={`px-4 py-3 rounded-lg shadow-lg border max-w-sm animate-in slide-in-from-right duration-300 ${
+            toast.type === "success" ? "bg-green-500/20 text-green-400 border-green-400/30" :
+            toast.type === "error" ? "bg-red-500/20 text-red-400 border-red-400/30" :
+            "bg-blue-500/20 text-blue-400 border-blue-400/30"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm">{toast.message}</span>
+            <button 
+              onClick={() => onRemove(toast.id)}
+              className="ml-2 opacity-70 hover:opacity-100"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Safe Image Component with Fallback ───────────────── */
 function SafeImage({ src, alt, className, fallbackIcon = User, fallbackText }: {
   src: string;
   alt: string;
@@ -46,25 +81,17 @@ function SafeImage({ src, alt, className, fallbackIcon = User, fallbackText }: {
   fallbackText?: string;
 }) {
   const [imageError, setImageError] = useState(false);
-  const [isInstagramCDN, setIsInstagramCDN] = useState(false);
   const FallbackIcon = fallbackIcon;
 
   useEffect(() => {
-    setIsInstagramCDN(src.includes('cdninstagram.com') || src.includes('scontent-'));
     setImageError(false);
   }, [src]);
 
-  const handleImageError = () => {
-    setImageError(true);
-  };
-
-  if (imageError || (isInstagramCDN && src)) {
+  if (imageError) {
     return (
       <div className={`flex flex-col items-center justify-center bg-warroom-bg text-warroom-muted ${className}`}>
-        <ImageOff size={24} className="mb-1" />
-        <span className="text-xs text-center">
-          {isInstagramCDN ? "Instagram link expired" : (fallbackText || "Image unavailable")}
-        </span>
+        <FallbackIcon size={24} className="mb-1" />
+        <span className="text-xs text-center">{fallbackText || "Image unavailable"}</span>
       </div>
     );
   }
@@ -74,7 +101,7 @@ function SafeImage({ src, alt, className, fallbackIcon = User, fallbackText }: {
       src={src} 
       alt={alt} 
       className={className}
-      onError={handleImageError}
+      onError={() => setImageError(true)}
     />
   );
 }
@@ -82,33 +109,60 @@ function SafeImage({ src, alt, className, fallbackIcon = User, fallbackText }: {
 /* ── Guidelines Examples ───────────────────────────────── */
 const GOOD_EXAMPLES = [
   "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face",
-  "https://images.unsplash.com/photo-1494790108755-2616b612b494?w=200&h=200&fit=crop&crop=face",
+  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=face",
   "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop&crop=face",
-  "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=face"
+  "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop&crop=face"
 ];
 
 const BAD_EXAMPLES = [
-  "https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=200&h=200&fit=crop", // group
-  "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200&h=200&fit=crop&crop=face", // sunglasses
-  "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=200&h=200&fit=crop", // heavily filtered
-  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face" // duplicate of first good one
+  "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=200&h=200&fit=crop",
+  "https://images.unsplash.com/photo-1511895426328-dc8714191300?w=200&h=200&fit=crop",
+  "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&h=200&fit=crop",
+  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop"
 ];
 
 export default function DigitalCopiesPanel() {
   // Main state
   const [copies, setCopies] = useState<DigitalCopy[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"list" | "create">("list");
+  const [view, setView] = useState<"list" | "create" | "generate">("list");
+  const [selectedCopy, setSelectedCopy] = useState<DigitalCopy | null>(null);
   
-  // Creation state
+  // Create view state
   const [characterName, setCharacterName] = useState("");
-  const [selectedModel, setSelectedModel] = useState("veo-3.1");
-  const [uploadedImages, setUploadedImages] = useState<DigitalCopyImage[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [qualityAudit, setQualityAudit] = useState<QualityAudit | null>(null);
-  const [currentCopyId, setCurrentCopyId] = useState<number | null>(null);
-
+  const [selectedModel, setSelectedModel] = useState("nano-banana-2");
+  const [localImages, setLocalImages] = useState<LocalImage[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  
+  // Generate view state
+  const [scenePrompt, setScenePrompt] = useState("");
+  const [styleOverride, setStyleOverride] = useState("");
+  const [generatedImageUrl, setGeneratedImageUrl] = useState<string>("");
+  const [videoGenerating, setVideoGenerating] = useState(false);
+  const [videoDuration, setVideoDuration] = useState(4);
+  const [videoAspectRatio, setVideoAspectRatio] = useState("16:9");
+  const [activeTab, setActiveTab] = useState("Overview");
+  const [dnaExpanded, setDnaExpanded] = useState(false);
+  
+  // Toast state
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Toast Functions ────────────────────────────────────
+  const showToast = (message: string, type: "success" | "error" | "info" = "info") => {
+    const id = Math.random().toString(36).substring(2);
+    setToasts(prev => [...prev, { id, message, type }]);
+    
+    setTimeout(() => {
+      removeToast(id);
+    }, 5000);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
 
   // ── API Functions ──────────────────────────────────────
   const fetchCopies = useCallback(async () => {
@@ -117,161 +171,154 @@ export default function DigitalCopiesPanel() {
       const response = await authFetch(`${API}/api/digital-copies`);
       if (response.ok) {
         const data = await response.json();
-        setCopies(data.digital_copies || []);
+        setCopies(Array.isArray(data) ? data : data.digital_copies || []);
       }
     } catch (error) {
       console.error("Failed to fetch digital copies:", error);
+      showToast("Failed to load characters", "error");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const createDigitalCopy = async (name: string, baseModel: string) => {
+  const createDigitalCopy = async () => {
+    if (!characterName.trim() || localImages.length < 20) return;
+
     try {
-      const response = await authFetch(`${API}/api/digital-copies`, {
+      setCreating(true);
+      setUploadProgress({ current: 0, total: localImages.length + 2 });
+
+      // Step 1: Create the digital copy
+      const createResponse = await authFetch(`${API}/api/digital-copies`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name,
-          base_model: baseModel
+          name: characterName.trim(),
+          base_model: selectedModel
+        })
+      });
+
+      if (!createResponse.ok) {
+        const errData = await createResponse.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to create digital copy");
+      }
+
+      const copyData = await createResponse.json();
+      setUploadProgress({ current: 1, total: localImages.length + 2 });
+
+      // Step 2: Upload all images sequentially
+      for (let i = 0; i < localImages.length; i++) {
+        const localImage = localImages[i];
+        
+        const formData = new FormData();
+        formData.append("file", localImage.file);
+        formData.append("image_type", "reference");
+
+        const uploadResponse = await authFetch(`${API}/api/digital-copies/${copyData.id}/images`, {
+          method: "POST",
+          body: formData
+        });
+
+        if (!uploadResponse.ok) {
+          console.error(`Failed to upload image ${i + 1}`);
+        }
+        
+        setUploadProgress({ current: i + 2, total: localImages.length + 2 });
+      }
+
+      // Step 3: Generate reference sheet
+      const generateResponse = await authFetch(`${API}/api/digital-copies/${copyData.id}/generate-reference-sheet`, {
+        method: "POST"
+      });
+
+      if (generateResponse.ok) {
+        showToast("Character created and DNA generated successfully!", "success");
+      } else {
+        showToast("Character created, but DNA generation failed", "error");
+      }
+
+      // Cleanup and navigate
+      resetCreateState();
+      await fetchCopies();
+      setView("list");
+
+    } catch (error) {
+      console.error("Error creating character:", error);
+      showToast(error instanceof Error ? error.message : "Failed to create character", "error");
+    } finally {
+      setCreating(false);
+      setUploadProgress(null);
+    }
+  };
+
+  const deleteDigitalCopy = async (id: number) => {
+    try {
+      const response = await authFetch(`${API}/api/digital-copies/${id}`, {
+        method: "DELETE"
+      });
+
+      if (response.ok) {
+        await fetchCopies();
+        showToast("Character deleted successfully", "success");
+      } else {
+        throw new Error("Failed to delete character");
+      }
+    } catch (error) {
+      showToast("Failed to delete character", "error");
+    }
+  };
+
+  const generateReferenceSheet = async () => {
+    if (!selectedCopy) return;
+
+    try {
+      const response = await authFetch(`${API}/api/digital-copies/${selectedCopy.id}/generate-reference-sheet`, {
+        method: "POST"
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setSelectedCopy(prev => prev ? { ...prev, reference_sheet_url: result.reference_sheet_url, character_dna: result.character_dna } : null);
+        showToast("Reference sheet regenerated successfully!", "success");
+      } else {
+        throw new Error("Failed to regenerate reference sheet");
+      }
+    } catch (error) {
+      showToast("Failed to regenerate reference sheet", "error");
+    }
+  };
+
+  const generateScene = async () => {
+    if (!selectedCopy || !scenePrompt.trim()) return;
+
+    try {
+      const response = await authFetch(`${API}/api/digital-copies/${selectedCopy.id}/generate-scene`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: scenePrompt.trim(),
+          style_override: styleOverride.trim() || undefined
         })
       });
 
       if (response.ok) {
-        const data = await response.json();
-        setCurrentCopyId(data.id);
-        await fetchCopies();
-        return data.id;
+        const result = await response.json();
+        setGeneratedImageUrl(result.image_url);
+        showToast("Scene generated successfully!", "success");
       } else {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to create digital copy");
+        throw new Error("Failed to generate scene");
       }
     } catch (error) {
-      console.error("Error creating digital copy:", error);
-      alert(error instanceof Error ? error.message : "Failed to create digital copy");
-      return null;
-    }
-  };
-
-  const uploadImage = async (file: File) => {
-    if (!currentCopyId) {
-      // Auto-create the digital copy if it doesn't exist
-      const copyId = await createDigitalCopy(characterName, selectedModel);
-      if (!copyId) return;
-      setCurrentCopyId(copyId);
-    }
-
-    const copyId = currentCopyId || await createDigitalCopy(characterName, selectedModel);
-    if (!copyId) return;
-
-    try {
-      setUploading(true);
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("image_type", "reference");
-
-      const response = await authFetch(`${API}/api/digital-copies/${copyId}/images`, {
-        method: "POST",
-        body: formData
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUploadedImages(prev => [...prev, data]);
-        
-        // Update quality audit
-        await fetchQualityAudit(copyId);
-        await fetchCopies();
-      } else {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to upload image");
-      }
-    } catch (error) {
-      console.error("Error uploading image:", error);
-      alert(error instanceof Error ? error.message : "Failed to upload image");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const deleteImage = async (imageId: number) => {
-    if (!currentCopyId) return;
-
-    try {
-      const response = await authFetch(`${API}/api/digital-copies/${currentCopyId}/images/${imageId}`, {
-        method: "DELETE"
-      });
-
-      if (response.ok) {
-        setUploadedImages(prev => prev.filter(img => img.id !== imageId));
-        await fetchQualityAudit(currentCopyId);
-        await fetchCopies();
-      }
-    } catch (error) {
-      console.error("Error deleting image:", error);
-      alert("Failed to delete image");
-    }
-  };
-
-  const deleteCopy = async (copyId: number) => {
-    if (!confirm("Are you sure you want to delete this character? This action cannot be undone.")) {
-      return;
-    }
-
-    try {
-      const response = await authFetch(`${API}/api/digital-copies/${copyId}`, {
-        method: "DELETE"
-      });
-
-      if (response.ok) {
-        await fetchCopies();
-      } else {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to delete character");
-      }
-    } catch (error) {
-      console.error("Error deleting character:", error);
-      alert(error instanceof Error ? error.message : "Failed to delete character");
-    }
-  };
-
-  const fetchQualityAudit = async (copyId: number) => {
-    try {
-      const response = await authFetch(`${API}/api/digital-copies/${copyId}/quality-audit`);
-      if (response.ok) {
-        const data = await response.json();
-        setQualityAudit(data);
-      }
-    } catch (error) {
-      console.error("Error fetching quality audit:", error);
-    }
-  };
-
-  const finalizeCharacter = async () => {
-    if (!currentCopyId || !characterName.trim() || uploadedImages.length < 20) return;
-
-    try {
-      // Just refresh the copies list - the character is already created
-      await fetchCopies();
-      
-      // Reset to list view
-      setView("list");
-      resetCreationState();
-      
-      alert("Character created successfully! It will start training shortly.");
-    } catch (error) {
-      console.error("Error finalizing character:", error);
-      alert("Failed to finalize character");
+      showToast("Failed to generate scene", "error");
     }
   };
 
   // ── Helper Functions ───────────────────────────────────
-  const resetCreationState = () => {
+  const resetCreateState = () => {
     setCharacterName("");
-    setSelectedModel("veo-3.1");
-    setUploadedImages([]);
-    setCurrentCopyId(null);
-    setQualityAudit(null);
+    setSelectedModel("nano-banana-2");
+    localImages.forEach(img => URL.revokeObjectURL(img.preview));
+    setLocalImages([]);
   };
 
   const getStatusBadge = (status: DigitalCopy["status"]) => {
@@ -287,31 +334,44 @@ export default function DigitalCopiesPanel() {
     }
   };
 
-  const getQualityGrade = (resolution: { width: number; height: number } | null) => {
-    if (!resolution) return { grade: "Unknown", color: "text-gray-400" };
-    
-    const avgResolution = (resolution.width + resolution.height) / 2;
-    
-    if (avgResolution >= 1080) {
-      return { grade: `${Math.round(avgResolution)}px Perfect`, color: "text-green-400" };
-    } else if (avgResolution >= 720) {
-      return { grade: `${Math.round(avgResolution)}px Good`, color: "text-yellow-400" };
-    } else {
-      return { grade: `${Math.round(avgResolution)}px Poor`, color: "text-red-400" };
-    }
-  };
-
   const getImageCountColor = (count: number) => {
     if (count < 20) return "text-red-400";
     if (count < 50) return "text-yellow-400";
     return "text-green-400";
   };
 
+  const getImageCountBg = (count: number) => {
+    const percentage = Math.min(count / 80 * 100, 100);
+    if (count < 20) return `linear-gradient(to right, #ef4444 ${percentage}%, #374151 ${percentage}%)`;
+    if (count < 50) return `linear-gradient(to right, #eab308 ${percentage}%, #374151 ${percentage}%)`;
+    return `linear-gradient(to right, #22c55e ${percentage}%, #374151 ${percentage}%)`;
+  };
+
+  const addLocalImages = (files: File[]) => {
+    files.forEach(file => {
+      if (!file.type.startsWith('image/')) {
+        showToast(`${file.name} is not a valid image file`, "error");
+        return;
+      }
+
+      const preview = URL.createObjectURL(file);
+      setLocalImages(prev => [...prev, { file, preview }]);
+    });
+  };
+
+  const removeLocalImage = (index: number) => {
+    setLocalImages(prev => {
+      URL.revokeObjectURL(prev[index].preview);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    files.forEach(file => {
-      uploadImage(file);
-    });
+    addLocalImages(files);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -323,11 +383,13 @@ export default function DigitalCopiesPanel() {
     e.preventDefault();
     e.stopPropagation();
     const files = Array.from(e.dataTransfer.files);
-    files.forEach(file => {
-      if (file.type.startsWith('image/')) {
-        uploadImage(file);
-      }
-    });
+    addLocalImages(files);
+  };
+
+  const getAverageResolution = () => {
+    // This would need to be calculated from actual image dimensions
+    // For now, return a placeholder
+    return "1080x1080";
   };
 
   // ── Effects ────────────────────────────────────────────
@@ -335,116 +397,199 @@ export default function DigitalCopiesPanel() {
     fetchCopies();
   }, [fetchCopies]);
 
-  // Fetch quality audit when images change
-  useEffect(() => {
-    if (currentCopyId && uploadedImages.length > 0) {
-      fetchQualityAudit(currentCopyId);
-    }
-  }, [currentCopyId, uploadedImages.length]);
-
-  // ── Render Components ──────────────────────────────────
-  const renderGauge = (current: number, max: number, label: string, color: string) => {
-    const percentage = Math.min((current / max) * 100, 100);
-    
+  // ── View 1: Character List ─────────────────────────────
+  if (view === "list") {
     return (
-      <div className="flex flex-col items-center">
-        <div className="relative w-20 h-20">
-          <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 36 36">
-            <path
-              d="M18 2.0845
-                a 15.9155 15.9155 0 0 1 0 31.831
-                a 15.9155 15.9155 0 0 1 0 -31.831"
-              fill="none"
-              stroke="rgb(55, 65, 81)"
-              strokeWidth="2"
-            />
-            <path
-              d="M18 2.0845
-                a 15.9155 15.9155 0 0 1 0 31.831
-                a 15.9155 15.9155 0 0 1 0 -31.831"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeDasharray={`${percentage}, 100`}
-              className={color}
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="text-lg font-bold text-warroom-text">{current}</div>
-            <div className="text-xs text-warroom-muted">/ {max}</div>
-          </div>
+      <div className="h-full flex flex-col bg-warroom-bg">
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
+        
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-warroom-border">
+          <h1 className="text-xl font-bold text-warroom-text">Digital Copies</h1>
+          <button
+            onClick={() => setView("create")}
+            className="flex items-center gap-2 px-4 py-2 bg-warroom-accent text-white font-medium rounded-lg hover:bg-warroom-accent/80 transition"
+          >
+            <Sparkles size={16} />
+            Create Character
+          </button>
         </div>
-        <div className="text-xs text-warroom-muted mt-2 text-center">{label}</div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="animate-spin text-warroom-accent" size={32} />
+            </div>
+          ) : copies.length === 0 ? (
+            <div className="text-center py-16 text-warroom-muted">
+              <User size={64} className="mx-auto mb-4 opacity-50" />
+              <h3 className="text-lg font-medium mb-2">No characters yet</h3>
+              <p className="text-sm">Create your first digital character to get started</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {copies.map(copy => (
+                <div 
+                  key={copy.id} 
+                  className="bg-warroom-surface border border-warroom-border rounded-xl overflow-hidden group relative cursor-pointer hover:border-warroom-accent/50 transition"
+                  onClick={() => {
+                    setSelectedCopy(copy);
+                    setView("generate");
+                  }}
+                >
+                  {/* Thumbnail */}
+                  <div className="aspect-square bg-warroom-bg relative">
+                    {copy.images && copy.images.length > 0 ? (
+                      <SafeImage 
+                        src={copy.images[0].image_url} 
+                        alt={copy.name} 
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <User size={48} className="text-warroom-muted" />
+                      </div>
+                    )}
+                    
+                    {/* Hover overlay with Generate button */}
+                    <div className="absolute inset-0 bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="flex items-center gap-2 px-4 py-2 bg-warroom-accent text-white font-medium rounded-lg">
+                        <Sparkles size={16} />
+                        Generate
+                      </button>
+                    </div>
+
+                    {/* Three-dot menu */}
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="relative group/menu">
+                        <button 
+                          className="w-8 h-8 bg-black/50 rounded-full flex items-center justify-center text-white hover:bg-black/70 transition"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
+                        >
+                          <MoreHorizontal size={16} />
+                        </button>
+                        <div className="absolute right-0 top-full mt-1 w-32 bg-warroom-surface border border-warroom-border rounded-lg shadow-lg opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all z-10">
+                          <button 
+                            className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-warroom-bg rounded-lg"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteDigitalCopy(copy.id);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Info */}
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-semibold text-warroom-text truncate">{copy.name}</h3>
+                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusBadge(copy.status)}`}>
+                        {copy.status}
+                      </span>
+                    </div>
+                    
+                    <div className="text-sm text-warroom-muted">
+                      <span>{copy.image_count || copy.images?.length || 0} photos</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
-  };
+  }
 
-  // ── Main Render ────────────────────────────────────────
+  // ── View 2: Create Character ───────────────────────────
   if (view === "create") {
-    const qualityGrade = getQualityGrade(qualityAudit?.avg_resolution || null);
-    const canCreate = characterName.trim().length > 0 && uploadedImages.length >= 20;
+    const canCreate = characterName.trim().length > 0 && localImages.length >= 20;
 
     return (
       <div className="h-full flex flex-col bg-warroom-bg">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-warroom-border">
-          <div>
-            <button 
-              onClick={() => { setView("list"); resetCreationState(); }}
-              className="flex items-center gap-2 text-warroom-muted hover:text-warroom-text mb-2"
-            >
-              <ChevronRight size={16} className="rotate-180" />
-              Back to Characters
-            </button>
-            <h1 className="text-xl font-bold text-warroom-text">Create New Character</h1>
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
+        
+        {/* Upload Progress Overlay */}
+        {creating && uploadProgress && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-warroom-surface border border-warroom-border rounded-xl p-6 max-w-md w-full mx-4">
+              <div className="text-center">
+                <Loader2 className="w-8 h-8 animate-spin text-warroom-accent mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-warroom-text mb-2">Creating Character</h3>
+                <div className="text-sm text-warroom-muted mb-3">
+                  {uploadProgress.current} / {uploadProgress.total}
+                </div>
+                <div className="w-full bg-warroom-bg rounded-full h-2">
+                  <div 
+                    className="bg-warroom-accent h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
+        )}
+
+        {/* Header */}
+        <div className="p-6 border-b border-warroom-border">
+          <button 
+            onClick={() => {
+              setView("list");
+              resetCreateState();
+            }}
+            className="flex items-center gap-2 text-warroom-muted hover:text-warroom-text mb-3"
+          >
+            <ChevronLeft size={16} />
+            Characters
+          </button>
         </div>
 
-        {/* Main Content */}
+        {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto p-6">
+          <div className="max-w-6xl mx-auto p-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left: Photo Grid */}
+              {/* Left: Photo Upload Grid */}
               <div className="lg:col-span-2">
-                <h3 className="text-lg font-semibold text-warroom-text mb-4">Upload Photos</h3>
-                
                 <div 
-                  className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 mb-6"
+                  className="min-h-96"
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                 >
-                  {/* Upload Button as First Tile */}
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    className="aspect-square border-2 border-dashed border-warroom-border rounded-xl flex flex-col items-center justify-center hover:border-warroom-accent/50 transition bg-warroom-surface/50"
-                  >
-                    {uploading ? (
-                      <Loader2 size={20} className="text-warroom-accent animate-spin mb-1" />
-                    ) : (
-                      <Plus size={20} className="text-warroom-muted mb-1" />
-                    )}
-                    <span className="text-xs text-warroom-muted text-center">
-                      {uploading ? "Uploading..." : "Upload more"}
-                    </span>
-                  </button>
+                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-3">
+                    {/* Upload button as first tile */}
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="aspect-square border-2 border-dashed border-warroom-border rounded-lg flex flex-col items-center justify-center hover:border-warroom-accent/50 transition bg-warroom-surface/50"
+                    >
+                      <Plus size={16} className="text-warroom-muted" />
+                    </button>
 
-                  {/* Uploaded Images */}
-                  {uploadedImages.map(image => (
-                    <div key={image.id} className="relative group">
-                      <div className="aspect-square bg-warroom-bg rounded-xl overflow-hidden border border-warroom-border">
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-warroom-accent/10 to-warroom-accent/5">
-                          <Image size={16} className="text-warroom-muted" />
+                    {/* Local images */}
+                    {localImages.map((image, index) => (
+                      <div key={index} className="relative group">
+                        <div className="aspect-square bg-warroom-bg rounded-lg overflow-hidden">
+                          <img 
+                            src={image.preview}
+                            alt="Upload preview"
+                            className="w-full h-full object-cover"
+                          />
                         </div>
+                        <button
+                          onClick={() => removeLocalImage(index)}
+                          className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                        >
+                          <X size={12} className="text-white" />
+                        </button>
                       </div>
-                      <button
-                        onClick={() => deleteImage(image.id)}
-                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-lg"
-                      >
-                        <X size={12} className="text-white" />
-                      </button>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
 
                 <input
@@ -455,19 +600,6 @@ export default function DigitalCopiesPanel() {
                   onChange={handleFileUpload}
                   className="hidden"
                 />
-
-                {/* Drop Zone Instructions */}
-                {uploadedImages.length === 0 && (
-                  <div className="border-2 border-dashed border-warroom-border rounded-xl p-8 text-center bg-warroom-surface/30">
-                    <Upload size={32} className="text-warroom-muted mx-auto mb-4" />
-                    <h4 className="text-lg font-medium text-warroom-text mb-2">
-                      Drag and drop images here
-                    </h4>
-                    <p className="text-sm text-warroom-muted">
-                      or click the + button above to select files
-                    </p>
-                  </div>
-                )}
               </div>
 
               {/* Right: Settings Sidebar */}
@@ -482,7 +614,7 @@ export default function DigitalCopiesPanel() {
                     value={characterName}
                     onChange={(e) => setCharacterName(e.target.value)}
                     placeholder="Enter character name"
-                    className="w-full px-4 py-3 bg-warroom-surface border border-warroom-border rounded-xl text-warroom-text focus:outline-none focus:border-warroom-accent"
+                    className="w-full px-3 py-2 bg-warroom-surface border border-warroom-border rounded-lg text-warroom-text focus:outline-none focus:border-warroom-accent"
                   />
                 </div>
 
@@ -494,51 +626,53 @@ export default function DigitalCopiesPanel() {
                   <select
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
-                    className="w-full px-4 py-3 bg-warroom-surface border border-warroom-border rounded-xl text-warroom-text focus:outline-none focus:border-warroom-accent"
+                    className="w-full px-3 py-2 bg-warroom-surface border border-warroom-border rounded-lg text-warroom-text focus:outline-none focus:border-warroom-accent"
                   >
-                    <option value="veo-3.1">Veo 3.1 - High Quality</option>
-                    <option value="nano-banana">Nano Banana - Fast</option>
+                    <option value="nano-banana-2">Nano Banana 2</option>
+                    <option value="veo-3.1">Veo 3.1</option>
                   </select>
                 </div>
 
-                {/* Image Count Gauge */}
+                {/* Image Count */}
                 <div>
-                  <h4 className="text-sm font-medium text-warroom-text mb-4">Number of Images</h4>
-                  {renderGauge(uploadedImages.length, 80, "Photos", getImageCountColor(uploadedImages.length))}
-                  <p className="text-xs text-center text-warroom-muted mt-2">
-                    Minimum 20, best results with 50+
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-warroom-text">Images</span>
+                    <span className={`text-sm font-medium ${getImageCountColor(localImages.length)}`}>
+                      {localImages.length}/80
+                    </span>
+                  </div>
+                  <div className="w-full h-2 bg-warroom-bg rounded-full overflow-hidden">
+                    <div 
+                      className="h-full transition-all duration-300"
+                      style={{ 
+                        width: `${Math.min(localImages.length / 80 * 100, 100)}%`,
+                        background: getImageCountBg(localImages.length)
+                      }}
+                    />
+                  </div>
                 </div>
 
-                {/* Quality Gauge */}
+                {/* Resolution */}
                 <div>
-                  <h4 className="text-sm font-medium text-warroom-text mb-4">Quality</h4>
-                  <div className="text-center">
-                    <div className={`text-lg font-semibold ${qualityGrade.color}`}>
-                      {qualityGrade.grade}
-                    </div>
-                    <p className="text-xs text-warroom-muted mt-2">
-                      Based on average resolution
-                    </p>
-                  </div>
+                  <span className="text-sm font-medium text-warroom-text">Resolution</span>
+                  <p className="text-sm text-warroom-muted mt-1">{getAverageResolution()}</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Guidelines Section */}
+          {/* Guidelines */}
           <div className="border-t border-warroom-border bg-warroom-surface/30 p-6">
-            <div className="max-w-7xl mx-auto">
+            <div className="max-w-6xl mx-auto">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Good Examples */}
                 <div>
-                  <h4 className="text-sm font-semibold text-green-400 mb-4 flex items-center gap-2">
-                    <CheckCircle size={16} />
-                    ✅ 20+ photos recommended: one person, clear face, multiple angles.
+                  <h4 className="text-sm font-semibold text-green-400 mb-4">
+                    ✅ Good: clear face, one person, various angles
                   </h4>
                   <div className="grid grid-cols-4 gap-3">
                     {GOOD_EXAMPLES.map((src, index) => (
-                      <div key={index} className="aspect-square rounded-lg overflow-hidden border-2 border-green-400/30">
+                      <div key={index} className="aspect-square rounded-lg overflow-hidden">
                         <SafeImage 
                           src={src} 
                           alt={`Good example ${index + 1}`} 
@@ -551,21 +685,18 @@ export default function DigitalCopiesPanel() {
 
                 {/* Bad Examples */}
                 <div>
-                  <h4 className="text-sm font-semibold text-red-400 mb-4 flex items-center gap-2">
-                    <X size={16} />
-                    ❌ Avoid: duplicates, group shots, filters, face coverings (masks/sunglasses).
+                  <h4 className="text-sm font-semibold text-red-400 mb-4">
+                    ❌ Bad: group shots, filters, face coverings
                   </h4>
                   <div className="grid grid-cols-4 gap-3">
                     {BAD_EXAMPLES.map((src, index) => (
-                      <div key={index} className="aspect-square rounded-lg overflow-hidden border-2 border-red-400/30 relative">
+                      <div key={index} className="aspect-square rounded-lg overflow-hidden relative">
                         <SafeImage 
                           src={src} 
                           alt={`Bad example ${index + 1}`} 
                           className="w-full h-full object-cover"
                         />
-                        <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                          <X size={20} className="text-red-400" />
-                        </div>
+                        <div className="absolute inset-0 bg-red-500/20" />
                       </div>
                     ))}
                   </div>
@@ -573,187 +704,245 @@ export default function DigitalCopiesPanel() {
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Bottom Action Bar */}
-        <div className="border-t border-warroom-border p-6 bg-warroom-bg">
-          <div className="max-w-7xl mx-auto flex justify-end">
-            <button
-              onClick={finalizeCharacter}
-              disabled={!canCreate}
-              className="px-8 py-4 bg-warroom-accent text-white text-lg font-semibold rounded-xl hover:bg-warroom-accent/80 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-lg"
-            >
-              Create Character
-            </button>
+          {/* Create Button */}
+          <div className="border-t border-warroom-border p-6 bg-warroom-bg">
+            <div className="max-w-6xl mx-auto flex justify-end">
+              <button
+                onClick={createDigitalCopy}
+                disabled={!canCreate || creating}
+                className="px-8 py-3 bg-warroom-accent text-white font-semibold rounded-lg hover:bg-warroom-accent/80 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {creating ? "Creating..." : "Create"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // List View
+  // ── View 3: Generate ───────────────────────────────────
   return (
     <div className="h-full flex flex-col bg-warroom-bg">
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      
       {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-warroom-border">
-        <div>
-          <h1 className="text-xl font-bold text-warroom-text">Digital Copies</h1>
-          <p className="text-sm text-warroom-muted mt-1">AI Characters for Video Generation</p>
-        </div>
-        <button
-          onClick={() => setView("create")}
-          className="flex items-center gap-2 px-4 py-2 bg-warroom-accent text-white text-sm font-medium rounded-lg hover:bg-warroom-accent/80 transition"
+      <div className="p-6 border-b border-warroom-border">
+        <button 
+          onClick={() => setView("list")}
+          className="flex items-center gap-2 text-warroom-muted hover:text-warroom-text"
         >
-          <Sparkles size={16} />
-          Create Character ✨
+          <ChevronLeft size={16} />
+          Characters
         </button>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {loading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="animate-spin text-warroom-accent" size={32} />
-          </div>
-        ) : copies.length === 0 ? (
-          // Landing Page
-          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-            <div className="max-w-2xl">
-              <h2 className="text-4xl font-bold text-warroom-text mb-6">
-                MAKE YOUR OWN CHARACTER
-              </h2>
-              
-              {/* Sample Images Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                {GOOD_EXAMPLES.map((src, index) => (
-                  <div key={index} className="aspect-square rounded-xl overflow-hidden shadow-lg">
+      {/* Main Content */}
+      <div className="flex-1 flex">
+        {/* Left: Canvas/Preview Area (70%) */}
+        <div className="flex-1 flex flex-col bg-warroom-surface/30">
+          <div className="flex-1 flex items-center justify-center p-6">
+            {generatedImageUrl ? (
+              <div className="max-w-full max-h-full">
+                <img 
+                  src={generatedImageUrl} 
+                  alt="Generated scene" 
+                  className="max-w-full max-h-full object-contain rounded-lg"
+                />
+              </div>
+            ) : selectedCopy?.reference_sheet_url ? (
+              <div className="max-w-full max-h-full">
+                <img 
+                  src={selectedCopy.reference_sheet_url} 
+                  alt="Reference sheet" 
+                  className="max-w-full max-h-full object-contain rounded-lg"
+                />
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 gap-3 max-w-2xl">
+                {selectedCopy?.images?.slice(0, 8).map(image => (
+                  <div key={image.id} className="aspect-square rounded-lg overflow-hidden">
                     <SafeImage 
-                      src={src} 
-                      alt={`Sample character ${index + 1}`} 
+                      src={image.image_url} 
+                      alt={`${selectedCopy.name} photo`}
                       className="w-full h-full object-cover"
                     />
                   </div>
-                ))}
+                )) || (
+                  <div className="col-span-4 text-center py-8">
+                    <User size={48} className="mx-auto mb-2 text-warroom-muted" />
+                    <p className="text-warroom-muted">No images available</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {videoGenerating && (
+            <div className="p-4 border-t border-warroom-border">
+              <div className="flex items-center gap-3">
+                <Loader2 size={16} className="animate-spin" />
+                <span className="text-sm text-warroom-muted">Generating video...</span>
+                <div className="flex-1 bg-warroom-bg rounded-full h-2">
+                  <div className="bg-warroom-accent h-2 rounded-full w-1/3 animate-pulse" />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Controls Panel (30%) */}
+        <div className="w-80 bg-warroom-surface border-l border-warroom-border flex flex-col">
+          <div className="flex-1 overflow-y-auto">
+            {/* Character Info */}
+            <div className="p-4 border-b border-warroom-border">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-lg overflow-hidden bg-warroom-bg">
+                  {selectedCopy?.images?.[0] ? (
+                    <SafeImage 
+                      src={selectedCopy.images[0].image_url}
+                      alt={selectedCopy.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <User size={20} className="text-warroom-muted" />
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <h3 className="font-semibold text-warroom-text">{selectedCopy?.name}</h3>
+                  <p className="text-sm text-warroom-muted">
+                    {selectedCopy?.image_count || selectedCopy?.images?.length || 0} photos
+                  </p>
+                </div>
               </div>
 
-              <p className="text-lg text-warroom-muted mb-8 leading-relaxed">
-                Upload photos of yourself from multiple angles to create a digital avatar that can star in unlimited AI-generated videos.
-              </p>
+              {/* Character DNA */}
+              {selectedCopy?.character_dna && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => setDnaExpanded(!dnaExpanded)}
+                    className="flex items-center justify-between w-full text-left text-sm font-medium text-warroom-text"
+                  >
+                    Character DNA
+                    {dnaExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </button>
+                  {dnaExpanded && (
+                    <div className="mt-2 p-3 bg-warroom-bg rounded-lg text-xs text-warroom-muted overflow-x-auto">
+                      <pre>{JSON.stringify(selectedCopy.character_dna, null, 2)}</pre>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <button
-                onClick={() => setView("create")}
-                className="inline-flex items-center gap-3 px-8 py-4 bg-warroom-accent text-white text-lg font-semibold rounded-xl hover:bg-warroom-accent/80 transition shadow-lg"
+                onClick={generateReferenceSheet}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-warroom-border rounded-lg text-sm text-warroom-muted hover:text-warroom-text hover:border-warroom-accent/50 transition"
               >
-                <Sparkles size={20} />
-                Create character
+                <RotateCcw size={14} />
+                Regenerate Reference Sheet
               </button>
+            </div>
 
-              {/* Guidelines Preview */}
-              <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Good Examples */}
-                <div>
-                  <h4 className="text-sm font-semibold text-green-400 mb-4 flex items-center gap-2">
-                    <CheckCircle size={16} />
-                    Good: one person, clear face, multiple angles
-                  </h4>
-                  <div className="grid grid-cols-4 gap-2">
-                    {GOOD_EXAMPLES.map((src, index) => (
-                      <div key={index} className="aspect-square rounded-lg overflow-hidden border-2 border-green-400/30">
-                        <SafeImage 
-                          src={src} 
-                          alt={`Good example ${index + 1}`} 
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Bad Examples */}
-                <div>
-                  <h4 className="text-sm font-semibold text-red-400 mb-4 flex items-center gap-2">
-                    <X size={16} />
-                    Bad: duplicates, group shots, filters, face coverings
-                  </h4>
-                  <div className="grid grid-cols-4 gap-2">
-                    {BAD_EXAMPLES.map((src, index) => (
-                      <div key={index} className="aspect-square rounded-lg overflow-hidden border-2 border-red-400/30 relative">
-                        <SafeImage 
-                          src={src} 
-                          alt={`Bad example ${index + 1}`} 
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                          <X size={16} className="text-red-400" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            {/* Scene Generation */}
+            <div className="p-4 border-b border-warroom-border space-y-4">
+              <h4 className="font-medium text-warroom-text">Scene Generation</h4>
+              
+              <div>
+                <textarea
+                  value={scenePrompt}
+                  onChange={(e) => setScenePrompt(e.target.value)}
+                  placeholder="Describe the scene..."
+                  className="w-full px-3 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text placeholder-warroom-muted focus:outline-none focus:border-warroom-accent resize-none"
+                  rows={3}
+                />
               </div>
+
+              <div>
+                <input
+                  type="text"
+                  value={styleOverride}
+                  onChange={(e) => setStyleOverride(e.target.value)}
+                  placeholder="Style override (optional)"
+                  className="w-full px-3 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text placeholder-warroom-muted focus:outline-none focus:border-warroom-accent"
+                />
+              </div>
+
+              <button
+                onClick={generateScene}
+                disabled={!scenePrompt.trim()}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-warroom-accent text-white font-medium rounded-lg hover:bg-warroom-accent/80 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                <Sparkles size={16} />
+                Generate Image
+              </button>
+            </div>
+
+            {/* Video Generation */}
+            <div className="p-4 space-y-4">
+              <h4 className="font-medium text-warroom-text">Video Generation</h4>
+              
+              <div>
+                <label className="block text-sm text-warroom-muted mb-2">Duration</label>
+                <select
+                  value={videoDuration}
+                  onChange={(e) => setVideoDuration(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text focus:outline-none focus:border-warroom-accent"
+                >
+                  <option value={4}>4s</option>
+                  <option value={6}>6s</option>
+                  <option value={8}>8s</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-warroom-muted mb-2">Aspect Ratio</label>
+                <select
+                  value={videoAspectRatio}
+                  onChange={(e) => setVideoAspectRatio(e.target.value)}
+                  className="w-full px-3 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-warroom-text focus:outline-none focus:border-warroom-accent"
+                >
+                  <option value="9:16">9:16 (Portrait)</option>
+                  <option value="16:9">16:9 (Landscape)</option>
+                  <option value="1:1">1:1 (Square)</option>
+                </select>
+              </div>
+
+              <button
+                disabled={!generatedImageUrl}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-warroom-accent text-white font-medium rounded-lg hover:bg-warroom-accent/80 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                <Play size={16} />
+                Generate Video
+              </button>
             </div>
           </div>
-        ) : (
-          // Character Grid
-          <div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {copies.map(copy => (
-                <div key={copy.id} className="bg-warroom-surface border border-warroom-border rounded-xl overflow-hidden hover:border-warroom-accent/30 transition group">
-                  {/* Thumbnail */}
-                  <div className="aspect-square bg-warroom-bg flex items-center justify-center">
-                    {copy.thumbnail_url ? (
-                      <SafeImage 
-                        src={copy.thumbnail_url} 
-                        alt={copy.name} 
-                        className="w-full h-full object-cover"
-                        fallbackText="No thumbnail"
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center text-warroom-muted">
-                        <User size={48} />
-                        <span className="text-xs mt-2">No thumbnail</span>
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Info */}
-                  <div className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-semibold text-warroom-text truncate">{copy.name}</h3>
-                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusBadge(copy.status)}`}>
-                        {copy.status}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center justify-between text-sm text-warroom-muted">
-                      <span className="flex items-center gap-1">
-                        <Camera size={14} />
-                        {copy.image_count || 0} images
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock size={14} />
-                        {new Date(copy.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-
-                    {copy.description && (
-                      <p className="text-xs text-warroom-muted mt-2 line-clamp-2">{copy.description}</p>
-                    )}
-
-                    {/* Delete Button */}
-                    <button
-                      onClick={() => deleteCopy(copy.id)}
-                      className="w-full mt-3 px-3 py-2 text-xs text-red-400 border border-red-400/30 rounded-lg hover:bg-red-400/10 transition opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 size={12} className="inline mr-1" />
-                      Delete Character
-                    </button>
-                  </div>
-                </div>
+          {/* Bottom Tabs */}
+          <div className="border-t border-warroom-border p-4">
+            <div className="grid grid-cols-3 gap-1 text-xs">
+              {["Overview", "Upscale", "Enhancer", "Relight", "Inpaint", "Angles"].map(tab => (
+                <button
+                  key={tab}
+                  className={`px-2 py-1 rounded text-center transition ${
+                    activeTab === tab 
+                      ? "bg-warroom-accent text-white" 
+                      : "text-warroom-muted hover:text-warroom-text"
+                  } ${tab !== "Overview" ? "cursor-not-allowed opacity-50" : ""}`}
+                  onClick={() => tab === "Overview" && setActiveTab(tab)}
+                  disabled={tab !== "Overview"}
+                >
+                  {tab}
+                </button>
               ))}
             </div>
+            {activeTab !== "Overview" && (
+              <p className="text-xs text-warroom-muted text-center mt-2">Coming soon</p>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
