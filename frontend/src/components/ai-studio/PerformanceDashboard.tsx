@@ -49,15 +49,15 @@ interface PerformanceDashboardProps {
 }
 
 /* ── Format Badge Colors (reused from FormatPicker) ─────── */
-const formatColors: Record<string, { bg: string; text: string; border: string }> = {
-  myth_buster: { bg: "bg-purple-500/20", text: "text-purple-400", border: "border-purple-500/30" },
-  expose: { bg: "bg-red-500/20", text: "text-red-400", border: "border-red-500/30" },
-  transformation: { bg: "bg-emerald-500/20", text: "text-emerald-400", border: "border-emerald-500/30" },
-  pov: { bg: "bg-blue-500/20", text: "text-blue-400", border: "border-blue-500/30" },
-  speed_run: { bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/30" },
-  challenge: { bg: "bg-orange-500/20", text: "text-orange-400", border: "border-orange-500/30" },
-  show_dont_tell: { bg: "bg-cyan-500/20", text: "text-cyan-400", border: "border-cyan-500/30" },
-  direct_to_camera: { bg: "bg-pink-500/20", text: "text-pink-400", border: "border-pink-500/30" },
+const formatColors: Record<string, { bg: string; text: string; border: string; color: string }> = {
+  myth_buster: { bg: "bg-purple-500/20", text: "text-purple-400", border: "border-purple-500/30", color: "#a855f7" },
+  expose: { bg: "bg-red-500/20", text: "text-red-400", border: "border-red-500/30", color: "#f87171" },
+  transformation: { bg: "bg-emerald-500/20", text: "text-emerald-400", border: "border-emerald-500/30", color: "#34d399" },
+  pov: { bg: "bg-blue-500/20", text: "text-blue-400", border: "border-blue-500/30", color: "#60a5fa" },
+  speed_run: { bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/30", color: "#fbbf24" },
+  challenge: { bg: "bg-orange-500/20", text: "text-orange-400", border: "border-orange-500/30", color: "#fb923c" },
+  show_dont_tell: { bg: "bg-cyan-500/20", text: "text-cyan-400", border: "border-cyan-500/30", color: "#22d3ee" },
+  direct_to_camera: { bg: "bg-pink-500/20", text: "text-pink-400", border: "border-pink-500/30", color: "#f472b6" },
 };
 
 const formatNames: Record<string, string> = {
@@ -265,7 +265,7 @@ export default function PerformanceDashboard({ onSeedForBatch }: PerformanceDash
             {dashboardData.format_leaderboard
               .sort((a, b) => b.avg_engagement - a.avg_engagement)
               .map((format, index) => {
-                const colors = formatColors[format.format] || { bg: "bg-warroom-border", text: "text-warroom-muted", border: "border-warroom-border" };
+                const colors = formatColors[format.format] || { bg: "bg-warroom-border", text: "text-warroom-muted", border: "border-warroom-border", color: "#94a3b8" };
                 const name = formatNames[format.format] || format.format;
                 
                 return (
@@ -277,7 +277,7 @@ export default function PerformanceDashboard({ onSeedForBatch }: PerformanceDash
                         className="h-full rounded-full"
                         style={{ 
                           width: `${(format.avg_engagement / maxEngagement) * 100}%`,
-                          backgroundColor: colors.text.replace('text-', '').replace('400', ''),
+                          backgroundColor: colors.color,
                         }}
                       />
                     </div>
@@ -382,8 +382,8 @@ export default function PerformanceDashboard({ onSeedForBatch }: PerformanceDash
           <div className="h-32">
             <svg width="100%" height="100%" viewBox="0 0 300 120" className="overflow-visible">
               {Object.entries(dashboardData.format_trends).map(([format, data], formatIndex) => {
-                const colors = formatColors[format] || { text: "text-warroom-muted" };
-                const color = colors.text.replace('text-', '').replace('400', '');
+                const colors = formatColors[format] || { color: "#94a3b8" };
+                const color = colors.color;
                 
                 if (data.length < 2) return null;
                 
