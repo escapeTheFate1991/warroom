@@ -29,7 +29,7 @@ interface AudienceTheme {
 
 interface CompetitorData {
   hooks: CompetitorHook[];
-  audience_themes: AudienceTheme[];
+  audience_demands: AudienceTheme[];
 }
 
 interface GeneratedScript {
@@ -48,7 +48,7 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
   
   const [hookScore, setHookScore] = useState<HookScore | null>(null);
   const [loadingScore, setLoadingScore] = useState(false);
-  const [competitorIntelEnabled, setCompetitorIntelEnabled] = useState(false);
+  const [showCompetitorSidebar, setShowCompetitorSidebar] = useState(false);
   const [competitorData, setCompetitorData] = useState<CompetitorData | null>(null);
   const [loadingCompetitorData, setLoadingCompetitorData] = useState(false);
   const [generatingScript, setGeneratingScript] = useState(false);
@@ -109,12 +109,7 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
     }, 300);
   }, [formatSlug]);
 
-  // Load competitor data when intel is enabled
-  useEffect(() => {
-    if (competitorIntelEnabled && formatSlug) {
-      loadCompetitorData();
-    }
-  }, [competitorIntelEnabled, formatSlug]);
+  // Don't auto-load competitor data anymore - only load when generating with intel
 
   // Score hook when it changes
   useEffect(() => {
@@ -143,7 +138,7 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
             { hook_text: "Stop doing [X]. Here's why.", handle: "industry_insider", likes: 9876, platform: "linkedin" },
             { hook_text: "The [industry] doesn't want you to know this...", handle: "whistleblower", likes: 34567, platform: "youtube" }
           ],
-          audience_themes: [
+          audience_demands: [
             { theme: "Cost-effective solutions for small businesses", frequency: 127 },
             { theme: "Time-saving automation tools", frequency: 89 },
             { theme: "Beginner-friendly tutorials", frequency: 156 },
@@ -159,16 +154,19 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
     }
   };
 
-  const generateScript = async () => {
+  const generateScriptWithIntel = async () => {
     setGeneratingScript(true);
     setWhyThisWorks("");
     
     try {
+      // First load competitor data
+      await loadCompetitorData();
+      
       const response = await authFetch(`${API}/api/ai-studio/ugc/generate-script`, {
         method: "POST",
         body: JSON.stringify({
           format_slug: formatSlug,
-          use_competitor_intel: competitorIntelEnabled,
+          use_competitor_intel: true,
           current_hook: script.hook,
           current_body: script.body,
           current_cta: script.cta
@@ -183,6 +181,8 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
           cta: data.cta || script.cta
         });
         setWhyThisWorks(data.why_this_works || "");
+        // Show sidebar with reference posts after generation
+        setShowCompetitorSidebar(true);
       } else {
         // Fallback generation
         const fallbackScript = {
@@ -329,7 +329,7 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
 
         {/* Generate Script Button */}
         <button
-          onClick={generateScript}
+          onClick={generateScriptWithIntel}
           disabled={generatingScript}
           className="w-full py-3 px-4 bg-warroom-accent text-white text-sm font-medium rounded-lg hover:bg-warroom-accent/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
         >
@@ -338,7 +338,7 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
           ) : (
             <Sparkles size={16} />
           )}
-          {generatingScript ? "Generating..." : "✨ Generate with Competitor Intel"}
+          {generatingScript ? "Generating..." : "✨ Generate Script using Competitor Intel"}
         </button>
 
         {/* Why This Works Panel */}
@@ -357,25 +357,8 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
 
       {/* Right Column - Competitor Sidebar (30%) */}
       <div className="lg:col-span-3 space-y-4">
-        {/* Toggle */}
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold text-warroom-text flex items-center gap-2">
-            <Sparkles size={12} className="text-warroom-accent" />
-            Infuse Competitor Intel
-          </label>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={competitorIntelEnabled}
-              onChange={(e) => setCompetitorIntelEnabled(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-warroom-bg border border-warroom-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-warroom-text after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-warroom-accent"></div>
-          </label>
-        </div>
-
-        {/* Sidebar Content */}
-        {competitorIntelEnabled && (
+        {/* Sidebar Content - only shown after generation */}
+        {showCompetitorSidebar && (
           <div className="space-y-6">
             {loadingCompetitorData ? (
               <div className="flex justify-center py-8">
@@ -386,7 +369,7 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
                 {/* Winning Hooks Section */}
                 <div>
                   <h3 className="text-xs font-semibold text-warroom-text mb-3">
-                    Winning Hooks
+                    Reference Posts Used
                   </h3>
                   <div className="space-y-3">
                     {competitorData.hooks.slice(0, 6).map((hook, index) => (
@@ -419,7 +402,7 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript }: H
                     Audience Demand Signals
                   </h3>
                   <div className="space-y-2">
-                    {competitorData.audience_themes.slice(0, 5).map((theme, index) => (
+                    {competitorData.audience_demands.slice(0, 5).map((theme, index) => (
                       <div key={index} className="bg-warroom-surface border border-warroom-border rounded-lg p-3">
                         <p className="text-xs text-warroom-text mb-2 leading-relaxed">
                           {theme.theme}

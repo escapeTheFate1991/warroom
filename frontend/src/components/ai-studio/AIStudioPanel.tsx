@@ -138,7 +138,7 @@ export default function AIStudioPanel() {
   // New state for FormatPicker and HookLab
   const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
   const [scriptParts, setScriptParts] = useState<{ hook: string; body: string; cta: string }>({ hook: "", body: "", cta: "" });
-  const [templateTab, setTemplateTab] = useState<"templates" | "viral-formats">("templates");
+  const [creativeMethod, setCreativeMethod] = useState<"ai-avatar" | "product-focused" | "stock-text">("ai-avatar");
   const [scriptTab, setScriptTab] = useState<"hook-lab" | "raw-script">("hook-lab");
 
   // Polling
@@ -532,6 +532,53 @@ export default function AIStudioPanel() {
   };
 
   // Reset wizard
+  const fetchFormatSceneStructure = async (formatSlug: string) => {
+    try {
+      const response = await authFetch(`${API}/api/video-formats/${formatSlug}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.scene_structure || [];
+      }
+    } catch (e) {
+      console.error("Failed to fetch format scene structure:", e);
+    }
+    return [];
+  };
+
+  const autoPopulateStoryboard = async () => {
+    if (!selectedFormat) return;
+    
+    const sceneStructure = await fetchFormatSceneStructure(selectedFormat);
+    if (sceneStructure.length > 0) {
+      // Map the scene structure to storyboard format
+      const autoScenes = sceneStructure.map((scene: any, index: number) => ({
+        scene: index + 1,
+        label: scene.title || `Scene ${index + 1}`,
+        seconds: scene.duration_hint || "",
+        direction: scene.description || "",
+        camera: scene.camera_angle || "",
+        mood: scene.mood || ""
+      }));
+      
+      // If script parts exist, map them to scenes
+      if (scriptParts.hook || scriptParts.body || scriptParts.cta) {
+        if (autoScenes[0] && scriptParts.hook) {
+          autoScenes[0].direction += ` Hook: ${scriptParts.hook.slice(0, 50)}...`;
+        }
+        if (autoScenes[autoScenes.length - 1] && scriptParts.cta) {
+          autoScenes[autoScenes.length - 1].direction += ` CTA: ${scriptParts.cta.slice(0, 50)}...`;
+        }
+        if (scriptParts.body && autoScenes.length > 2) {
+          for (let i = 1; i < autoScenes.length - 1; i++) {
+            autoScenes[i].direction += ` Body content: ${scriptParts.body.slice(0, 50)}...`;
+          }
+        }
+      }
+      
+      setWizardStoryboard(autoScenes);
+    }
+  };
+
   const resetWizard = () => {
     setWizardStep("template");
     setWizardTemplate(null);
@@ -545,7 +592,7 @@ export default function AIStudioPanel() {
     setPollStatus(null);
     setSelectedFormat(null);
     setScriptParts({ hook: "", body: "", cta: "" });
-    setTemplateTab("templates");
+    setCreativeMethod("ai-avatar");
     setScriptTab("hook-lab");
   };
 
@@ -744,7 +791,7 @@ export default function AIStudioPanel() {
     const stepIdx = steps.findIndex(s => s.id === wizardStep);
 
     return (
-      <div className="p-5 space-y-5">
+      <div className="w-full px-8 py-5 space-y-5">
         {/* Step indicator */}
         <div className="flex items-center gap-1 mb-2">
           {steps.map((s, i) => (
@@ -771,82 +818,84 @@ export default function AIStudioPanel() {
 
   // ── Step 1: Pick Template ──────────────────────────────
   function renderStepTemplate() {
-    const canProceed = wizardTemplate !== null || selectedFormat !== null;
+    const canProceed = selectedFormat !== null;
     
     return (
       <div className="space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-warroom-text">Choose Your Starting Point</h2>
-          <p className="text-xs text-warroom-muted mt-0.5">Pick a template with prebaked storyboard or a viral format with competitor intelligence.</p>
+          <h2 className="text-sm font-semibold text-warroom-text">Choose Your Viral Format</h2>
+          <p className="text-xs text-warroom-muted mt-0.5">Select a viral format with competitor intelligence and choose your creative method.</p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-warroom-border">
-          <button
-            onClick={() => setTemplateTab("templates")}
-            className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
-              templateTab === "templates"
-                ? "border-warroom-accent text-warroom-accent"
-                : "border-transparent text-warroom-muted hover:text-warroom-text"
-            }`}
-          >
-            Templates
-          </button>
-          <button
-            onClick={() => setTemplateTab("viral-formats")}
-            className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
-              templateTab === "viral-formats"
-                ? "border-warroom-accent text-warroom-accent"
-                : "border-transparent text-warroom-muted hover:text-warroom-text"
-            }`}
-          >
-            <span className="flex items-center gap-1.5">
-              <Sparkles size={12} />
-              Viral Formats
-            </span>
-          </button>
-        </div>
+        {/* Viral Formats Grid */}
+        <FormatPicker
+          onSelect={(format) => {
+            setSelectedFormat(format.slug);
+            setWizardTemplate(null);
+            setWizardTitle(format.name);
+            setWizardStoryboard([]);
+          }}
+          selectedFormat={selectedFormat || undefined}
+          onUseHook={(hook) => {
+            // This will be used when connecting to HookLab
+            console.log("Hook from format picker:", hook);
+          }}
+        />
 
-        {/* Tab Content */}
-        {templateTab === "templates" ? (
-          loadingTemplates ? (
-            <div className="flex justify-center py-12"><Loader2 className="animate-spin text-warroom-accent" size={24} /></div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {templates.map(tpl => (
-                <div key={tpl.id} onClick={() => { setWizardTemplate(tpl); setSelectedFormat(null); setWizardStoryboard(tpl.storyboard || []); setWizardTitle(tpl.name); }}
-                  className={`bg-warroom-surface border rounded-xl p-4 cursor-pointer transition hover:border-warroom-accent/30 ${wizardTemplate?.id === tpl.id ? "border-warroom-accent ring-1 ring-warroom-accent/30" : "border-warroom-border"}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${tpl.category === "product" ? "bg-blue-500/20" : "bg-purple-500/20"}`}>
-                      <Film size={16} className={tpl.category === "product" ? "text-blue-400" : "text-purple-400"} />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-semibold text-warroom-text">{tpl.name}</h3>
-                      <p className="text-[10px] text-warroom-muted">{tpl.category} · {tpl.duration_seconds}s</p>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-warroom-muted mb-2">{tpl.description}</p>
-                  <div className="flex items-center gap-2 text-[10px] text-warroom-muted flex-wrap">
-                    <span className="flex items-center gap-0.5"><Clock size={10} /> {tpl.duration_seconds}s</span>
-                    <span className="flex items-center gap-0.5"><FileText size={10} /> {tpl.scene_count} scenes</span>
-                    {getTemplateBadge(tpl.category, tpl.name) && (
-                      <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded-full text-[9px] font-medium">{getTemplateBadge(tpl.category, tpl.name)}</span>
-                    )}
-                  </div>
-                </div>
-              ))}
+        {/* Creative Method Selector */}
+        {selectedFormat && (
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-warroom-text">Creative Method</h3>
+              <p className="text-xs text-warroom-muted mt-0.5">How do you want to create this video?</p>
             </div>
-          )
-        ) : (
-          <FormatPicker
-            onSelect={(format) => {
-              setSelectedFormat(format.slug);
-              setWizardTemplate(null);
-              setWizardTitle(format.name);
-              setWizardStoryboard([]);
-            }}
-            selectedFormat={selectedFormat || undefined}
-          />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <button
+                onClick={() => setCreativeMethod("ai-avatar")}
+                className={`p-4 rounded-xl border text-left transition ${
+                  creativeMethod === "ai-avatar"
+                    ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
+                    : "border-warroom-border bg-warroom-surface text-warroom-text hover:border-warroom-accent/30"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">🤖</span>
+                  <span className="text-xs font-semibold">AI Avatar (Digital Copy)</span>
+                </div>
+                <p className="text-xs text-warroom-muted">Uses digital copy + Kling/Veo for key scenes</p>
+              </button>
+              
+              <button
+                onClick={() => setCreativeMethod("product-focused")}
+                className={`p-4 rounded-xl border text-left transition ${
+                  creativeMethod === "product-focused"
+                    ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
+                    : "border-warroom-border bg-warroom-surface text-warroom-text hover:border-warroom-accent/30"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">📦</span>
+                  <span className="text-xs font-semibold">Product-Focused (Remotion/B-Roll)</span>
+                </div>
+                <p className="text-xs text-warroom-muted">Remotion templates + product images</p>
+              </button>
+              
+              <button
+                onClick={() => setCreativeMethod("stock-text")}
+                className={`p-4 rounded-xl border text-left transition ${
+                  creativeMethod === "stock-text"
+                    ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
+                    : "border-warroom-border bg-warroom-surface text-warroom-text hover:border-warroom-accent/30"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">📝</span>
+                  <span className="text-xs font-semibold">Stock/Text-Only</span>
+                </div>
+                <p className="text-xs text-warroom-muted">Pure Remotion with text overlays and stock footage</p>
+              </button>
+            </div>
+          </div>
         )}
 
         <div className="flex justify-end">
@@ -862,7 +911,7 @@ export default function AIStudioPanel() {
   // ── Step 2: Settings ───────────────────────────────────
   function renderStepSettings() {
     return (
-      <div className="space-y-5 max-w-xl">
+      <div className="space-y-5">
         <div>
           <h2 className="text-sm font-semibold text-warroom-text">Video Settings</h2>
           <p className="text-xs text-warroom-muted mt-0.5">Configure the style and assets for this video.</p>
@@ -1000,7 +1049,7 @@ export default function AIStudioPanel() {
             initialScript={scriptParts}
           />
         ) : (
-          <div className="max-w-2xl space-y-5">
+          <div className="space-y-5">
             {/* ✨ AI Script Generator (collapsible) */}
             <div className="bg-warroom-surface border border-warroom-border rounded-xl overflow-hidden">
               <button onClick={() => setScriptGenOpen(!scriptGenOpen)}
@@ -1078,11 +1127,15 @@ export default function AIStudioPanel() {
 
         <div className="flex justify-between">
           <button onClick={() => setWizardStep("settings")} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Back</button>
-          <button onClick={() => {
+          <button onClick={async () => {
             // When going to storyboard, ensure the full script is combined from parts if using Hook Lab
             if (scriptTab === "hook-lab" && scriptParts.hook && scriptParts.body && scriptParts.cta) {
               const fullScript = `${scriptParts.hook}\n\n${scriptParts.body}\n\n${scriptParts.cta}`;
               setWizardScript(fullScript);
+            }
+            // Auto-populate storyboard from format if it's empty
+            if (wizardStoryboard.length === 0) {
+              await autoPopulateStoryboard();
             }
             setWizardStep("storyboard");
           }} className="px-4 py-2 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 transition flex items-center gap-1">Next <ChevronRight size={14} /></button>
@@ -1152,7 +1205,7 @@ export default function AIStudioPanel() {
   // ── Step 5: Generate ───────────────────────────────────
   function renderStepGenerate() {
     return (
-      <div className="space-y-5 max-w-2xl">
+      <div className="space-y-5">
         <div>
           <h2 className="text-sm font-semibold text-warroom-text">Review & Generate</h2>
           <p className="text-xs text-warroom-muted mt-0.5">Review your video setup and hit generate to start processing via Veo 3.1.</p>

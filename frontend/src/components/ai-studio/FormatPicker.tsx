@@ -17,23 +17,27 @@ interface VideoFormat {
 }
 
 interface CompetitorPost {
-  handle: string;
+  id?: number;
+  competitor_handle: string;
   platform: string;
-  text_excerpt: string;
-  engagement: {
-    likes: number;
-    comments: number;
-    shares: number;
-  };
+  post_text: string;
   hook?: string;
+  likes: number;
+  comments: number;
+  shares: number;
+  engagement_score?: number;
+  post_url?: string;
+  posted_at?: string;
+  media_type?: string;
 }
 
 interface FormatPickerProps {
   onSelect: (format: VideoFormat) => void;
   selectedFormat?: string;
+  onUseHook?: (hook: string) => void;
 }
 
-export default function FormatPicker({ onSelect, selectedFormat }: FormatPickerProps) {
+export default function FormatPicker({ onSelect, selectedFormat, onUseHook }: FormatPickerProps) {
   const [formats, setFormats] = useState<VideoFormat[]>([]);
   const [loading, setLoading] = useState(true);
   const [examplesOpen, setExamplesOpen] = useState(false);
@@ -168,16 +172,22 @@ export default function FormatPicker({ onSelect, selectedFormat }: FormatPickerP
         // Fallback examples
         setSelectedFormatExamples([
           {
-            handle: "example_creator",
+            competitor_handle: "example_creator",
             platform: "instagram",
-            text_excerpt: "Wait, you guys are still doing it the old way? Let me show you what I discovered...",
-            engagement: { likes: 15420, comments: 347, shares: 892 }
+            post_text: "Wait, you guys are still doing it the old way? Let me show you what I discovered...",
+            likes: 15420,
+            comments: 347,
+            shares: 892,
+            post_url: "https://instagram.com/example"
           },
           {
-            handle: "viral_tips",
+            competitor_handle: "viral_tips",
             platform: "tiktok", 
-            text_excerpt: "Nobody talks about this but here's the secret that changed everything for me...",
-            engagement: { likes: 28750, comments: 612, shares: 1205 }
+            post_text: "Nobody talks about this but here's the secret that changed everything for me...",
+            likes: 28750,
+            comments: 612,
+            shares: 1205,
+            post_url: "https://tiktok.com/example"
           }
         ]);
       }
@@ -200,10 +210,18 @@ export default function FormatPicker({ onSelect, selectedFormat }: FormatPickerP
   };
 
   const handleUseHook = (post: CompetitorPost) => {
-    // Pass the hook back to parent - this would need to be connected to the parent component
-    console.log("Use hook:", post.text_excerpt);
-    // For now, just close the drawer
+    // Extract hook from post text (first sentence or line)
+    const hook = post.post_text.split('\n')[0] || post.post_text.slice(0, 80);
+    if (onUseHook) {
+      onUseHook(hook);
+    }
     closeExamples();
+  };
+
+  const handleViewOriginal = (url: string) => {
+    if (url) {
+      window.open(url, '_blank');
+    }
   };
 
   if (loading) {
@@ -341,38 +359,48 @@ export default function FormatPicker({ onSelect, selectedFormat }: FormatPickerP
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-warroom-accent/10 flex items-center justify-center">
                         <span className="text-xs font-bold text-warroom-accent">
-                          @{post.handle.slice(0, 2).toUpperCase()}
+                          @{(post.competitor_handle || '').slice(0, 2).toUpperCase()}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-medium text-warroom-text">
-                          @{post.handle}
+                          @{post.competitor_handle || 'unknown'}
                         </div>
                         <div className="text-xs text-warroom-muted capitalize">
-                          {post.platform}
+                          {post.platform || 'unknown'}
                         </div>
                       </div>
                     </div>
 
                     {/* Post Text */}
                     <p className="text-sm text-warroom-text leading-relaxed">
-                      {post.text_excerpt}
+                      {(post.post_text || '').length > 120 ? `${post.post_text.slice(0, 120)}...` : post.post_text}
                     </p>
 
                     {/* Engagement Stats */}
                     <div className="flex items-center gap-4 text-xs text-warroom-muted">
-                      <span>❤️ {post.engagement.likes.toLocaleString()}</span>
-                      <span>💬 {post.engagement.comments.toLocaleString()}</span>
-                      <span>🔄 {post.engagement.shares.toLocaleString()}</span>
+                      <span>❤️ {(post.likes || 0).toLocaleString()}</span>
+                      <span>💬 {(post.comments || 0).toLocaleString()}</span>
+                      <span>🔄 {(post.shares || 0).toLocaleString()}</span>
                     </div>
 
-                    {/* Use Hook Button */}
-                    <button
-                      onClick={() => handleUseHook(post)}
-                      className="w-full py-2 px-3 bg-warroom-accent/20 text-warroom-accent text-xs font-medium rounded-lg hover:bg-warroom-accent/30 transition-colors"
-                    >
-                      Use This Hook
-                    </button>
+                    {/* Action Buttons */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleUseHook(post)}
+                        className="flex-1 py-2 px-3 bg-warroom-accent/20 text-warroom-accent text-xs font-medium rounded-lg hover:bg-warroom-accent/30 transition-colors"
+                      >
+                        ⚡ Use This Script Structure
+                      </button>
+                      {post.post_url && (
+                        <button
+                          onClick={() => handleViewOriginal(post.post_url!)}
+                          className="px-3 py-2 bg-warroom-bg border border-warroom-border text-warroom-muted text-xs rounded-lg hover:border-warroom-accent/50 hover:text-warroom-accent transition-colors"
+                        >
+                          🔗 View Original
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))
               )}
