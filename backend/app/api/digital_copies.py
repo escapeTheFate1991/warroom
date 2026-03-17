@@ -26,6 +26,7 @@ from app.db.crm_db import get_tenant_db
 from app.services.tenant import get_org_id, get_user_id
 from app.api.auth import get_current_user
 from app.models.crm.user import User
+from app.services import nano_banana
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -45,6 +46,27 @@ def get_s3_client():
 
 S3_BUCKET = os.environ.get('GARAGE_BUCKET_DIGITAL_COPIES', 'digital-copies')
 S3_PUBLIC_URL = os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900')
+
+
+def get_presigned_url(s3_key: str, expires_in: int = 3600) -> str:
+    """Generate a presigned URL for an S3 object."""
+    s3 = get_s3_client()
+    return s3.generate_presigned_url(
+        'get_object',
+        Params={'Bucket': S3_BUCKET, 'Key': s3_key},
+        ExpiresIn=expires_in
+    )
+
+
+def s3_url_to_presigned(image_url: str) -> str:
+    """Convert a stored S3 URL to a presigned URL for frontend access."""
+    if not image_url:
+        return image_url
+    prefix = f"{S3_PUBLIC_URL}/{S3_BUCKET}/"
+    if image_url.startswith(prefix):
+        s3_key = image_url[len(prefix):]
+        return get_presigned_url(s3_key)
+    return image_url
 
 # Upload directory configuration (now used only for temp files)
 UPLOAD_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
@@ -70,6 +92,8 @@ class DigitalCopyUpdate(BaseModel):
     training_meta: Optional[Dict[str, Any]] = None
     prompt_anchor: Optional[str] = None
     status: Optional[str] = None
+    character_dna: Optional[Dict[str, Any]] = None
+    target_format: Optional[str] = None
 
 
 class ImageResponse(BaseModel):
@@ -93,6 +117,10 @@ class DigitalCopyResponse(BaseModel):
     base_model: str
     training_meta: Dict[str, Any]
     prompt_anchor: Optional[str]
+    character_dna: Dict[str, Any] = {}
+    reference_sheet_url: Optional[str] = None
+    style_dna_url: Optional[str] = None
+    target_format: str = "talking_head"
     created_at: datetime
     updated_at: datetime
     images: List[ImageResponse] = []
@@ -456,6 +484,7 @@ async def list_digital_copies(
             WHERE dc.org_id = :org_id
             GROUP BY dc.id, dc.org_id, dc.user_id, dc.name, dc.trigger_token, 
                      dc.status, dc.base_model, dc.training_meta, dc.prompt_anchor,
+                     dc.character_dna, dc.reference_sheet_url, dc.style_dna_url, dc.target_format,
                      dc.created_at, dc.updated_at
             ORDER BY dc.created_at DESC
         """),
@@ -465,7 +494,10 @@ async def list_digital_copies(
     copies = []
     for row in result.mappings().all():
         copy_data = dict(row)
-        copy_data["images"] = [ImageResponse(**img) for img in copy_data["images"]]
+        copy_data["images"] = [
+            ImageResponse(**{**img, "image_url": s3_url_to_presigned(img.get("image_url", ""))})
+            for img in copy_data["images"]
+        ]
         copies.append(DigitalCopyResponse(**copy_data))
     
     return copies
@@ -504,6 +536,7 @@ async def get_digital_copy(
             WHERE dc.id = :copy_id AND dc.org_id = :org_id
             GROUP BY dc.id, dc.org_id, dc.user_id, dc.name, dc.trigger_token, 
                      dc.status, dc.base_model, dc.training_meta, dc.prompt_anchor,
+                     dc.character_dna, dc.reference_sheet_url, dc.style_dna_url, dc.target_format,
                      dc.created_at, dc.updated_at
         """),
         {"copy_id": copy_id, "org_id": org_id}
@@ -514,7 +547,10 @@ async def get_digital_copy(
         raise HTTPException(status_code=404, detail="Digital copy not found")
     
     copy_data = dict(row)
-    copy_data["images"] = [ImageResponse(**img) for img in copy_data["images"]]
+    copy_data["images"] = [
+        ImageResponse(**{**img, "image_url": s3_url_to_presigned(img.get("image_url", ""))})
+        for img in copy_data["images"]
+    ]
     return DigitalCopyResponse(**copy_data)
 
 
@@ -542,10 +578,31 @@ async def create_digital_copy(
             detail=f"Trigger token '{trigger_token}' already exists. Please use a different name."
         )
     
+    # Initialize Character DNA scaffold
+    initial_dna = {
+        "identity_id": f"dc_{trigger_token}",
+        "biological_anchors": {
+            "facial_structure": "",
+            "eyes": {"color": "", "shape": "", "distinction": ""},
+            "hair": {"style": "", "color": "", "texture": ""},
+            "skin": {"tone": "", "texture": "", "pore_detail": ""}
+        },
+        "visual_consistency_assets": {
+            "reference_sheet_url": None,
+            "style_dna": "cinematic 35mm film, soft Rembrandt lighting, f/2.8 depth of field",
+            "fixed_elements": []
+        },
+        "movement_profile": {
+            "posture": "",
+            "gait": "",
+            "micro_expressions": []
+        }
+    }
+
     result = await db.execute(
         text("""
-            INSERT INTO crm.digital_copies (org_id, user_id, name, trigger_token, base_model)
-            VALUES (:org_id, :user_id, :name, :trigger_token, :base_model)
+            INSERT INTO crm.digital_copies (org_id, user_id, name, trigger_token, base_model, character_dna)
+            VALUES (:org_id, :user_id, :name, :trigger_token, :base_model, :character_dna::jsonb)
             RETURNING *
         """),
         {
@@ -553,7 +610,8 @@ async def create_digital_copy(
             "user_id": user_id,
             "name": copy_data.name,
             "trigger_token": trigger_token,
-            "base_model": copy_data.base_model
+            "base_model": copy_data.base_model,
+            "character_dna": json.dumps(initial_dna)
         }
     )
     await db.commit()
@@ -600,6 +658,15 @@ async def update_digital_copy(
     if update_data.status is not None:
         update_fields.append("status = :status")
         params["status"] = update_data.status
+    
+    if update_data.character_dna is not None:
+        update_fields.append("character_dna = :character_dna::jsonb")
+        import json as _json
+        params["character_dna"] = _json.dumps(update_data.character_dna)
+    
+    if update_data.target_format is not None:
+        update_fields.append("target_format = :target_format")
+        params["target_format"] = update_data.target_format
     
     if not update_fields:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -694,12 +761,7 @@ async def upload_images(
         raise HTTPException(status_code=404, detail="Digital copy not found")
     
     # Validate image_type
-    valid_types = ["close_up", "full_body", "quarter_body", "profile_left", "profile_right", "other"]
-    if image_type not in valid_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid image_type. Must be one of: {', '.join(valid_types)}"
-        )
+    # Accept any image_type — no validation needed
     
     # Accept both single 'file' and multiple 'files'
     all_files = []
@@ -1169,3 +1231,204 @@ async def build_prompt(
         character_token=character_token,
         anchor_weight=anchor_weight
     )
+
+
+@router.post("/digital-copies/{copy_id}/generate-reference-sheet")
+async def generate_reference_sheet(
+    copy_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate Master Reference Sheet from uploaded images using Nano Banana 2"""
+    org_id = get_org_id(request)
+    
+    # Get digital copy with current images
+    result = await db.execute(
+        text("""
+            SELECT dc.*, 
+                   COALESCE(
+                       json_agg(
+                           json_build_object(
+                               'id', dci.id,
+                               'image_url', dci.image_url
+                           ) ORDER BY dci.uploaded_at
+                       ) FILTER (WHERE dci.id IS NOT NULL), 
+                       '[]'::json
+                   ) as images
+            FROM crm.digital_copies dc
+            LEFT JOIN crm.digital_copy_images dci ON dc.id = dci.digital_copy_id
+            WHERE dc.id = :copy_id AND dc.org_id = :org_id
+            GROUP BY dc.id, dc.org_id, dc.user_id, dc.name, dc.trigger_token, 
+                     dc.status, dc.base_model, dc.training_meta, dc.prompt_anchor,
+                     dc.character_dna, dc.reference_sheet_url, dc.style_dna_url, dc.target_format,
+                     dc.created_at, dc.updated_at
+        """),
+        {"copy_id": copy_id, "org_id": org_id}
+    )
+    
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Digital copy not found")
+    
+    copy_data = dict(row)
+    images = copy_data["images"]
+    
+    if not images:
+        raise HTTPException(status_code=400, detail="No images found for reference sheet generation")
+    
+    try:
+        # Download all images from S3
+        image_bytes_list = []
+        for image_info in images:
+            image_url = image_info["image_url"]
+            # Convert to presigned URL if needed
+            if image_url.startswith(f"{S3_PUBLIC_URL}/{S3_BUCKET}/"):
+                s3_key = image_url[len(f"{S3_PUBLIC_URL}/{S3_BUCKET}/"):]
+                image_url = get_presigned_url(s3_key)
+            
+            image_bytes = await nano_banana.download_image_bytes(image_url)
+            image_bytes_list.append(image_bytes)
+        
+        # Generate reference sheet using Nano Banana 2
+        reference_sheet_bytes = await nano_banana.generate_reference_sheet(
+            reference_images=image_bytes_list,
+            character_name=copy_data["name"],
+            character_dna=copy_data["character_dna"],
+            db=db
+        )
+        
+        # Upload reference sheet to S3
+        s3_client = get_s3_client()
+        ref_sheet_key = f"{copy_id}/reference_sheet.jpg"
+        
+        import io
+        s3_client.upload_fileobj(
+            io.BytesIO(reference_sheet_bytes),
+            S3_BUCKET,
+            ref_sheet_key,
+            ExtraArgs={'ContentType': 'image/jpeg'}
+        )
+        
+        reference_sheet_url = f"{S3_PUBLIC_URL}/{S3_BUCKET}/{ref_sheet_key}"
+        
+        # Enrich character DNA with biological anchors
+        enriched_dna = await nano_banana.enrich_character_dna(
+            reference_images=image_bytes_list,
+            current_dna=copy_data["character_dna"],
+            db=db
+        )
+        
+        # Update the digital copy with reference sheet URL and enriched DNA
+        await db.execute(
+            text("""
+                UPDATE crm.digital_copies 
+                SET reference_sheet_url = :reference_sheet_url,
+                    character_dna = :character_dna::jsonb,
+                    updated_at = NOW()
+                WHERE id = :copy_id AND org_id = :org_id
+            """),
+            {
+                "copy_id": copy_id,
+                "org_id": org_id,
+                "reference_sheet_url": reference_sheet_url,
+                "character_dna": json.dumps(enriched_dna)
+            }
+        )
+        await db.commit()
+        
+        # Return presigned URL for the generated reference sheet
+        presigned_url = get_presigned_url(ref_sheet_key)
+        
+        return {
+            "ok": True,
+            "reference_sheet_url": presigned_url,
+            "message": "Reference sheet generated successfully",
+            "character_dna_enriched": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to generate reference sheet for copy {copy_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate reference sheet: {str(e)}")
+
+
+class GenerateSceneRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, description="Scene description")
+    style_override: Optional[str] = Field(None, description="Optional style override")
+
+
+@router.post("/digital-copies/{copy_id}/generate-scene")
+async def generate_scene(
+    copy_id: int,
+    scene_request: GenerateSceneRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate scene image using reference sheet and character DNA"""
+    org_id = get_org_id(request)
+    
+    # Get digital copy with reference sheet
+    result = await db.execute(
+        text("""
+            SELECT reference_sheet_url, character_dna, name
+            FROM crm.digital_copies
+            WHERE id = :copy_id AND org_id = :org_id
+        """),
+        {"copy_id": copy_id, "org_id": org_id}
+    )
+    
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Digital copy not found")
+    
+    copy_data = dict(row)
+    reference_sheet_url = copy_data["reference_sheet_url"]
+    
+    if not reference_sheet_url:
+        raise HTTPException(
+            status_code=400, 
+            detail="No reference sheet found. Generate reference sheet first."
+        )
+    
+    try:
+        # Convert to presigned URL if needed
+        if reference_sheet_url.startswith(f"{S3_PUBLIC_URL}/{S3_BUCKET}/"):
+            s3_key = reference_sheet_url[len(f"{S3_PUBLIC_URL}/{S3_BUCKET}/"):]
+            reference_sheet_url = get_presigned_url(s3_key)
+        
+        # Generate scene using Nano Banana 2
+        scene_image_bytes = await nano_banana.generate_scene(
+            reference_sheet_url=reference_sheet_url,
+            scene_prompt=scene_request.prompt,
+            character_dna=copy_data["character_dna"],
+            style_dna=scene_request.style_override,
+            db=db
+        )
+        
+        # Upload scene image to S3
+        scene_uuid = str(uuid.uuid4())
+        s3_client = get_s3_client()
+        scene_key = f"{copy_id}/scenes/{scene_uuid}.jpg"
+        
+        import io
+        s3_client.upload_fileobj(
+            io.BytesIO(scene_image_bytes),
+            S3_BUCKET,
+            scene_key,
+            ExtraArgs={'ContentType': 'image/jpeg'}
+        )
+        
+        # Return presigned URL for the generated scene
+        presigned_url = get_presigned_url(scene_key)
+        
+        return {
+            "ok": True,
+            "scene_image_url": presigned_url,
+            "scene_id": scene_uuid,
+            "message": "Scene generated successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to generate scene for copy {copy_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate scene: {str(e)}")
