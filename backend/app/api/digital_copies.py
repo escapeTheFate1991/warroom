@@ -477,6 +477,9 @@ async def upload_images(
             # Analyze image quality
             quality_data = analyze_image_quality(file_path)
             
+            # Generate URL for frontend (relative to the static mount)
+            image_url = f"/uploads/digital_copies/{copy_id}/{safe_filename}"
+            
             # Store in database
             result = await db.execute(
                 text("""
@@ -489,7 +492,7 @@ async def upload_images(
                 {
                     "copy_id": copy_id,
                     "image_type": image_type,
-                    "image_url": file_path,
+                    "image_url": image_url,
                     "width": quality_data["width"],
                     "height": quality_data["height"],
                     "quality_score": quality_data["quality_score"]

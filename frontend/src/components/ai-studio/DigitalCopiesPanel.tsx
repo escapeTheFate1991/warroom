@@ -29,19 +29,24 @@ interface DigitalCopyImage {
 }
 
 interface QualityAudit {
-  image_count: number;
-  target_image_count: number;
-  quality_score: number;
+  total_images: number;
+  target_images: number;
+  quality_ok: boolean;
   angle_coverage: {
-    close_up: boolean;
-    full_body: boolean;
-    quarter_body: boolean;
-    profile_left: boolean;
-    profile_right: boolean;
-    other: boolean;
+    close_up: number;
+    full_body: number;
+    quarter_body: number;
+    profile_left: number;
+    profile_right: number;
+    other: number;
   };
-  recommendations: string[];
-  passes_audit: boolean;
+  missing_angles: string[];
+  avg_resolution: {
+    width: number;
+    height: number;
+  };
+  ready_for_training: boolean;
+  recommendation: string;
 }
 
 type CreatorStep = "name" | "upload" | "audit";
@@ -649,26 +654,26 @@ export default function DigitalCopiesPanel() {
                       <div className="space-y-6">
                         {/* Gauges */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                          {renderGauge(qualityAudit.image_count, qualityAudit.target_image_count, "Image Count")}
-                          {renderGauge(Math.round(qualityAudit.quality_score), 100, "Quality Score")}
+                          {renderGauge(qualityAudit.total_images, qualityAudit.target_images, "Image Count")}
+                          {renderGauge(qualityAudit.quality_ok ? 100 : 50, 100, "Quality Check")}
                         </div>
 
                         {/* Angle Coverage */}
                         <div>
                           <h4 className="text-sm font-semibold text-warroom-text mb-3">Angle Coverage</h4>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {Object.entries(qualityAudit.angle_coverage).map(([angle, covered]) => (
+                            {Object.entries(qualityAudit.angle_coverage).map(([angle, count]) => (
                               <div key={angle} className={`p-3 rounded-lg border ${
-                                covered ? "border-green-500/30 bg-green-500/10" : "border-red-500/30 bg-red-500/10"
+                                count > 0 ? "border-green-500/30 bg-green-500/10" : "border-red-500/30 bg-red-500/10"
                               }`}>
                                 <div className="flex items-center gap-2">
-                                  {covered ? (
+                                  {count > 0 ? (
                                     <CheckCircle size={16} className="text-green-400" />
                                   ) : (
                                     <X size={16} className="text-red-400" />
                                   )}
                                   <span className="text-sm font-medium text-warroom-text capitalize">
-                                    {angle.replace("_", " ")}
+                                    {angle.replace("_", " ")} ({count})
                                   </span>
                                 </div>
                               </div>
@@ -676,19 +681,14 @@ export default function DigitalCopiesPanel() {
                           </div>
                         </div>
 
-                        {/* Recommendations */}
-                        {qualityAudit.recommendations.length > 0 && (
+                        {/* Recommendation */}
+                        {qualityAudit.recommendation && (
                           <div>
-                            <h4 className="text-sm font-semibold text-warroom-text mb-3">Recommendations</h4>
+                            <h4 className="text-sm font-semibold text-warroom-text mb-3">Recommendation</h4>
                             <div className="bg-warroom-bg rounded-lg p-4">
-                              <ul className="space-y-2">
-                                {qualityAudit.recommendations.map((rec, index) => (
-                                  <li key={index} className="text-sm text-warroom-muted flex items-start gap-2">
-                                    <span className="text-warroom-accent mt-0.5">•</span>
-                                    {rec}
-                                  </li>
-                                ))}
-                              </ul>
+                              <p className="text-sm text-warroom-muted">
+                                {qualityAudit.recommendation}
+                              </p>
                             </div>
                           </div>
                         )}
@@ -710,7 +710,7 @@ export default function DigitalCopiesPanel() {
                     </button>
                     <button
                       onClick={generateCharacter}
-                      disabled={!qualityAudit?.passes_audit}
+                      disabled={!qualityAudit?.ready_for_training}
                       className="px-6 py-2 bg-warroom-accent text-white rounded-lg hover:bg-warroom-accent/80 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2"
                     >
                       <Sparkles size={16} />

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate, digital_copies
 from app.api import entities, goals, approvals, task_checkout, budget
@@ -685,3 +686,9 @@ app.include_router(audit.router, prefix="/api/crm", tags=["crm-audit"])
 app.include_router(pipeline_board.router, prefix="/api/crm", tags=["crm-pipeline-board"])
 app.include_router(workflows.router, prefix="/api/crm", tags=["crm-workflows"])
 app.include_router(workflow_executions.router, prefix="/api/crm", tags=["crm-workflow-executions"])
+
+# Static file serving for uploads
+import os
+UPLOAD_BASE_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(UPLOAD_BASE_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_BASE_DIR), name="uploads")
