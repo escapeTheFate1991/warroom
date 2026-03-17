@@ -13,6 +13,7 @@ import dynamic from "next/dynamic";
 import FormatPicker from "./FormatPicker";
 import HookLab from "./HookLab";
 import DistributionPanel from "./DistributionPanel";
+import PerformanceDashboard from "./PerformanceDashboard";
 
 const VideoEditor = dynamic(() => import("./VideoEditor"), {
   loading: () => (
@@ -127,7 +128,7 @@ interface CompetitorVideo {
   media_type: string;
 }
 
-type MainTab = "create-video" | "digital-copies" | "templatizer" | "projects" | "motion-control" | "video-editor";
+type MainTab = "create-video" | "digital-copies" | "templatizer" | "projects" | "performance" | "motion-control" | "video-editor";
 type WizardStep = "template" | "settings" | "script" | "storyboard" | "generate";
 
 export default function AIStudioPanel() {
@@ -747,6 +748,7 @@ export default function AIStudioPanel() {
           { id: "digital-copies", label: "Digital Copies", icon: User },
           { id: "templatizer", label: "Templatizer", icon: Zap },
           { id: "projects", label: "My Projects", icon: Film },
+          { id: "performance", label: "Performance", icon: BarChart },
         ]}
         active={activeTab}
         onChange={(id) => { setActiveTab(id as MainTab); if (id === "templatizer" && competitorVideos.length === 0) fetchCompetitorVideos(); }}
@@ -761,6 +763,7 @@ export default function AIStudioPanel() {
         {activeTab === "motion-control" && renderMotionControl()}
         {activeTab === "templatizer" && renderTemplatizer()}
         {activeTab === "projects" && renderProjects()}
+        {activeTab === "performance" && <PerformanceDashboard />}
       </div>
     </div>
   );
