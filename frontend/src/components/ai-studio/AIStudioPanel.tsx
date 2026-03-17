@@ -837,8 +837,13 @@ export default function AIStudioPanel() {
           }}
           selectedFormat={selectedFormat || undefined}
           onUseHook={(hook) => {
-            // This will be used when connecting to HookLab
-            console.log("Hook from format picker:", hook);
+            // Update script parts with the hook and switch to Hook Lab
+            setScriptParts(prev => ({ ...prev, hook }));
+            setScriptTab("hook-lab");
+            // Advance to script step if not already there
+            if (wizardStep === "template") {
+              setWizardStep("script");
+            }
           }}
         />
 
