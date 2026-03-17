@@ -58,6 +58,12 @@ services:
       VOICE_IO_SCRIPTS_PATH: /voice-io-scripts
       # Chatterbox TTS service
       CHATTERBOX_URL: ${CHATTERBOX_URL:-http://localhost:8401}
+      # Garage S3 for digital copies storage
+      GARAGE_ENDPOINT: http://10.0.0.11:3900
+      GARAGE_ACCESS_KEY: GK6d3eb1c7bc06e00d77b8f89c
+      GARAGE_SECRET_KEY: 370b99ef00dbfee300e3d73b69b217a7f5633935b02b86ee37f5691aacdf602b
+      GARAGE_REGION: ai-local
+      GARAGE_BUCKET_DIGITAL_COPIES: digital-copies
     restart: unless-stopped
     network_mode: host
     volumes:

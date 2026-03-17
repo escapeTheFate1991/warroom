@@ -7,6 +7,7 @@ import os
 import re
 import uuid
 import logging
+import tempfile
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
@@ -25,7 +26,23 @@ from app.models.crm.user import User
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Upload directory configuration
+# S3 Configuration
+def get_s3_client():
+    import boto3
+    from botocore.config import Config
+    return boto3.client(
+        's3',
+        endpoint_url=os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900'),
+        aws_access_key_id=os.environ.get('GARAGE_ACCESS_KEY', 'GK6d3eb1c7bc06e00d77b8f89c'),
+        aws_secret_access_key=os.environ.get('GARAGE_SECRET_KEY', '370b99ef00dbfee300e3d73b69b217a7f5633935b02b86ee37f5691aacdf602b'),
+        region_name=os.environ.get('GARAGE_REGION', 'ai-local'),
+        config=Config(signature_version='s3v4')
+    )
+
+S3_BUCKET = os.environ.get('GARAGE_BUCKET_DIGITAL_COPIES', 'digital-copies')
+S3_PUBLIC_URL = os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900')
+
+# Upload directory configuration (now used only for temp files)
 UPLOAD_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50 MB
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -123,10 +140,9 @@ def generate_trigger_token(name: str) -> str:
 
 
 async def ensure_upload_directory(copy_id: int) -> str:
-    """Create and return upload directory for digital copy"""
-    upload_dir = os.path.join(UPLOAD_BASE_DIR, "digital_copies", str(copy_id))
-    os.makedirs(upload_dir, exist_ok=True)
-    return upload_dir
+    """Create and return temp directory for digital copy image processing"""
+    temp_dir = tempfile.mkdtemp(prefix=f"digital_copy_{copy_id}_")
+    return temp_dir
 
 
 def validate_image_file(file: UploadFile) -> Dict[str, Any]:
@@ -409,14 +425,26 @@ async def delete_digital_copy(
     if not result.first():
         raise HTTPException(status_code=404, detail="Digital copy not found")
     
-    # Clean up uploaded files
+    # Clean up S3 objects for this copy
     try:
-        upload_dir = os.path.join(UPLOAD_BASE_DIR, "digital_copies", str(copy_id))
-        if os.path.exists(upload_dir):
-            import shutil
-            shutil.rmtree(upload_dir)
+        s3_client = get_s3_client()
+        # List all objects with the copy_id prefix
+        response = s3_client.list_objects_v2(
+            Bucket=S3_BUCKET,
+            Prefix=f"{copy_id}/"
+        )
+        
+        if 'Contents' in response:
+            # Delete all objects for this copy
+            objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+            if objects_to_delete:
+                s3_client.delete_objects(
+                    Bucket=S3_BUCKET,
+                    Delete={'Objects': objects_to_delete}
+                )
+                logger.info(f"Deleted {len(objects_to_delete)} S3 objects for copy {copy_id}")
     except Exception as e:
-        logger.warning(f"Failed to clean up upload directory for copy {copy_id}: {e}")
+        logger.warning(f"Failed to clean up S3 objects for copy {copy_id}: {e}")
     
     return {"ok": True, "message": "Digital copy deleted successfully"}
 
@@ -459,8 +487,9 @@ async def upload_images(
     if not all_files:
         raise HTTPException(status_code=400, detail="No files provided")
     
-    upload_dir = await ensure_upload_directory(copy_id)
+    temp_dir = await ensure_upload_directory(copy_id)
     uploaded_images = []
+    s3_client = get_s3_client()
     
     for file in all_files:
         try:
@@ -468,17 +497,38 @@ async def upload_images(
             validation = validate_image_file(file)
             safe_filename = validation["safe_filename"]
             
-            # Save file
-            file_path = os.path.join(upload_dir, safe_filename)
-            with open(file_path, "wb") as f:
+            # Save file to temp location for analysis
+            temp_file_path = os.path.join(temp_dir, safe_filename)
+            with open(temp_file_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
             
-            # Analyze image quality
-            quality_data = analyze_image_quality(file_path)
+            # Analyze image quality from temp file
+            quality_data = analyze_image_quality(temp_file_path)
             
-            # Generate URL for frontend (relative to the static mount)
-            image_url = f"/uploads/digital_copies/{copy_id}/{safe_filename}"
+            # Upload to S3
+            s3_key = f"{copy_id}/{safe_filename}"
+            try:
+                with open(temp_file_path, "rb") as f:
+                    s3_client.upload_fileobj(
+                        f,
+                        S3_BUCKET,
+                        s3_key,
+                        ExtraArgs={'ContentType': file.content_type or 'image/jpeg'}
+                    )
+                logger.info(f"Uploaded {s3_key} to S3 bucket {S3_BUCKET}")
+            except Exception as s3_error:
+                logger.error(f"S3 upload failed for {s3_key}: {s3_error}")
+                raise HTTPException(status_code=500, detail=f"Failed to upload {safe_filename} to storage")
+            
+            # Clean up temp file
+            try:
+                os.remove(temp_file_path)
+            except Exception:
+                pass
+            
+            # Generate S3 URL for database storage
+            image_url = f"{S3_PUBLIC_URL}/{S3_BUCKET}/{s3_key}"
             
             # Store in database
             result = await db.execute(
@@ -505,6 +555,13 @@ async def upload_images(
         except Exception as e:
             logger.error(f"Error uploading image {file.filename}: {e}")
             raise HTTPException(status_code=500, detail=f"Error uploading {file.filename}: {str(e)}")
+    
+    # Clean up temp directory
+    try:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    except Exception:
+        pass
     
     await db.commit()
     return {"ok": True, "uploaded": len(uploaded_images), "images": uploaded_images}
@@ -545,12 +602,20 @@ async def delete_image(
     )
     await db.commit()
     
-    # Delete file
+    # Delete from S3
     try:
-        if os.path.exists(image_path):
-            os.remove(image_path)
+        # Extract S3 key from URL (format: http://10.0.0.11:3900/digital-copies/copy_id/filename)
+        if image_path.startswith(S3_PUBLIC_URL):
+            s3_key = image_path.replace(f"{S3_PUBLIC_URL}/{S3_BUCKET}/", "")
+            s3_client = get_s3_client()
+            s3_client.delete_object(Bucket=S3_BUCKET, Key=s3_key)
+            logger.info(f"Deleted S3 object: {s3_key}")
+        else:
+            # Fallback for old local file paths
+            if os.path.exists(image_path):
+                os.remove(image_path)
     except Exception as e:
-        logger.warning(f"Failed to delete image file {image_path}: {e}")
+        logger.warning(f"Failed to delete image {image_path}: {e}")
     
     return {"ok": True, "message": "Image deleted successfully"}
 
