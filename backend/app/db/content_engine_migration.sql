@@ -52,7 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_content_performance_org_id ON crm.content_perform
 CREATE INDEX IF NOT EXISTS idx_content_performance_format ON crm.content_performance_feedback(format_slug);
 
 -- Seed the 8 viral video formats (org_id = 0 for system formats)
-INSERT INTO crm.video_formats (org_id, slug, name, description, why_it_works, hook_patterns, scene_structure, is_system)
+INSERT INTO crm.video_formats (org_id, slug, name, description, why_it_works, hook_patterns, scene_structure)
 VALUES 
 (0, 'myth_buster', 'Myth Buster', 'Challenge common beliefs or misconceptions to create immediate engagement.', 
  'People feel validated or attacked — both emotions drive engagement and shares.', 
