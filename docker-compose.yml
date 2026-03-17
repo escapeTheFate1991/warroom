@@ -56,6 +56,8 @@ services:
       # SQLite read-only mount from the mental-library skill volume
       MENTAL_LIBRARY_DB: ${MENTAL_LIBRARY_DB:-/data/mental-library/mental_library.db}
       VOICE_IO_SCRIPTS_PATH: /voice-io-scripts
+      # Chatterbox TTS service
+      CHATTERBOX_URL: ${CHATTERBOX_URL:-http://warroom-chatterbox:8400}
     restart: unless-stopped
     network_mode: host
     volumes:
@@ -92,6 +94,20 @@ services:
     volumes:
       - warroom-qdrant-data:/qdrant/storage
     restart: unless-stopped
+
+  chatterbox:
+    build:
+      context: ./docker/chatterbox
+    container_name: warroom-chatterbox
+    ports:
+      - "8400:8400"
+    volumes:
+      - ./data/chatterbox_voices:/app/voices
+      - ./data/chatterbox_cache:/app/cache
+    environment:
+      - TORCH_HOME=/app/cache
+    restart: unless-stopped
+    # Note: will use CPU. If GPU available, add deploy section
 
 volumes:
   instagram-cookies:

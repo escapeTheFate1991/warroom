@@ -30,7 +30,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.crm_db import get_crm_db
+from app.db.crm_db import crm_session
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,8 @@ class RenderWorker:
 
     async def process_queued_projects(self):
         """Check for queued projects and process them."""
-        async with get_crm_db() as db:
+        async with crm_session() as db:
+            await db.execute(text("SET search_path TO crm, public"))
             # Get next queued project
             result = await db.execute(text("""
                 SELECT id, org_id, user_id, title, scenes, audio, output_config
@@ -428,7 +429,8 @@ def stop_render_worker():
 
 async def process_project(project_id: int):
     """Process a specific project (can be called directly)."""
-    async with get_crm_db() as db:
+    async with crm_session() as db:
+        await db.execute(text("SET search_path TO crm, public"))
         result = await db.execute(text("""
             SELECT id, org_id, user_id, title, scenes, audio, output_config
             FROM crm.video_projects 

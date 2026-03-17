@@ -14,6 +14,7 @@ import FormatPicker from "./FormatPicker";
 import HookLab from "./HookLab";
 import DistributionPanel from "./DistributionPanel";
 import PerformanceDashboard from "./PerformanceDashboard";
+import DigitalCopiesPanel from "./DigitalCopiesPanel";
 
 const VideoEditor = dynamic(() => import("./VideoEditor"), {
   loading: () => (
@@ -100,6 +101,14 @@ interface VideoProject {
   created_at: string;
 }
 
+interface ActionTemplate {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  icon: string;
+}
+
 interface VoiceSample {
   filename: string;
   label: string;
@@ -138,13 +147,8 @@ export default function AIStudioPanel() {
   // Digital copies
   const [copies, setCopies] = useState<DigitalCopy[]>([]);
   const [loadingCopies, setLoadingCopies] = useState(false);
-  const [showCreateCopy, setShowCreateCopy] = useState(false);
-  const [newCopyName, setNewCopyName] = useState("");
-  const [newCopyDesc, setNewCopyDesc] = useState("");
-  const [creatingCopy, setCreatingCopy] = useState(false);
-  const [selectedCopy, setSelectedCopy] = useState<DigitalCopy | null>(null);
-  const [uploadingAsset, setUploadingAsset] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+
 
   // Templates
   const [templates, setTemplates] = useState<VideoTemplate[]>([]);
@@ -165,6 +169,11 @@ export default function AIStudioPanel() {
   const [storyboardScenes, setStoryboardScenes] = useState<StoryboardScene[]>([]);
   const [generating, setGenerating] = useState(false);
   const [generationResult, setGenerationResult] = useState<{ ok: boolean; generation_id?: string; prompt_used?: string; error?: string } | null>(null);
+
+  // Character and action selection
+  const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
+  const [selectedActionSlug, setSelectedActionSlug] = useState<string | null>(null);
+  const [actionTemplates, setActionTemplates] = useState<ActionTemplate[]>([]);
 
   // New state for FormatPicker and HookLab
   const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
@@ -187,9 +196,7 @@ export default function AIStudioPanel() {
   const [loadingCompetitorVideos, setLoadingCompetitorVideos] = useState(false);
   const [templatizingCompetitor, setTemplatizingCompetitor] = useState<number | null>(null);
 
-  // Voice samples
-  const voiceInputRef = useRef<HTMLInputElement>(null);
-  const [uploadingVoice, setUploadingVoice] = useState(false);
+
 
   // Seeddance 1.5 Settings
   const [wizardModel, setWizardModel] = useState<"veo-3.1" | "seeddance-1.5">("veo-3.1");
@@ -260,6 +267,25 @@ export default function AIStudioPanel() {
     setLoadingProjects(false);
   }, []);
 
+  const fetchActionTemplates = useCallback(async () => {
+    try {
+      const r = await authFetch(`${API}/api/action-templates`);
+      if (r.ok) { 
+        const d = await r.json(); 
+        setActionTemplates(d.templates || []);
+      }
+    } catch { 
+      // Fallback action templates
+      setActionTemplates([
+        { id: "1", slug: "selling", name: "Selling", description: "Direct product pitch", icon: "💰" },
+        { id: "2", slug: "car-talking", name: "Car Talking", description: "Speaking while driving", icon: "🚗" },
+        { id: "3", slug: "podcast", name: "Podcast", description: "Interview/discussion format", icon: "🎙️" },
+        { id: "4", slug: "walking-vlog", name: "Walking Vlog", description: "Talk while walking", icon: "🚶" },
+        { id: "5", slug: "presentation", name: "Presentation", description: "Educational content", icon: "📊" }
+      ]);
+    }
+  }, []);
+
   const fetchCompetitorVideos = useCallback(async () => {
     setLoadingCompetitorVideos(true);
     try {
@@ -271,9 +297,9 @@ export default function AIStudioPanel() {
 
   useEffect(() => {
     if (configured) {
-      fetchCopies(); fetchTemplates(); fetchProjects();
+      fetchCopies(); fetchTemplates(); fetchProjects(); fetchActionTemplates();
     }
-  }, [configured, fetchCopies, fetchTemplates, fetchProjects]);
+  }, [configured, fetchCopies, fetchTemplates, fetchProjects, fetchActionTemplates]);
 
   // Initialize script parts from existing script when switching to Hook Lab
   useEffect(() => {
@@ -290,72 +316,7 @@ export default function AIStudioPanel() {
     }
   }, [scriptTab, wizardScript, scriptParts]);
 
-  // ── Digital Copy CRUD ────────────────────────────────────
-  const createDigitalCopy = async () => {
-    if (!newCopyName.trim()) return;
-    setCreatingCopy(true);
-    try {
-      const r = await authFetch(`${API}/api/ai-studio/ugc/digital-copies`, {
-        method: "POST", body: JSON.stringify({ name: newCopyName, description: newCopyDesc }),
-      });
-      if (r.ok) {
-        setNewCopyName(""); setNewCopyDesc(""); setShowCreateCopy(false);
-        await fetchCopies();
-      }
-    } catch { } finally { setCreatingCopy(false); }
-  };
 
-  const deleteDigitalCopy = async (id: string) => {
-    if (!confirm("Delete this digital copy and all its assets?")) return;
-    await authFetch(`${API}/api/ai-studio/ugc/digital-copies/${id}`, { method: "DELETE" });
-    if (selectedCopy?.id === id) setSelectedCopy(null);
-    await fetchCopies();
-  };
-
-  const uploadAsset = async (copyId: string, file: File, angle: string) => {
-    setUploadingAsset(true);
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("angle", angle);
-    try {
-      await authFetch(`${API}/api/ai-studio/ugc/digital-copies/${copyId}/assets`, { method: "POST", body: fd });
-      // Refresh the specific copy
-      const r = await authFetch(`${API}/api/ai-studio/ugc/digital-copies/${copyId}`);
-      if (r.ok) {
-        const updated = await r.json();
-        setCopies(prev => prev.map(c => c.id === copyId ? updated : c));
-        setSelectedCopy(updated);
-      }
-    } catch { } finally { setUploadingAsset(false); }
-  };
-
-  // ── Voice sample upload ───────────────────────────────────
-  const uploadVoiceSample = async (copyId: string, file: File) => {
-    setUploadingVoice(true);
-    const label = prompt("Label this voice sample (e.g. 'casual', 'energetic', 'professional')") || "default";
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("label", label);
-    try {
-      await authFetch(`${API}/api/ai-studio/ugc/digital-copies/${copyId}/voice-samples`, { method: "POST", body: fd });
-      const r = await authFetch(`${API}/api/ai-studio/ugc/digital-copies/${copyId}`);
-      if (r.ok) {
-        const updated = await r.json();
-        setCopies(prev => prev.map(c => c.id === copyId ? updated : c));
-        setSelectedCopy(updated);
-      }
-    } catch { } finally { setUploadingVoice(false); }
-  };
-
-  const deleteVoiceSample = async (copyId: string, filename: string) => {
-    await authFetch(`${API}/api/ai-studio/ugc/digital-copies/${copyId}/voice-samples/${filename}`, { method: "DELETE" });
-    const r = await authFetch(`${API}/api/ai-studio/ugc/digital-copies/${copyId}`);
-    if (r.ok) {
-      const updated = await r.json();
-      setCopies(prev => prev.map(c => c.id === copyId ? updated : c));
-      setSelectedCopy(updated);
-    }
-  };
 
   // ── Templatizer ─────────────────────────────────────────
   const templatizeFromUrl = async (url: string, save: boolean = false) => {
@@ -717,6 +678,8 @@ export default function AIStudioPanel() {
     setScriptParts({ hook: "", body: "", cta: "" });
     setCreativeMethod("ai-avatar");
     setScriptTab("hook-lab");
+    setSelectedCharacterId(null);
+    setSelectedActionSlug(null);
   };
 
   // ── Not configured ─────────────────────────────────────
@@ -760,7 +723,7 @@ export default function AIStudioPanel() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === "digital-copies" && renderDigitalCopies()}
+        {activeTab === "digital-copies" && <DigitalCopiesPanel />}
         {activeTab === "create-video" && renderCreateVideo()}
         {activeTab === "video-editor" && <VideoEditor />}
         {activeTab === "motion-control" && renderMotionControl()}
@@ -1038,13 +1001,13 @@ export default function AIStudioPanel() {
     );
   }
 
-  // ── Step 2: Settings ───────────────────────────────────
+  // ── Step 2: Set the Star ───────────────────────────────────
   function renderStepSettings() {
     return (
       <div className="space-y-5">
         <div>
-          <h2 className="text-sm font-semibold text-warroom-text">Video Settings</h2>
-          <p className="text-xs text-warroom-muted mt-0.5">Configure the style and assets for this video.</p>
+          <h2 className="text-sm font-semibold text-warroom-text">Set the Star</h2>
+          <p className="text-xs text-warroom-muted mt-0.5">Choose your character and action template for this video.</p>
         </div>
 
         {/* Title */}
@@ -1052,6 +1015,83 @@ export default function AIStudioPanel() {
           <label className="text-xs text-warroom-muted block mb-1">Video Title</label>
           <input value={wizardTitle} onChange={e => setWizardTitle(e.target.value)} placeholder="My UGC Ad"
             className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
+        </div>
+
+        {/* Character Carousel */}
+        <div>
+          <label className="text-xs text-warroom-muted block mb-3">Choose Character</label>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {/* No Character Option */}
+            <div 
+              onClick={() => { setSelectedCharacterId(null); setWizardCopyId(null); }}
+              className={`flex-shrink-0 cursor-pointer transition ${selectedCharacterId === null ? "ring-2 ring-warroom-accent" : ""}`}
+            >
+              <div className="w-20 h-20 rounded-xl bg-warroom-surface border border-warroom-border flex flex-col items-center justify-center p-2">
+                <Sparkles size={20} className="text-warroom-accent mb-1" />
+                <span className="text-xs text-warroom-text text-center leading-tight">AI Only</span>
+              </div>
+            </div>
+
+            {/* Character Options */}
+            {copies.map(copy => (
+              <div 
+                key={copy.id}
+                onClick={() => { 
+                  setSelectedCharacterId(Number(copy.id)); 
+                  setWizardCopyId(copy.id); 
+                }}
+                className={`flex-shrink-0 cursor-pointer transition ${selectedCharacterId === Number(copy.id) ? "ring-2 ring-warroom-accent" : ""}`}
+              >
+                <div className="w-20 h-20 rounded-xl overflow-hidden bg-warroom-surface border border-warroom-border">
+                  {copy.assets && copy.assets.length > 0 ? (
+                    <div className="w-full h-full flex items-center justify-center text-warroom-muted">
+                      <User size={24} />
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-warroom-muted">
+                      <User size={24} />
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-warroom-text text-center mt-1 truncate w-20">{copy.name}</p>
+              </div>
+            ))}
+
+            {/* Create New Character */}
+            <div 
+              onClick={() => setActiveTab("digital-copies")}
+              className="flex-shrink-0 cursor-pointer"
+            >
+              <div className="w-20 h-20 rounded-xl border-2 border-dashed border-warroom-border bg-warroom-surface hover:border-warroom-accent hover:bg-warroom-accent/5 transition flex flex-col items-center justify-center">
+                <Plus size={20} className="text-warroom-muted mb-1" />
+                <span className="text-xs text-warroom-muted text-center leading-tight">Create</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Template Selector */}
+        <div>
+          <label className="text-xs text-warroom-muted block mb-3">Action Template</label>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {actionTemplates.map(template => (
+              <button
+                key={template.id}
+                onClick={() => setSelectedActionSlug(template.slug)}
+                className={`p-4 rounded-xl border text-left transition ${
+                  selectedActionSlug === template.slug
+                    ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
+                    : "border-warroom-border bg-warroom-surface text-warroom-text hover:border-warroom-accent/30"
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-xl">{template.icon}</span>
+                  <span className="font-medium text-sm">{template.name}</span>
+                </div>
+                <p className="text-xs text-warroom-muted leading-relaxed">{template.description}</p>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Content mode */}
@@ -1067,27 +1107,7 @@ export default function AIStudioPanel() {
           </div>
         </div>
 
-        {/* Digital copy */}
-        <div>
-          <label className="text-xs text-warroom-muted block mb-1.5">Digital Copy (AI Avatar)</label>
-          {copies.length === 0 ? (
-            <p className="text-xs text-warroom-muted">No digital copies yet. <button onClick={() => setActiveTab("digital-copies")} className="text-warroom-accent underline">Create one first</button></p>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setWizardCopyId(null)}
-                className={`p-3 rounded-xl border text-xs transition ${!wizardCopyId ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent" : "border-warroom-border bg-warroom-bg text-warroom-muted"}`}>
-                ✨ Purely AI-generated (no avatar)
-              </button>
-              {copies.map(c => (
-                <button key={c.id} onClick={() => setWizardCopyId(c.id)}
-                  className={`p-3 rounded-xl border text-xs text-left transition ${wizardCopyId === c.id ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent" : "border-warroom-border bg-warroom-bg text-warroom-muted"}`}>
-                  <span className="font-medium text-warroom-text">{c.name}</span>
-                  <span className="block text-[10px]">{c.assets?.length || 0} assets</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+
 
         {/* Model & Advanced Settings */}
         <div className="pt-2 border-t border-warroom-border">

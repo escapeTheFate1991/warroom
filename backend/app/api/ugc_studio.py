@@ -1689,3 +1689,187 @@ async def get_competitor_hooks(
     except Exception as e:
         logger.error(f"Failed to load competitor hooks: {e}")
         return {"hooks": [], "audience_demands": []}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  TTS / VOICEOVER GENERATION
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.post("/generate-voiceover")
+async def generate_voiceover_endpoint(
+    request: Request,
+    text: str = Form(...),
+    voice_id: str = Form(None),
+    voice_reference: UploadFile = File(None),
+    pace: float = Form(1.0),
+    exaggeration: float = Form(0.5),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Generate voiceover for video script using Chatterbox TTS.
+    
+    Args:
+        text: Text to convert to speech
+        voice_id: Previously saved voice ID
+        voice_reference: Audio file for voice cloning
+        pace: Speech pace (0.5-2.0)
+        exaggeration: Voice exaggeration level (0.0-1.0)
+    
+    Returns:
+        Information about the generated voiceover file
+    """
+    from app.services.tts_service import tts_service
+    
+    if not text or len(text.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+    
+    if len(text) > 2000:
+        raise HTTPException(status_code=400, detail="Text too long (max 2000 characters)")
+    
+    # Validate pace and exaggeration values
+    if not (0.5 <= pace <= 2.0):
+        raise HTTPException(status_code=400, detail="Pace must be between 0.5 and 2.0")
+    
+    if not (0.0 <= exaggeration <= 1.0):
+        raise HTTPException(status_code=400, detail="Exaggeration must be between 0.0 and 1.0")
+    
+    try:
+        # Handle voice reference upload if provided
+        voice_reference_path = None
+        if voice_reference:
+            # Save uploaded file temporarily
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                content = await voice_reference.read()
+                tmp_file.write(content)
+                voice_reference_path = tmp_file.name
+        
+        # Generate voiceover
+        voiceover_path = await tts_service.generate_voiceover(
+            text=text,
+            voice_id=voice_id,
+            voice_reference_path=voice_reference_path,
+            pace=pace,
+            exaggeration=exaggeration
+        )
+        
+        # Clean up temporary file if created
+        if voice_reference_path and os.path.exists(voice_reference_path):
+            os.unlink(voice_reference_path)
+        
+        # Return relative path for frontend use
+        relative_path = voiceover_path.replace("/app/uploads/", "/uploads/")
+        
+        return {
+            "success": True,
+            "voiceover_url": relative_path,
+            "text_length": len(text),
+            "estimated_duration": len(text) / 150,  # Rough estimate: 150 chars per minute
+            "voice_id": voice_id,
+            "settings": {
+                "pace": pace,
+                "exaggeration": exaggeration
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Voiceover generation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Voiceover generation failed: {str(e)}")
+
+
+@router.post("/clone-voice")
+async def clone_voice_endpoint(
+    request: Request,
+    name: str = Form(...),
+    audio_reference: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Clone a voice for reuse in voiceover generation.
+    
+    Args:
+        name: Friendly name for the voice
+        audio_reference: Audio file containing the voice to clone
+    
+    Returns:
+        Speaker ID for future use
+    """
+    from app.services.tts_service import tts_service
+    
+    if not name or len(name.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Voice name cannot be empty")
+    
+    if not audio_reference:
+        raise HTTPException(status_code=400, detail="Audio reference file is required")
+    
+    try:
+        # Save uploaded file temporarily
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            content = await audio_reference.read()
+            tmp_file.write(content)
+            temp_path = tmp_file.name
+        
+        # Clone the voice
+        speaker_id = await tts_service.clone_voice(name, temp_path)
+        
+        # Clean up temporary file
+        os.unlink(temp_path)
+        
+        return {
+            "success": True,
+            "speaker_id": speaker_id,
+            "name": name,
+            "message": f"Voice '{name}' cloned successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Voice cloning failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Voice cloning failed: {str(e)}")
+
+
+@router.get("/voices")
+async def list_voices_endpoint(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """List available cloned voices."""
+    from app.services.tts_service import tts_service
+    
+    try:
+        voices_data = await tts_service.list_voices()
+        return voices_data
+        
+    except Exception as e:
+        logger.error(f"Failed to list voices: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list voices: {str(e)}")
+
+
+@router.delete("/voices/{speaker_id}")
+async def delete_voice_endpoint(
+    speaker_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Delete a cloned voice."""
+    from app.services.tts_service import tts_service
+    
+    try:
+        success = await tts_service.delete_voice(speaker_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Voice not found")
+        
+        return {
+            "success": True,
+            "speaker_id": speaker_id,
+            "message": "Voice deleted successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete voice {speaker_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete voice: {str(e)}")
