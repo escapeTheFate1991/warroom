@@ -426,7 +426,8 @@ async def upload_images(
     copy_id: int,
     request: Request,
     image_type: str = Form(...),
-    files: List[UploadFile] = File(...),
+    file: UploadFile = File(None),
+    files: List[UploadFile] = File(None),
     db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -449,13 +450,19 @@ async def upload_images(
             detail=f"Invalid image_type. Must be one of: {', '.join(valid_types)}"
         )
     
-    if not files:
+    # Accept both single 'file' and multiple 'files'
+    all_files = []
+    if file:
+        all_files.append(file)
+    if files:
+        all_files.extend(files)
+    if not all_files:
         raise HTTPException(status_code=400, detail="No files provided")
     
     upload_dir = await ensure_upload_directory(copy_id)
     uploaded_images = []
     
-    for file in files:
+    for file in all_files:
         try:
             # Validate file
             validation = validate_image_file(file)
