@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate, digital_copies
 from app.api import entities, goals, approvals, task_checkout, budget
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
@@ -489,6 +489,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Swarm Personas migration error: %s", e)
 
+    # Digital Copies migration (Soul ID system)
+    try:
+        from app.db.crm_db import run_digital_copies_migration
+        await run_digital_copies_migration()
+        logger.info("Digital Copies migration applied")
+    except Exception as e:
+        logger.error("Digital Copies migration error: %s", e)
+
     # Start background scheduler (competitor syncs, etc.)
     from app.services.scheduler import start_scheduler, stop_scheduler
     await start_scheduler()
@@ -644,6 +652,7 @@ app.include_router(comms.router, prefix="/api/comms", tags=["communications"])
 app.include_router(stripe_settings.router, prefix="/api", tags=["stripe"])
 app.include_router(google_ai_studio.router, prefix="/api/ai-studio", tags=["google-ai-studio"])
 app.include_router(ugc_studio.router, prefix="/api/ai-studio/ugc", tags=["ugc-studio"])
+app.include_router(digital_copies.router, prefix="/api", tags=["digital-copies"])
 app.include_router(video_copycat.router, prefix="/api/video-copycat", tags=["video-copycat"])
 app.include_router(video_assets.router, prefix="/api/video-copycat", tags=["video-assets"])
 app.include_router(video_editor.router, prefix="/api/video", tags=["video-editor", "video-copycat"])

@@ -188,3 +188,32 @@ async def run_agent_multi_instance_migration():
     except Exception as e:
         logger.error("Agent multi-instance migration failed: %s", e)
         return False
+
+
+async def run_digital_copies_migration():
+    """Run the digital copies migration (creates digital copies tables + seeds action templates).
+
+    Safe to run multiple times — all statements are idempotent (IF NOT EXISTS).
+    """
+    migration_file = Path(__file__).parent / "digital_copies_migration.sql"
+
+    if not migration_file.exists():
+        logger.warning("Digital copies migration file not found: %s", migration_file)
+        return False
+
+    try:
+        with open(migration_file, "r") as f:
+            migration_sql = f.read()
+
+        # Use raw asyncpg connection for multi-statement execution
+        async with crm_engine.connect() as conn:
+            raw_conn = await conn.get_raw_connection()
+            await raw_conn.driver_connection.execute(migration_sql)
+            await conn.commit()
+
+        logger.info("Digital copies migration completed successfully")
+        return True
+
+    except Exception as e:
+        logger.error("Digital copies migration failed: %s", e)
+        return False

@@ -26,6 +26,7 @@ from app.models.settings import Setting
 from app.services.tenant import get_org_id
 from sqlalchemy import select
 import httpx
+from fastapi import BackgroundTasks
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -874,3 +875,55 @@ async def get_video_project_status(
     project_dict["completed_at"] = project_dict["completed_at"].isoformat() if project_dict["completed_at"] else None
     
     return project_dict
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  RENDERING WORKER INTEGRATION
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.post("/render-project/{project_id}")
+async def trigger_render(
+    project_id: int, 
+    background_tasks: BackgroundTasks,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Trigger rendering for a queued video project."""
+    from app.services.tenant import get_org_id
+    from app.services.render_worker import process_project
+    
+    org_id = get_org_id(request)
+    user_id = getattr(request.state, "user_id", user.id)
+    
+    # Verify project exists and belongs to user
+    query = text("""
+        SELECT id, status FROM crm.video_projects 
+        WHERE id = :project_id AND org_id = :org_id AND user_id = :user_id
+    """)
+    
+    result = await db.execute(query, {
+        "project_id": project_id,
+        "org_id": org_id,
+        "user_id": user_id
+    })
+    
+    project = result.mappings().first()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Video project not found")
+    
+    if project["status"] != "queued":
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Project is not queued (current status: {project['status']})"
+        )
+    
+    # Launch background rendering task
+    background_tasks.add_task(process_project, project_id)
+    
+    return {
+        "project_id": project_id,
+        "status": "rendering",
+        "message": "Render job started in background"
+    }
