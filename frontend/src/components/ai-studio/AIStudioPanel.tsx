@@ -5,7 +5,7 @@ import {
   Sparkles, Loader2, Plus, Trash2, Upload, Image, Video, Film,
   User, Play, Eye, Clock, ChevronRight, FileText, Wand2,
   CheckCircle, AlertCircle, RefreshCw, X, Camera, Link, Mic,
-  ExternalLink, Zap, TrendingUp, Save,
+  ExternalLink, Zap, TrendingUp, Save, Settings, BarChart,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import ScrollTabs from "@/components/ui/ScrollTabs";
@@ -56,6 +56,34 @@ interface Scene {
   direction: string;
   camera?: string;
   mood?: string;
+}
+
+type SceneType = "remotion" | "ai_generated" | "image" | "stock";
+
+interface StoryboardScene {
+  id: string;
+  title: string;
+  description: string;
+  duration_seconds: number;
+  type: SceneType;
+  // Remotion fields
+  remotion_template?: string;
+  remotion_props?: Record<string, any>;
+  // AI fields
+  ai_provider?: "veo" | "nano_banana" | "seeddance";
+  ai_prompt?: string;
+  // Image/Stock fields
+  media_url?: string;
+  animation?: string;
+  // Legacy Scene fields for backward compatibility
+  scene?: number;
+  label?: string;
+  seconds?: string;
+  direction?: string;
+  camera?: string;
+  mood?: string;
+  // Auto-population hints
+  ai_action_description?: string;
 }
 interface VideoProject {
   id: string;
@@ -132,6 +160,7 @@ export default function AIStudioPanel() {
   const [wizardTitle, setWizardTitle] = useState("");
   const [wizardScript, setWizardScript] = useState("");
   const [wizardStoryboard, setWizardStoryboard] = useState<Scene[]>([]);
+  const [storyboardScenes, setStoryboardScenes] = useState<StoryboardScene[]>([]);
   const [generating, setGenerating] = useState(false);
   const [generationResult, setGenerationResult] = useState<{ ok: boolean; generation_id?: string; prompt_used?: string; error?: string } | null>(null);
 
@@ -367,48 +396,91 @@ export default function AIStudioPanel() {
     setGenerating(true);
     setGenerationResult(null);
     try {
-      // Create project
-      const createResp = await authFetch(`${API}/api/ai-studio/ugc/projects`, {
-        method: "POST",
-        body: JSON.stringify({
-          template_id: wizardTemplate?.id || null,
-          digital_copy_id: wizardCopyId,
-          title: wizardTitle || wizardTemplate?.name || "Untitled Video",
-          script: wizardScript,
-          content_mode: wizardMode,
-        }),
-      });
-      if (!createResp.ok) { setGenerationResult({ ok: false, error: "Failed to create project" }); return; }
-      const proj = await createResp.json();
+      // Check if we have storyboard scenes to use compose-from-scenes endpoint
+      if (storyboardScenes.length > 0) {
+        // Use compose-from-scenes endpoint
+        const composePayload = {
+          project_title: wizardTitle || "Untitled Video",
+          format_slug: selectedFormat,
+          scenes: storyboardScenes.map(scene => ({
+            type: scene.type,
+            template: scene.remotion_template,
+            provider: scene.ai_provider,
+            prompt: scene.ai_prompt,
+            url: scene.media_url,
+            duration_seconds: scene.duration_seconds,
+            animation: scene.animation,
+            props: scene.remotion_props || {}
+          })),
+          audio: {
+            voiceover_url: null,
+            music_url: null,
+            music_volume: 0.15
+          }
+        };
 
-      // Update storyboard if modified
-      if (wizardStoryboard.length > 0) {
-        await authFetch(`${API}/api/ai-studio/ugc/projects/${proj.id}`, {
-          method: "PUT",
-          body: JSON.stringify({ storyboard: wizardStoryboard }),
+        const composeResp = await authFetch(`${API}/api/video/compose-from-scenes`, {
+          method: "POST",
+          body: JSON.stringify(composePayload),
         });
-      }
 
-      // Generate
-      const genResp = await authFetch(`${API}/api/ai-studio/ugc/generate`, {
-        method: "POST",
-        body: JSON.stringify({
-          project_id: proj.id,
-          model: wizardModel,
-          fixed_lens: fixedLens,
-          include_audio: includeAudio,
-          duration_preset: durationPreset,
-          resolution: resolution
-        }),
-      });
-      const genData = await genResp.json();
-      if (genResp.ok) {
-        setGenerationResult({ ok: true, generation_id: genData.generation_id, prompt_used: genData.prompt_used });
-        setPollingProjectId(proj.id);
-        setPollStatus("processing");
-        fetchProjects();
+        if (composeResp.ok) {
+          const composeData = await composeResp.json();
+          setGenerationResult({ 
+            ok: true, 
+            generation_id: composeData.generation_id || composeData.task_id,
+            prompt_used: "Composed from storyboard scenes" 
+          });
+          setPollStatus("processing");
+          fetchProjects();
+        } else {
+          const errorData = await composeResp.json().catch(() => ({}));
+          setGenerationResult({ ok: false, error: errorData.detail || errorData.error || "Composition failed" });
+        }
       } else {
-        setGenerationResult({ ok: false, error: genData.detail || "Generation failed" });
+        // Fallback to original generation flow
+        const createResp = await authFetch(`${API}/api/ai-studio/ugc/projects`, {
+          method: "POST",
+          body: JSON.stringify({
+            template_id: wizardTemplate?.id || null,
+            digital_copy_id: wizardCopyId,
+            title: wizardTitle || wizardTemplate?.name || "Untitled Video",
+            script: wizardScript,
+            content_mode: wizardMode,
+          }),
+        });
+        if (!createResp.ok) { setGenerationResult({ ok: false, error: "Failed to create project" }); return; }
+        const proj = await createResp.json();
+
+        // Update storyboard if modified
+        if (wizardStoryboard.length > 0) {
+          await authFetch(`${API}/api/ai-studio/ugc/projects/${proj.id}`, {
+            method: "PUT",
+            body: JSON.stringify({ storyboard: wizardStoryboard }),
+          });
+        }
+
+        // Generate
+        const genResp = await authFetch(`${API}/api/ai-studio/ugc/generate`, {
+          method: "POST",
+          body: JSON.stringify({
+            project_id: proj.id,
+            model: wizardModel,
+            fixed_lens: fixedLens,
+            include_audio: includeAudio,
+            duration_preset: durationPreset,
+            resolution: resolution
+          }),
+        });
+        const genData = await genResp.json();
+        if (genResp.ok) {
+          setGenerationResult({ ok: true, generation_id: genData.generation_id, prompt_used: genData.prompt_used });
+          setPollingProjectId(proj.id);
+          setPollStatus("processing");
+          fetchProjects();
+        } else {
+          setGenerationResult({ ok: false, error: genData.detail || "Generation failed" });
+        }
       }
     } catch (e: any) {
       setGenerationResult({ ok: false, error: e.message });
@@ -467,6 +539,29 @@ export default function AIStudioPanel() {
     "unboxing": "Speed Run",
     "review": "The Exposé",
   };
+
+  const REMOTION_TEMPLATES = [
+    { value: "text_overlay", label: "Bold Text Overlay" },
+    { value: "diagram", label: "Animated Diagram/Chart" },
+    { value: "split_screen", label: "Before/After Split Screen" },
+    { value: "image_sequence", label: "Image Slideshow (Ken Burns)" },
+    { value: "caption_track", label: "Caption Track" },
+    { value: "cta", label: "Call to Action Slide" },
+    { value: "b_roll", label: "B-Roll with Overlay" },
+    { value: "code_walkthrough", label: "Code Walkthrough" },
+  ];
+
+  const AI_PROVIDERS = [
+    { value: "veo", label: "Veo 3.1" },
+    { value: "nano_banana", label: "Nano Banana" },
+    { value: "seeddance", label: "Seeddance" },
+  ];
+
+  const ANIMATION_TYPES = [
+    { value: "ken_burns", label: "Ken Burns" },
+    { value: "slide", label: "Slide" },
+    { value: "zoom", label: "Zoom" },
+  ];
 
   const getTemplateBadge = (category: string, name: string): string | null => {
     const lower = `${category} ${name}`.toLowerCase();
@@ -550,8 +645,17 @@ export default function AIStudioPanel() {
     
     const sceneStructure = await fetchFormatSceneStructure(selectedFormat);
     if (sceneStructure.length > 0) {
-      // Map the scene structure to storyboard format
-      const autoScenes = sceneStructure.map((scene: any, index: number) => ({
+      // Map the scene structure to new StoryboardScene format
+      const autoScenes: StoryboardScene[] = sceneStructure.map((scene: any, index: number) => ({
+        id: `scene_${Date.now()}_${index}`,
+        title: scene.title || `Scene ${index + 1}`,
+        description: scene.description || "",
+        duration_seconds: parseInt(scene.duration_hint?.replace(/[^\d]/g, '') || '5'),
+        type: "remotion" as SceneType, // Default to Remotion (free/instant)
+        remotion_template: scene.remotion_template || "text_overlay",
+        remotion_props: scene.remotion_props || {},
+        ai_action_description: scene.ai_action_description,
+        // Legacy fields for backward compatibility
         scene: index + 1,
         label: scene.title || `Scene ${index + 1}`,
         seconds: scene.duration_hint || "",
@@ -560,22 +664,35 @@ export default function AIStudioPanel() {
         mood: scene.mood || ""
       }));
       
-      // If script parts exist, map them to scenes
+      // If script parts exist, enhance scene descriptions
       if (scriptParts.hook || scriptParts.body || scriptParts.cta) {
         if (autoScenes[0] && scriptParts.hook) {
+          autoScenes[0].description += ` Hook: ${scriptParts.hook.slice(0, 50)}...`;
           autoScenes[0].direction += ` Hook: ${scriptParts.hook.slice(0, 50)}...`;
         }
         if (autoScenes[autoScenes.length - 1] && scriptParts.cta) {
+          autoScenes[autoScenes.length - 1].description += ` CTA: ${scriptParts.cta.slice(0, 50)}...`;
           autoScenes[autoScenes.length - 1].direction += ` CTA: ${scriptParts.cta.slice(0, 50)}...`;
         }
         if (scriptParts.body && autoScenes.length > 2) {
           for (let i = 1; i < autoScenes.length - 1; i++) {
+            autoScenes[i].description += ` Body content: ${scriptParts.body.slice(0, 50)}...`;
             autoScenes[i].direction += ` Body content: ${scriptParts.body.slice(0, 50)}...`;
           }
         }
       }
       
-      setWizardStoryboard(autoScenes);
+      setStoryboardScenes(autoScenes);
+      // Also set legacy storyboard for backward compatibility
+      const legacyScenes = autoScenes.map(scene => ({
+        scene: scene.scene || 1,
+        label: scene.label || scene.title,
+        seconds: scene.seconds || `${scene.duration_seconds}s`,
+        direction: scene.direction || scene.description,
+        camera: scene.camera || "",
+        mood: scene.mood || ""
+      }));
+      setWizardStoryboard(legacyScenes);
     }
   };
 
@@ -587,6 +704,7 @@ export default function AIStudioPanel() {
     setWizardTitle("");
     setWizardScript("");
     setWizardStoryboard([]);
+    setStoryboardScenes([]);
     setGenerationResult(null);
     setPollingProjectId(null);
     setPollStatus(null);
@@ -1151,51 +1269,321 @@ export default function AIStudioPanel() {
 
   // ── Step 4: Storyboard ─────────────────────────────────
   function renderStepStoryboard() {
+    const addNewScene = () => {
+      const newScene: StoryboardScene = {
+        id: `scene_${Date.now()}`,
+        title: `Scene ${storyboardScenes.length + 1}`,
+        description: "",
+        duration_seconds: 5,
+        type: "remotion",
+        remotion_template: "text_overlay",
+        scene: storyboardScenes.length + 1,
+        label: `Scene ${storyboardScenes.length + 1}`,
+        seconds: "5s",
+        direction: "",
+      };
+      setStoryboardScenes([...storyboardScenes, newScene]);
+      // Also update legacy storyboard
+      const legacyScene = {
+        scene: newScene.scene || 1,
+        label: newScene.label || newScene.title,
+        seconds: newScene.seconds || `${newScene.duration_seconds}s`,
+        direction: newScene.direction || newScene.description,
+        camera: newScene.camera || "",
+        mood: newScene.mood || ""
+      };
+      setWizardStoryboard([...wizardStoryboard, legacyScene]);
+    };
+
+    const updateScene = (index: number, updates: Partial<StoryboardScene>) => {
+      const updated = [...storyboardScenes];
+      updated[index] = { ...updated[index], ...updates };
+      setStoryboardScenes(updated);
+      
+      // Also update legacy storyboard
+      const legacyUpdated = [...wizardStoryboard];
+      if (legacyUpdated[index]) {
+        legacyUpdated[index] = {
+          ...legacyUpdated[index],
+          label: updates.title || updated[index].title,
+          seconds: updates.duration_seconds ? `${updates.duration_seconds}s` : legacyUpdated[index].seconds,
+          direction: updates.description || updated[index].description,
+        };
+      }
+      setWizardStoryboard(legacyUpdated);
+    };
+
+    const deleteScene = (index: number) => {
+      setStoryboardScenes(storyboardScenes.filter((_, i) => i !== index));
+      setWizardStoryboard(wizardStoryboard.filter((_, i) => i !== index));
+    };
+
+    const getSceneTypeIcon = (type: SceneType) => {
+      switch (type) {
+        case "remotion": return Settings;
+        case "ai_generated": return Sparkles;
+        case "image": return Image;
+        case "stock": return Film;
+        default: return Settings;
+      }
+    };
+
+    const getSceneTypeBadge = (type: SceneType) => {
+      switch (type) {
+        case "remotion": return { text: "🎬 Remotion (Free, Instant)", color: "bg-emerald-500/10 text-emerald-400" };
+        case "ai_generated": return { text: "🤖 AI Generated (~$0.05, 30-60s)", color: "bg-orange-500/10 text-orange-400" };
+        case "image": return { text: "🖼️ Image (Free, Instant)", color: "bg-blue-500/10 text-blue-400" };
+        case "stock": return { text: "📦 Stock (Free)", color: "bg-gray-500/10 text-gray-400" };
+        default: return { text: "Unknown", color: "bg-gray-500/10 text-gray-400" };
+      }
+    };
+
+    // Calculate summary stats
+    const stats = storyboardScenes.reduce((acc, scene) => {
+      acc.total++;
+      acc.duration += scene.duration_seconds;
+      acc.types[scene.type] = (acc.types[scene.type] || 0) + 1;
+      if (scene.type === "ai_generated") {
+        acc.cost += 0.05; // Approximate cost per AI scene
+      }
+      return acc;
+    }, { total: 0, duration: 0, types: {} as Record<string, number>, cost: 0 });
+
     return (
       <div className="space-y-5">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-warroom-text">Storyboard</h2>
-            <p className="text-xs text-warroom-muted mt-0.5">Review and edit the scenes for your video. Each scene maps to a segment of the generated video.</p>
+            <p className="text-xs text-warroom-muted mt-0.5">Choose scene types: Remotion (free/instant), AI Generated (costs money), Image/Stock. Preview and customize each scene.</p>
           </div>
-          <button onClick={() => setWizardStoryboard([...wizardStoryboard, { scene: wizardStoryboard.length + 1, label: "New Scene", seconds: "", direction: "", camera: "", mood: "" }])}
+          <button onClick={addNewScene}
             className="flex items-center gap-1 px-2.5 py-1.5 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg hover:border-warroom-accent/30 transition">
             <Plus size={12} /> Add Scene
           </button>
         </div>
 
-        {wizardStoryboard.length === 0 ? (
+        {storyboardScenes.length === 0 ? (
           <div className="text-center py-12 text-warroom-muted">
             <FileText size={28} className="mx-auto mb-2 text-warroom-accent/30" />
-            <p className="text-xs">No scenes yet. Pick a template to get a prebaked storyboard, or add scenes manually.</p>
+            <p className="text-xs">No scenes yet. Pick a format to get auto-populated scenes, or add scenes manually.</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {wizardStoryboard.map((scene, i) => (
-              <div key={i} className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-full bg-warroom-accent/20 text-warroom-accent flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
-                    <input value={scene.label} onChange={e => { const s = [...wizardStoryboard]; s[i] = { ...s[i], label: e.target.value }; setWizardStoryboard(s); }}
-                      className="bg-transparent text-sm font-semibold text-warroom-text focus:outline-none border-b border-transparent focus:border-warroom-accent" />
+          <div className="space-y-4">
+            {storyboardScenes.map((scene, i) => {
+              const IconComponent = getSceneTypeIcon(scene.type);
+              const badge = getSceneTypeBadge(scene.type);
+              
+              return (
+                <div key={scene.id} className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full bg-warroom-accent/20 text-warroom-accent flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
+                      <input 
+                        value={scene.title} 
+                        onChange={e => updateScene(i, { title: e.target.value })}
+                        className="bg-transparent text-sm font-semibold text-warroom-text focus:outline-none border-b border-transparent focus:border-warroom-accent" 
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="number" 
+                        value={scene.duration_seconds} 
+                        onChange={e => updateScene(i, { duration_seconds: parseInt(e.target.value) || 5 })}
+                        className="w-16 bg-warroom-bg border border-warroom-border rounded px-2 py-0.5 text-[11px] text-warroom-text text-center focus:outline-none"
+                        min="1" 
+                        max="30"
+                      />
+                      <span className="text-[10px] text-warroom-muted">sec</span>
+                      <button onClick={() => deleteScene(i)} className="p-1 text-warroom-muted hover:text-red-400">
+                        <X size={12} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input value={scene.seconds} onChange={e => { const s = [...wizardStoryboard]; s[i] = { ...s[i], seconds: e.target.value }; setWizardStoryboard(s); }}
-                      placeholder="0-5s" className="w-16 bg-warroom-bg border border-warroom-border rounded px-2 py-0.5 text-[11px] text-warroom-text text-center focus:outline-none" />
-                    <button onClick={() => setWizardStoryboard(wizardStoryboard.filter((_, j) => j !== i))} className="p-1 text-warroom-muted hover:text-red-400"><X size={12} /></button>
+
+                  {/* Scene Type Selector */}
+                  <div className="mb-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <label className="text-[10px] uppercase tracking-wider text-warroom-muted">Scene Type</label>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${badge.color}`}>
+                        {badge.text}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {(["remotion", "ai_generated", "image", "stock"] as SceneType[]).map(type => {
+                        const Icon = getSceneTypeIcon(type);
+                        return (
+                          <button
+                            key={type}
+                            onClick={() => updateScene(i, { type })}
+                            className={`p-2 rounded-lg border text-xs transition ${
+                              scene.type === type
+                                ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
+                                : "border-warroom-border bg-warroom-bg text-warroom-muted hover:border-warroom-accent/30"
+                            }`}
+                          >
+                            <Icon size={14} className="mx-auto mb-1" />
+                            <span className="block capitalize">{type.replace("_", " ")}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
+
+                  {/* Scene Description */}
+                  <textarea 
+                    value={scene.description} 
+                    onChange={e => updateScene(i, { description: e.target.value })}
+                    placeholder="Describe what happens in this scene..."
+                    rows={2} 
+                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text resize-none focus:outline-none focus:border-warroom-accent mb-3" 
+                  />
+
+                  {/* AI Action Hint */}
+                  {scene.ai_action_description && (
+                    <div className="mb-3 p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                      <span className="text-[10px] uppercase tracking-wider text-blue-400 block mb-1">For AI:</span>
+                      <span className="text-xs text-blue-300">{scene.ai_action_description}</span>
+                    </div>
+                  )}
+
+                  {/* Type-specific UI */}
+                  {scene.type === "remotion" && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Template</label>
+                        <select
+                          value={scene.remotion_template || "text_overlay"}
+                          onChange={e => updateScene(i, { remotion_template: e.target.value })}
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent"
+                        >
+                          {REMOTION_TEMPLATES.map(template => (
+                            <option key={template.value} value={template.value}>{template.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {scene.remotion_template && (
+                        <div>
+                          <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Properties</label>
+                          <div className="text-xs text-warroom-muted italic">Props editor coming soon - templates will use default values</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {scene.type === "ai_generated" && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Provider</label>
+                        <select
+                          value={scene.ai_provider || "veo"}
+                          onChange={e => updateScene(i, { ai_provider: e.target.value as any })}
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent"
+                        >
+                          {AI_PROVIDERS.map(provider => (
+                            <option key={provider.value} value={provider.value}>{provider.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">AI Prompt</label>
+                        <textarea
+                          value={scene.ai_prompt || ""}
+                          onChange={e => updateScene(i, { ai_prompt: e.target.value })}
+                          placeholder="Describe the video scene for AI generation..."
+                          rows={3}
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text resize-none focus:outline-none focus:border-warroom-accent"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {scene.type === "image" && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Image URL or Upload</label>
+                        <input
+                          type="text"
+                          value={scene.media_url || ""}
+                          onChange={e => updateScene(i, { media_url: e.target.value })}
+                          placeholder="https://example.com/image.jpg or upload..."
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Animation</label>
+                        <select
+                          value={scene.animation || "ken_burns"}
+                          onChange={e => updateScene(i, { animation: e.target.value })}
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent"
+                        >
+                          {ANIMATION_TYPES.map(animation => (
+                            <option key={animation.value} value={animation.value}>{animation.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {scene.type === "stock" && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Stock Search</label>
+                        <input
+                          type="text"
+                          value={scene.media_url || ""}
+                          onChange={e => updateScene(i, { media_url: e.target.value })}
+                          placeholder="Search for stock footage..."
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent"
+                        />
+                        <div className="text-[10px] text-warroom-muted mt-1">Stock footage search coming soon</div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Animation</label>
+                        <select
+                          value={scene.animation || "slide"}
+                          onChange={e => updateScene(i, { animation: e.target.value })}
+                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent"
+                        >
+                          {ANIMATION_TYPES.map(animation => (
+                            <option key={animation.value} value={animation.value}>{animation.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <textarea value={scene.direction} onChange={e => { const s = [...wizardStoryboard]; s[i] = { ...s[i], direction: e.target.value }; setWizardStoryboard(s); }}
-                  placeholder="Scene direction..."
-                  rows={2} className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text resize-none focus:outline-none focus:border-warroom-accent mb-2" />
-                <div className="flex gap-2">
-                  <input value={scene.camera || ""} onChange={e => { const s = [...wizardStoryboard]; s[i] = { ...s[i], camera: e.target.value }; setWizardStoryboard(s); }}
-                    placeholder="Camera (selfie, b-roll...)" className="flex-1 bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-[11px] text-warroom-text focus:outline-none" />
-                  <input value={scene.mood || ""} onChange={e => { const s = [...wizardStoryboard]; s[i] = { ...s[i], mood: e.target.value }; setWizardStoryboard(s); }}
-                    placeholder="Mood / Energy" className="flex-1 bg-warroom-bg border border-warroom-border rounded px-2 py-1 text-[11px] text-warroom-text focus:outline-none" />
-                </div>
-              </div>
-            ))}
+              );
+            })}
+          </div>
+        )}
+
+        {/* Summary Bar */}
+        {storyboardScenes.length > 0 && (
+          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-4">
+            <div className="flex items-center gap-4 text-xs text-warroom-muted">
+              <span className="flex items-center gap-1">
+                <BarChart size={12} />
+                Total: <span className="text-warroom-text font-medium">{stats.total} scenes</span>
+              </span>
+              <span className="text-warroom-border">·</span>
+              <span className="text-warroom-text font-medium">{stats.duration}s</span>
+              <span className="text-warroom-border">·</span>
+              {Object.entries(stats.types).map(([type, count]) => (
+                <span key={type}>
+                  {type === "remotion" && `Remotion: ${count} (free)`}
+                  {type === "ai_generated" && `AI: ${count} ($${(count * 0.05).toFixed(2)})`}
+                  {type === "image" && `Image: ${count} (free)`}
+                  {type === "stock" && `Stock: ${count} (free)`}
+                </span>
+              )).filter(Boolean).join(" · ")}
+              {stats.cost > 0 && (
+                <>
+                  <span className="text-warroom-border">·</span>
+                  <span className="text-warroom-text font-medium">Est. total: ${stats.cost.toFixed(2)}</span>
+                </>
+              )}
+            </div>
           </div>
         )}
 
@@ -1329,7 +1717,7 @@ export default function AIStudioPanel() {
           <button onClick={() => setWizardStep("storyboard")} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Back</button>
           <div className="flex gap-2">
             <button onClick={resetWizard} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Start Over</button>
-            <button onClick={createAndGenerate} disabled={generating || !wizardStoryboard.length}
+            <button onClick={createAndGenerate} disabled={generating || (storyboardScenes.length === 0 && wizardStoryboard.length === 0)}
               className="px-5 py-2 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-40 hover:bg-warroom-accent/80 transition flex items-center gap-1.5 font-medium">
               {generating ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
               {generating ? "Generating..." : "Generate Video"}

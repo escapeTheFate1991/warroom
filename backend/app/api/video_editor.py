@@ -11,7 +11,7 @@ import logging
 import asyncio
 import subprocess
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
@@ -19,6 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.leadgen_db import get_leadgen_db, leadgen_engine
+from app.db.crm_db import get_tenant_db
 from app.api.auth import get_current_user
 from app.models.crm.user import User
 from app.models.settings import Setting
@@ -64,6 +65,26 @@ CREATE TABLE IF NOT EXISTS public.remotion_render_jobs (
     progress FLOAT DEFAULT 0,
     output_url TEXT,
     error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+)
+"""
+
+VIDEO_PROJECTS_DDL = """
+CREATE TABLE IF NOT EXISTS crm.video_projects (
+    id SERIAL PRIMARY KEY,
+    org_id INT NOT NULL,
+    user_id INT NOT NULL,
+    title TEXT NOT NULL,
+    format_slug TEXT,
+    status TEXT DEFAULT 'queued',
+    scenes JSONB DEFAULT '[]',
+    audio JSONB DEFAULT '{}',
+    output_config JSONB DEFAULT '{}',
+    output_url TEXT,
+    total_duration_seconds FLOAT,
+    estimated_cost JSONB DEFAULT '{}',
+    error TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ
 )
@@ -134,10 +155,19 @@ SEED_TEMPLATES = [
 
 async def init_video_editor_tables():
     """Create video editor tables if they don't exist."""
+    # Create public schema tables (templates, render jobs)
     async with leadgen_engine.begin() as conn:
         await conn.execute(text(TEMPLATES_DDL))
         await conn.execute(text(RENDER_JOBS_DDL))
-    logger.info("Video editor tables initialized")
+    
+    # Create CRM schema table (video projects)
+    try:
+        from app.db.crm_db import crm_engine
+        async with crm_engine.begin() as conn:
+            await conn.execute(text(VIDEO_PROJECTS_DDL))
+        logger.info("Video editor tables initialized (public + crm schemas)")
+    except Exception as e:
+        logger.warning("Failed to create video_projects table in CRM schema: %s", e)
 
 
 async def seed_remotion_templates():
@@ -167,6 +197,36 @@ async def _get_gemini_key(db: AsyncSession) -> str:
     if not key:
         raise HTTPException(status_code=503, detail="Google AI Studio API key not configured")
     return key
+
+
+# ── Video Compose Models ──────────────────────────────────────────────
+
+class SceneInput(BaseModel):
+    type: str  # "remotion" | "ai_generated" | "image" | "stock"
+    template: Optional[str] = None  # remotion template name
+    provider: Optional[str] = None  # "veo" | "nano_banana" | "seeddance"
+    prompt: Optional[str] = None  # AI generation prompt
+    url: Optional[str] = None  # image/stock URL
+    duration_seconds: float = 3
+    animation: Optional[str] = None
+    props: Optional[Dict[str, Any]] = None
+
+class AudioInput(BaseModel):
+    voiceover_url: Optional[str] = None
+    music_url: Optional[str] = None
+    music_volume: float = 0.15
+
+class OutputConfig(BaseModel):
+    format: str = "mp4"
+    resolution: str = "1080x1920"
+    fps: int = 30
+
+class ComposeRequest(BaseModel):
+    project_title: str = "Untitled Video"
+    format_slug: Optional[str] = None
+    scenes: List[SceneInput]
+    audio: Optional[AudioInput] = None
+    output: Optional[OutputConfig] = None
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -666,3 +726,151 @@ async def _update_composition(
     
     await db.execute(query, params)
     await db.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  VIDEO COMPOSE FROM SCENES
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.post("/compose-from-scenes")
+async def compose_video_from_scenes(
+    body: ComposeRequest,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """
+    Compose a video from mixed scene types (remotion, ai_generated, image, stock).
+    
+    Creates a video project and orchestrates the rendering pipeline by:
+    1. Validating all scenes
+    2. Calculating total duration and estimated cost
+    3. Creating a video_projects record with status "queued"
+    4. Returning project breakdown for tracking
+    
+    Phase 2b will handle actual rendering orchestration.
+    """
+    from app.services.tenant import get_org_id
+    
+    org_id = get_org_id(request)
+    user_id = getattr(request.state, "user_id", user.id)
+    
+    # Validate scenes
+    if not body.scenes or len(body.scenes) == 0:
+        raise HTTPException(status_code=400, detail="At least one scene is required")
+    
+    # Calculate total duration
+    total_duration = sum(scene.duration_seconds for scene in body.scenes)
+    
+    # Calculate scene breakdown
+    scene_breakdown = {}
+    for scene in body.scenes:
+        scene_breakdown[scene.type] = scene_breakdown.get(scene.type, 0) + 1
+    
+    # Estimate costs
+    ai_scene_count = scene_breakdown.get("ai_generated", 0)
+    ai_cost = ai_scene_count * 0.05  # $0.05 per AI scene (placeholder)
+    
+    estimated_cost = {
+        "ai_scenes": f"${ai_cost:.2f}" if ai_cost > 0 else None,
+        "remotion_scenes": "free (local)" if scene_breakdown.get("remotion", 0) > 0 else None,
+        "image_scenes": "free" if scene_breakdown.get("image", 0) > 0 else None,
+        "stock_scenes": "free" if scene_breakdown.get("stock", 0) > 0 else None,
+        "total": f"${ai_cost:.2f}"
+    }
+    
+    # Filter out null values
+    estimated_cost = {k: v for k, v in estimated_cost.items() if v is not None}
+    
+    # Prepare data for storage
+    scenes_json = [scene.model_dump() for scene in body.scenes]
+    audio_json = body.audio.model_dump() if body.audio else {}
+    output_config_json = body.output.model_dump() if body.output else {}
+    
+    # Create video project
+    insert_query = text("""
+        INSERT INTO crm.video_projects 
+        (org_id, user_id, title, format_slug, status, scenes, audio, output_config, 
+         total_duration_seconds, estimated_cost)
+        VALUES 
+        (:org_id, :user_id, :title, :format_slug, 'queued', CAST(:scenes AS jsonb), 
+         CAST(:audio AS jsonb), CAST(:output_config AS jsonb), :duration, CAST(:cost AS jsonb))
+        RETURNING id
+    """)
+    
+    result = await db.execute(insert_query, {
+        "org_id": org_id,
+        "user_id": user_id,
+        "title": body.project_title,
+        "format_slug": body.format_slug,
+        "scenes": json.dumps(scenes_json),
+        "audio": json.dumps(audio_json),
+        "output_config": json.dumps(output_config_json),
+        "duration": total_duration,
+        "cost": json.dumps(estimated_cost)
+    })
+    
+    project_id = result.scalar()
+    await db.commit()
+    
+    # TODO: Phase 2b - Queue actual rendering jobs for each scene
+    # For now, just create the project record and return the breakdown
+    
+    return {
+        "project_id": project_id,
+        "status": "queued",
+        "total_scenes": len(body.scenes),
+        "scene_breakdown": scene_breakdown,
+        "estimated_duration_seconds": total_duration,
+        "estimated_cost": estimated_cost
+    }
+
+
+@router.get("/projects/{project_id}")
+async def get_video_project_status(
+    project_id: int,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Get the current status of a video project."""
+    from app.services.tenant import get_org_id
+    
+    org_id = get_org_id(request)
+    user_id = getattr(request.state, "user_id", user.id)
+    
+    query = text("""
+        SELECT id, title, format_slug, status, scenes, audio, output_config,
+               output_url, total_duration_seconds, estimated_cost, error,
+               created_at, completed_at
+        FROM crm.video_projects 
+        WHERE id = :project_id AND org_id = :org_id AND user_id = :user_id
+    """)
+    
+    result = await db.execute(query, {
+        "project_id": project_id,
+        "org_id": org_id,
+        "user_id": user_id
+    })
+    
+    project = result.mappings().first()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Video project not found")
+    
+    # Parse JSON fields
+    project_dict = dict(project)
+    if isinstance(project_dict.get("scenes"), str):
+        project_dict["scenes"] = json.loads(project_dict["scenes"])
+    if isinstance(project_dict.get("audio"), str):
+        project_dict["audio"] = json.loads(project_dict["audio"])
+    if isinstance(project_dict.get("output_config"), str):
+        project_dict["output_config"] = json.loads(project_dict["output_config"])
+    if isinstance(project_dict.get("estimated_cost"), str):
+        project_dict["estimated_cost"] = json.loads(project_dict["estimated_cost"])
+    
+    # Convert timestamps to strings for JSON serialization
+    project_dict["created_at"] = project_dict["created_at"].isoformat() if project_dict["created_at"] else None
+    project_dict["completed_at"] = project_dict["completed_at"].isoformat() if project_dict["completed_at"] else None
+    
+    return project_dict
