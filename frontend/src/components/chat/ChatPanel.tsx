@@ -510,6 +510,7 @@ export default function ChatPanel() {
   const audioQueueRef = useRef<(() => Promise<void>)[]>([]);
   const audioPlayingRef = useRef<boolean>(false);
   const lastSpokenTextRef = useRef<string>("");
+  const spokenLengthRef = useRef<number>(0); // Track how much streaming text has been sent to TTS
   const lastSpokenTimeRef = useRef<number>(0);
   // Accumulates assistant text across tool cycles within a single response
   const partialContentRef = useRef<string>("");
@@ -907,11 +908,26 @@ export default function ChatPanel() {
               if (text.length < prev.length * 0.5 && prev.length > 20) {
                 // Looks like a new turn — snapshot previous text into partial buffer
                 updatePartial(prev);
+                spokenLengthRef.current = 0; // Reset sentence tracking
               }
               setStreamText(text);
               streamTextRef.current = text;
               setIsLoading(false);
-              // Keep isGenerating true during streaming
+
+              // Streaming TTS: extract complete sentences and speak them as they arrive
+              if (conversationActiveRef.current) {
+                const unspoken = text.slice(spokenLengthRef.current);
+                // Match sentences ending with . ! ? followed by space, newline, or another sentence
+                const sentenceEnd = unspoken.search(/[.!?][\s\n]/);
+                if (sentenceEnd > 0) {
+                  const sentence = unspoken.slice(0, sentenceEnd + 1).trim();
+                  if (sentence.length > 5) {
+                    spokenLengthRef.current += sentenceEnd + 2;
+                    console.log("[voice] Streaming sentence to TTS:", sentence.slice(0, 50));
+                    speakText(sentence);
+                  }
+                }
+              }
             }
           } else if (state === "final") {
             const text = extractText(message);
@@ -952,9 +968,14 @@ export default function ChatPanel() {
               activeToolsRef.current = [];
             }
 
-            // If in conversation mode, speak the response
+            // If in conversation mode, speak any remaining unspoken text
             if (text && conversationActiveRef.current) {
-              speakText(text);
+              const remaining = text.slice(spokenLengthRef.current).trim();
+              console.log("[voice] Final handler - remaining:", remaining.length, "chars, spokenSoFar:", spokenLengthRef.current);
+              if (remaining.length > 3) {
+                speakText(remaining);
+              }
+              spokenLengthRef.current = 0;
             }
           } else if (state === "aborted") {
             const partial = streamTextRef.current || partialContentRef.current;

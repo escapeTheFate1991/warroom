@@ -57,7 +57,7 @@ services:
       MENTAL_LIBRARY_DB: ${MENTAL_LIBRARY_DB:-/data/mental-library/mental_library.db}
       VOICE_IO_SCRIPTS_PATH: /voice-io-scripts
       # Chatterbox TTS service
-      CHATTERBOX_URL: ${CHATTERBOX_URL:-http://warroom-chatterbox:8400}
+      CHATTERBOX_URL: ${CHATTERBOX_URL:-http://localhost:8401}
     restart: unless-stopped
     network_mode: host
     volumes:
@@ -99,6 +99,7 @@ services:
     build:
       context: ./docker/chatterbox
     container_name: warroom-chatterbox
+    runtime: nvidia
     ports:
       - "8401:8400"
     volumes:
@@ -106,8 +107,8 @@ services:
       - ./data/chatterbox_cache:/app/cache
     environment:
       - TORCH_HOME=/app/cache
+      - NVIDIA_VISIBLE_DEVICES=all
     restart: unless-stopped
-    # Note: will use CPU. If GPU available, add deploy section
 
 volumes:
   instagram-cookies:

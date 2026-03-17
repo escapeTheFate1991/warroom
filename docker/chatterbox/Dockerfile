@@ -1,29 +1,9 @@
-FROM python:3.11-slim
+FROM chatterbox-base:gpu-cu124
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install PyTorch CPU-only first (smaller than full CUDA build)
-RUN pip install --no-cache-dir \
-    torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-# Install chatterbox-tts and API deps
-RUN pip install --no-cache-dir \
-    chatterbox-tts \
-    fastapi \
-    uvicorn \
-    python-multipart \
-    pydantic \
-    httpx
-
-# Copy the FastAPI server
 COPY server.py .
 
-# Create directories for voices and cache
 RUN mkdir -p /app/voices /app/cache
 
 EXPOSE 8400

@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
   User, Plus, Upload, Camera, Trash2, Image, X, Eye, ChevronRight,
-  CheckCircle, AlertCircle, Loader2, Sparkles, Target, Clock
+  CheckCircle, AlertCircle, Loader2, Sparkles, Target, Clock, ImageOff
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 
@@ -82,6 +82,48 @@ const DO_DONT_GUIDELINES = {
   ]
 };
 
+/* ── Image Component with 403 Fallback ────────────────── */
+function SafeImage({ src, alt, className, fallbackIcon = User, fallbackText }: {
+  src: string;
+  alt: string;
+  className?: string;
+  fallbackIcon?: any;
+  fallbackText?: string;
+}) {
+  const [imageError, setImageError] = useState(false);
+  const [isInstagramCDN, setIsInstagramCDN] = useState(false);
+  const FallbackIcon = fallbackIcon;
+
+  useEffect(() => {
+    setIsInstagramCDN(src.includes('cdninstagram.com') || src.includes('scontent-'));
+    setImageError(false);
+  }, [src]);
+
+  const handleImageError = () => {
+    setImageError(true);
+  };
+
+  if (imageError || (isInstagramCDN && src)) {
+    return (
+      <div className={`flex flex-col items-center justify-center bg-warroom-bg text-warroom-muted ${className}`}>
+        <ImageOff size={24} className="mb-1" />
+        <span className="text-xs text-center">
+          {isInstagramCDN ? "Instagram link expired" : (fallbackText || "Image unavailable")}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <img 
+      src={src} 
+      alt={alt} 
+      className={className}
+      onError={handleImageError}
+    />
+  );
+}
+
 export default function DigitalCopiesPanel() {
   // Digital copies state
   const [copies, setCopies] = useState<DigitalCopy[]>([]);
@@ -110,9 +152,13 @@ export default function DigitalCopiesPanel() {
       if (response.ok) {
         const data = await response.json();
         setCopies(data.digital_copies || []);
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to fetch digital copies");
       }
     } catch (error) {
       console.error("Failed to fetch digital copies:", error);
+      // Don't show alert for initial load failures, just log
     } finally {
       setLoading(false);
     }
@@ -136,11 +182,12 @@ export default function DigitalCopiesPanel() {
         await fetchCopies();
         return data.id;
       } else {
-        throw new Error("Failed to create digital copy");
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to create digital copy");
       }
     } catch (error) {
       console.error("Error creating digital copy:", error);
-      alert("Failed to create digital copy");
+      alert(error instanceof Error ? error.message : "Failed to create digital copy");
     }
   };
 
@@ -163,11 +210,12 @@ export default function DigitalCopiesPanel() {
         setUploadedImages(prev => [...prev, data]);
         await fetchCopies();
       } else {
-        throw new Error("Failed to upload image");
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to upload image");
       }
     } catch (error) {
       console.error("Error uploading image:", error);
-      alert("Failed to upload image");
+      alert(error instanceof Error ? error.message : "Failed to upload image");
     } finally {
       setUploading(false);
     }
@@ -184,9 +232,13 @@ export default function DigitalCopiesPanel() {
       if (response.ok) {
         setUploadedImages(prev => prev.filter(img => img.id !== imageId));
         await fetchCopies();
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to delete image");
       }
     } catch (error) {
       console.error("Error deleting image:", error);
+      alert(error instanceof Error ? error.message : "Failed to delete image");
     }
   };
 
@@ -200,11 +252,12 @@ export default function DigitalCopiesPanel() {
         const data = await response.json();
         setQualityAudit(data);
       } else {
-        throw new Error("Quality audit failed");
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Quality audit failed");
       }
     } catch (error) {
       console.error("Error performing quality audit:", error);
-      alert("Quality audit failed");
+      alert(error instanceof Error ? error.message : "Quality audit failed");
     } finally {
       setAuditLoading(false);
     }
@@ -223,11 +276,12 @@ export default function DigitalCopiesPanel() {
         resetCreator();
         alert("Character generation started!");
       } else {
-        throw new Error("Failed to start character generation");
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to start character generation");
       }
     } catch (error) {
       console.error("Error generating character:", error);
-      alert("Failed to start character generation");
+      alert(error instanceof Error ? error.message : "Failed to start character generation");
     }
   };
 
@@ -398,7 +452,12 @@ export default function DigitalCopiesPanel() {
                 {/* Thumbnail */}
                 <div className="aspect-square bg-warroom-bg flex items-center justify-center">
                   {copy.thumbnail_url ? (
-                    <img src={copy.thumbnail_url} alt={copy.name} className="w-full h-full object-cover" />
+                    <SafeImage 
+                      src={copy.thumbnail_url} 
+                      alt={copy.name} 
+                      className="w-full h-full object-cover"
+                      fallbackText="No thumbnail"
+                    />
                   ) : (
                     <div className="flex flex-col items-center text-warroom-muted">
                       <User size={48} />

@@ -180,16 +180,38 @@ def _validate_tts_input(text: str) -> str:
     return _sanitize_tts_text(text)
 
 
+CHATTERBOX_URL = os.getenv("CHATTERBOX_URL", "http://localhost:8401")
+
+
 @router.post("/tts")
-async def text_to_speech(text: str = "", voice: str = "en-US-AvaNeural"):
-    """Generate speech from text using edge-tts, return audio stream."""
+async def text_to_speech(text: str = "", voice: str = "", engine: str = ""):
+    """Generate speech. Tries Chatterbox (GPU) first, falls back to edge-tts."""
     text = _validate_tts_input(text)
 
+    # Try Chatterbox first (better quality, GPU-accelerated)
+    if engine != "edge":
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                form_data = {"text": text}
+                if voice:
+                    form_data["speaker_id"] = voice
+                resp = await client.post(f"{CHATTERBOX_URL}/tts/generate", data=form_data)
+                if resp.status_code == 200:
+                    async def stream_chatterbox():
+                        yield resp.content
+                    return StreamingResponse(stream_chatterbox(), media_type="audio/wav")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Chatterbox failed, falling back to edge-tts: {e}")
+
+    # Fallback: edge-tts
+    edge_voice = voice if voice and not voice.startswith("voice_") else "en-US-AvaNeural"
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
         tmp_path = tmp.name
 
     proc = subprocess.run(
-        ["edge-tts", "--voice", voice, "--text", text, "--write-media", tmp_path],
+        ["edge-tts", "--voice", edge_voice, "--text", text, "--write-media", tmp_path],
         capture_output=True, timeout=30,
     )
 

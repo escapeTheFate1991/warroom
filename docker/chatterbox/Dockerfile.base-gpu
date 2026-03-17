@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# CUDA PyTorch
+RUN pip install --no-cache-dir \
+    torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Chatterbox + API deps
+RUN pip install --no-cache-dir \
+    chatterbox-tts \
+    fastapi \
+    uvicorn \
+    python-multipart \
+    pydantic \
+    httpx
