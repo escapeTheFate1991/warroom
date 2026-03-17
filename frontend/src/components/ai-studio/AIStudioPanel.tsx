@@ -12,6 +12,7 @@ import ScrollTabs from "@/components/ui/ScrollTabs";
 import dynamic from "next/dynamic";
 import FormatPicker from "./FormatPicker";
 import HookLab from "./HookLab";
+import DistributionPanel from "./DistributionPanel";
 
 const VideoEditor = dynamic(() => import("./VideoEditor"), {
   loading: () => (
@@ -1658,58 +1659,18 @@ export default function AIStudioPanel() {
           </div>
         )}
 
-        {/* Schedule Post — shown when video is completed */}
+        {/* Distribution Panel — shown when video is completed */}
         {generationResult?.ok && pollStatus === "completed" && (
-          <div className="space-y-3">
-            {!showScheduleForm ? (
-              <button onClick={() => setShowScheduleForm(true)}
-                className="flex items-center gap-1.5 px-4 py-2 bg-purple-500/20 text-purple-400 text-xs rounded-lg hover:bg-purple-500/30 transition font-medium">
-                <Clock size={14} /> Schedule Post
-              </button>
-            ) : (
-              <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold text-warroom-text flex items-center gap-1.5"><Clock size={12} /> Schedule Post</h4>
-                  <button onClick={() => setShowScheduleForm(false)} className="p-1 text-warroom-muted hover:text-warroom-text"><X size={12} /></button>
-                </div>
-                {/* Platform checkboxes */}
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1.5">Platforms</label>
-                  <div className="flex flex-wrap gap-2">
-                    {(["instagram", "tiktok", "youtube", "x"] as const).map(p => (
-                      <label key={p} className="flex items-center gap-1.5 cursor-pointer select-none">
-                        <input type="checkbox" checked={schedulePlatforms[p]} onChange={e => setSchedulePlatforms(prev => ({ ...prev, [p]: e.target.checked }))}
-                          className="accent-warroom-accent w-3.5 h-3.5" />
-                        <span className="text-xs text-warroom-text capitalize">{p === "x" ? "𝕏" : p}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                {/* Datetime */}
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Schedule Date & Time</label>
-                  <input type="datetime-local" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" />
-                </div>
-                {/* Caption */}
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Caption</label>
-                  <textarea value={scheduleCaption} onChange={e => setScheduleCaption(e.target.value)}
-                    placeholder="Write your post caption..."
-                    rows={3} className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text resize-none focus:outline-none focus:border-warroom-accent" />
-                </div>
-                {scheduleSuccess ? (
-                  <div className="flex items-center gap-1.5 text-xs text-emerald-400"><CheckCircle size={14} /> Post scheduled successfully!</div>
-                ) : (
-                  <button onClick={() => { const proj = projects.find(p => p.id === pollingProjectId); schedulePost(proj?.video_url || ""); }}
-                    disabled={scheduling || !Object.values(schedulePlatforms).some(Boolean) || !scheduleDate}
-                    className="w-full py-2 bg-purple-500 text-white text-xs rounded-lg hover:bg-purple-500/80 disabled:opacity-40 transition flex items-center justify-center gap-1.5 font-medium">
-                    {scheduling ? <Loader2 size={14} className="animate-spin" /> : <Clock size={14} />}
-                    {scheduling ? "Scheduling..." : "Schedule Post"}
-                  </button>
-                )}
-              </div>
-            )}
+          <div className="mt-6">
+            <DistributionPanel
+              videoProjectId={pollingProjectId ? parseInt(pollingProjectId) : null}
+              videoUrl={projects.find(p => p.id === pollingProjectId)?.video_url || null}
+              caption={wizardScript || ""}
+              onDistribute={(result) => {
+                console.log("Distribution launched:", result);
+                // Optionally show success notification or redirect
+              }}
+            />
           </div>
         )}
 
