@@ -182,7 +182,9 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript, onS
       const response = await authFetch(`${API}/api/ai-studio/ugc/generate-script`, {
         method: "POST",
         body: JSON.stringify({
-          format_slug: formatSlug,
+          format: formatSlug,  // API expects 'format' not 'format_slug'
+          topic: "content marketing",  // API requires 'topic' field
+          hook: script.hook || "",  // API expects 'hook' field
           use_competitor_intel: true,
           current_hook: script.hook,
           current_body: script.body,
