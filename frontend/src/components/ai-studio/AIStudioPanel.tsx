@@ -241,6 +241,21 @@ export default function AIStudioPanel() {
     }
   }, [configured, fetchCopies, fetchTemplates, fetchProjects]);
 
+  // Initialize script parts from existing script when switching to Hook Lab
+  useEffect(() => {
+    if (scriptTab === "hook-lab" && wizardScript && !scriptParts.hook && !scriptParts.body && !scriptParts.cta) {
+      // Try to parse existing script into parts
+      const lines = wizardScript.split('\n').map(line => line.trim()).filter(Boolean);
+      if (lines.length >= 3) {
+        setScriptParts({
+          hook: lines[0] || "",
+          body: lines.slice(1, -1).join('\n') || "",
+          cta: lines[lines.length - 1] || ""
+        });
+      }
+    }
+  }, [scriptTab, wizardScript, scriptParts]);
+
   // ── Digital Copy CRUD ────────────────────────────────────
   const createDigitalCopy = async () => {
     if (!newCopyName.trim()) return;
@@ -939,88 +954,138 @@ export default function AIStudioPanel() {
   // ── Step 3: Script ─────────────────────────────────────
   function renderStepScript() {
     return (
-      <div className="space-y-5 max-w-2xl">
+      <div className="space-y-5">
         <div>
           <h2 className="text-sm font-semibold text-warroom-text">Write Your Script</h2>
-          <p className="text-xs text-warroom-muted mt-0.5">The voiceover / dialogue for your video. Use the AI generator or write manually below.</p>
+          <p className="text-xs text-warroom-muted mt-0.5">The voiceover / dialogue for your video. Use Hook Lab with competitor intel or write manually.</p>
         </div>
 
-        {/* ✨ AI Script Generator (collapsible) */}
-        <div className="bg-warroom-surface border border-warroom-border rounded-xl overflow-hidden">
-          <button onClick={() => setScriptGenOpen(!scriptGenOpen)}
-            className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold text-warroom-text hover:bg-warroom-bg/50 transition">
-            <span className="flex items-center gap-2"><Sparkles size={14} className="text-warroom-accent" /> AI Script Generator</span>
-            <ChevronRight size={14} className={`text-warroom-muted transition-transform ${scriptGenOpen ? "rotate-90" : ""}`} />
+        {/* Tabs */}
+        <div className="flex border-b border-warroom-border">
+          <button
+            onClick={() => setScriptTab("hook-lab")}
+            className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+              scriptTab === "hook-lab"
+                ? "border-warroom-accent text-warroom-accent"
+                : "border-transparent text-warroom-muted hover:text-warroom-text"
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <Sparkles size={12} />
+              Hook Lab
+            </span>
           </button>
-          {scriptGenOpen && (
-            <div className="px-4 pb-4 space-y-3 border-t border-warroom-border pt-3">
-              {/* Format grid */}
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1.5">Video Format</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                  {VIDEO_FORMATS.map(f => (
-                    <button key={f.id} onClick={() => setScriptGenFormat(f.id)}
-                      className={`px-2 py-2 rounded-lg text-[11px] text-left transition border ${scriptGenFormat === f.id ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent" : "border-warroom-border bg-warroom-bg text-warroom-muted hover:border-warroom-accent/30"}`}>
-                      <span className="mr-1">{f.emoji}</span> {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Hook input */}
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Hook (80% of performance)</label>
-                <input value={scriptGenHook} onChange={e => setScriptGenHook(e.target.value)}
-                  placeholder={`e.g. "Nobody talks about this but..."`}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" />
-              </div>
-              {/* Topic input */}
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Topic / Product</label>
-                <input value={scriptGenTopic} onChange={e => setScriptGenTopic(e.target.value)}
-                  placeholder="e.g. AI-powered marketing dashboard for agencies"
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" />
-              </div>
-              <button onClick={generateScript} disabled={generatingScript}
-                className="w-full py-2.5 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 disabled:opacity-40 transition flex items-center justify-center gap-1.5 font-medium">
-                {generatingScript ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
-                {generatingScript ? "Generating..." : "Generate Script"}
-              </button>
-            </div>
-          )}
+          <button
+            onClick={() => setScriptTab("raw-script")}
+            className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 ${
+              scriptTab === "raw-script"
+                ? "border-warroom-accent text-warroom-accent"
+                : "border-transparent text-warroom-muted hover:text-warroom-text"
+            }`}
+          >
+            Raw Script
+          </button>
         </div>
 
-        {/* Hook Library + Textarea */}
-        <div className="relative">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-[10px] uppercase tracking-wider text-warroom-muted">Script</label>
-            <div className="relative">
-              <button onClick={() => setShowHookLibrary(!showHookLibrary)}
-                className="flex items-center gap-1 px-2 py-1 bg-warroom-bg border border-warroom-border text-[10px] text-warroom-muted rounded-lg hover:border-warroom-accent/30 hover:text-warroom-accent transition">
-                <Zap size={10} /> Browse Hooks
+        {/* Tab Content */}
+        {scriptTab === "hook-lab" ? (
+          <HookLab
+            formatSlug={selectedFormat || "direct-to-camera"}
+            onScriptChange={(parts) => {
+              setScriptParts(parts);
+              // Combine parts into full script for backward compatibility
+              const fullScript = `${parts.hook}\n\n${parts.body}\n\n${parts.cta}`;
+              setWizardScript(fullScript);
+            }}
+            initialScript={scriptParts}
+          />
+        ) : (
+          <div className="max-w-2xl space-y-5">
+            {/* ✨ AI Script Generator (collapsible) */}
+            <div className="bg-warroom-surface border border-warroom-border rounded-xl overflow-hidden">
+              <button onClick={() => setScriptGenOpen(!scriptGenOpen)}
+                className="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold text-warroom-text hover:bg-warroom-bg/50 transition">
+                <span className="flex items-center gap-2"><Sparkles size={14} className="text-warroom-accent" /> AI Script Generator</span>
+                <ChevronRight size={14} className={`text-warroom-muted transition-transform ${scriptGenOpen ? "rotate-90" : ""}`} />
               </button>
-              {showHookLibrary && (
-                <div className="absolute right-0 top-full mt-1 w-80 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl z-20 p-2 space-y-0.5">
-                  <p className="text-[10px] text-warroom-muted px-2 py-1 font-medium">Proven Hook Formulas — click to insert</p>
-                  {HOOK_FORMULAS.map((h, i) => (
-                    <button key={i} onClick={() => insertHookAtCursor(h)}
-                      className="w-full text-left px-3 py-2 rounded-lg text-[11px] text-warroom-text hover:bg-warroom-accent/10 hover:text-warroom-accent transition">
-                      &ldquo;{h}&rdquo;
-                    </button>
-                  ))}
+              {scriptGenOpen && (
+                <div className="px-4 pb-4 space-y-3 border-t border-warroom-border pt-3">
+                  {/* Format grid */}
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1.5">Video Format</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {VIDEO_FORMATS.map(f => (
+                        <button key={f.id} onClick={() => setScriptGenFormat(f.id)}
+                          className={`px-2 py-2 rounded-lg text-[11px] text-left transition border ${scriptGenFormat === f.id ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent" : "border-warroom-border bg-warroom-bg text-warroom-muted hover:border-warroom-accent/30"}`}>
+                          <span className="mr-1">{f.emoji}</span> {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Hook input */}
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Hook (80% of performance)</label>
+                    <input value={scriptGenHook} onChange={e => setScriptGenHook(e.target.value)}
+                      placeholder={`e.g. "Nobody talks about this but..."`}
+                      className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" />
+                  </div>
+                  {/* Topic input */}
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Topic / Product</label>
+                    <input value={scriptGenTopic} onChange={e => setScriptGenTopic(e.target.value)}
+                      placeholder="e.g. AI-powered marketing dashboard for agencies"
+                      className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent" />
+                  </div>
+                  <button onClick={generateScript} disabled={generatingScript}
+                    className="w-full py-2.5 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 disabled:opacity-40 transition flex items-center justify-center gap-1.5 font-medium">
+                    {generatingScript ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                    {generatingScript ? "Generating..." : "Generate Script"}
+                  </button>
                 </div>
               )}
             </div>
+
+            {/* Hook Library + Textarea */}
+            <div className="relative">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[10px] uppercase tracking-wider text-warroom-muted">Script</label>
+                <div className="relative">
+                  <button onClick={() => setShowHookLibrary(!showHookLibrary)}
+                    className="flex items-center gap-1 px-2 py-1 bg-warroom-bg border border-warroom-border text-[10px] text-warroom-muted rounded-lg hover:border-warroom-accent/30 hover:text-warroom-accent transition">
+                    <Zap size={10} /> Browse Hooks
+                  </button>
+                  {showHookLibrary && (
+                    <div className="absolute right-0 top-full mt-1 w-80 bg-warroom-surface border border-warroom-border rounded-xl shadow-xl z-20 p-2 space-y-0.5">
+                      <p className="text-[10px] text-warroom-muted px-2 py-1 font-medium">Proven Hook Formulas — click to insert</p>
+                      {HOOK_FORMULAS.map((h, i) => (
+                        <button key={i} onClick={() => insertHookAtCursor(h)}
+                          className="w-full text-left px-3 py-2 rounded-lg text-[11px] text-warroom-text hover:bg-warroom-accent/10 hover:text-warroom-accent transition">
+                          &ldquo;{h}&rdquo;
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <textarea ref={scriptTextareaRef} value={wizardScript} onChange={e => setWizardScript(e.target.value)}
+                placeholder={"[HOOK] \"Wait, you guys are still doing it the old way?\"\n\n[DEMO] So I just found this product and honestly...\n\n[CTA] Link in bio — trust me on this one."}
+                rows={12}
+                className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-4 py-3 text-sm text-warroom-text resize-none focus:outline-none focus:border-warroom-accent leading-relaxed font-mono"
+              />
+            </div>
           </div>
-          <textarea ref={scriptTextareaRef} value={wizardScript} onChange={e => setWizardScript(e.target.value)}
-            placeholder={"[HOOK] \"Wait, you guys are still doing it the old way?\"\n\n[DEMO] So I just found this product and honestly...\n\n[CTA] Link in bio — trust me on this one."}
-            rows={12}
-            className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-4 py-3 text-sm text-warroom-text resize-none focus:outline-none focus:border-warroom-accent leading-relaxed font-mono"
-          />
-        </div>
+        )}
 
         <div className="flex justify-between">
           <button onClick={() => setWizardStep("settings")} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Back</button>
-          <button onClick={() => setWizardStep("storyboard")} className="px-4 py-2 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 transition flex items-center gap-1">Next <ChevronRight size={14} /></button>
+          <button onClick={() => {
+            // When going to storyboard, ensure the full script is combined from parts if using Hook Lab
+            if (scriptTab === "hook-lab" && scriptParts.hook && scriptParts.body && scriptParts.cta) {
+              const fullScript = `${scriptParts.hook}\n\n${scriptParts.body}\n\n${scriptParts.cta}`;
+              setWizardScript(fullScript);
+            }
+            setWizardStep("storyboard");
+          }} className="px-4 py-2 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 transition flex items-center gap-1">Next <ChevronRight size={14} /></button>
         </div>
       </div>
     );
