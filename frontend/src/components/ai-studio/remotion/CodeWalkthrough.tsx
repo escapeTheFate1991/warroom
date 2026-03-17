@@ -70,7 +70,6 @@ export const CodeWalkthrough: React.FC<CodeWalkthroughProps> = ({
   const titleY = spring({ frame, fps, from: 30, to: 0, config: { damping: 12 } });
 
   const highlightSyntax = (line: string) => {
-    // Simple syntax highlighting patterns
     const patterns = [
       { regex: /(\/\/.*|\/\*[\s\S]*?\*\/|#.*)/g, color: colors.comment, weight: 500 },
       { regex: /(function|const|let|var|if|else|for|while|return|import|export|class|extends)/g, color: colors.keyword, weight: 700 },
@@ -79,70 +78,31 @@ export const CodeWalkthrough: React.FC<CodeWalkthroughProps> = ({
       { regex: /\b([a-zA-Z_]\w*)\s*(?=\()/g, color: colors.function, weight: 600 },
     ];
 
-    let highlightedLine = line;
     const spans: Array<{ start: number; end: number; color: string; weight: number }> = [];
-
     patterns.forEach((pattern) => {
       let match;
       const regex = new RegExp(pattern.regex.source, pattern.regex.flags);
       while ((match = regex.exec(line)) !== null) {
-        spans.push({
-          start: match.index,
-          end: match.index + match[0].length,
-          color: pattern.color,
-          weight: pattern.weight,
-        });
+        spans.push({ start: match.index, end: match.index + match[0].length, color: pattern.color, weight: pattern.weight });
       }
     });
 
-    // Sort spans by start position and merge overlapping
     spans.sort((a, b) => a.start - b.start);
-    const mergedSpans = spans.reduce((acc, span) => {
-      const lastSpan = acc[acc.length - 1];
-      if (lastSpan && span.start <= lastSpan.end) {
-        lastSpan.end = Math.max(lastSpan.end, span.end);
-        return acc;
-      }
-      return [...acc, span];
-    }, [] as typeof spans);
-
-    if (mergedSpans.length === 0) {
-      return <span style={{ color: colors.text }}>{line}</span>;
-    }
+    if (spans.length === 0) return <span style={{ color: colors.text }}>{line}</span>;
 
     const elements: React.ReactNode[] = [];
     let currentPos = 0;
 
-    mergedSpans.forEach((span, index) => {
-      // Add text before span
+    spans.forEach((span, index) => {
       if (currentPos < span.start) {
-        elements.push(
-          <span key={`text-${index}`} style={{ color: colors.text }}>
-            {line.slice(currentPos, span.start)}
-          </span>
-        );
+        elements.push(<span key={`text-${index}`} style={{ color: colors.text }}>{line.slice(currentPos, span.start)}</span>);
       }
-
-      // Add highlighted span
-      elements.push(
-        <span
-          key={`highlight-${index}`}
-          style={{ color: span.color, fontWeight: span.weight }}
-        >
-          {line.slice(span.start, span.end)}
-        </span>
-      );
-
+      elements.push(<span key={`highlight-${index}`} style={{ color: span.color, fontWeight: span.weight }}>{line.slice(span.start, span.end)}</span>);
       currentPos = span.end;
     });
 
-    // Add remaining text
     if (currentPos < line.length) {
-      elements.push(
-        <span key="text-end" style={{ color: colors.text }}>
-          {line.slice(currentPos)}
-        </span>
-      );
+      elements.push(<span key="text-end" style={{ color: colors.text }}>{line.slice(currentPos)}</span>);
     }
 
     return <>{elements}</>;
@@ -154,63 +114,29 @@ export const CodeWalkthrough: React.FC<CodeWalkthroughProps> = ({
 
     switch (animation) {
       case "typewriter":
-        const totalChars = lines.slice(0, lineIndex + 1).join("").length;
-        const typedChars = interpolate(frame, [0, 120], [0, code.length], {
-          extrapolateRight: "clamp",
-        });
+        const typedChars = interpolate(frame, [0, 120], [0, code.length], { extrapolateRight: "clamp" });
         const lineStartChar = lines.slice(0, lineIndex).join("").length;
-        const lineChars = lines[lineIndex].length;
-        
-        if (typedChars < lineStartChar) {
-          return { opacity: 0, content: "", highlight: false };
-        }
-        
+        if (typedChars < lineStartChar) return { opacity: 0, content: "", highlight: false };
         const charsInLine = Math.max(0, typedChars - lineStartChar);
-        const content = lines[lineIndex].slice(0, Math.min(charsInLine, lineChars));
-        
-        return {
-          opacity: 1,
-          content,
-          highlight: false,
-        };
+        return { opacity: 1, content: lines[lineIndex].slice(0, Math.min(charsInLine, lines[lineIndex].length)), highlight: false };
 
       case "reveal":
         const delay = title ? 30 : 0;
         return {
-          opacity: interpolate(frame, [delay + lineIndex * 3, delay + lineIndex * 3 + 15], [0, 1], {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-          }),
-          content: lines[lineIndex],
-          highlight: false,
+          opacity: interpolate(frame, [delay + lineIndex * 3, delay + lineIndex * 3 + 15], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }),
+          content: lines[lineIndex], highlight: false,
         };
 
       case "highlight_cascade":
         const revealDelay = title ? 30 : 0;
         const highlightDelay = revealDelay + lines.length * 3 + 20;
-        
-        const lineOpacity = interpolate(frame, [revealDelay + lineIndex * 2, revealDelay + lineIndex * 2 + 10], [0, 1], {
-          extrapolateLeft: "clamp",
-          extrapolateRight: "clamp",
-        });
-
+        const lineOpacity = interpolate(frame, [revealDelay + lineIndex * 2, revealDelay + lineIndex * 2 + 10], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
         let highlightOpacity = 0;
         if (isHighlighted) {
           const highlightIndex = highlightLines.indexOf(lineNumber);
-          highlightOpacity = interpolate(
-            frame,
-            [highlightDelay + highlightIndex * 8, highlightDelay + highlightIndex * 8 + 15],
-            [0, 1],
-            { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
-          );
+          highlightOpacity = interpolate(frame, [highlightDelay + highlightIndex * 8, highlightDelay + highlightIndex * 8 + 15], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
         }
-
-        return {
-          opacity: lineOpacity,
-          content: lines[lineIndex],
-          highlight: highlightOpacity > 0,
-          highlightOpacity,
-        };
+        return { opacity: lineOpacity, content: lines[lineIndex], highlight: highlightOpacity > 0, highlightOpacity };
 
       default:
         return {
@@ -265,20 +191,11 @@ export const CodeWalkthrough: React.FC<CodeWalkthroughProps> = ({
           }}
         >
           {/* Language indicator */}
-          <div
-            style={{
-              position: "absolute",
-              top: 16,
-              right: 20,
-              fontSize: 18,
-              fontWeight: 600,
-              color: "#7c3aed",
-              backgroundColor: "rgba(124,58,237,0.1)",
-              padding: "6px 12px",
-              borderRadius: 8,
-              opacity: interpolate(frame, [20, 40], [0, 1], { extrapolateRight: "clamp" }),
-            }}
-          >
+          <div style={{
+            position: "absolute", top: 16, right: 20, fontSize: 18, fontWeight: 600, color: "#7c3aed",
+            backgroundColor: "rgba(124,58,237,0.1)", padding: "6px 12px", borderRadius: 8,
+            opacity: interpolate(frame, [20, 40], [0, 1], { extrapolateRight: "clamp" }),
+          }}>
             {language}
           </div>
 

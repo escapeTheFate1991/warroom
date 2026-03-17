@@ -76,52 +76,16 @@ export const BRoll: React.FC<BRollProps> = ({
   });
 
   const getOverlayPositionStyles = () => {
+    const baseBox = { padding: "24px 40px", backgroundColor: "rgba(6,6,10,0.8)", borderRadius: 16, border: "2px solid rgba(124,58,237,0.3)" };
     switch (overlayPosition) {
       case "center":
-        return {
-          position: "absolute" as const,
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          textAlign: "center" as const,
-          maxWidth: "80%",
-        };
-
+        return { position: "absolute" as const, top: "50%", left: "50%", transform: "translate(-50%, -50%)", textAlign: "center" as const, maxWidth: "80%" };
       case "bottom":
-        return {
-          position: "absolute" as const,
-          bottom: 80,
-          left: 60,
-          right: 60,
-          textAlign: "center" as const,
-          padding: "24px 40px",
-          backgroundColor: "rgba(6,6,10,0.8)",
-          borderRadius: 16,
-          border: "2px solid rgba(124,58,237,0.3)",
-        };
-
+        return { position: "absolute" as const, bottom: 80, left: 60, right: 60, textAlign: "center" as const, ...baseBox };
       case "top":
-        return {
-          position: "absolute" as const,
-          top: 80,
-          left: 60,
-          right: 60,
-          textAlign: "center" as const,
-          padding: "24px 40px",
-          backgroundColor: "rgba(6,6,10,0.8)",
-          borderRadius: 16,
-          border: "2px solid rgba(124,58,237,0.3)",
-        };
-
+        return { position: "absolute" as const, top: 80, left: 60, right: 60, textAlign: "center" as const, ...baseBox };
       default:
-        return {
-          position: "absolute" as const,
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          textAlign: "center" as const,
-          maxWidth: "80%",
-        };
+        return { position: "absolute" as const, top: "50%", left: "50%", transform: "translate(-50%, -50%)", textAlign: "center" as const, maxWidth: "80%" };
     }
   };
 

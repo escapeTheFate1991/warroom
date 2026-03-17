@@ -43,50 +43,26 @@ export const ImageSequence: React.FC<ImageSequenceProps> = ({
   const progress = getImageProgress();
 
   const getKenBurnsTransform = (imageIndex: number, progress: number) => {
-    // Different zoom and pan directions for variety
     const patterns = [
-      { zoom: [1, 1.2], pan: [0, -50] }, // zoom in, pan left
-      { zoom: [1.1, 1], pan: [-30, 30] }, // zoom out, pan right
-      { zoom: [1, 1.15], pan: [40, -20] }, // zoom in, pan up
-      { zoom: [1.08, 1], pan: [0, 0] }, // zoom out, centered
+      { zoom: [1, 1.2], pan: [0, -50] }, { zoom: [1.1, 1], pan: [-30, 30] },
+      { zoom: [1, 1.15], pan: [40, -20] }, { zoom: [1.08, 1], pan: [0, 0] },
     ];
-    
     const pattern = patterns[imageIndex % patterns.length];
-    const scale = interpolate(progress, [0, 1], pattern.zoom, { extrapolateRight: "clamp" });
-    const panX = interpolate(progress, [0, 1], [pattern.pan[0], pattern.pan[1]], {
-      extrapolateRight: "clamp",
-    });
-    const panY = interpolate(progress, [0, 1], [0, pattern.pan[1] || 0], {
-      extrapolateRight: "clamp",
-    });
-
-    return { scale, panX, panY };
+    return {
+      scale: interpolate(progress, [0, 1], pattern.zoom, { extrapolateRight: "clamp" }),
+      panX: interpolate(progress, [0, 1], [pattern.pan[0], pattern.pan[1]], { extrapolateRight: "clamp" }),
+      panY: interpolate(progress, [0, 1], [0, pattern.pan[1] || 0], { extrapolateRight: "clamp" }),
+    };
   };
 
-  const getSlideTransform = (imageIndex: number, progress: number) => {
-    // Current image slides in from right
-    const currentX = interpolate(progress, [0, 0.1, 1], [100, 0, 0], {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-    });
-    
-    // Previous image slides out to left
-    const prevX = interpolate(progress, [0.9, 1], [0, -100], {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-    });
+  const getSlideTransform = (imageIndex: number, progress: number) => ({
+    currentX: interpolate(progress, [0, 0.1, 1], [100, 0, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }),
+    prevX: interpolate(progress, [0.9, 1], [0, -100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }),
+  });
 
-    return { currentX, prevX };
-  };
-
-  const getZoomPulseTransform = (progress: number) => {
-    // Gentle zoom in/out heartbeat effect
-    const pulseProgress = Math.sin(progress * Math.PI * 4) * 0.5 + 0.5;
-    const scale = interpolate(pulseProgress, [0, 1], [1, 1.1], {
-      extrapolateRight: "clamp",
-    });
-    return { scale };
-  };
+  const getZoomPulseTransform = (progress: number) => ({
+    scale: interpolate(Math.sin(progress * Math.PI * 4) * 0.5 + 0.5, [0, 1], [1, 1.1], { extrapolateRight: "clamp" }),
+  });
 
   const renderKenBurns = () => (
     <AbsoluteFill>

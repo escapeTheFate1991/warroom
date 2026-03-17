@@ -50,44 +50,20 @@ export const SplitScreen: React.FC<SplitScreenProps> = ({
 
   const getContentStyle = (side: "left" | "right", style: string) => {
     const baseStyle: React.CSSProperties = {
-      width: "100%",
-      height: "100%",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 40,
-      fontSize: 48,
-      fontWeight: 600,
-      color: textColor,
-      textAlign: "center",
-      lineHeight: 1.3,
+      width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 40, fontSize: 48, fontWeight: 600, color: textColor, textAlign: "center", lineHeight: 1.3,
     };
-
-    switch (style) {
-      case "grayscale":
-        return {
-          ...baseStyle,
-          filter: "grayscale(100%) brightness(0.7)",
-        };
-      case "blur":
-        return {
-          ...baseStyle,
-          filter: "blur(4px) brightness(0.6)",
-        };
-      case "color":
-        return {
-          ...baseStyle,
-          filter: "saturate(1.3) brightness(1.1)",
-        };
-      case "glow":
-        return {
-          ...baseStyle,
-          filter: "brightness(1.2)",
-          boxShadow: side === "right" ? "0 0 80px #7c3aed60" : undefined,
-        };
-      default:
-        return baseStyle;
-    }
+    const filters = {
+      grayscale: "grayscale(100%) brightness(0.7)",
+      blur: "blur(4px) brightness(0.6)",
+      color: "saturate(1.3) brightness(1.1)",
+      glow: "brightness(1.2)",
+    };
+    return { 
+      ...baseStyle, 
+      filter: filters[style as keyof typeof filters] || "none",
+      boxShadow: style === "glow" && side === "right" ? "0 0 80px #7c3aed60" : undefined,
+    };
   };
 
   const renderContent = (content: string, side: "left" | "right", style: string) => {
