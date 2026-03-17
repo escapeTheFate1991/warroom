@@ -512,8 +512,8 @@ async def get_render_status(
 # Video Copycat Endpoints (Stages 5-6)
 # ═══════════════════════════════════════════════════════════════════
 
-class ComposeRequest(BaseModel):
-    """Request to compose video from storyboard and assets."""
+class LegacyComposeRequest(BaseModel):
+    """Request to compose video from storyboard and assets (legacy)."""
     script: dict = Field(..., description="Script data with scenes and timing")
     assets: List[dict] = Field(..., description="List of generated assets")
     render_mode: str = Field(default="remotion", description="Render mode: 'remotion' or 'ffmpeg'")
@@ -528,13 +528,13 @@ class CaptionRequest(BaseModel):
 @router.post("/storyboards/{storyboard_id}/compose")
 async def compose_video(
     storyboard_id: int,
-    request_data: ComposeRequest,
+    request_data: LegacyComposeRequest,
     request: Request = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_leadgen_db),
 ):
     """
-    Build composition + render video from storyboard and assets.
+    Build composition + render video from storyboard and assets (legacy).
     
     Creates a Remotion-compatible composition and renders the final video.
     """
