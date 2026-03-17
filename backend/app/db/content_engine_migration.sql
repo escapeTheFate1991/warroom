@@ -57,13 +57,13 @@ VALUES
 (0, 'myth_buster', 'Myth Buster', 'Challenge common beliefs or misconceptions to create immediate engagement.', 
  'People feel validated or attacked — both emotions drive engagement and shares.', 
  '[
-   "Everyone thinks [belief] but here's why that's wrong",
-   "They told you [myth] — here's the truth",
+   "Everyone thinks [belief] but here''s why that''s wrong",
+   "They told you [myth] — here''s the truth",
    "Stop believing this lie about [topic]",
    "This common advice is actually terrible"
  ]'::jsonb,
  '[
-   {"title": "Hook (belief)", "duration_hint": "0-3s", "description": "Open with the myth or common belief that you'll debunk"},
+   {"title": "Hook (belief)", "duration_hint": "0-3s", "description": "Open with the myth or common belief that you''ll debunk"},
    {"title": "Counter-evidence", "duration_hint": "3-15s", "description": "Present your contrarian evidence or perspective"},
    {"title": "Proof", "duration_hint": "15-25s", "description": "Back up your claims with data, examples, or authority"},
    {"title": "CTA", "duration_hint": "25-30s", "description": "Ask viewers to share their experience or follow for more truth"}
@@ -73,12 +73,12 @@ VALUES
  'Us-vs-them dynamic and forbidden knowledge create high shareability.', 
  '[
    "Nobody talks about how [industry] really works",
-   "Here's what they don't want you to know about [topic]",
-   "The secret that [authority figures] won't tell you",
+   "Here''s what they don''t want you to know about [topic]",
+   "The secret that [authority figures] won''t tell you",
    "What happens behind closed doors in [field]"
  ]'::jsonb,
  '[
-   {"title": "Hook (secret)", "duration_hint": "0-2s", "description": "Tease the forbidden knowledge you're about to reveal"},
+   {"title": "Hook (secret)", "duration_hint": "0-2s", "description": "Tease the forbidden knowledge you''re about to reveal"},
    {"title": "Setup", "duration_hint": "2-8s", "description": "Establish why this information is hidden or suppressed"},
    {"title": "Reveal 1", "duration_hint": "8-18s", "description": "Share the first layer of insider information"},
    {"title": "Reveal 2", "duration_hint": "18-25s", "description": "Go deeper with more shocking or valuable details"},
@@ -91,7 +91,7 @@ VALUES
    "How I went from [bad state] to [good state] in [timeframe]",
    "Before vs after: my [transformation type] journey",
    "This is what happens when you [change behavior]",
-   "From [starting point] to [end point] — here's how"
+   "From [starting point] to [end point] — here''s how"
  ]'::jsonb,
  '[
    {"title": "Before (pain)", "duration_hint": "0-8s", "description": "Show the starting state, problem, or pain point clearly"},
@@ -102,7 +102,7 @@ VALUES
 (0, 'pov', 'POV', 'Create instant identification with a relatable scenario or perspective.', 
  'Instant identification with a scenario drives comments and shares as people relate.', 
  '[
-   "POV: You're trying to [common situation]",
+   "POV: You''re trying to [common situation]",
    "When you [relatable scenario]",
    "That moment when [shared experience]",
    "POV: Someone tells you [common advice]"
@@ -143,7 +143,7 @@ VALUES
    {"title": "CTA (join)", "duration_hint": "25-30s", "description": "Invite viewers to try it themselves and share results"}
  ]'::jsonb),
 
-(0, 'show_dont_tell', 'Show Don\'t Tell', 'Use pure visual demonstration instead of explanation.', 
+(0, 'show_dont_tell', 'Show Don''t Tell', 'Use pure visual demonstration instead of explanation.', 
  'Visual proof is more powerful than explanation — seeing is believing.', 
  '[
    "Watch this [demonstration]",
@@ -161,7 +161,7 @@ VALUES
  'Raw authenticity connects emotionally and builds personal brand trust.', 
  '[
    "Let me be real with you about [topic]",
-   "Here's my honest take on [situation]",
+   "Here''s my honest take on [situation]",
    "Unpopular opinion: [controversial stance]",
    "I need to rant about [frustration]"
  ]'::jsonb,

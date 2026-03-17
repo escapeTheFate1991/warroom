@@ -116,6 +116,7 @@ async def _run_content_engine_migration():
     """Run Content Engine migration (video formats, format detection, performance tracking)."""
     try:
         from pathlib import Path
+        import re
 
         migration_path = Path(__file__).parent / "db" / "content_engine_migration.sql"
         if not migration_path.exists():
@@ -125,9 +126,14 @@ async def _run_content_engine_migration():
         with open(migration_path, 'r') as f:
             migration_sql = f.read()
 
+        # Strip SQL comments (-- to end of line) then split on semicolons
+        cleaned = re.sub(r'--[^\n]*', '', migration_sql)
+        statements = [s.strip() for s in cleaned.split(';') if s.strip()]
+
         async with crm_engine.begin() as conn:
             raw = await conn.get_raw_connection()
-            await raw.driver_connection.execute(migration_sql)
+            for stmt in statements:
+                await raw.driver_connection.execute(stmt)
 
         return True
 
