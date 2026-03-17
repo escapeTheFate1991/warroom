@@ -172,6 +172,9 @@ export default function AIStudioPanel() {
   const [creativeMethod, setCreativeMethod] = useState<"ai-avatar" | "product-focused" | "stock-text">("ai-avatar");
   const [scriptTab, setScriptTab] = useState<"hook-lab" | "raw-script">("hook-lab");
 
+  // Simulation state
+  const [simulationFrictionData, setSimulationFrictionData] = useState<Record<string, "low" | "medium" | "high"> | null>(null);
+
   // Polling
   const [pollingProjectId, setPollingProjectId] = useState<string | null>(null);
   const [pollStatus, setPollStatus] = useState<string | null>(null);
@@ -1383,6 +1386,22 @@ export default function AIStudioPanel() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <span className="w-6 h-6 rounded-full bg-warroom-accent/20 text-warroom-accent flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
+                      
+                      {/* Friction Indicator */}
+                      {simulationFrictionData && simulationFrictionData[scene.title] && (
+                        <div className="relative group">
+                          <div className={`w-2 h-2 rounded-full ${
+                            simulationFrictionData[scene.title] === "low" ? "bg-green-400" :
+                            simulationFrictionData[scene.title] === "medium" ? "bg-yellow-400" : "bg-red-400"
+                          }`} />
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-warroom-surface border border-warroom-border rounded text-xs text-warroom-text opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-10 shadow-xl whitespace-nowrap">
+                            {simulationFrictionData[scene.title] === "low" && "🟢 Low friction"}
+                            {simulationFrictionData[scene.title] === "medium" && "🟡 Medium friction"}
+                            {simulationFrictionData[scene.title] === "high" && "🔴 High friction"}
+                          </div>
+                        </div>
+                      )}
+                      
                       <input 
                         value={scene.title} 
                         onChange={e => updateScene(i, { title: e.target.value })}
