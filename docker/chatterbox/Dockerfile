@@ -7,8 +7,13 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies (lightweight for Phase 1)
+# Install PyTorch CPU-only first (smaller than full CUDA build)
 RUN pip install --no-cache-dir \
+    torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Install chatterbox-tts and API deps
+RUN pip install --no-cache-dir \
+    chatterbox-tts \
     fastapi \
     uvicorn \
     python-multipart \

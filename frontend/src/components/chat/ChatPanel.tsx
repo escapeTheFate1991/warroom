@@ -1307,9 +1307,25 @@ export default function ChatPanel() {
 
   const startConversationMode = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
+      // Switch BT to HFP (mic mode) via host-side server before acquiring mic
+      try {
+        await fetch("http://127.0.0.1:18797/hfp", { method: "POST" });
+        await new Promise(r => setTimeout(r, 500));
+      } catch {}
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+      } catch (firstErr) {
+        // BT device might still be switching — wait and retry
+        console.warn("[voice] First mic attempt failed, retrying in 2s...", firstErr);
+        await new Promise(r => setTimeout(r, 2000));
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+      }
 
       const audioCtx = new AudioContext();
       const source = audioCtx.createMediaStreamSource(stream);

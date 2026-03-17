@@ -3832,7 +3832,7 @@ async def score_hook_endpoint(
 # Emerging format models are defined earlier in the file
 
 
-@router.get("/content-intel/emerging-formats")
+@router.get("/emerging-formats")
 async def get_emerging_formats(
     request: Request,
     db: AsyncSession = Depends(get_tenant_db)
@@ -3887,7 +3887,7 @@ async def get_emerging_formats(
         raise HTTPException(status_code=500, detail="Failed to detect emerging formats")
 
 
-@router.post("/content-intel/adopt-emerging-format")
+@router.post("/adopt-emerging-format")
 async def adopt_emerging_format(
     request: Request,
     body: dict,
