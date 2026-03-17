@@ -1233,6 +1233,236 @@ async def build_prompt(
     )
 
 
+# ── Video Generation Endpoints (Veo 3.1) ──────────────────────
+from app.services.veo_service import generate_video_from_image, check_video_status
+
+
+class VideoGenerationRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    scene_image_url: Optional[str] = None
+    duration: int = Field(default=5, ge=1, le=60)
+    aspect_ratio: str = Field(default="9:16")
+
+
+class VideoStatusResponse(BaseModel):
+    operation_id: str
+    status: str
+    progress: int
+    video_url: Optional[str] = None
+    presigned_url: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/digital-copies/{copy_id}/generate-video")
+async def generate_video(
+    copy_id: int,
+    video_request: VideoGenerationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate video using Veo 3.1 for digital copy"""
+    org_id = get_org_id(request)
+    
+    # Verify copy exists
+    copy_result = await db.execute(
+        text("SELECT id, name FROM crm.digital_copies WHERE id = :copy_id AND org_id = :org_id"),
+        {"copy_id": copy_id, "org_id": org_id}
+    )
+    copy_row = copy_result.mappings().first()
+    if not copy_row:
+        raise HTTPException(status_code=404, detail="Digital copy not found")
+    
+    try:
+        # Get seed image
+        seed_image_bytes = None
+        
+        if video_request.scene_image_url:
+            # Use provided scene image
+            async with httpx.AsyncClient() as client:
+                img_response = await client.get(video_request.scene_image_url)
+                img_response.raise_for_status()
+                seed_image_bytes = img_response.content
+        else:
+            # Generate scene first using nano_banana/asset_generator
+            logger.info(f"No scene image provided, generating with asset generator for copy {copy_id}")
+            
+            # TODO: Integration with AssetGenerator/nano_banana service
+            # For now, use a reference image from the digital copy
+            ref_image_result = await db.execute(
+                text("""
+                    SELECT image_url FROM crm.digital_copy_images 
+                    WHERE digital_copy_id = :copy_id 
+                    ORDER BY quality_score DESC NULLS LAST, uploaded_at DESC 
+                    LIMIT 1
+                """),
+                {"copy_id": copy_id}
+            )
+            ref_image_row = ref_image_result.mappings().first()
+            
+            if not ref_image_row:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="No scene image provided and no reference images found for this digital copy"
+                )
+            
+            # Download reference image as seed
+            async with httpx.AsyncClient() as client:
+                img_response = await client.get(ref_image_row["image_url"])
+                img_response.raise_for_status()
+                seed_image_bytes = img_response.content
+        
+        # Call Veo service
+        result = await generate_video_from_image(
+            seed_image=seed_image_bytes,
+            prompt=video_request.prompt,
+            duration_seconds=video_request.duration,
+            aspect_ratio=video_request.aspect_ratio,
+            db=db
+        )
+        
+        # Store operation in database for tracking
+        await db.execute(
+            text("""
+                INSERT INTO crm.video_operations 
+                (digital_copy_id, operation_id, prompt, status, created_at)
+                VALUES (:copy_id, :operation_id, :prompt, :status, NOW())
+                ON CONFLICT DO NOTHING
+            """),
+            {
+                "copy_id": copy_id,
+                "operation_id": result["operation_id"],
+                "prompt": video_request.prompt,
+                "status": result["status"]
+            }
+        )
+        await db.commit()
+        
+        return {
+            "operation_id": result["operation_id"],
+            "status": result["status"],
+            "message": result.get("message", "Video generation started"),
+            "copy_name": copy_row["name"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Video generation failed for copy {copy_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Video generation failed: {str(e)}")
+
+
+@router.get("/digital-copies/{copy_id}/video-status/{operation_id}", response_model=VideoStatusResponse)
+async def get_video_status(
+    copy_id: int,
+    operation_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Check video generation status and handle completion"""
+    org_id = get_org_id(request)
+    
+    # Verify copy exists
+    copy_result = await db.execute(
+        text("SELECT id FROM crm.digital_copies WHERE id = :copy_id AND org_id = :org_id"),
+        {"copy_id": copy_id, "org_id": org_id}
+    )
+    if not copy_result.first():
+        raise HTTPException(status_code=404, detail="Digital copy not found")
+    
+    try:
+        # Check status with Veo service
+        status_result = await check_video_status(operation_id, db=db)
+        
+        # Update database record
+        await db.execute(
+            text("""
+                UPDATE crm.video_operations 
+                SET status = :status, progress = :progress, updated_at = NOW()
+                WHERE operation_id = :operation_id AND digital_copy_id = :copy_id
+            """),
+            {
+                "operation_id": operation_id,
+                "copy_id": copy_id,
+                "status": status_result["status"],
+                "progress": status_result.get("progress", 0)
+            }
+        )
+        
+        presigned_url = None
+        
+        # If complete and successful, handle video storage
+        if status_result["status"] == "complete" and status_result.get("video_url"):
+            video_url = status_result["video_url"]
+            
+            # Check if already stored in S3
+            s3_result = await db.execute(
+                text("""
+                    SELECT s3_url FROM crm.video_operations 
+                    WHERE operation_id = :operation_id AND s3_url IS NOT NULL
+                """),
+                {"operation_id": operation_id}
+            )
+            existing_s3 = s3_result.mappings().first()
+            
+            if existing_s3:
+                # Already stored, just generate presigned URL
+                presigned_url = get_presigned_url(existing_s3["s3_url"].replace(f"{S3_PUBLIC_URL}/{S3_BUCKET}/", ""))
+            else:
+                # Download and store video in S3
+                try:
+                    async with httpx.AsyncClient(timeout=300.0) as client:
+                        video_response = await client.get(video_url)
+                        video_response.raise_for_status()
+                        
+                        # Generate S3 key
+                        video_filename = f"{uuid.uuid4()}.mp4"
+                        s3_key = f"{copy_id}/videos/{video_filename}"
+                        
+                        # Upload to S3
+                        s3_client = get_s3_client()
+                        s3_client.put_object(
+                            Bucket=S3_BUCKET,
+                            Key=s3_key,
+                            Body=video_response.content,
+                            ContentType='video/mp4'
+                        )
+                        
+                        # Update database with S3 URL
+                        s3_url = f"{S3_PUBLIC_URL}/{S3_BUCKET}/{s3_key}"
+                        await db.execute(
+                            text("""
+                                UPDATE crm.video_operations 
+                                SET s3_url = :s3_url, completed_at = NOW()
+                                WHERE operation_id = :operation_id
+                            """),
+                            {"operation_id": operation_id, "s3_url": s3_url}
+                        )
+                        
+                        # Generate presigned URL
+                        presigned_url = get_presigned_url(s3_key)
+                        
+                        logger.info(f"Video stored in S3: {s3_key}")
+                        
+                except Exception as storage_error:
+                    logger.error(f"Failed to store video {operation_id}: {storage_error}")
+                    # Continue with original URL if S3 storage fails
+        
+        await db.commit()
+        
+        return VideoStatusResponse(
+            operation_id=operation_id,
+            status=status_result["status"],
+            progress=status_result.get("progress", 0),
+            video_url=status_result.get("video_url"),
+            presigned_url=presigned_url,
+            error=status_result.get("error")
+        )
+        
+    except Exception as e:
+        logger.error(f"Status check failed for operation {operation_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Status check failed: {str(e)}")
+
+
 @router.post("/digital-copies/{copy_id}/generate-reference-sheet")
 async def generate_reference_sheet(
     copy_id: int,
