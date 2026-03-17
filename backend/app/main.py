@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats
 from app.api import entities, goals, approvals, task_checkout, budget
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
@@ -109,6 +109,30 @@ async def _run_paperclip_migration():
 
     except Exception as e:
         logger.error(f"Paperclip migration failed: {e}")
+        return False
+
+
+async def _run_content_engine_migration():
+    """Run Content Engine migration (video formats, format detection, performance tracking)."""
+    try:
+        from pathlib import Path
+
+        migration_path = Path(__file__).parent / "db" / "content_engine_migration.sql"
+        if not migration_path.exists():
+            logger.error(f"Content Engine migration file not found: {migration_path}")
+            return False
+
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+
+        async with crm_engine.begin() as conn:
+            raw = await conn.get_raw_connection()
+            await raw.driver_connection.execute(migration_sql)
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Content Engine migration failed: {e}")
         return False
 
 
@@ -378,6 +402,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Paperclip architecture migration error: %s", e)
 
+    # Content Engine migration (video formats, format detection, performance tracking)
+    try:
+        await _run_content_engine_migration()
+        logger.info("Content Engine migration applied")
+    except Exception as e:
+        logger.error("Content Engine migration error: %s", e)
+
     # Start background scheduler (competitor syncs, etc.)
     from app.services.scheduler import start_scheduler, stop_scheduler
     await start_scheduler()
@@ -540,6 +571,7 @@ app.include_router(token_metering.router, prefix="/api/tokens", tags=["token-met
 app.include_router(audit_trail.router, prefix="/api/audit", tags=["audit-trail"])
 app.include_router(vector_memory.router, prefix="/api/memory", tags=["vector-memory"])
 app.include_router(content_scheduler.router, prefix="/api/scheduler", tags=["content-scheduler"])
+app.include_router(video_formats.router, prefix="/api", tags=["video-formats"])
 
 # Paperclip Architecture Routes
 app.include_router(entities.router, prefix="/api/entities", tags=["entities"])

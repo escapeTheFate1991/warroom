@@ -41,6 +41,7 @@ interface CompetitorPost {
   media_type?: string;
   has_transcript?: boolean;
   has_comments?: boolean;
+  detected_format?: string;
 }
 
 interface TopContentPost {
@@ -58,6 +59,7 @@ interface TopContentPost {
   url?: string;
   start_time?: number; // Video start time in seconds
   end_time?: number;   // Video end time in seconds
+  detected_format?: string;
 }
 
 interface Hook {
@@ -125,6 +127,7 @@ interface TopVideoItem {
   has_transcript?: boolean;
   has_comments?: boolean;
   analysis?: TopVideoAnalysis | null;
+  detected_format?: string;
 }
 
 interface TopVideoSection {
@@ -295,6 +298,18 @@ const ALIGNMENT_STYLES: Record<string, string> = {
   Low: "bg-slate-500/15 text-slate-300 border-slate-500/20",
 };
 
+const FORMAT_BADGES: Record<string, { label: string; style: string }> = {
+  myth_buster: { label: "Myth Buster", style: "bg-blue-500/20 text-blue-400" },
+  expose: { label: "Exposé", style: "bg-purple-500/20 text-purple-400" },
+  transformation: { label: "Transformation", style: "bg-green-500/20 text-green-400" },
+  pov: { label: "POV", style: "bg-yellow-500/20 text-yellow-400" },
+  speed_run: { label: "Speed Run", style: "bg-cyan-500/20 text-cyan-400" },
+  challenge: { label: "Challenge", style: "bg-orange-500/20 text-orange-400" },
+  show_dont_tell: { label: "Show Don't Tell", style: "bg-pink-500/20 text-pink-400" },
+  direct_to_camera: { label: "Direct-to-Camera", style: "bg-red-500/20 text-red-400" },
+  unclassified: { label: "Unclassified", style: "bg-gray-500/20 text-gray-400" },
+};
+
 function formatNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
@@ -343,6 +358,84 @@ function formatTimeWindow(section?: TopVideoSection | null): string | null {
   const end = formatTime(section.end);
   if (!start || !end) return null;
   return start === end ? start : `${start}-${end}`;
+}
+
+function extractFirstSentence(text: string): string {
+  if (!text) return "";
+  const match = text.match(/^[^.!?]*[.!?]?/);
+  return match ? match[0].trim() : text.slice(0, 100).trim();
+}
+
+function deriveTopic(text: string): string {
+  if (!text) return "";
+  // Extract the first 50 characters or until first period
+  const topic = text.slice(0, 50).trim();
+  const periodIndex = topic.indexOf('.');
+  return periodIndex > 0 ? topic.slice(0, periodIndex) : topic;
+}
+
+function isHighEngagementUnclassified(post: any, allPosts: any[]): boolean {
+  if (post.detected_format !== "unclassified") return false;
+  
+  // Calculate top 20% threshold
+  const sortedPosts = [...allPosts].sort((a, b) => b.engagement_score - a.engagement_score);
+  const top20Index = Math.floor(sortedPosts.length * 0.2);
+  const threshold = sortedPosts[top20Index]?.engagement_score || 0;
+  
+  return post.engagement_score >= threshold;
+}
+
+function FormatBadge({ format, post, allPosts }: { format?: string; post?: any; allPosts?: any[] }) {
+  if (!format) return null;
+  
+  const isEmerging = allPosts && post && isHighEngagementUnclassified(post, allPosts);
+  
+  if (isEmerging) {
+    return (
+      <span 
+        className="px-2 py-1 text-[10px] font-medium rounded-full border animate-pulse"
+        style={{
+          background: "rgba(234, 179, 8, 0.15)",
+          color: "#eab308",
+          borderColor: "rgba(234, 179, 8, 0.3)"
+        }}
+      >
+        ✨ Emerging
+      </span>
+    );
+  }
+  
+  const badge = FORMAT_BADGES[format];
+  if (!badge) return null;
+  
+  return (
+    <span className={`px-2 py-1 text-[10px] font-medium rounded-full ${badge.style}`}>
+      {badge.label}
+    </span>
+  );
+}
+
+function navigateToAIStudio(post: any, competitorHandle?: string) {
+  // Create prefill data for AI Studio
+  const prefillData = {
+    format: post.detected_format || "direct_to_camera",
+    hook: post.hook || extractFirstSentence(post.text || post.title || ""),
+    topic: deriveTopic(post.text || post.title || ""),
+    competitor_intel: true,
+    source_post_url: post.url || post.post_url,
+    source_handle: competitorHandle
+  };
+  
+  // Encode the data as URL parameters
+  const params = new URLSearchParams();
+  Object.entries(prefillData).forEach(([key, value]) => {
+    if (value) params.set(key, String(value));
+  });
+  
+  // Navigate to AI Studio with prefilled data
+  // This assumes the app has URL-based routing
+  const aiStudioUrl = `/ai-studio?${params.toString()}`;
+  window.location.href = aiStudioUrl;
 }
 
 function TopVideoInsights({ video, compact = false }: { video: TopVideoItem; compact?: boolean }) {
@@ -1590,10 +1683,17 @@ export default function CompetitorIntel() {
                         {focusedTopVideos.map((vid, idx) => (
                           <div
                             key={vid.id ?? idx}
-                            className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
+                            className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer relative"
                             onClick={() => vid.id && setSelectedPostId(vid.id)}
                           >
-                            <div className="flex items-center gap-2 mb-2">
+                            {/* Format Badge */}
+                            {vid.detected_format && (
+                              <div className="absolute top-3 right-3">
+                                <FormatBadge format={vid.detected_format} post={vid} allPosts={focusedTopVideos} />
+                              </div>
+                            )}
+                            
+                            <div className="flex items-center gap-2 mb-2 pr-16">
                               <p className="text-sm text-warroom-text font-medium line-clamp-2 flex-1">{vid.title || "Untitled"}</p>
                               {vid.media_type && (vid.media_type === "reel" || vid.media_type === "video") && (
                                 <Film size={12} className="text-pink-400 flex-shrink-0" />
@@ -1610,7 +1710,7 @@ export default function CompetitorIntel() {
                                 <span className="flex items-center gap-1 text-purple-400">{formatNum(vid.shares)} shares</span>
                               )}
                             </div>
-                            <div className="flex items-center justify-between text-[10px] text-warroom-muted">
+                            <div className="flex items-center justify-between text-[10px] text-warroom-muted mb-3">
                               <span>Score: <span className="text-warroom-accent font-medium">{vid.engagement_score.toFixed(0)}</span></span>
                               <div className="flex items-center gap-2">
                                 {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
@@ -1623,6 +1723,18 @@ export default function CompetitorIntel() {
                                 )}
                               </div>
                             </div>
+                            
+                            {/* Generate Variant Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigateToAIStudio(vid, focusedCompetitor?.handle);
+                              }}
+                              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:border-warroom-accent/50 hover:bg-warroom-accent/5 rounded-lg text-xs font-medium text-warroom-text transition mb-2"
+                            >
+                              <Sparkles size={12} />
+                              Generate Variant
+                            </button>
 
                             <TopVideoInsights video={vid} />
                           </div>
@@ -1700,7 +1812,7 @@ export default function CompetitorIntel() {
                           .map((post, idx) => {
                           const isExpanded = expandedPostId === post.id;
                           return (
-                          <div key={idx} className={`bg-warroom-surface border rounded-xl transition ${isExpanded ? "border-warroom-accent/40" : "border-warroom-border hover:border-warroom-accent/20"}`}>
+                          <div key={idx} className={`bg-warroom-surface border rounded-xl transition relative ${isExpanded ? "border-warroom-accent/40" : "border-warroom-border hover:border-warroom-accent/20"}`}>
                             <div
                               className="p-4 cursor-pointer"
                               onClick={() => {
@@ -1717,7 +1829,14 @@ export default function CompetitorIntel() {
                                 }
                               }}
                             >
-                              <div className="flex items-start gap-3">
+                              {/* Format Badge */}
+                              {post.detected_format && (
+                                <div className="absolute top-3 right-3">
+                                  <FormatBadge format={post.detected_format} post={post} allPosts={competitorPosts} />
+                                </div>
+                              )}
+                              
+                              <div className="flex items-start gap-3 pr-16">
                                 <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold ${
                                   idx === 0 ? "bg-yellow-500/20 text-yellow-400" :
                                   idx === 1 ? "bg-gray-400/20 text-gray-300" :
@@ -1732,7 +1851,7 @@ export default function CompetitorIntel() {
                                     <p className="text-sm font-medium text-warroom-accent mb-1 line-clamp-1">🪝 {post.hook}</p>
                                   )}
                                   <p className="text-sm text-warroom-text line-clamp-2 mb-2">{post.text}</p>
-                                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                                  <div className="flex flex-wrap items-center gap-3 text-xs mb-2">
                                     <span className="flex items-center gap-1 text-pink-400"><Heart size={12} /> {formatNum(post.likes)}</span>
                                     <span className="flex items-center gap-1 text-blue-400"><MessageCircle size={12} /> {formatNum(post.comments)}</span>
                                     <span className="text-warroom-muted">Score: <span className="text-warroom-accent font-medium">{post.engagement_score.toFixed(0)}</span></span>
@@ -1744,6 +1863,18 @@ export default function CompetitorIntel() {
                                       </a>
                                     )}
                                   </div>
+                                  
+                                  {/* Generate Variant Button */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigateToAIStudio(post, focusedCompetitor?.handle);
+                                    }}
+                                    className="flex items-center gap-1.5 px-2.5 py-1 bg-warroom-bg border border-warroom-border hover:border-warroom-accent/50 hover:bg-warroom-accent/5 rounded-lg text-xs font-medium text-warroom-text transition"
+                                  >
+                                    <Sparkles size={11} />
+                                    Generate Variant
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -2314,10 +2445,17 @@ export default function CompetitorIntel() {
                   {aggregateTopVideos.map((vid, idx) => (
                     <div
                       key={`${vid.competitor_id || idx}-${vid.id || idx}`}
-                      className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
+                      className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer relative"
                       onClick={() => vid.id && setSelectedPostId(vid.id)}
                     >
-                      <div className="flex items-start justify-between gap-3 mb-2">
+                      {/* Format Badge - top right */}
+                      {vid.detected_format && (
+                        <div className="absolute top-3 right-3">
+                          <FormatBadge format={vid.detected_format} post={vid} allPosts={aggregateTopVideos} />
+                        </div>
+                      )}
+                      
+                      <div className="flex items-start justify-between gap-3 mb-2 pr-20">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-[10px] uppercase tracking-wider text-warroom-muted">{vid.competitor_handle ? `@${vid.competitor_handle}` : "Competitor"}</span>
@@ -2349,7 +2487,7 @@ export default function CompetitorIntel() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between text-[10px] text-warroom-muted">
+                      <div className="flex items-center justify-between text-[10px] text-warroom-muted mb-2">
                         <div className="flex items-center gap-2">
                           {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
                           {vid.has_transcript && <span className="text-emerald-400">Transcript</span>}
@@ -2366,6 +2504,18 @@ export default function CompetitorIntel() {
                           </a>
                         )}
                       </div>
+                      
+                      {/* Generate Variant Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigateToAIStudio(vid, vid.competitor_handle);
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-warroom-surface border border-warroom-border hover:border-warroom-accent/50 hover:bg-warroom-accent/5 rounded-lg text-xs font-medium text-warroom-text transition"
+                      >
+                        <Sparkles size={12} />
+                        Generate Variant
+                      </button>
 
                       <TopVideoInsights video={vid} compact />
                     </div>

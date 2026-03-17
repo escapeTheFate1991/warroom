@@ -10,8 +10,6 @@ import {
 import { API, authFetch } from "@/lib/api";
 import ScrollTabs from "@/components/ui/ScrollTabs";
 import dynamic from "next/dynamic";
-import FormatPicker from "./FormatPicker";
-import HookLab from "./HookLab";
 
 const VideoEditor = dynamic(() => import("./VideoEditor"), {
   loading: () => (
@@ -134,12 +132,6 @@ export default function AIStudioPanel() {
   const [wizardStoryboard, setWizardStoryboard] = useState<Scene[]>([]);
   const [generating, setGenerating] = useState(false);
   const [generationResult, setGenerationResult] = useState<{ ok: boolean; generation_id?: string; prompt_used?: string; error?: string } | null>(null);
-
-  // New state for FormatPicker and HookLab
-  const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
-  const [scriptParts, setScriptParts] = useState<{ hook: string; body: string; cta: string }>({ hook: "", body: "", cta: "" });
-  const [templateTab, setTemplateTab] = useState<"templates" | "viral-formats">("templates");
-  const [scriptTab, setScriptTab] = useState<"hook-lab" | "raw-script">("hook-lab");
 
   // Polling
   const [pollingProjectId, setPollingProjectId] = useState<string | null>(null);
@@ -528,10 +520,6 @@ export default function AIStudioPanel() {
     setGenerationResult(null);
     setPollingProjectId(null);
     setPollStatus(null);
-    setSelectedFormat(null);
-    setScriptParts({ hook: "", body: "", cta: "" });
-    setTemplateTab("templates");
-    setScriptTab("hook-lab");
   };
 
   // ── Not configured ─────────────────────────────────────

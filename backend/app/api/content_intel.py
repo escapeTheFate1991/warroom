@@ -496,6 +496,102 @@ def _extract_keywords(text: str, limit: int = 8) -> List[str]:
     return keywords
 
 
+def classify_post_format(post_text: str, hook: str = "", content_analysis: dict = None) -> str:
+    """Classify a post into one of the 8 viral formats based on text patterns."""
+    text = f"{hook} {post_text}".lower()
+    
+    # Enhanced rules-based classification with more patterns per format
+    
+    # Myth Buster - challenging beliefs/misconceptions
+    myth_patterns = [
+        "myth", "everyone thinks", "they told you", "actually wrong", "lie", 
+        "misconception", "false", "debunk", "truth is", "reality is", 
+        "stop believing", "common mistake", "actually", "wrong about",
+        "don't believe", "not true", "fact check", "busted"
+    ]
+    if any(w in text for w in myth_patterns):
+        return "myth_buster"
+    
+    # Exposé - revealing secrets/insider information
+    expose_patterns = [
+        "nobody talks about", "secret", "they don't want you to know", "hidden", 
+        "behind the scenes", "what really happens", "insider", "truth about",
+        "exposed", "reveal", "industry secret", "never tell you", "won't admit",
+        "dirty secret", "what they hide", "real story", "leaked", "confession"
+    ]
+    if any(w in text for w in expose_patterns):
+        return "expose"
+    
+    # Transformation - before/after journey
+    transformation_patterns = [
+        "before", "after", "transformed", "went from", "journey", "change",
+        "transformation", "from zero to", "how i became", "evolution",
+        "progress", "growth", "metamorphosis", "makeover", "upgrade",
+        "before vs after", "then vs now", "my story", "changed everything"
+    ]
+    if any(w in text for w in transformation_patterns):
+        return "transformation"
+    
+    # POV - relatable scenarios
+    pov_patterns = [
+        "pov:", "pov ", "when you", "that moment when", "imagine", "picture this",
+        "you know that feeling", "we've all been there", "relatable", "me when",
+        "anyone else", "is it just me", "that awkward moment", "scenario"
+    ]
+    if any(w in text for w in pov_patterns):
+        return "pov"
+    
+    # Speed Run - fast tutorials/processes
+    speed_patterns = [
+        "step by step", "tutorial", "how to", "guide", "in under", "quick way",
+        "fast", "speed", "rapid", "minutes", "seconds", "steps", "process",
+        "method", "technique", "shortcut", "hack", "easy way", "simple steps"
+    ]
+    if any(w in text for w in speed_patterns):
+        return "speed_run"
+    
+    # Challenge - dares and participation
+    challenge_patterns = [
+        "try this", "challenge", "for 7 days", "for 30 days", "dare", "bet you",
+        "can you", "challenge accepted", "who else", "join me", "attempt",
+        "test", "experiment", "see if you can", "i dare you", "let's see"
+    ]
+    if any(w in text for w in challenge_patterns):
+        return "challenge"
+    
+    # Show Don't Tell - visual demonstrations
+    visual_patterns = [
+        "watch this", "look at this", "see what happens", "no words needed",
+        "just watch", "observe", "check this out", "visual", "demonstration",
+        "see the difference", "watch how", "look closely", "notice", "witness"
+    ]
+    if any(w in text for w in visual_patterns):
+        return "show_dont_tell"
+    
+    # Direct-to-Camera - opinions/authentic commentary
+    opinion_patterns = [
+        "hot take", "unpopular opinion", "hear me out", "i think", "rant",
+        "honestly", "real talk", "truth bomb", "let me tell you", "my take",
+        "controversial", "bold statement", "authentic", "raw", "unfiltered"
+    ]
+    if any(w in text for w in opinion_patterns):
+        return "direct_to_camera"
+    
+    # Enhanced classification using content_analysis if available
+    if content_analysis:
+        format_hints = content_analysis.get("content_format", "").lower()
+        if format_hints in ["transformation", "before_after"]:
+            return "transformation"
+        elif format_hints in ["tutorial", "how_to", "educational"]:
+            return "speed_run"
+        elif format_hints in ["opinion", "commentary", "rant"]:
+            return "direct_to_camera"
+        elif format_hints in ["demonstration", "visual_proof"]:
+            return "show_dont_tell"
+    
+    return "unclassified"
+
+
 def _derive_topic_label(post: Dict[str, Any]) -> str:
     """Derive a compact topic label from a cached post."""
     text = post.get("post_text", "") or ""
@@ -585,6 +681,145 @@ def _build_script_body(
         f"Scene 5 — CTA:\n"
         f"{_build_script_cta(platform, business_settings)}"
     )
+
+
+def score_hook(hook_text: str, posts: list, format_slug: str = None) -> dict:
+    """Score a hook's 'stop the scroll' potential (1-10) based on competitor data."""
+    # Baseline score
+    score = 5.0
+    reasons = []
+    
+    if not hook_text or len(hook_text.strip()) < 5:
+        return {"score": 1.0, "reasons": ["Hook too short or empty"]}
+    
+    hook_lower = hook_text.lower()
+    hook_words = hook_text.split()
+    
+    # Length check (5-15 words is sweet spot)
+    word_count = len(hook_words)
+    if 5 <= word_count <= 15:
+        score += 1.0
+        reasons.append(f"Optimal length ({word_count} words)")
+    elif word_count < 5:
+        score -= 1.0
+        reasons.append("Too short - may lack impact")
+    elif word_count > 20:
+        score -= 1.5
+        reasons.append("Too long - may lose attention")
+    
+    # Power words detection
+    power_words = [
+        "secret", "exposed", "truth", "revealed", "shocking", "proven", "mistake", 
+        "wrong", "lie", "scam", "never", "always", "everyone", "nobody", "only",
+        "first", "last", "best", "worst", "ultimate", "complete", "simple", "easy",
+        "fast", "quick", "instant", "immediately", "guaranteed", "free", "new"
+    ]
+    power_word_count = sum(1 for word in power_words if word in hook_lower)
+    if power_word_count >= 2:
+        score += 1.5
+        reasons.append(f"Strong power words ({power_word_count} found)")
+    elif power_word_count == 1:
+        score += 0.5
+        reasons.append("Contains power word")
+    
+    # Emotional triggers
+    emotion_triggers = {
+        "curiosity": ["what", "how", "why", "when", "where", "which", "secret", "hidden", "unknown"],
+        "urgency": ["now", "today", "immediately", "before", "after", "until", "deadline"],
+        "exclusivity": ["only", "exclusive", "private", "insider", "member", "select"],
+        "controversy": ["wrong", "lie", "scam", "myth", "fake", "truth", "exposed", "revealed"],
+        "social_proof": ["everyone", "nobody", "most people", "experts", "studies", "proven"]
+    }
+    
+    triggered_emotions = []
+    for emotion, triggers in emotion_triggers.items():
+        if any(trigger in hook_lower for trigger in triggers):
+            triggered_emotions.append(emotion)
+    
+    if len(triggered_emotions) >= 2:
+        score += 1.0
+        reasons.append(f"Multiple emotional triggers ({', '.join(triggered_emotions)})")
+    elif triggered_emotions:
+        score += 0.5
+        reasons.append(f"Emotional trigger: {triggered_emotions[0]}")
+    
+    # Pattern match against high-engagement hooks from competitor data
+    if posts:
+        median_eng = sorted([p.get("engagement_score", 0) for p in posts])[len(posts)//2] if posts else 0
+        high_eng_hooks = [p.get("hook", "") for p in posts if p.get("engagement_score", 0) > median_eng]
+        
+        # Simple n-gram overlap calculation
+        hook_ngrams = set()
+        words = hook_lower.split()
+        for i in range(len(words)):
+            for j in range(i+1, min(i+4, len(words)+1)):  # 2-4 word phrases
+                hook_ngrams.add(" ".join(words[i:j]))
+        
+        similarity_scores = []
+        for comp_hook in high_eng_hooks:
+            if not comp_hook:
+                continue
+            comp_words = comp_hook.lower().split()
+            comp_ngrams = set()
+            for i in range(len(comp_words)):
+                for j in range(i+1, min(i+4, len(comp_words)+1)):
+                    comp_ngrams.add(" ".join(comp_words[i:j]))
+            
+            if hook_ngrams and comp_ngrams:
+                overlap = len(hook_ngrams & comp_ngrams) / len(hook_ngrams | comp_ngrams)
+                similarity_scores.append(overlap)
+        
+        if similarity_scores:
+            max_similarity = max(similarity_scores)
+            if max_similarity > 0.3:
+                score += 1.0
+                reasons.append(f"Similar to high-performing competitor hooks ({max_similarity:.1%} overlap)")
+            elif max_similarity > 0.15:
+                score += 0.5
+                reasons.append("Some similarity to successful hooks")
+    
+    # Format-specific pattern matching
+    if format_slug:
+        format_bonuses = {
+            "myth_buster": ["wrong", "myth", "lie", "actually", "truth", "reality"],
+            "expose": ["secret", "hidden", "revealed", "nobody", "insider", "behind"],
+            "transformation": ["before", "after", "from", "to", "became", "changed"],
+            "pov": ["pov", "when you", "imagine", "picture", "moment when"],
+            "speed_run": ["how to", "step by step", "quick", "fast", "easy", "simple"],
+            "challenge": ["try this", "dare", "challenge", "can you", "test"],
+            "show_dont_tell": ["watch", "look", "see", "check out", "observe"],
+            "direct_to_camera": ["honestly", "real talk", "truth", "opinion", "take"]
+        }
+        
+        format_words = format_bonuses.get(format_slug, [])
+        if any(word in hook_lower for word in format_words):
+            score += 0.5
+            reasons.append(f"Matches {format_slug.replace('_', ' ')} format patterns")
+    
+    # Specific anti-patterns (reduce score)
+    weak_starters = ["so", "um", "hey", "hi", "hello", "today i", "in this"]
+    if any(hook_lower.startswith(starter) for starter in weak_starters):
+        score -= 1.0
+        reasons.append("Weak opening - avoid generic starters")
+    
+    if "?" in hook_text and hook_text.count("?") > 2:
+        score -= 0.5
+        reasons.append("Too many questions - may seem indecisive")
+    
+    # Final score normalization
+    final_score = round(min(max(score, 1.0), 10.0), 1)
+    
+    # Add overall assessment
+    if final_score >= 8.0:
+        reasons.insert(0, "Excellent hook - high scroll-stopping potential")
+    elif final_score >= 6.5:
+        reasons.insert(0, "Strong hook - good engagement potential")
+    elif final_score >= 5.0:
+        reasons.insert(0, "Decent hook - room for improvement")
+    else:
+        reasons.insert(0, "Weak hook - needs significant revision")
+    
+    return {"score": final_score, "reasons": reasons[:6]}  # Limit to 6 reasons
 
 
 def _build_script_scenes(
@@ -3379,6 +3614,121 @@ async def _safe_enrich(fn, db, competitor_ids, label):
     except Exception as e:
         print(f"[SYNC-ALL] {label} enrichment failed: {e}", flush=True)
         return {}
+
+
+@router.post("/backfill-formats")
+async def backfill_post_formats(
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Backfill detected_format for existing competitor posts using the format classifier."""
+    org_id = get_org_id(request)
+    try:
+        # Get all competitor posts without detected_format
+        result = await db.execute(
+            text("""
+                SELECT cp.id, cp.post_text, cp.hook, cp.content_analysis
+                FROM crm.competitor_posts cp
+                JOIN crm.competitors c ON cp.competitor_id = c.id
+                WHERE c.org_id = :org_id 
+                  AND cp.detected_format IS NULL
+                  AND cp.post_text IS NOT NULL
+                ORDER BY cp.id
+            """),
+            {"org_id": org_id}
+        )
+        posts_to_update = result.fetchall()
+        
+        if not posts_to_update:
+            return {
+                "message": "No posts need format classification",
+                "updated": 0,
+                "total": 0
+            }
+        
+        updated_count = 0
+        format_counts = Counter()
+        
+        for post_row in posts_to_update:
+            post_id = post_row[0]
+            post_text = post_row[1] or ""
+            hook = post_row[2] or ""
+            content_analysis = post_row[3]
+            
+            # Parse content_analysis if it's JSON
+            analysis_dict = None
+            if content_analysis:
+                try:
+                    if isinstance(content_analysis, str):
+                        analysis_dict = json.loads(content_analysis)
+                    elif isinstance(content_analysis, dict):
+                        analysis_dict = content_analysis
+                except (json.JSONDecodeError, TypeError):
+                    analysis_dict = None
+            
+            # Classify the post
+            detected_format = classify_post_format(post_text, hook, analysis_dict)
+            format_counts[detected_format] += 1
+            
+            # Update the post
+            await db.execute(
+                text("""
+                    UPDATE crm.competitor_posts 
+                    SET detected_format = :format 
+                    WHERE id = :post_id
+                """),
+                {"format": detected_format, "post_id": post_id}
+            )
+            updated_count += 1
+        
+        await db.commit()
+        
+        return {
+            "message": f"Successfully classified {updated_count} posts",
+            "updated": updated_count,
+            "total": len(posts_to_update),
+            "format_distribution": dict(format_counts)
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        logger.error("Failed to backfill post formats: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to backfill post formats")
+
+
+@router.post("/score-hook")
+async def score_hook_endpoint(
+    request: Request,
+    body: dict,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Score a hook's 'stop the scroll' potential using competitor data."""
+    org_id = get_org_id(request)
+    
+    hook_text = body.get("hook_text", "").strip()
+    format_slug = body.get("format_slug")
+    
+    if not hook_text:
+        raise HTTPException(status_code=422, detail="hook_text is required")
+    
+    try:
+        # Load competitor posts for comparison
+        posts = await load_cached_posts(db, org_id, days=60)  # Last 60 days for context
+        
+        # Score the hook
+        result = score_hook(hook_text, posts, format_slug)
+        
+        return {
+            "hook_text": hook_text,
+            "format_slug": format_slug,
+            "score": result["score"],
+            "reasons": result["reasons"],
+            "competitor_posts_analyzed": len(posts)
+        }
+        
+    except Exception as e:
+        logger.error("Failed to score hook: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to score hook")
 
 
 @router.post("/sync-all")
