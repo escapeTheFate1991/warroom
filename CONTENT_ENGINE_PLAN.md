@@ -1,7 +1,7 @@
-# War Room Content Machine — Master Plan v3
-## From Isolated Tools → Content Manufacturing Plant
+# War Room Content Machine — Master Plan v4
+## From Isolated Tools → Content Manufacturing Plant with Predictive Intelligence
 
-_Last updated: 2026-03-16_
+_Last updated: 2026-03-16 22:55 EDT_
 
 ---
 
@@ -9,7 +9,13 @@ _Last updated: 2026-03-16_
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    INTELLIGENCE LAYER                        │
+│                 PHASE 6: PREDICTIVE SANDBOX                  │
+│  Mirofish Swarm Intelligence Engine                          │
+│  ↓ 1,000 AI agents with audience psychographics              │
+│  ↓ "Social Friction Test" before spending a single dollar    │
+│  ↓ Scene-level drop-off prediction + optimization            │
+├─────────────────────────────────────────────────────────────┤
+│                    INTELLIGENCE LAYER                         │
 │  Competitor Intel (29 competitors, 530+ posts)               │
 │  ↓ viral pattern detection + format classification           │
 │  ↓ comment analysis → audience demand signals                │
@@ -32,459 +38,390 @@ _Last updated: 2026-03-16_
 │  ↓ YOUR results vs competitor benchmark delta                │
 │  ↓ format/hook leaderboards + time heatmaps                 │
 │  ↓ retrain script gen weights → back to top                 │
+│  ↓ feed reality back into Mirofish collective memory         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Phase 1: Format Templates + Hook Lab + Competitor-Powered Script Gen
+## Phase 1: Format Templates + Hook Lab + Competitor-Powered Script Gen ✅ COMPLETE
 
-### 1A. Viral Formats as First-Class Templates
+### 1A. Viral Formats as First-Class Templates ✅
+- 8 formats seeded with rich scene structures (Remotion templates, AI actions, camera hints)
+- Format classifier running on 530+ posts (189 classified, 341 unclassified)
+- video_formats table with CRUD API
 
-**Current:** Generic templates ("Product Showcase", "Testimonial", "Social Media Ad")
-**New:** Logan Forsyth viral archetypes as the template system
+### 1B. The Hook Lab ✅
+- 3-part script editor (Hook / Body / CTA)
+- Hook Score classifier (1-10, pattern matching against competitor data)
+- "Generate Script using Competitor Intel" button (no more toggle)
+- Comment-driven topic injection from audience demand signals
+- Competitor sidebar shows reference posts AFTER generation
 
-**Backend: `video_formats` table**
-```sql
-CREATE TABLE IF NOT EXISTS crm.video_formats (
-    id SERIAL PRIMARY KEY,
-    org_id INT NOT NULL,
-    slug TEXT NOT NULL,               -- 'myth_buster', 'expose', 'transformation'
-    name TEXT NOT NULL,               -- 'Myth Buster'
-    description TEXT,                 -- 'Flip a common belief on its head'
-    why_it_works TEXT,                -- 'People feel validated or attacked — both engage'
-    hook_patterns JSONB DEFAULT '[]', -- proven hook structures for this format
-    scene_structure JSONB DEFAULT '[]', -- default storyboard template (scene count, timing, camera)
-    avg_engagement_score FLOAT,       -- calculated from competitor data
-    post_count INT DEFAULT 0,         -- how many competitor posts match this format
-    is_system BOOLEAN DEFAULT TRUE,   -- system vs user-created
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
+### 1C. Templatizer → Create Bridge ✅
+- Format badges on all Competitor Intel video cards
+- "Generate Variant" button passes format + hook + topic to AI Studio
+- "Use This Script Structure" in examples drawer
 
-Seed with the 8 core formats + default storyboard structures:
-
-| Format | Scenes | Default Structure |
-|--------|--------|-------------------|
-| Myth Buster | 4 | Hook (belief) → Counter-evidence → Proof → CTA |
-| Exposé | 5 | Hook (secret) → Setup → Reveal 1 → Reveal 2 → CTA |
-| Transformation | 3 | Before (pain) → Process (montage) → After (result) |
-| POV | 3 | Setup (scenario) → Reaction → Punchline/CTA |
-| Speed Run | 4 | Hook (promise) → Step 1 → Step 2-3 (fast) → Result |
-| Challenge | 4 | Hook (dare) → Attempt → Result → CTA (join) |
-| Show Don't Tell | 3 | Hook (tease) → Demo (visual proof) → CTA |
-| Direct-to-Camera | 3 | Hook (bold claim) → Argument → CTA |
-
-**Competitor Format Detection:**
-- Add `detected_format TEXT` column to `competitor_posts`
-- On sync/analysis, classify each post into one of the 8 formats (or "unknown/emerging")
-- Classification logic (rules-based first, upgradeable to ML later):
-  - Content contains "myth"/"everyone thinks"/"they told you" → Myth Buster
-  - "nobody talks about"/"secret"/"they don't want you to know" → Exposé
-  - Before/after language, transformation imagery → Transformation
-  - "POV:"/"when you"/"that moment when" → POV
-  - Step-by-step, numbered lists, tutorial language → Speed Run
-  - "Try this"/"challenge"/"for 7 days" → Challenge
-  - Minimal text, heavy visual demo → Show Don't Tell
-  - Direct address, opinion, hot take → Direct-to-Camera
-- Fallback: "unclassified" — tracked for emerging format detection (Phase 5)
-
-**Frontend — Step 1: Template Picker Redesign**
-- Replace current template grid with **8 format cards** (+ any user-created)
-- Each card shows:
-  - Format name + Lucide icon (no emoji)
-  - "Why it works" tooltip on hover (info icon)
-  - `{post_count} competitor posts · {avg_engagement_score} avg engagement`
-  - **"See Viral Examples"** link → opens side drawer showing top 3-5 competitor posts using this format (from `competitor_posts WHERE detected_format = :slug ORDER BY engagement_score DESC`)
-  - Thumbnail from the top-performing post for that format
-- Selection auto-loads the format's default storyboard into the wizard (Step 4)
+### UX Overhaul ✅
+- Templates + Formats merged into single view
+- Creative Method selector (AI Avatar / Product-Focused / Stock-Text)
+- Full-width layout
+- View Original links on example posts
+- Storyboard auto-populates from format scene_structure
 
 ---
 
-### 1B. The Hook Lab (Competitor-Powered Script Generation)
-
-**This is the single highest-impact feature. Build it first.**
-
-**Backend: Enhance `POST /api/ai-studio/ugc/generate-script`**
-Add `use_competitor_intel: bool` flag. When true:
-1. Pull top 30 competitor posts ranked by engagement_score
-2. Filter to posts matching the selected format (if format selected)
-3. Extract: hooks, caption patterns, content_analysis JSONB, comment themes from comments_data
-4. **Comment-driven topic injection** (new): scan `comments_data` across top posts for recurring questions/pain points. If commenters are asking "Does this work with GPT-4?", auto-inject a "Myth Buster" scene addressing GPT-4 vs Claude. This achieves Market-Message Fit — the audience is literally telling you what to make.
-5. Feed ALL as context to Gemini alongside user's format/hook/topic
-6. Return: script (3-part) + `why_this_works` + `source_competitors` + `audience_demand_signals` (from comments)
-
-**Backend: Hook Score Classifier**
-Train a lightweight scoring model on the 530+ competitor posts:
-- Input: hook text
-- Features: word patterns, length, engagement-to-follower ratio of posts with similar hooks
-- Output: score 1-10 based on predicted scroll-stopping potential
-- **Implementation:** Not a neural net — a weighted scoring function:
-  ```python
-  def score_hook(hook_text: str, competitor_posts: list) -> float:
-      score = 5.0  # baseline
-      # Pattern matching against high-engagement hooks
-      high_eng_hooks = [p.hook for p in posts if p.engagement_score > median]
-      similarity = avg_ngram_overlap(hook_text, high_eng_hooks)
-      score += similarity * 3  # up to +3 for pattern match
-      # Length penalty (too short = vague, too long = scroll past)
-      if 5 <= word_count(hook_text) <= 15: score += 1
-      # Power words ("secret", "nobody", "just", "free")
-      power_word_count = count_power_words(hook_text)
-      score += min(power_word_count * 0.5, 1.5)
-      # Format-specific boost
-      if matches_format_hook_pattern(hook_text, selected_format): score += 1
-      return min(max(score, 1), 10)
-  ```
-- Upgradeable: once you have 100+ of YOUR posts with engagement data, retrain on your own audience
-
-**Frontend — Step 3: Script → "Hook Lab"**
-- Split textarea into **3 distinct sections**: Hook (0-2s), Body (3-25s), CTA (last 3s)
-- Each section is its own bordered textarea with timing label and character count
-- **"✨ Infuse Competitor Intel" toggle** (prominent, above the sections)
-  - When ON: sidebar slides in → "Winning Hooks Found"
-  - Shows 5 high-performing hooks from competitor data for the selected format
-  - Each hook shows: `@handle · {likes} likes · {format}` + "Apply" button
-  - "Apply" drops the hook structure (adapted, not verbatim) into Hook section
-  - Below hooks: **"Audience Demand Signals"** — top 3 recurring questions/topics from competitor comments
-    - Each signal has a "Write About This" button → injects into Body section
-- **Hook Score meter** — circular gauge (1-10) next to Hook textarea
-  - Updates in real-time as you type
-  - Color: red (1-3), yellow (4-6), green (7-10)
-  - Tooltip explains the score: "Strong pattern match with @bennettx.ai's 50K-like hook"
-- **"Browse Hooks" library** pulls from BOTH static library AND competitor data (merged, deduplicated)
-
----
-
-### 1C. Templatizer → Create Bridge
-
-**Frontend — Templatizer tab**
-- On each competitor video card, add **"Generate Variant"** button alongside "Templatize"
-- "Generate Variant" action:
-  1. Auto-detects the format of the competitor video (from `detected_format` column)
-  2. Jumps to Create Video wizard with:
-     - Step 1: format pre-selected
-     - Step 3: hook structure pre-filled (adapted for your brand, not copied verbatim)
-     - Competitor context toggle auto-ON
-     - Body section pre-filled with topic spin from the original
-  3. User refines and generates
-
----
-
-## Phase 2: Remotion-First Video Assembly + Audio Pipeline
+## Phase 2: Remotion-First Video Assembly + Audio Pipeline 🔄 IN PROGRESS
 
 ### The Strategy: Skeleton + Soul
-- **Remotion** = the skeleton. Text overlays, animations, diagrams, split-screens, captions, CTAs, transitions. Renders locally, instant, full control.
-- **Veo 3.1 / Nano Banana** = the soul. Used surgically for 1-2 key scenes: talking head, product shots, b-roll that needs AI generation. NOT the full video.
-- **ElevenLabs / Google Lyria 3** = the voice. Cloned voice with high inflection, matched to format energy. A "Myth Buster" needs aggressive, confident delivery. A "Show Don't Tell" needs calm narration. Standard TTS sounds robotic — voice clones are non-negotiable.
-- **ffmpeg / Video Editor skill** = the stitcher. Trims, syncs audio, format-converts, exports.
+- **Remotion** = the skeleton. Text overlays, animations, diagrams, split-screens, captions, CTAs, transitions.
+- **Veo 3.1 / Nano Banana** = the soul. Used surgically for 1-2 key scenes only.
+- **ElevenLabs / Google Lyria 3** = the voice. Cloned voice with format-matched delivery.
+- **ffmpeg / Video Editor skill** = the stitcher.
 
-### Audio Pipeline (NEW — critical for short-form)
-```json
-{
-  "voiceover": {
-    "provider": "elevenlabs",          // or "lyria3"
-    "voice_id": "eddy_clone_v1",       // cloned from Eddy's voice samples
-    "style": "confident_fast",         // format-matched delivery style
-    "sections": [
-      {"text": "Nobody is talking about this...", "emotion": "urgent", "pace": "fast"},
-      {"text": "Here's what actually happens.", "emotion": "calm", "pace": "normal"},
-      {"text": "Link in bio for the full guide.", "emotion": "friendly", "pace": "slow"}
-    ]
-  }
-}
-```
-- Voice clone created once from 3-5 minutes of Eddy's voice samples
-- Each script section maps to an emotion/pace preset
-- Auto-synced with Remotion CaptionTrack template for captions
-- Format presets: Myth Buster = aggressive + fast, POV = conversational, Exposé = dramatic pauses
-
-### Backend: `POST /api/video/compose-from-scenes`
-Takes a storyboard with mixed scene types:
-```json
-{
-  "scenes": [
-    {"type": "remotion", "template": "text_overlay", "props": {"text": "Wait...", "style": "bold_center", "animation": "typewriter"}},
-    {"type": "veo", "prompt": "Person looking at phone, surprised expression, modern office"},
-    {"type": "remotion", "template": "diagram", "props": {"data": [...], "animation": "slide_in"}},
-    {"type": "image", "url": "/assets/screenshot.png", "animation": "ken_burns"},
-    {"type": "remotion", "template": "cta", "props": {"text": "Link in bio", "style": "pulse"}}
-  ],
-  "audio": {
-    "voiceover": "...",   // URL to generated voiceover
-    "music": "...",       // background music track
-    "music_volume": 0.15  // ducked under voiceover
-  }
-}
-```
-
-### Remotion Templates Needed
+### 8 New Remotion Templates (building now)
 | Template | What | Use Case |
 |----------|------|----------|
-| `TextOverlay` | Bold text with animation (slide, fade, typewriter) | Hook slides, key points |
-| `Diagram` | Animated charts/flowcharts | @raycfu-style explainer content |
-| `SplitScreen` | Before/after comparison | Transformation format |
+| `TextOverlay` | Bold text with animation (typewriter, slide, fade, slam) | Hook slides, key points, stamps (❌ FALSE) |
+| `Diagram` | Animated charts/flowcharts/lists/comparisons | @raycfu-style explainer content |
+| `SplitScreen` | Before/after comparison (vertical, horizontal, wipe) | Transformation format |
 | `ImageSequence` | Ken Burns effect on stills | B-roll, screenshots |
 | `CaptionTrack` | Auto-captions synced to voiceover | Accessibility + engagement |
 | `CTASlide` | Call to action with animated button | Closers |
 | `BRoll` | Stock footage/images with overlay text | Filler, transitions |
 | `CodeWalkthrough` | Animated code blocks with highlights | Tech/dev content |
 
-### Render Scaling Concern
-At 40 sub-accounts × 3 videos/day = **120 renders/day**. Local rendering won't cut it at scale.
+### Backend: compose-from-scenes (building now)
+- Takes mixed scene types (remotion, ai_generated, image, stock)
+- Calculates cost estimates (remotion = free, AI = $0.05/scene)
+- Creates video_projects with status tracking
+- Storyboard UI shows scene type selector, template picker, cost badges
 
-**Phase 2 approach (local):** Remotion renders on the War Room server. Fine for 1-5 videos/day.
-**Phase 3 upgrade (cloud):** When scaling past 10 videos/day:
-- Option A: Remotion Lambda (AWS) — serverless, pay-per-render (~$0.01/render)
-- Option B: Headless Chrome cluster on Brain 3 (self-hosted, 4 concurrent renders)
-- Option C: Remotion Cloud (their hosted service, simplest)
-- Decision deferred until we hit the scaling threshold
+### Audio Pipeline (next)
+- ElevenLabs voice cloning from Eddy's voice samples
+- Format-matched delivery presets (Myth Buster = aggressive, POV = conversational)
+- Auto-sync with CaptionTrack template
 
-### Frontend — Storyboard Step Enhancement
-- Each scene in the storyboard gets a **type selector**: Remotion / AI Generated / Image / Stock
-- Remotion scenes show a live preview thumbnail (rendered via Remotion Player)
-- AI Generated scenes show estimated cost + generation time
-- Audio section below scenes: voiceover preview, music selector, volume slider
-- User controls the mix — mostly Remotion with AI only where needed
+### Render Scaling
+- Phase 2: local Remotion renders (fine for 1-5 videos/day)
+- Phase 3: Remotion Lambda or headless Chrome cluster on Brain 3
 
 ---
 
 ## Phase 3: Smart Multi-Account Distribution + Anti-Detection
 
-### The Sub-Account Shield
-
-The Logan Forsyth strategy lives or dies by the algorithm's "Duplicate Content" filter. Posting identical content across 40 accounts gets flagged. The Sub-Account Randomizer solves this.
-
-**Backend: Sub-Account Randomizer**
-When `auto_variations: true`, for each sub-account version:
-1. **Caption variation** — Gemini generates unique caption per account (different wording, same message)
-2. **Metadata uniqueness** — different hashtag sets, different first comment text
-3. **Remotion render variation** — slight tweaks to make the file hash unique:
-   - Background color shift (±5% hue)
-   - Font style rotation (3-4 font variants per template)
-   - Music pitch shift (±2-3% — imperceptible but different hash)
-   - Intro/outro frame variation (different gradient, different text animation)
-   - Caption positioning shift (top vs bottom vs alternating)
-4. **File hash guarantee** — each render produces a unique file hash, bypassing "low-effort" shadowbans
-
-**Frontend — "Sub-Account Randomizer" toggle**
-- In Step 5, under the account grid
-- Toggle ON: "Each sub-account gets a unique render variant"
-- Shows preview: "Main: bold_white font, blue gradient · Sub-1: sans-serif, teal gradient · Sub-2: mono, purple gradient"
-- Advanced settings (collapsible): adjust randomization intensity (subtle/medium/aggressive)
+### Sub-Account Randomizer
+- Background color shift (±5% hue), font rotation, music pitch shift
+- Caption positioning variation, intro/outro frame variation
+- Each render produces unique file hash
 
 ### Distribution Controls
-
-**Frontend — Step 5: "Generate & Distribute"**
-
-```
-Main Accounts:    [✓ IG] [✓ TK] [  YT] [  X]
-Sub-Accounts:     [✓ @clips] [✓ @reels] [  @bestof] [+ Add]
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚡ Sub-Account Randomizer    [ON ●]
-   Variation: [Subtle ▾]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 Auto Caption Variations   [ON ●]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⏱  Stagger: [2h ▾] [6h] [12h] [24h] [3d]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Preview:
-  @main     → Mon 6:00pm (IG + TK)
-  @clips    → Mon 8:00pm (IG)
-  @reels    → Mon 10:00pm (IG)
-```
-
-### Backend: `POST /api/scheduler/smart-distribute`
-```json
-{
-  "video_project_id": 42,
-  "caption": "...",
-  "accounts": [
-    {"id": 1, "type": "main", "platforms": ["instagram", "tiktok"]},
-    {"id": 5, "type": "sub", "platforms": ["instagram"]},
-    {"id": 6, "type": "sub", "platforms": ["instagram"]}
-  ],
-  "stagger_hours": 2,
-  "auto_variations": true,
-  "randomizer": {
-    "enabled": true,
-    "intensity": "subtle"
-  },
-  "platform_adapt": true
-}
-```
+- Account grid (main + sub-accounts)
+- Stagger slider (2h / 6h / 12h / 24h / 3d)
+- Cluster-based: post to 5 accounts, wait 45min, repeat
+- Auto caption variations per account
+- Platform adaptation (hashtags for IG, clean for X, description for YT)
 
 ### Anti-Burst Detection
-- Staggered posting prevents platforms from seeing a burst of similar content from the same IP range
-- **Future (when scaling):** residential proxy rotation per sub-account
-  - Each sub-account posts from a different IP
-  - Proxy pool managed in settings, rotated per post
-  - Not needed now (1-5 accounts), critical at 20+ accounts
+- Staggered posting prevents same-IP burst
+- Future: residential proxy rotation per sub-account
 
 ---
 
 ## Phase 4: Performance Feedback Loop
 
-### Backend: Performance Tracking
+### Performance Tracking
+- 48hr metrics collection via social sync
+- content_performance_feedback table (already created)
+- Performance delta: YOUR score vs competitor inspiration avg
+- Tiers: outperform (>+20%) / match (±20%) / underperform (<-20%)
 
-**New table: `content_performance_feedback`**
-```sql
-CREATE TABLE IF NOT EXISTS crm.content_performance_feedback (
-    id SERIAL PRIMARY KEY,
-    org_id INT NOT NULL,
-    video_project_id INT REFERENCES crm.video_projects(id),
-    scheduled_post_id INT,
-    competitor_inspiration_ids INT[],     -- which competitor posts inspired this
-    format_slug TEXT,                      -- which format was used
-    hook_text TEXT,                        -- the hook that was used
-    hook_score FLOAT,                     -- the predicted score at creation time
-    -- Performance metrics (collected 48hr post-publish)
-    likes INT, comments INT, shares INT, saves INT, reach INT, views INT,
-    engagement_score FLOAT,
-    -- Benchmark comparison
-    competitor_avg_engagement FLOAT,      -- avg engagement of inspiration posts
-    performance_delta FLOAT,              -- YOUR score - competitor avg (positive = outperform)
-    performance_tier TEXT,                 -- 'outperform' / 'match' / 'underperform'
-    -- Learning signals
-    audience_feedback JSONB,              -- extracted themes from YOUR comments
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+### Feedback Weight Formula
+```
+Day 1:   competitor_weight = 1.0, your_weight = 0.0
+Day 30:  competitor_weight = 0.7, your_weight = 0.3
+Day 90:  competitor_weight = 0.4, your_weight = 0.6
+Day 180: competitor_weight = 0.2, your_weight = 0.8
 ```
 
-**48hr collection cycle:**
-1. Post goes live → social sync picks up metrics at next sync interval
-2. After 48hrs, snapshot the metrics into `content_performance_feedback`
-3. Calculate `performance_delta` = your engagement_score - avg of competitor inspiration posts
-4. Classify: outperform (>+20%), match (±20%), underperform (<-20%)
-
-### The Feedback Mechanism
-Script generation now weighs TWO data sources:
-
-```
-Final Weight = (competitor_weight × competitor_score) + (your_weight × your_score)
-
-Day 1:   competitor_weight = 1.0, your_weight = 0.0  (no data yet)
-Day 30:  competitor_weight = 0.7, your_weight = 0.3  (some posts)
-Day 90:  competitor_weight = 0.4, your_weight = 0.6  (enough data)
-Day 180: competitor_weight = 0.2, your_weight = 0.8  (YOUR data dominates)
-```
-
-- If "Myth Buster" outperforms for you: boosted in format suggestions
-- If "POV" underperforms despite competitor success: deprioritized for your account
-- Hook patterns that work for YOU get higher scores in the Hook Score classifier
-- Comment themes from YOUR audience influence topic injection (not just competitor comments)
-
-### Frontend — "My Projects" → Performance Dashboard
-- Each project card shows **Performance vs. Benchmark** badge:
-  - 🟢 `+120% vs competitor avg` (green border glow)
-  - 🟡 `On par` (neutral)
-  - 🔴 `-40% below avg` (red border)
-- **"Seed for Next Batch"** button on 🟢 videos → feeds that video's format/hook/topic back as YOUR proven data
-- **Insight View toggle** — switch from list to analytics:
-  - **Format Leaderboard**: horizontal bar chart — which of the 8 formats performs best for YOUR accounts
-  - **Hook Leaderboard**: your top 10 hooks ranked by engagement
-  - **Time Heatmap**: 7×24 grid showing when your posts get the most engagement
-  - **Format Trends**: line chart over time — are Myth Busters declining? Exposés rising?
-  - **Audience Demand Feed**: what YOUR commenters are asking for (aggregated from comment analysis)
+### Performance Dashboard
+- Format Leaderboard, Hook Leaderboard, Time Heatmap, Format Trends
+- "Seed for Next Batch" button on winning videos
+- Audience Demand Feed from YOUR comments
 
 ---
 
 ## Phase 5: Emerging Format Detection
 
-### The Signal
-Your competitor data isn't static. New viral formats emerge constantly. The system should detect them before you do.
-
-### Backend: Format Classifier + Anomaly Detection
-On each competitor sync:
-1. Classify each new post into known formats using rules from Phase 1A
-2. Track `unclassified` posts with engagement scores
-3. Cluster unclassified posts by structural similarity (ngram overlap on hooks + content_analysis patterns)
-4. **Trigger condition:** 3+ unclassified posts from 3+ different competitors, all in top 20% engagement, sharing similar structure
-5. When triggered:
-   - Auto-generate a name + description from the shared patterns
-   - Create a draft `video_format` entry with `is_system = FALSE`
-   - Notify user: "🔥 New Format Detected: '{name}' — seen across @handle1, @handle2, @handle3"
-
-### Frontend: Competitor Intel Cards
-- Every video card in Top Content gets a **format badge** (small pill):
-  - Known: `Myth Buster` (blue), `Exposé` (purple), `Speed Run` (green), etc.
-  - Unknown: `Unclassified` (gray)
-  - Emerging: `✨ Emerging` (gold glow + pulse animation)
-- Clicking an `✨ Emerging` badge shows:
-  - The pattern details (what these posts have in common)
-  - Example posts from different competitors
-  - "Add to My Formats" button → creates a new format template with auto-generated storyboard
+### Format Classifier + Anomaly Detection
+- Classify new posts on each sync
+- Cluster unclassified high-engagement posts
+- Trigger: 3+ posts from 3+ different competitors, top 20% engagement, similar structure
+- Auto-generate name + description + draft format entry
+- Surface as ✨ Emerging badge on Competitor Intel cards
 
 ---
 
-## Implementation Roadmap
+## Phase 6: Mirofish Predictive Sandbox — "Reality Rehearsal Lab"
 
-### Week 1: The Hook Lab (Phase 1B) — HIGHEST IMPACT
-- [ ] Backend: `detected_format` column + format classifier on competitor_posts
-- [ ] Backend: Hook Score classifier function
-- [ ] Backend: Enhance generate-script with competitor intel + comment-driven topics
-- [ ] Frontend: Hook Lab UI (3-part script, competitor sidebar, hook score meter)
-- [ ] Frontend: "Audience Demand Signals" from competitor comments
+### The Concept
+Before spending a single dollar on AI generation or posting to any account, run the content through a **swarm intelligence simulation**. 1,000 AI agents with the exact psychological profiles of your target audience predict engagement, identify drop-off points, and recommend optimizations.
 
-### Week 2: Format Templates + Templatizer Bridge (Phase 1A + 1C)
-- [ ] Backend: video_formats table + seed 8 formats with storyboards
-- [ ] Backend: Format detection runs on existing 530 posts (backfill)
-- [ ] Frontend: Template picker redesign with viral examples drawer
-- [ ] Frontend: "Generate Variant" button on Templatizer cards
+**This is "Zero-Waste Content Creation."** Simulate 100 versions in 60 seconds, only generate the one that Mirofish predicts will explode.
 
-### Week 3: Remotion Assembly + Audio (Phase 2)
-- [ ] Backend: compose-from-scenes endpoint
-- [ ] Backend: Audio pipeline integration (ElevenLabs API)
-- [ ] Frontend: Scene type selector in storyboard
-- [ ] Frontend: Audio section (voiceover, music, volume)
-- [ ] Remotion: Build 8 core templates (TextOverlay, Diagram, SplitScreen, etc.)
+### Architecture Position
+Mirofish sits between Intelligence Layer and Creation Layer:
+```
+Competitor Intel (What worked for THEM)
+    ↓
+Mirofish Simulation (Will it work for YOU?)
+    ↓ [Prediction: "Change hook from 'Exposé' to 'Myth Buster' → Share rate +15%"]
+AI Studio (Generate the optimized version)
+    ↓
+Post-publish analytics feed back into Mirofish collective memory
+```
 
-### Week 4: Distribution + Anti-Detection (Phase 3)
-- [ ] Backend: smart-distribute endpoint with randomizer
-- [ ] Backend: Caption variation generation
-- [ ] Frontend: Account grid + Sub-Account Randomizer toggle + stagger controls
-- [ ] Frontend: Distribution preview
+### 6A. Swarm Persona System
 
-### Week 5-6: Feedback Loop + Emerging Formats (Phase 4 + 5)
-- [ ] Backend: content_performance_feedback table + 48hr collection
-- [ ] Backend: Feedback weight calculation for script gen
-- [ ] Backend: Emerging format anomaly detection
-- [ ] Frontend: Performance Dashboard (leaderboards, heatmaps, trends)
-- [ ] Frontend: Format badges on Competitor Intel cards
+**Backend: `swarm_personas` table**
+```sql
+CREATE TABLE IF NOT EXISTS crm.swarm_personas (
+    id SERIAL PRIMARY KEY,
+    org_id INT NOT NULL,
+    name TEXT NOT NULL,                    -- "Skeptical Early Adopter"
+    archetype TEXT NOT NULL,               -- archetype label
+    demographics JSONB DEFAULT '{}',       -- age_range, roles, tech_stack
+    psychographics JSONB DEFAULT '{}',     -- core_desires, friction_points, content_bias
+    behavioral_logic JSONB DEFAULT '{}',   -- interaction_triggers, comment_style
+    collective_memory JSONB DEFAULT '[]',  -- recent viral exposure, brand perception
+    source_competitors TEXT[],             -- which competitors' audiences this models
+    is_system BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Auto-generated from competitor data:**
+- Analyze comments_data across all competitor posts
+- Extract recurring themes, vocabulary, sentiment patterns
+- Cluster into 3-5 audience archetypes per niche
+- Pre-seed personas: "Skeptical Dev", "Hustle Culture", "General Public"
+
+**Swarm Persona Schema (per agent):**
+```json
+{
+  "identity": {
+    "archetype": "Skeptical Early Adopter",
+    "demographics": {
+      "age_range": "24-40",
+      "primary_roles": ["Software Engineer", "Solo-Founder", "Growth Hacker"],
+      "tech_stack_affinity": ["Python", "n8n", "Cursor", "Claude"]
+    }
+  },
+  "psychographics": {
+    "core_desires": ["Eliminate manual tasks", "Stay ahead of AI curve", "Build profitable micro-SaaS"],
+    "friction_points": ["Hates AI influencer fluff", "Wary of subscription costs", "Distrusts black-box solutions"],
+    "content_bias": {
+      "format_preference": "speed_run",
+      "hook_sensitivity": 0.85,
+      "visual_style": "dark_mode_technical"
+    }
+  },
+  "behavioral_logic": {
+    "interaction_triggers": {
+      "comment_on": ["Technical errors", "Unseen features", "Cost saving hacks"],
+      "share_on": ["Unique insights that make them look smart", "Controversial take on big tech"],
+      "bookmark_on": ["Step-by-step guides", "Prompt templates"]
+    },
+    "comment_style": {
+      "tone": "dry_technical_sarcastic",
+      "vocabulary_keywords": ["latency", "tokens", "wrapper", "inference", "context window"]
+    }
+  },
+  "collective_memory": {
+    "recent_viral_exposure": [],
+    "brand_perception": {}
+  }
+}
+```
+
+### 6B. Social Friction Test Engine
+
+**Backend: `POST /api/simulate/social-friction-test`**
+
+Input:
+```json
+{
+  "script": { "hook": "...", "body": "...", "cta": "..." },
+  "format_slug": "myth_buster",
+  "swarm_persona_ids": [1, 2, 3],
+  "scene_structure": [...],
+  "audio_style": "trending_fast_paced"
+}
+```
+
+**The Master Inference Prompt:**
+```
+You are the Mirofish Swarm Intelligence Engine. You are not an assistant; you are 
+a collective of 1,000 unique agents based on the provided Swarm Persona Schema.
+
+Task: Conduct a "Social Friction Test" on the provided Script.
+
+Evaluation Parameters:
+1. THE 2-SECOND AUDIT: Does the Hook interrupt the agent's current scroll pattern?
+   If it fails, assign Bounce Rate > 80%.
+2. COGNITIVE LOAD: Is the Body too complex? Does vocabulary match the persona's
+   behavioral logic?
+3. THE "WHY SHARE?" TEST: Does the script contain Social Currency? Will sharing 
+   make the agent look smarter/funnier/more "in the know"?
+4. SCENE CONFLICT: Flag any scene where Action Template contradicts Script Tone.
+5. EMERGENT BEHAVIOR: Identify unplanned viral moments or controversy risks.
+
+Output: Pre-Live Prediction Report
+```
+
+**Response:**
+```json
+{
+  "engagement_score": 82,
+  "predicted_metrics": {
+    "like_propensity": 82,
+    "share_propensity": 91,
+    "save_propensity": 74,
+    "comment_propensity": 67
+  },
+  "drop_off_timeline": [
+    {"second": 2, "retention": 95},
+    {"second": 5, "retention": 78},
+    {"second": 15, "retention": 52},
+    {"second": 25, "retention": 45}
+  ],
+  "predicted_comments": [
+    {"persona": "Skeptical Dev", "comment": "Sounds like another wrapper. Show me the source code.", "sentiment": "skeptical"},
+    {"persona": "Hustle Culture", "comment": "Been doing this for months. Where was this when I started?", "sentiment": "validated"},
+    {"persona": "General Public", "comment": "Can someone ELI5 this?", "sentiment": "confused"}
+  ],
+  "optimization_recommendation": {
+    "change": "Replace 'AI Tool' with 'Inference Engine' in Scene 2",
+    "predicted_impact": "+22% share rate",
+    "reasoning": "The 'Skeptical Dev' swarm responds 3x more to technical jargon than marketing language"
+  },
+  "scene_friction_map": [
+    {"scene": 1, "friction": "low", "note": "Strong hook, matches format expectations"},
+    {"scene": 2, "friction": "high", "note": "Transition too slow — 60% drop-off predicted at 0:04"},
+    {"scene": 3, "friction": "medium", "note": "CTA is generic — customize for platform"}
+  ],
+  "audio_recommendation": {
+    "best_match": "trending_fast_paced",
+    "reason": "Triggered 'Save' behavior in 40% more agents vs lo-fi or cinematic"
+  }
+}
+```
+
+### 6C. Scene-Level Optimization
+
+**Storyboard Heatmap Overlay:**
+- After simulation, each scene in the storyboard gets a friction indicator
+- 🟢 Low friction (keep as-is)
+- 🟡 Medium friction (consider adjustments)
+- 🔴 High friction (predicted drop-off point)
+- One-click "Magic Edit" suggestions per scene
+
+**A/B Testing in Simulation:**
+- "God View" toggle: run same script as Myth Buster vs Exposé format
+- Side-by-side prediction comparison
+- Pick the winner before generating
+
+### 6D. "Talk to the Audience" — Deep Interaction Lab
+
+**`POST /api/simulate/persona-chat`**
+
+Spawn a chat session with a simulated persona who just "watched" your video:
+```json
+{
+  "persona_id": 1,
+  "script": {...},
+  "user_message": "Why did you keep scrolling past the hook?"
+}
+```
+
+Response:
+```json
+{
+  "persona_name": "Skeptical Early Adopter",
+  "response": "You said 'n8n' in the first 2 seconds, but I'm looking for 'Claude' solutions. It felt irrelevant immediately.",
+  "behavioral_trigger": "friction_points.hates_ai_fluff",
+  "suggested_fix": "Lead with the solution outcome, not the tool name"
+}
+```
+
+### 6E. Collective Memory Feedback
+
+After posts go live and collect real metrics (Phase 4):
+1. Feed actual comments and engagement back into Mirofish
+2. Update `collective_memory` on matching personas
+3. Next simulation includes brand perception: "your_studio: high technical credibility"
+4. The swarm literally learns your audience over time
+
+### 6F. UI Integration
+
+**"Simulate" Button** — appears in Step 3 (Hook Lab) next to "Generate with Competitor Intel"
+- Runs social friction test
+- Shows "Vibe Check" gauge (Red/Yellow/Green)
+- Comment preview: "3 Agents are already typing..."
+- Predicted engagement score with breakdown
+- One-click "Magic Edit" optimization
+
+**Prediction Report Overlay** — transparent layer on Step 4 (Storyboard)
+- Drop-off heatmap per scene
+- Friction indicators on each scene card
+- Audio recommendation badge
+
+**Persona Selector Sidebar** — choose which swarm to simulate against
+- Pre-built swarms from competitor data
+- Custom swarm creation from manual persona entry
+
+### Implementation Priority
+| Priority | What | Backend | Frontend | Dependency |
+|----------|------|---------|----------|-----------|
+| First | Swarm persona table + auto-gen from comments | New table + extraction logic | Persona selector UI | Phase 1 (comment data) |
+| Second | Social friction test endpoint | AI inference endpoint | Simulate button + report overlay | Swarm personas |
+| Third | Scene-level optimization | Friction scoring per scene | Storyboard heatmap overlay | Simulation engine |
+| Fourth | Persona chat | Chat endpoint with persona context | Chat modal in Hook Lab | Swarm personas |
+| Fifth | Collective memory feedback | Post-publish → persona update | None (background) | Phase 4 (analytics) |
 
 ---
 
-## Files Affected
+## Implementation Roadmap (Updated)
 
-### Backend (new)
-- `app/api/video_formats.py` — CRUD for viral format templates
-- `app/api/performance_feedback.py` — feedback collection + scoring
-- `app/db/content_engine_migration.sql` — all new tables + columns
+### ✅ Week 1: Phase 1 (COMPLETE)
+- Hook Lab, Format Templates, Competitor-powered script gen
+- Format badges, Generate Variant button
+- UX overhaul, full-width, auto-populate storyboard
 
-### Backend (modified)
-- `app/api/ugc_studio.py` — enhance generate-script, add compose-from-scenes
-- `app/api/content_intel.py` — format classifier, format detection on sync, emerging detection
-- `app/api/content_scheduler.py` — smart-distribute, randomizer
-- `app/main.py` — migration runner for new tables
+### 🔄 Week 2: Phase 2 (IN PROGRESS)
+- 8 Remotion templates
+- compose-from-scenes endpoint + video_projects table
+- Storyboard scene type selector UI
+- Audio pipeline (ElevenLabs integration)
 
-### Frontend (modified)
-- `AIStudioPanel.tsx` — template picker, Hook Lab, scene type selector, account grid
-- `CompetitorIntel.tsx` — format badges, emerging format detection
-- `SchedulerCalendar.tsx` — multi-account selection
+### Week 3: Phase 3 — Distribution
+- Smart-distribute endpoint with randomizer
+- Account grid + stagger controls
+- Caption variation generation
+- Cluster-based posting
 
-### Frontend (new)
-- `components/ai-studio/HookLab.tsx` — 3-part script editor with competitor sidebar
-- `components/ai-studio/FormatPicker.tsx` — viral format template grid with examples drawer
-- `components/ai-studio/DistributionPanel.tsx` — account grid, randomizer, stagger controls
-- `components/ai-studio/PerformanceDashboard.tsx` — leaderboards, heatmaps, trends
-- `components/ai-studio/remotion/` — 8 Remotion template components
+### Week 4: Phase 4 + 5 — Feedback + Detection
+- content_performance_feedback collection
+- Feedback weight calculation
+- Emerging format anomaly detection
+- Performance dashboard
 
-### Skills
-- `skills/viral-content-engine/SKILL.md` — already created, reference for format definitions
-- `skills/video-io/` — ffmpeg post-processing, stitching
-
-### External Integrations
-- **ElevenLabs API** — voice cloning + text-to-speech with emotion presets
-- **Google Lyria 3** — alternative voice provider (Gemini ecosystem)
-- **Remotion Lambda** — cloud rendering at scale (deferred until 10+ videos/day)
+### Week 5-6: Phase 6 — Mirofish Predictive Sandbox
+- Swarm persona generation from competitor comments
+- Social friction test engine
+- Pre-Live Prediction Report UI
+- Scene-level optimization heatmap
+- Persona chat lab
+- Collective memory feedback loop
