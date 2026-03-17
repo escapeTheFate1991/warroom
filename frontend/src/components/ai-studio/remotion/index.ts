@@ -6,3 +6,27 @@ export type { SocialMediaAdProps } from "./SocialMediaAd";
 
 export { Testimonial } from "./Testimonial";
 export type { TestimonialProps } from "./Testimonial";
+
+export { TextOverlay } from "./TextOverlay";
+export type { TextOverlayProps } from "./TextOverlay";
+
+export { Diagram } from "./Diagram";
+export type { DiagramProps } from "./Diagram";
+
+export { SplitScreen } from "./SplitScreen";
+export type { SplitScreenProps } from "./SplitScreen";
+
+export { ImageSequence } from "./ImageSequence";
+export type { ImageSequenceProps } from "./ImageSequence";
+
+export { CaptionTrack } from "./CaptionTrack";
+export type { CaptionTrackProps } from "./CaptionTrack";
+
+export { CTASlide } from "./CTASlide";
+export type { CTASlideProps } from "./CTASlide";
+
+export { BRoll } from "./BRoll";
+export type { BRollProps } from "./BRoll";
+
+export { CodeWalkthrough } from "./CodeWalkthrough";
+export type { CodeWalkthroughProps } from "./CodeWalkthrough";
