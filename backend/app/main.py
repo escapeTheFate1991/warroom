@@ -142,6 +142,36 @@ async def _run_content_engine_migration():
         return False
 
 
+async def _run_content_distribution_migration():
+    """Run Content Distribution migration (smart multi-account distribution system)."""
+    try:
+        from pathlib import Path
+        import re
+
+        migration_path = Path(__file__).parent / "db" / "content_distribution_migration.sql"
+        if not migration_path.exists():
+            logger.error(f"Content Distribution migration file not found: {migration_path}")
+            return False
+
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+
+        # Strip SQL comments (-- to end of line) then split on semicolons
+        cleaned = re.sub(r'--[^\n]*', '', migration_sql)
+        statements = [s.strip() for s in cleaned.split(';') if s.strip()]
+
+        async with crm_engine.begin() as conn:
+            raw = await conn.get_raw_connection()
+            for stmt in statements:
+                await raw.driver_connection.execute(stmt)
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Content Distribution migration failed: {e}")
+        return False
+
+
 async def _init_network_ai_blackboard():
     """Initialize Network-AI blackboard (ensure blackboard file exists)."""
     try:
@@ -414,6 +444,13 @@ async def lifespan(app: FastAPI):
         logger.info("Content Engine migration applied")
     except Exception as e:
         logger.error("Content Engine migration error: %s", e)
+
+    # Content Distribution migration (smart multi-account distribution system)
+    try:
+        await _run_content_distribution_migration()
+        logger.info("Content Distribution migration applied")
+    except Exception as e:
+        logger.error("Content Distribution migration error: %s", e)
 
     # Start background scheduler (competitor syncs, etc.)
     from app.services.scheduler import start_scheduler, stop_scheduler

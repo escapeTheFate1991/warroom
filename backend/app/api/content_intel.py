@@ -3749,6 +3749,661 @@ async def get_sync_all_status():
     return _sync_all_status
 
 
+# ── Phase 4: Performance Feedback Loop Backend ──────────────────────────────
+
+class CollectPerformanceRequest(BaseModel):
+    """Request body for collecting performance metrics from a published post."""
+    distribution_post_id: int
+    video_project_id: Optional[int] = None
+    format_slug: Optional[str] = None
+    hook_text: Optional[str] = None
+    competitor_inspiration_ids: Optional[List[int]] = None
+    metrics: Dict[str, int] = Field(
+        description="Performance metrics: likes, comments, shares, saves, reach, views"
+    )
+
+
+class PerformanceFeedbackResponse(BaseModel):
+    """Response for performance feedback endpoints."""
+    id: int
+    org_id: int
+    scheduled_post_id: Optional[int] = None
+    format_slug: Optional[str] = None
+    hook_text: Optional[str] = None
+    hook_score: Optional[float] = None
+    likes: int = 0
+    comments: int = 0
+    shares: int = 0
+    saves: int = 0
+    reach: int = 0
+    views: int = 0
+    engagement_score: float = 0.0
+    competitor_avg_engagement: Optional[float] = None
+    performance_delta: Optional[float] = None
+    performance_tier: Optional[str] = None
+    created_at: datetime
+
+
+class FeedbackWeights(BaseModel):
+    """Weights for competitor vs own data in script generation."""
+    competitor_weight: float
+    own_weight: float
+    feedback_records_count: int
+
+
+class GenerationContext(BaseModel):
+    """Enhanced context for script generation including performance feedback."""
+    competitor_weight: float
+    own_weight: float
+    top_competitor_hooks: List[str]
+    top_own_hooks: List[str]
+    format_performance: Dict[str, Dict[str, Any]]
+    audience_demands: List[str]
+    recommendations: List[str]
+
+
+class FormatLeaderboardItem(BaseModel):
+    """Format performance leaderboard item."""
+    format: str
+    avg_engagement: float
+    count: int
+    avg_delta: str
+
+
+class HookLeaderboardItem(BaseModel):
+    """Hook performance leaderboard item."""
+    hook: str
+    engagement: float
+    format: str
+    delta: str
+
+
+class PerformanceDashboardResponse(BaseModel):
+    """Performance dashboard aggregated data."""
+    format_leaderboard: List[FormatLeaderboardItem]
+    hook_leaderboard: List[HookLeaderboardItem]
+    time_heatmap: Dict[str, Dict[str, float]]
+    format_trends: Dict[str, List[Dict[str, Any]]]
+    total_posts: int
+    avg_engagement: float
+    best_format: str
+    best_time: str
+
+
+def get_feedback_weights(org_id: int, feedback_count: int) -> FeedbackWeights:
+    """Calculate the competitor vs own-data weight based on how much performance data exists.
+    
+    Day 1 (0 posts):   competitor=1.0, own=0.0
+    Day 30 (10 posts):  competitor=0.7, own=0.3
+    Day 90 (50 posts):  competitor=0.4, own=0.6
+    Day 180 (100+ posts): competitor=0.2, own=0.8
+    """
+    if feedback_count == 0:
+        competitor_weight = 1.0
+        own_weight = 0.0
+    elif feedback_count <= 10:
+        competitor_weight = 0.7
+        own_weight = 0.3
+    elif feedback_count <= 50:
+        competitor_weight = 0.4
+        own_weight = 0.6
+    else:
+        competitor_weight = 0.2
+        own_weight = 0.8
+    
+    return FeedbackWeights(
+        competitor_weight=competitor_weight,
+        own_weight=own_weight,
+        feedback_records_count=feedback_count
+    )
+
+
+@router.post("/collect-performance", response_model=PerformanceFeedbackResponse)
+async def collect_performance(
+    request: Request,
+    body: CollectPerformanceRequest,
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Collect 48hr performance metrics for a published post and score against competitor benchmarks."""
+    org_id = get_org_id(request)
+    
+    try:
+        # 1. Calculate engagement_score using existing formula
+        metrics = body.metrics
+        engagement_score = calculate_engagement_score(
+            metrics.get("likes", 0),
+            metrics.get("comments", 0), 
+            metrics.get("shares", 0)
+        )
+        
+        # 2. Pull competitor inspiration posts from DB if provided
+        competitor_avg_engagement = None
+        if body.competitor_inspiration_ids:
+            competitor_result = await db.execute(
+                text("""
+                    SELECT AVG(engagement_score) as avg_engagement
+                    FROM crm.competitor_posts cp
+                    JOIN crm.competitors c ON cp.competitor_id = c.id
+                    WHERE cp.id = ANY(:inspiration_ids) AND c.org_id = :org_id
+                """),
+                {
+                    "inspiration_ids": body.competitor_inspiration_ids,
+                    "org_id": org_id
+                }
+            )
+            competitor_row = competitor_result.first()
+            if competitor_row and competitor_row.avg_engagement:
+                competitor_avg_engagement = float(competitor_row.avg_engagement)
+        
+        # 3. Compute performance_delta and classify tier
+        performance_delta = None
+        performance_tier = "unknown"
+        
+        if competitor_avg_engagement is not None:
+            performance_delta = engagement_score - competitor_avg_engagement
+            delta_percent = (performance_delta / competitor_avg_engagement) * 100 if competitor_avg_engagement > 0 else 0
+            
+            if delta_percent > 20:
+                performance_tier = "outperform"
+            elif delta_percent < -20:
+                performance_tier = "underperform" 
+            else:
+                performance_tier = "match"
+        
+        # 4. Score the hook if provided
+        hook_score = None
+        if body.hook_text:
+            # Load competitor posts for hook scoring context
+            competitor_posts = await load_cached_posts(db, org_id, days=60)
+            hook_result = score_hook(body.hook_text, competitor_posts, body.format_slug)
+            hook_score = hook_result["score"]
+        
+        # 5. Store in content_performance_feedback table
+        feedback_result = await db.execute(
+            text("""
+                INSERT INTO crm.content_performance_feedback (
+                    org_id, scheduled_post_id, competitor_inspiration_ids, format_slug, hook_text, hook_score,
+                    likes, comments, shares, saves, reach, views, engagement_score,
+                    competitor_avg_engagement, performance_delta, performance_tier
+                ) VALUES (
+                    :org_id, :scheduled_post_id, :competitor_inspiration_ids, :format_slug, :hook_text, :hook_score,
+                    :likes, :comments, :shares, :saves, :reach, :views, :engagement_score,
+                    :competitor_avg_engagement, :performance_delta, :performance_tier
+                ) RETURNING id, created_at
+            """),
+            {
+                "org_id": org_id,
+                "scheduled_post_id": body.distribution_post_id,
+                "competitor_inspiration_ids": body.competitor_inspiration_ids,
+                "format_slug": body.format_slug,
+                "hook_text": body.hook_text,
+                "hook_score": hook_score,
+                "likes": metrics.get("likes", 0),
+                "comments": metrics.get("comments", 0),
+                "shares": metrics.get("shares", 0),
+                "saves": metrics.get("saves", 0),
+                "reach": metrics.get("reach", 0),
+                "views": metrics.get("views", 0),
+                "engagement_score": engagement_score,
+                "competitor_avg_engagement": competitor_avg_engagement,
+                "performance_delta": performance_delta,
+                "performance_tier": performance_tier,
+            }
+        )
+        
+        feedback_row = feedback_result.first()
+        await db.commit()
+        
+        # 6. Return the feedback record
+        return PerformanceFeedbackResponse(
+            id=feedback_row.id,
+            org_id=org_id,
+            scheduled_post_id=body.distribution_post_id,
+            format_slug=body.format_slug,
+            hook_text=body.hook_text,
+            hook_score=hook_score,
+            likes=metrics.get("likes", 0),
+            comments=metrics.get("comments", 0),
+            shares=metrics.get("shares", 0),
+            saves=metrics.get("saves", 0),
+            reach=metrics.get("reach", 0),
+            views=metrics.get("views", 0),
+            engagement_score=engagement_score,
+            competitor_avg_engagement=competitor_avg_engagement,
+            performance_delta=performance_delta,
+            performance_tier=performance_tier,
+            created_at=feedback_row.created_at
+        )
+        
+    except Exception as e:
+        logger.error("Failed to collect performance feedback: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to collect performance feedback")
+
+
+@router.get("/generation-context", response_model=GenerationContext)
+async def get_generation_context(
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Returns the full context needed for script generation, including both competitor data AND own performance data with proper weighting."""
+    org_id = get_org_id(request)
+    
+    try:
+        # Get feedback records count for weight calculation
+        feedback_count_result = await db.execute(
+            text("SELECT COUNT(*) as count FROM crm.content_performance_feedback WHERE org_id = :org_id"),
+            {"org_id": org_id}
+        )
+        feedback_count = feedback_count_result.scalar() or 0
+        
+        # Calculate weights
+        weights = get_feedback_weights(org_id, feedback_count)
+        
+        # Get top competitor hooks from cached posts
+        competitor_posts = await load_cached_posts(db, org_id, days=45)
+        ranked_competitor_posts = _sorted_posts_for_analysis(competitor_posts)
+        top_competitor_hooks = [_post_hook(post) for post in ranked_competitor_posts[:10] if _post_hook(post)]
+        
+        # Get top own hooks from performance feedback
+        own_hooks_result = await db.execute(
+            text("""
+                SELECT hook_text, engagement_score
+                FROM crm.content_performance_feedback
+                WHERE org_id = :org_id AND hook_text IS NOT NULL
+                ORDER BY engagement_score DESC
+                LIMIT 10
+            """),
+            {"org_id": org_id}
+        )
+        top_own_hooks = [row.hook_text for row in own_hooks_result.fetchall()]
+        
+        # Get format performance from own data
+        format_performance = {}
+        format_result = await db.execute(
+            text("""
+                SELECT 
+                    format_slug,
+                    AVG(engagement_score) as avg_engagement,
+                    COUNT(*) as count,
+                    (SELECT hook_text FROM crm.content_performance_feedback cpf2 
+                     WHERE cpf2.org_id = :org_id AND cpf2.format_slug = cpf.format_slug 
+                     ORDER BY cpf2.engagement_score DESC LIMIT 1) as best_hook
+                FROM crm.content_performance_feedback cpf
+                WHERE org_id = :org_id AND format_slug IS NOT NULL
+                GROUP BY format_slug
+                ORDER BY avg_engagement DESC
+            """),
+            {"org_id": org_id}
+        )
+        
+        for row in format_result.fetchall():
+            format_performance[row.format_slug] = {
+                "avg_engagement": round(row.avg_engagement, 1),
+                "count": row.count,
+                "best_hook": row.best_hook
+            }
+        
+        # Get audience demands from trending topics
+        trending_topics = await analyze_trending_topics(competitor_posts)
+        audience_demands = [topic.topic for topic in trending_topics[:8]]
+        
+        # Generate recommendations based on performance data
+        recommendations = []
+        
+        if feedback_count > 0:
+            # Analyze format performance
+            if format_performance:
+                best_format = max(format_performance.items(), key=lambda x: x[1]["avg_engagement"])
+                recommendations.append(f"{best_format[0].replace('_', ' ').title()} format outperforms by {int(best_format[1]['avg_engagement'] - 1000):+d} points for your audience")
+        
+            # Hook pattern analysis
+            if len(top_own_hooks) >= 3:
+                # Find common starting patterns in successful hooks
+                starts = [hook.split()[0].lower() for hook in top_own_hooks if hook and len(hook.split()) > 0]
+                if starts:
+                    from collections import Counter
+                    common_start = Counter(starts).most_common(1)[0]
+                    if common_start[1] >= 2:
+                        recommendations.append(f"Hooks starting with '{common_start[0].title()}' get {common_start[1]}x more engagement for you")
+        
+        if not recommendations:
+            recommendations = [
+                "Build performance history by collecting metrics from your next 5 posts",
+                "Focus on competitor data until you have 10+ performance records"
+            ]
+        
+        return GenerationContext(
+            competitor_weight=weights.competitor_weight,
+            own_weight=weights.own_weight,
+            top_competitor_hooks=top_competitor_hooks,
+            top_own_hooks=top_own_hooks,
+            format_performance=format_performance,
+            audience_demands=audience_demands,
+            recommendations=recommendations
+        )
+        
+    except Exception as e:
+        logger.error("Failed to get generation context: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get generation context")
+
+
+@router.get("/performance-dashboard", response_model=PerformanceDashboardResponse)
+async def get_performance_dashboard(
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Returns aggregated performance data for the frontend dashboard."""
+    org_id = get_org_id(request)
+    
+    try:
+        # Format leaderboard
+        format_result = await db.execute(
+            text("""
+                SELECT 
+                    format_slug,
+                    AVG(engagement_score) as avg_engagement,
+                    COUNT(*) as count,
+                    AVG(CASE WHEN competitor_avg_engagement IS NOT NULL AND competitor_avg_engagement > 0 
+                        THEN ((engagement_score - competitor_avg_engagement) / competitor_avg_engagement) * 100 
+                        ELSE NULL END) as avg_delta_percent
+                FROM crm.content_performance_feedback
+                WHERE org_id = :org_id AND format_slug IS NOT NULL
+                GROUP BY format_slug
+                ORDER BY avg_engagement DESC
+            """),
+            {"org_id": org_id}
+        )
+        
+        format_leaderboard = []
+        for row in format_result.fetchall():
+            delta_str = f"{row.avg_delta_percent:+.0f}%" if row.avg_delta_percent is not None else "N/A"
+            format_leaderboard.append(FormatLeaderboardItem(
+                format=row.format_slug,
+                avg_engagement=round(row.avg_engagement, 1),
+                count=row.count,
+                avg_delta=delta_str
+            ))
+        
+        # Hook leaderboard
+        hook_result = await db.execute(
+            text("""
+                SELECT 
+                    hook_text,
+                    engagement_score,
+                    format_slug,
+                    CASE WHEN competitor_avg_engagement IS NOT NULL AND competitor_avg_engagement > 0 
+                         THEN ((engagement_score - competitor_avg_engagement) / competitor_avg_engagement) * 100 
+                         ELSE NULL END as delta_percent
+                FROM crm.content_performance_feedback
+                WHERE org_id = :org_id AND hook_text IS NOT NULL
+                ORDER BY engagement_score DESC
+                LIMIT 10
+            """),
+            {"org_id": org_id}
+        )
+        
+        hook_leaderboard = []
+        for row in hook_result.fetchall():
+            delta_str = f"{row.delta_percent:+.0f}%" if row.delta_percent is not None else "N/A"
+            hook_leaderboard.append(HookLeaderboardItem(
+                hook=row.hook_text[:50] + "..." if len(row.hook_text) > 50 else row.hook_text,
+                engagement=round(row.engagement_score, 1),
+                format=row.format_slug or "unknown",
+                delta=delta_str
+            ))
+        
+        # Time heatmap - using created_at as proxy for posting time
+        time_result = await db.execute(
+            text("""
+                SELECT 
+                    EXTRACT(DOW FROM created_at) as day_of_week,
+                    EXTRACT(HOUR FROM created_at) as hour_of_day,
+                    AVG(engagement_score) as avg_engagement
+                FROM crm.content_performance_feedback
+                WHERE org_id = :org_id
+                GROUP BY day_of_week, hour_of_day
+                HAVING COUNT(*) >= 2
+                ORDER BY day_of_week, hour_of_day
+            """),
+            {"org_id": org_id}
+        )
+        
+        days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+        time_heatmap = {}
+        for row in time_result.fetchall():
+            day_name = days[int(row.day_of_week)]
+            hour = str(int(row.hour_of_day))
+            if day_name not in time_heatmap:
+                time_heatmap[day_name] = {}
+            time_heatmap[day_name][hour] = round(row.avg_engagement, 1)
+        
+        # Format trends by week
+        format_trends = {}
+        if format_leaderboard:
+            trends_result = await db.execute(
+                text("""
+                    SELECT 
+                        format_slug,
+                        EXTRACT(YEAR FROM created_at) || '-W' || LPAD(EXTRACT(WEEK FROM created_at)::text, 2, '0') as week,
+                        AVG(engagement_score) as avg_engagement
+                    FROM crm.content_performance_feedback
+                    WHERE org_id = :org_id AND format_slug IS NOT NULL
+                        AND created_at >= NOW() - INTERVAL '8 weeks'
+                    GROUP BY format_slug, week
+                    ORDER BY format_slug, week
+                """),
+                {"org_id": org_id}
+            )
+            
+            for row in trends_result.fetchall():
+                format_slug = row.format_slug
+                if format_slug not in format_trends:
+                    format_trends[format_slug] = []
+                format_trends[format_slug].append({
+                    "week": row.week,
+                    "avg": round(row.avg_engagement, 1)
+                })
+        
+        # Overall stats
+        overall_result = await db.execute(
+            text("""
+                SELECT 
+                    COUNT(*) as total_posts,
+                    AVG(engagement_score) as avg_engagement,
+                    MODE() WITHIN GROUP (ORDER BY format_slug) as best_format
+                FROM crm.content_performance_feedback
+                WHERE org_id = :org_id
+            """),
+            {"org_id": org_id}
+        )
+        
+        overall_row = overall_result.first()
+        total_posts = overall_row.total_posts if overall_row else 0
+        avg_engagement = round(overall_row.avg_engagement, 1) if overall_row and overall_row.avg_engagement else 0.0
+        best_format = overall_row.best_format or "unknown"
+        
+        # Find best posting time from heatmap
+        best_time = "Unknown"
+        if time_heatmap:
+            best_score = 0
+            for day, hours in time_heatmap.items():
+                for hour, score in hours.items():
+                    if score > best_score:
+                        best_score = score
+                        hour_12 = "12pm" if hour == "12" else f"{int(hour)}pm" if int(hour) > 12 else f"{hour}am"
+                        best_time = f"{day.title()} {hour_12}"
+        
+        return PerformanceDashboardResponse(
+            format_leaderboard=format_leaderboard,
+            hook_leaderboard=hook_leaderboard,
+            time_heatmap=time_heatmap,
+            format_trends=format_trends,
+            total_posts=total_posts,
+            avg_engagement=avg_engagement,
+            best_format=best_format,
+            best_time=best_time
+        )
+        
+    except Exception as e:
+        logger.error("Failed to get performance dashboard: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get performance dashboard")
+
+
+@router.post("/auto-collect-performance")
+async def auto_collect_performance(
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Finds all distribution_posts that are 48+ hours old and haven't been scored yet, 
+    collects their metrics from the social sync data, and creates feedback records automatically.
+    
+    This should be callable from a cron job.
+    """
+    org_id = get_org_id(request)
+    
+    try:
+        # Find posts that need performance collection
+        # This is a placeholder query - adjust table names and schema based on your actual social sync structure
+        pending_posts_result = await db.execute(
+            text("""
+                SELECT 
+                    sp.id as post_id,
+                    sp.platform,
+                    sp.content_text as post_text,
+                    sp.scheduled_at,
+                    sp.posted_at,
+                    sp.format_slug,
+                    sp.hook_text,
+                    sm.likes,
+                    sm.comments,
+                    sm.shares,
+                    sm.saves,
+                    sm.reach,
+                    sm.views
+                FROM crm.scheduled_posts sp
+                LEFT JOIN crm.social_metrics sm ON sm.post_id = sp.id
+                LEFT JOIN crm.content_performance_feedback cpf ON cpf.scheduled_post_id = sp.id
+                WHERE sp.org_id = :org_id
+                    AND sp.posted_at IS NOT NULL
+                    AND sp.posted_at < NOW() - INTERVAL '48 hours'
+                    AND cpf.id IS NULL
+                    AND sm.likes IS NOT NULL
+                ORDER BY sp.posted_at DESC
+                LIMIT 50
+            """),
+            {"org_id": org_id}
+        )
+        
+        pending_posts = pending_posts_result.fetchall()
+        
+        if not pending_posts:
+            return {
+                "message": "No posts found that need performance collection",
+                "collected": 0,
+                "total_eligible": 0
+            }
+        
+        collected = 0
+        errors = []
+        
+        for post in pending_posts:
+            try:
+                # Calculate engagement score
+                engagement_score = calculate_engagement_score(
+                    post.likes or 0,
+                    post.comments or 0,
+                    post.shares or 0
+                )
+                
+                # Score hook if available
+                hook_score = None
+                if post.hook_text:
+                    competitor_posts = await load_cached_posts(db, org_id, days=60)
+                    hook_result = score_hook(post.hook_text, competitor_posts, post.format_slug)
+                    hook_score = hook_result["score"]
+                
+                # Get competitor average for format (if format is known)
+                competitor_avg_engagement = None
+                if post.format_slug:
+                    competitor_result = await db.execute(
+                        text("""
+                            SELECT AVG(engagement_score) as avg_engagement
+                            FROM crm.competitor_posts cp
+                            JOIN crm.competitors c ON cp.competitor_id = c.id
+                            WHERE c.org_id = :org_id AND cp.detected_format = :format_slug
+                        """),
+                        {"org_id": org_id, "format_slug": post.format_slug}
+                    )
+                    comp_row = competitor_result.first()
+                    if comp_row and comp_row.avg_engagement:
+                        competitor_avg_engagement = float(comp_row.avg_engagement)
+                
+                # Calculate performance delta
+                performance_delta = None
+                performance_tier = "unknown"
+                if competitor_avg_engagement is not None:
+                    performance_delta = engagement_score - competitor_avg_engagement
+                    delta_percent = (performance_delta / competitor_avg_engagement) * 100 if competitor_avg_engagement > 0 else 0
+                    
+                    if delta_percent > 20:
+                        performance_tier = "outperform"
+                    elif delta_percent < -20:
+                        performance_tier = "underperform"
+                    else:
+                        performance_tier = "match"
+                
+                # Insert feedback record
+                await db.execute(
+                    text("""
+                        INSERT INTO crm.content_performance_feedback (
+                            org_id, scheduled_post_id, format_slug, hook_text, hook_score,
+                            likes, comments, shares, saves, reach, views, engagement_score,
+                            competitor_avg_engagement, performance_delta, performance_tier
+                        ) VALUES (
+                            :org_id, :scheduled_post_id, :format_slug, :hook_text, :hook_score,
+                            :likes, :comments, :shares, :saves, :reach, :views, :engagement_score,
+                            :competitor_avg_engagement, :performance_delta, :performance_tier
+                        )
+                    """),
+                    {
+                        "org_id": org_id,
+                        "scheduled_post_id": post.post_id,
+                        "format_slug": post.format_slug,
+                        "hook_text": post.hook_text,
+                        "hook_score": hook_score,
+                        "likes": post.likes or 0,
+                        "comments": post.comments or 0,
+                        "shares": post.shares or 0,
+                        "saves": post.saves or 0,
+                        "reach": post.reach or 0,
+                        "views": post.views or 0,
+                        "engagement_score": engagement_score,
+                        "competitor_avg_engagement": competitor_avg_engagement,
+                        "performance_delta": performance_delta,
+                        "performance_tier": performance_tier,
+                    }
+                )
+                
+                collected += 1
+                
+            except Exception as e:
+                logger.warning("Failed to collect performance for post %s: %s", post.post_id, e)
+                errors.append(f"Post {post.post_id}: {str(e)[:100]}")
+        
+        await db.commit()
+        
+        return {
+            "message": f"Auto-collected performance data for {collected} posts",
+            "collected": collected,
+            "total_eligible": len(pending_posts),
+            "errors": errors[:10] if errors else []
+        }
+        
+    except Exception as e:
+        logger.error("Failed to auto-collect performance data: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to auto-collect performance data")
+
+
 # ── Linked Account Detection + Dossier ───────────────────────────
 
 def _extract_social_links(bio: str, captions: list[str]) -> dict:

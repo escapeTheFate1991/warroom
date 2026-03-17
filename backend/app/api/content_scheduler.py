@@ -16,7 +16,7 @@ from app.db.leadgen_db import get_leadgen_db
 from app.api.auth import get_current_user
 from app.models.crm.user import User
 from app.services.tenant import get_org_id
-from app.services import content_scheduler, performance_tracker, content_recycler, optimal_timing, multi_account_poster
+from app.services import content_scheduler, performance_tracker, content_recycler, optimal_timing, multi_account_poster, smart_distribution
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -85,6 +85,19 @@ class DistributeContentRequest(BaseModel):
     content: CreatePostRequest = Field(..., description="Content to distribute")
     account_ids: List[int] = Field(..., description="Accounts to post to")
     schedule_strategy: str = Field(default="staggered", description="Distribution strategy")
+
+
+class SmartDistributeRequest(BaseModel):
+    """Request for smart multi-account distribution with anti-detection."""
+    video_project_id: int = Field(..., description="Video project ID")
+    video_url: str = Field(..., description="Path to video file")
+    caption: str = Field(..., description="Original caption text")
+    accounts: List[dict] = Field(..., description="Account configs with platforms")
+    stagger_hours: float = Field(default=2, description="Hours between clusters")
+    cluster_size: int = Field(default=5, description="Accounts per cluster")
+    auto_variations: bool = Field(default=True, description="Generate caption variants")
+    randomizer: dict = Field(default={"enabled": True, "intensity": "subtle"}, description="Randomization config")
+    platform_adapt: bool = Field(default=True, description="Platform-specific adaptations")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -927,3 +940,137 @@ async def create_content_series(
     except Exception as e:
         logger.error(f"Failed to create content series: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create series: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Smart Multi-Account Distribution Endpoints
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/smart-distribute")
+async def smart_distribute_content(
+    distribute_data: SmartDistributeRequest,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Create smart multi-account distribution with anti-detection measures."""
+    org_id = get_org_id(request)
+    
+    try:
+        result = await smart_distribution.create_smart_distribution(
+            db=db,
+            org_id=org_id,
+            user_id=user.id,
+            video_project_id=distribute_data.video_project_id,
+            video_url=distribute_data.video_url,
+            caption=distribute_data.caption,
+            accounts=distribute_data.accounts,
+            stagger_hours=distribute_data.stagger_hours,
+            cluster_size=distribute_data.cluster_size,
+            auto_variations=distribute_data.auto_variations,
+            randomizer=distribute_data.randomizer,
+            platform_adapt=distribute_data.platform_adapt
+        )
+        
+        return {
+            "success": True,
+            **result
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to create smart distribution: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create smart distribution: {str(e)}")
+
+
+@router.get("/distributions/{distribution_id}")
+async def get_distribution_status(
+    distribution_id: int,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+):
+    """Get status of a content distribution with all post statuses."""
+    org_id = get_org_id(request)
+    
+    try:
+        status = await smart_distribution.get_distribution_status(
+            db=db,
+            org_id=org_id,
+            distribution_id=distribution_id
+        )
+        
+        return {
+            "success": True,
+            **status
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to get distribution status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get distribution status: {str(e)}")
+
+
+@router.get("/distributions")
+async def list_distributions(
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_leadgen_db),
+    status: Optional[str] = Query(default=None, description="Filter by status"),
+    limit: int = Query(default=20, description="Maximum results"),
+    offset: int = Query(default=0, description="Results offset"),
+):
+    """List content distributions with optional filters."""
+    org_id = get_org_id(request)
+    
+    try:
+        from sqlalchemy import text
+        
+        where_clauses = ["org_id = :org_id"]
+        params = {"org_id": org_id, "limit": limit, "offset": offset}
+        
+        if status:
+            where_clauses.append("status = :status")
+            params["status"] = status
+        
+        query = text(f"""
+            SELECT 
+                id, video_project_id, original_caption, total_posts,
+                stagger_hours, cluster_size, visibility_score, status, created_at
+            FROM crm.content_distributions
+            WHERE {' AND '.join(where_clauses)}
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        """)
+        
+        result = await db.execute(query, params)
+        distributions = result.fetchall()
+        
+        distribution_list = []
+        for dist in distributions:
+            distribution_list.append({
+                "id": dist[0],
+                "video_project_id": dist[1],
+                "original_caption": dist[2],
+                "total_posts": dist[3],
+                "stagger_hours": dist[4],
+                "cluster_size": dist[5],
+                "visibility_score": dist[6],
+                "status": dist[7],
+                "created_at": dist[8].isoformat() if dist[8] else None
+            })
+        
+        return {
+            "success": True,
+            "distributions": distribution_list,
+            "count": len(distribution_list),
+            "filters": {
+                "status": status
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to list distributions: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list distributions: {str(e)}")
