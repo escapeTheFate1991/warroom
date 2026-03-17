@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any, Tuple
 from collections import Counter, defaultdict
 import string
+import re
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.encoders import jsonable_encoder
@@ -1132,15 +1133,17 @@ async def save_competitor_posts(db: AsyncSession, competitor_id: int, org_id: in
             {"competitor_id": competitor_id, "platform": platform, "org_id": org_id}
         )
         
-        # Insert new posts
+        # Insert new posts and collect IDs for classification
+        new_post_ids = []
         for post in posts:
-            await db.execute(
+            result = await db.execute(
                 text("""
                     INSERT INTO crm.competitor_posts 
                     (competitor_id, platform, post_text, likes, comments, shares, 
                      engagement_score, hook, post_url, posted_at, fetched_at)
                     VALUES (:competitor_id, :platform, :post_text, :likes, :comments, :shares,
                             :engagement_score, :hook, :post_url, :posted_at, NOW())
+                    RETURNING id
                 """),
                 {
                     "competitor_id": competitor_id,
@@ -1155,8 +1158,17 @@ async def save_competitor_posts(db: AsyncSession, competitor_id: int, org_id: in
                     "posted_at": post.timestamp
                 }
             )
+            post_id = result.scalar()
+            if post_id:
+                new_post_ids.append(post_id)
         
         await db.commit()
+        
+        # Classify the newly saved posts
+        if new_post_ids:
+            await classify_new_posts(db, org_id, new_post_ids)
+            await db.commit()
+        
         return True
         
     except SQLAlchemyError as e:
@@ -3817,6 +3829,216 @@ async def score_hook_endpoint(
         raise HTTPException(status_code=500, detail="Failed to score hook")
 
 
+# Emerging format models are defined earlier in the file
+
+
+@router.get("/content-intel/emerging-formats")
+async def get_emerging_formats(
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Detect potential new viral formats from unclassified high-engagement posts."""
+    org_id = get_org_id(request)
+    try:
+        emerging_formats_data = await detect_emerging_formats(db, org_id)
+        
+        # Convert to Pydantic models
+        emerging_formats = []
+        for format_data in emerging_formats_data:
+            example_posts = [
+                EmergingFormatExamplePost(**post) 
+                for post in format_data["example_posts"]
+            ]
+            
+            emerging_formats.append(EmergingFormat(
+                id=format_data["id"],
+                suggested_name=format_data["suggested_name"],
+                suggested_description=format_data["suggested_description"],
+                confidence=format_data["confidence"],
+                post_count=format_data["post_count"],
+                avg_engagement_score=format_data["avg_engagement_score"],
+                source_competitors=format_data["source_competitors"],
+                example_posts=example_posts,
+                common_patterns=format_data["common_patterns"]
+            ))
+        
+        # Get total unclassified count
+        result = await db.execute(
+            text("""
+                SELECT COUNT(*) 
+                FROM crm.competitor_posts cp
+                JOIN crm.competitors c ON cp.competitor_id = c.id
+                WHERE c.org_id = :org_id 
+                  AND cp.detected_format IS NULL
+                  AND cp.post_text IS NOT NULL
+            """),
+            {"org_id": org_id}
+        )
+        total_unclassified = result.scalar() or 0
+        
+        return {
+            "emerging_formats": [format_data.model_dump() for format_data in emerging_formats],
+            "last_analyzed": datetime.now(timezone.utc),
+            "total_unclassified": total_unclassified
+        }
+        
+    except Exception as e:
+        logger.error("Failed to detect emerging formats: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to detect emerging formats")
+
+
+@router.post("/content-intel/adopt-emerging-format")
+async def adopt_emerging_format(
+    request: Request,
+    body: dict,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Adopt an emerging format as a custom video format."""
+    org_id = get_org_id(request)
+    try:
+        # Create slug from name
+        suggested_name = body.get("suggested_name", "")
+        suggested_description = body.get("suggested_description", "")
+        example_post_ids = body.get("example_post_ids", [])
+        
+        if not suggested_name:
+            raise HTTPException(status_code=422, detail="suggested_name is required")
+        if not example_post_ids:
+            raise HTTPException(status_code=422, detail="example_post_ids is required")
+        
+        slug = suggested_name.lower().replace(" ", "_").replace("-", "_")
+        slug = re.sub(r'[^a-z0-9_]', '', slug)[:50]
+        
+        result = await db.execute(
+            text("""
+                SELECT cp.post_text, cp.hook, cp.content_analysis
+                FROM crm.competitor_posts cp
+                JOIN crm.competitors c ON cp.competitor_id = c.id
+                WHERE c.org_id = :org_id 
+                  AND cp.id = ANY(:post_ids)
+            """),
+            {"org_id": org_id, "post_ids": example_post_ids}
+        )
+        example_posts = result.fetchall()
+        
+        if not example_posts:
+            raise HTTPException(status_code=404, detail="No example posts found")
+        
+        # Generate hook patterns from example posts
+        hook_patterns = []
+        all_hooks = []
+        
+        for post_row in example_posts:
+            hook = post_row[1] or extract_hook_from_text(post_row[0] or "")
+            if hook:
+                all_hooks.append(hook)
+        
+        # Extract common hook patterns
+        if all_hooks:
+            # Find common opening words
+            opening_words = [hook.split()[:2] for hook in all_hooks if len(hook.split()) >= 2]
+            if opening_words:
+                word_counter = Counter(tuple(words) for words in opening_words)
+                for words, count in word_counter.most_common(3):
+                    if count > 1:  # Appears in multiple hooks
+                        hook_patterns.append(" ".join(words) + " [specific detail]")
+            
+            # Find common structures
+            if all("?" in hook for hook in all_hooks):
+                hook_patterns.append("Question format: [curiosity gap]?")
+            elif all(hook.lower().startswith(("i", "my")) for hook in all_hooks):
+                hook_patterns.append("Personal opener: I [experience/discovery]")
+        
+        if not hook_patterns:
+            hook_patterns = ["[Strong opener] that [creates curiosity]"]
+        
+        # Generate scene structure based on common patterns
+        scene_structure = [
+            {
+                "scene": "Hook",
+                "description": "Pattern interrupt with the identified opener style",
+                "duration": "1-3 seconds",
+                "goal": "Stop the scroll immediately"
+            },
+            {
+                "scene": "Value Setup", 
+                "description": "Build on the hook with proof or context",
+                "duration": "5-10 seconds",
+                "goal": "Establish credibility and relevance"
+            },
+            {
+                "scene": "Main Content",
+                "description": "Deliver the promised insight or transformation",
+                "duration": "15-25 seconds", 
+                "goal": "Provide genuine value"
+            },
+            {
+                "scene": "CTA",
+                "description": "Encourage engagement or next action",
+                "duration": "3-5 seconds",
+                "goal": "Convert attention to action"
+            }
+        ]
+        
+        # Create the new video format
+        await db.execute(
+            text("""
+                INSERT INTO crm.video_formats 
+                (org_id, slug, name, description, hook_patterns, scene_structure, is_system, created_at)
+                VALUES (:org_id, :slug, :name, :description, :hook_patterns, :scene_structure, FALSE, NOW())
+            """),
+            {
+                "org_id": org_id,
+                "slug": slug,
+                "name": suggested_name,
+                "description": suggested_description,
+                "hook_patterns": json.dumps(hook_patterns),
+                "scene_structure": json.dumps(scene_structure)
+            }
+        )
+        
+        # Get the created format ID
+        result = await db.execute(
+            text("SELECT id FROM crm.video_formats WHERE org_id = :org_id AND slug = :slug"),
+            {"org_id": org_id, "slug": slug}
+        )
+        format_id = result.scalar()
+        
+        # Update the example posts to use this new format
+        posts_updated = await db.execute(
+            text("""
+                UPDATE crm.competitor_posts cp
+                SET detected_format = :slug, classified_at = NOW()
+                FROM crm.competitors c
+                WHERE cp.competitor_id = c.id 
+                  AND c.org_id = :org_id
+                  AND cp.id = ANY(:post_ids)
+            """),
+            {"slug": slug, "org_id": org_id, "post_ids": example_post_ids}
+        )
+        
+        # Update format stats
+        await update_format_stats(db, org_id)
+        await db.commit()
+        
+        return {
+            "format_id": format_id,
+            "slug": slug,
+            "name": suggested_name,
+            "description": suggested_description,
+            "hook_patterns": hook_patterns,
+            "scene_structure": scene_structure,
+            "posts_updated": posts_updated.rowcount
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error("Failed to adopt emerging format: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to adopt emerging format")
+
+
 @router.post("/sync-all")
 async def sync_all_competitors():
     """Kick off a background sync of all competitors. Returns immediately."""
@@ -4488,6 +4710,39 @@ async def auto_collect_performance(
     except Exception as e:
         logger.error("Failed to auto-collect performance data: %s", e)
         raise HTTPException(status_code=500, detail="Failed to auto-collect performance data")
+
+
+# ── Additional Response Models (for compatibility) ───────────────────
+
+class EmergingFormatItem(BaseModel):
+    """An emerging format detected from high-engagement posts."""
+    format_name: str
+    description: str
+    avg_engagement: float
+    post_count: int
+    example_hooks: List[str]
+
+
+class EmergingFormatsResponse(BaseModel):
+    """Response for emerging formats detection."""
+    emerging_formats: List[EmergingFormatItem]
+    last_analyzed: datetime
+    total_unclassified: int
+
+
+class AdoptEmergingFormatRequest(BaseModel):
+    """Request to adopt an emerging format."""
+    format_name: str
+    description: str
+    hook_patterns: List[str]
+    scene_structure: List[Dict[str, Any]]
+
+
+class AdoptEmergingFormatResponse(BaseModel):
+    """Response for adopting an emerging format."""
+    success: bool
+    format_id: int
+    format_slug: str
 
 
 # ── Linked Account Detection + Dossier ───────────────────────────
