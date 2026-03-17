@@ -33,6 +33,9 @@ CSRF_PROTECTED_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 
 # Endpoints that should bypass CSRF (public webhooks, etc.)
 CSRF_EXEMPT_PATHS = [
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/refresh",
     "/api/contact-webhook",
     "/api/telnyx/webhook",
     "/api/twilio/webhook",
