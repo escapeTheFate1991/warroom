@@ -233,129 +233,134 @@ class DigitalCopyResponse(BaseModel):
     created_at: str
 
 
-@router.post("/digital-copies")
-async def create_digital_copy(
-    request: Request,
-    body: DigitalCopyCreate,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    """Create a new digital copy entry (assets uploaded separately)."""
-    org_id = get_org_id(request)
-    copy_id = f"dc-{uuid.uuid4().hex[:12]}"
-    await db.execute(text("""
-        INSERT INTO public.ugc_digital_copies (id, user_id, name, description)
-        VALUES (:id, :user_id, :name, :description)
-    """), {"id": copy_id, "user_id": user.id, "name": body.name, "description": body.description})
-    await db.commit()
-    return {"id": copy_id, "name": body.name, "status": "draft"}
+# DEPRECATED: Moved to digital_copies.py - use /api/digital-copies instead
+# @router.post("/digital-copies")
+# async def create_digital_copy(
+#     request: Request,
+#     body: DigitalCopyCreate,
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_tenant_db),
+# ):
+#     """Create a new digital copy entry (assets uploaded separately)."""
+#     org_id = get_org_id(request)
+#     copy_id = f"dc-{uuid.uuid4().hex[:12]}"
+#     await db.execute(text("""
+#         INSERT INTO public.ugc_digital_copies (id, user_id, name, description)
+#         VALUES (:id, :user_id, :name, :description)
+#     """), {"id": copy_id, "user_id": user.id, "name": body.name, "description": body.description})
+#     await db.commit()
+#     return {"id": copy_id, "name": body.name, "status": "draft"}
 
 
-@router.get("/digital-copies")
-async def list_digital_copies(
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    """List all digital copies for the current user."""
-    org_id = get_org_id(request)
-    rows = await db.execute(text("""
-        SELECT id, name, description, status, assets, preview_url, created_at
-        FROM public.ugc_digital_copies
-        WHERE user_id = :uid
-        ORDER BY created_at DESC
-    """), {"uid": user.id})
-    copies = []
-    for r in rows.mappings():
-        copies.append({
-            "id": r["id"], "name": r["name"], "description": r["description"],
-            "status": r["status"], "assets": r["assets"] or [],
-            "preview_url": r["preview_url"],
-            "created_at": str(r["created_at"]),
-        })
-    return {"copies": copies}
+# DEPRECATED: Moved to digital_copies.py - use /api/digital-copies instead
+# @router.get("/digital-copies")
+# async def list_digital_copies(
+#     request: Request,
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_tenant_db),
+# ):
+#     """List all digital copies for the current user."""
+#     org_id = get_org_id(request)
+#     rows = await db.execute(text("""
+#         SELECT id, name, description, status, assets, preview_url, created_at
+#         FROM public.ugc_digital_copies
+#         WHERE user_id = :uid
+#         ORDER BY created_at DESC
+#     """), {"uid": user.id})
+#     copies = []
+#     for r in rows.mappings():
+#         copies.append({
+#             "id": r["id"], "name": r["name"], "description": r["description"],
+#             "status": r["status"], "assets": r["assets"] or [],
+#             "preview_url": r["preview_url"],
+#             "created_at": str(r["created_at"]),
+#         })
+#     return {"copies": copies}
 
 
-@router.get("/digital-copies/{copy_id}")
-async def get_digital_copy(
-    copy_id: str,
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    row = await db.execute(text("""
-        SELECT id, name, description, status, assets, preview_url, created_at
-        FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid
-    """), {"id": copy_id, "uid": user.id})
-    r = row.mappings().first()
-    if not r:
-        raise HTTPException(status_code=404, detail="Digital copy not found")
-    return dict(r)
+# DEPRECATED: Moved to digital_copies.py - use /api/digital-copies/{copy_id} instead
+# @router.get("/digital-copies/{copy_id}")
+# async def get_digital_copy(
+#     copy_id: str,
+#     request: Request,
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_tenant_db),
+# ):
+#     row = await db.execute(text("""
+#         SELECT id, name, description, status, assets, preview_url, created_at
+#         FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid
+#     """), {"id": copy_id, "uid": user.id})
+#     r = row.mappings().first()
+#     if not r:
+#         raise HTTPException(status_code=404, detail="Digital copy not found")
+#     return dict(r)
 
 
-@router.delete("/digital-copies/{copy_id}")
-async def delete_digital_copy(
-    copy_id: str,
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    await db.execute(text(
-        "DELETE FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
-    ), {"id": copy_id, "uid": user.id})
-    await db.commit()
-    return {"ok": True}
+# DEPRECATED: Moved to digital_copies.py - use /api/digital-copies/{copy_id} instead
+# @router.delete("/digital-copies/{copy_id}")
+# async def delete_digital_copy(
+#     copy_id: str,
+#     request: Request,
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_tenant_db),
+# ):
+#     await db.execute(text(
+#         "DELETE FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
+#     ), {"id": copy_id, "uid": user.id})
+#     await db.commit()
+#     return {"ok": True}
 
 
-@router.post("/digital-copies/{copy_id}/assets")
-async def upload_asset(
-    request: Request,
-    copy_id: str,
-    file: UploadFile = File(...),
-    label: str = Form("angle"),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    """Upload an image/video asset for a digital copy."""
-    # Verify ownership
-    row = await db.execute(text(
-        "SELECT id, assets FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
-    ), {"id": copy_id, "uid": user.id})
-    dc = row.mappings().first()
-    if not dc:
-        raise HTTPException(status_code=404, detail="Digital copy not found")
+# DEPRECATED: Moved to digital_copies.py - use /api/digital-copies/{copy_id}/images instead
+# @router.post("/digital-copies/{copy_id}/assets")
+# async def upload_asset(
+#     request: Request,
+#     copy_id: str,
+#     file: UploadFile = File(...),
+#     label: str = Form("angle"),
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_tenant_db),
+# ):
+#     """Upload an image/video asset for a digital copy."""
+#     # Verify ownership
+#     row = await db.execute(text(
+#         "SELECT id, assets FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
+#     ), {"id": copy_id, "uid": user.id})
+#     dc = row.mappings().first()
+#     if not dc:
+#         raise HTTPException(status_code=404, detail="Digital copy not found")
 
-    content = await file.read()
-    if len(content) > MAX_ASSET_SIZE:
-        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+#     content = await file.read()
+#     if len(content) > MAX_ASSET_SIZE:
+#         raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
-    # Save file
-    copy_dir = os.path.join(ASSETS_DIR, copy_id)
-    os.makedirs(copy_dir, exist_ok=True)
-    ext = os.path.splitext(file.filename or "file.jpg")[1].lower()
-    safe_name = f"{label}_{uuid.uuid4().hex[:8]}{ext}"
-    filepath = os.path.join(copy_dir, safe_name)
-    with open(filepath, "wb") as f:
-        f.write(content)
+#     # Save file
+#     copy_dir = os.path.join(ASSETS_DIR, copy_id)
+#     os.makedirs(copy_dir, exist_ok=True)
+#     ext = os.path.splitext(file.filename or "file.jpg")[1].lower()
+#     safe_name = f"{label}_{uuid.uuid4().hex[:8]}{ext}"
+#     filepath = os.path.join(copy_dir, safe_name)
+#     with open(filepath, "wb") as f:
+#         f.write(content)
 
-    # Update assets array
-    existing = dc["assets"] or []
-    asset_entry = {
-        "filename": safe_name,
-        "label": label,
-        "path": filepath,
-        "size_kb": len(content) // 1024,
-        "content_type": file.content_type or "image/jpeg",
-        "uploaded_at": datetime.utcnow().isoformat(),
-    }
-    existing.append(asset_entry)
-    await db.execute(text("""
-        UPDATE public.ugc_digital_copies SET assets = :assets::jsonb, updated_at = NOW()
-        WHERE id = :id
-    """), {"id": copy_id, "assets": json.dumps(existing)})
-    await db.commit()
+#     # Update assets array
+#     existing = dc["assets"] or []
+#     asset_entry = {
+#         "filename": safe_name,
+#         "label": label,
+#         "path": filepath,
+#         "size_kb": len(content) // 1024,
+#         "content_type": file.content_type or "image/jpeg",
+#         "uploaded_at": datetime.utcnow().isoformat(),
+#     }
+#     existing.append(asset_entry)
+#     await db.execute(text("""
+#         UPDATE public.ugc_digital_copies SET assets = :assets::jsonb, updated_at = NOW()
+#         WHERE id = :id
+#     """), {"id": copy_id, "assets": json.dumps(existing)})
+#     await db.commit()
 
-    return {"ok": True, "asset": asset_entry, "total_assets": len(existing)}
+#     return {"ok": True, "asset": asset_entry, "total_assets": len(existing)}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1147,113 +1152,114 @@ async def list_competitor_videos(
 # ═══════════════════════════════════════════════════════════════════════
 #  VOICE SAMPLES — Upload voice recordings for cloning
 # ═══════════════════════════════════════════════════════════════════════
+# MOVED TO digital_copies.py - use /api/digital-copies/{copy_id}/voice-samples instead
 
-@router.post("/digital-copies/{copy_id}/voice-samples")
-async def upload_voice_sample(
-    request: Request,
-    copy_id: str,
-    file: UploadFile = File(...),
-    label: str = Form("default"),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    """Upload an audio sample for voice cloning to a digital copy."""
-    # Verify ownership
-    row = await db.execute(text(
-        "SELECT id, voice_samples FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
-    ), {"id": copy_id, "uid": user.id})
-    dc = row.mappings().first()
-    if not dc:
-        raise HTTPException(status_code=404, detail="Digital copy not found")
+# @router.post("/digital-copies/{copy_id}/voice-samples")
+# async def upload_voice_sample(
+#     request: Request,
+#     copy_id: str,
+#     file: UploadFile = File(...),
+#     label: str = Form("default"),
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_tenant_db),
+# ):
+#     """Upload an audio sample for voice cloning to a digital copy."""
+#     # Verify ownership
+#     row = await db.execute(text(
+#         "SELECT id, voice_samples FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
+#     ), {"id": copy_id, "uid": user.id})
+#     dc = row.mappings().first()
+#     if not dc:
+#         raise HTTPException(status_code=404, detail="Digital copy not found")
 
-    content = await file.read()
-    if len(content) > MAX_ASSET_SIZE:
-        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+#     content = await file.read()
+#     if len(content) > MAX_ASSET_SIZE:
+#         raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
-    # Validate audio file type
-    allowed = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm", ".aac")
-    ext = os.path.splitext(file.filename or "voice.mp3")[1].lower()
-    if ext not in allowed:
-        raise HTTPException(status_code=400, detail=f"Unsupported audio format. Allowed: {', '.join(allowed)}")
+#     # Validate audio file type
+#     allowed = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm", ".aac")
+#     ext = os.path.splitext(file.filename or "voice.mp3")[1].lower()
+#     if ext not in allowed:
+#         raise HTTPException(status_code=400, detail=f"Unsupported audio format. Allowed: {', '.join(allowed)}")
 
-    # Save file
-    voice_dir = os.path.join(VOICE_SAMPLES_DIR, copy_id)
-    os.makedirs(voice_dir, exist_ok=True)
-    safe_name = f"voice_{label}_{uuid.uuid4().hex[:8]}{ext}"
-    filepath = os.path.join(voice_dir, safe_name)
-    with open(filepath, "wb") as f:
-        f.write(content)
+#     # Save file
+#     voice_dir = os.path.join(VOICE_SAMPLES_DIR, copy_id)
+#     os.makedirs(voice_dir, exist_ok=True)
+#     safe_name = f"voice_{label}_{uuid.uuid4().hex[:8]}{ext}"
+#     filepath = os.path.join(voice_dir, safe_name)
+#     with open(filepath, "wb") as f:
+#         f.write(content)
 
-    # Update voice_samples array
-    existing = dc["voice_samples"] or []
-    sample_entry = {
-        "filename": safe_name,
-        "label": label,
-        "path": filepath,
-        "size_kb": len(content) // 1024,
-        "content_type": file.content_type or "audio/mpeg",
-        "uploaded_at": datetime.utcnow().isoformat(),
-    }
-    existing.append(sample_entry)
-    await db.execute(text("""
-        UPDATE public.ugc_digital_copies SET voice_samples = :vs::jsonb, updated_at = NOW()
-        WHERE id = :id
-    """), {"id": copy_id, "vs": json.dumps(existing)})
-    await db.commit()
+#     # Update voice_samples array
+#     existing = dc["voice_samples"] or []
+#     sample_entry = {
+#         "filename": safe_name,
+#         "label": label,
+#         "path": filepath,
+#         "size_kb": len(content) // 1024,
+#         "content_type": file.content_type or "audio/mpeg",
+#         "uploaded_at": datetime.utcnow().isoformat(),
+#     }
+#     existing.append(sample_entry)
+#     await db.execute(text("""
+#         UPDATE public.ugc_digital_copies SET voice_samples = :vs::jsonb, updated_at = NOW()
+#         WHERE id = :id
+#     """), {"id": copy_id, "vs": json.dumps(existing)})
+#     await db.commit()
 
-    return {"ok": True, "voice_sample": sample_entry, "total_samples": len(existing)}
-
-
-@router.get("/digital-copies/{copy_id}/voice-samples")
-async def list_voice_samples(
-    copy_id: str,
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    """List voice samples for a digital copy."""
-    org_id = get_org_id(request)
-    row = await db.execute(text(
-        "SELECT voice_samples FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
-    ), {"id": copy_id, "uid": user.id})
-    dc = row.mappings().first()
-    if not dc:
-        raise HTTPException(status_code=404, detail="Digital copy not found")
-    return {"samples": dc["voice_samples"] or []}
+#     return {"ok": True, "voice_sample": sample_entry, "total_samples": len(existing)}
 
 
-@router.delete("/digital-copies/{copy_id}/voice-samples/{filename}")
-async def delete_voice_sample(
-    copy_id: str,
-    filename: str,
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-):
-    """Delete a voice sample from a digital copy."""
-    org_id = get_org_id(request)
-    row = await db.execute(text(
-        "SELECT id, voice_samples FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
-    ), {"id": copy_id, "uid": user.id})
-    dc = row.mappings().first()
-    if not dc:
-        raise HTTPException(status_code=404, detail="Digital copy not found")
+# @router.get("/digital-copies/{copy_id}/voice-samples")
+# async def list_voice_samples(
+#     copy_id: str,
+#     request: Request,
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_tenant_db),
+# ):
+#     """List voice samples for a digital copy."""
+#     org_id = get_org_id(request)
+#     row = await db.execute(text(
+#         "SELECT voice_samples FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
+#     ), {"id": copy_id, "uid": user.id})
+#     dc = row.mappings().first()
+#     if not dc:
+#         raise HTTPException(status_code=404, detail="Digital copy not found")
+#     return {"samples": dc["voice_samples"] or []}
 
-    samples = dc["voice_samples"] or []
-    updated = [s for s in samples if s.get("filename") != filename]
 
-    # Delete file from disk
-    filepath = os.path.join(VOICE_SAMPLES_DIR, copy_id, filename)
-    if os.path.exists(filepath):
-        os.unlink(filepath)
+# @router.delete("/digital-copies/{copy_id}/voice-samples/{filename}")
+# async def delete_voice_sample(
+#     copy_id: str,
+#     filename: str,
+#     request: Request,
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_tenant_db),
+# ):
+#     """Delete a voice sample from a digital copy."""
+#     org_id = get_org_id(request)
+#     row = await db.execute(text(
+#         "SELECT id, voice_samples FROM public.ugc_digital_copies WHERE id = :id AND user_id = :uid"
+#     ), {"id": copy_id, "uid": user.id})
+#     dc = row.mappings().first()
+#     if not dc:
+#         raise HTTPException(status_code=404, detail="Digital copy not found")
 
-    await db.execute(text("""
-        UPDATE public.ugc_digital_copies SET voice_samples = :vs::jsonb, updated_at = NOW()
-        WHERE id = :id
-    """), {"id": copy_id, "vs": json.dumps(updated)})
-    await db.commit()
+#     samples = dc["voice_samples"] or []
+#     updated = [s for s in samples if s.get("filename") != filename]
 
-    return {"ok": True, "remaining": len(updated)}
+#     # Delete file from disk
+#     filepath = os.path.join(VOICE_SAMPLES_DIR, copy_id, filename)
+#     if os.path.exists(filepath):
+#         os.unlink(filepath)
+
+#     await db.execute(text("""
+#         UPDATE public.ugc_digital_copies SET voice_samples = :vs::jsonb, updated_at = NOW()
+#         WHERE id = :id
+#     """), {"id": copy_id, "vs": json.dumps(updated)})
+#     await db.commit()
+
+#     return {"ok": True, "remaining": len(updated)}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2346,3 +2352,190 @@ async def get_competitor_script_detail(
     except Exception as e:
         logger.error(f"Failed to get competitor script detail: {e}")
         raise HTTPException(status_code=500, detail="Failed to load script detail")
+
+
+# ── Video Pipeline Endpoints ──────────────────────────────────────
+
+from fastapi import BackgroundTasks
+from app.services.video_pipeline import create_video_from_competitor_reference, create_video_from_template, get_pipeline_status
+
+class VideoPipelineStartRequest(BaseModel):
+    reference_post_id: int = Field(..., description="ID of competitor post to use as reference")
+    digital_copy_id: int = Field(..., description="Digital copy/character to use")
+    editing_dna_id: Optional[int] = Field(None, description="Optional editing DNA template ID")
+    brand_context: Dict[str, Any] = Field(..., description="Brand context (brand_name, product_name, target_audience, key_message)")
+
+class VideoPipelineQuickRequest(BaseModel):
+    template_id: str = Field(..., description="Template ID (e.g. 'split_vertical', 'fullscreen')")
+    script: str = Field(..., description="Manual script text")
+    digital_copy_id: int = Field(..., description="Digital copy to use")
+
+async def _run_video_pipeline_background(
+    db: AsyncSession,
+    org_id: int,
+    user_id: int,
+    reference_post_id: int,
+    digital_copy_id: int,
+    brand_context: Dict[str, Any],
+    api_key: str
+):
+    """Background task to run the full video pipeline."""
+    try:
+        result = await create_video_from_competitor_reference(
+            db, org_id, user_id, reference_post_id, 
+            digital_copy_id, brand_context, api_key
+        )
+        logger.info(f"Pipeline {result.get('pipeline_id')} completed with status: {result.get('status')}")
+    except Exception as e:
+        logger.error(f"Background pipeline failed: {e}")
+
+@router.post("/pipeline/start")
+async def start_video_pipeline(
+    request: VideoPipelineStartRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Start the full video pipeline asynchronously."""
+    try:
+        org_id = await get_org_id(current_user.id, db)
+        
+        # Get API key
+        try:
+            api_key_result = await db.execute(text("SELECT value FROM public.settings WHERE key = 'google_ai_studio_api_key'"))
+            api_key_row = api_key_result.first()
+            if not api_key_row:
+                api_key = os.environ.get('GOOGLE_AI_STUDIO_API_KEY')
+                if not api_key:
+                    raise HTTPException(status_code=400, detail="Google AI Studio API key not configured")
+            else:
+                api_key = api_key_row[0]
+        except Exception:
+            api_key = os.environ.get('GOOGLE_AI_STUDIO_API_KEY')
+            if not api_key:
+                raise HTTPException(status_code=400, detail="Google AI Studio API key not configured")
+        
+        # Start the pipeline synchronously to get initial result
+        result = await create_video_from_competitor_reference(
+            db, org_id, current_user.id, request.reference_post_id,
+            request.digital_copy_id, request.brand_context, api_key
+        )
+        
+        return {
+            "pipeline_id": result["pipeline_id"],
+            "status": result["status"],
+            "message": "Pipeline started successfully"
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to start video pipeline: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start video pipeline")
+
+@router.get("/pipeline/{pipeline_id}/status")
+async def get_video_pipeline_status(
+    pipeline_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Get current status of video pipeline."""
+    try:
+        org_id = await get_org_id(current_user.id, db)
+        
+        # Verify ownership
+        ownership_result = await db.execute(text("""
+            SELECT 1 FROM crm.video_pipelines 
+            WHERE id = :pipeline_id AND org_id = :org_id AND user_id = :user_id
+        """), {"pipeline_id": pipeline_id, "org_id": org_id, "user_id": current_user.id})
+        
+        if not ownership_result.first():
+            raise HTTPException(status_code=404, detail="Pipeline not found")
+        
+        status = await get_pipeline_status(db, pipeline_id)
+        return status
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to get pipeline status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get pipeline status")
+
+@router.post("/pipeline/quick")
+async def start_quick_video_pipeline(
+    request: VideoPipelineQuickRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Start simplified pipeline using saved template + manual script."""
+    try:
+        org_id = await get_org_id(current_user.id, db)
+        
+        # Get API key
+        try:
+            api_key_result = await db.execute(text("SELECT value FROM public.settings WHERE key = 'google_ai_studio_api_key'"))
+            api_key_row = api_key_result.first()
+            if not api_key_row:
+                api_key = os.environ.get('GOOGLE_AI_STUDIO_API_KEY')
+                if not api_key:
+                    raise HTTPException(status_code=400, detail="Google AI Studio API key not configured")
+            else:
+                api_key = api_key_row[0]
+        except Exception:
+            api_key = os.environ.get('GOOGLE_AI_STUDIO_API_KEY')
+            if not api_key:
+                raise HTTPException(status_code=400, detail="Google AI Studio API key not configured")
+        
+        # Find editing DNA by template name
+        template_mapping = {
+            "split_vertical": "Split Vertical",
+            "fullscreen": "Fullscreen Talking Head", 
+            "pip": "PiP Bottom Right",
+            "side_by_side": "Side by Side",
+            "reaction": "Reaction Overlay"
+        }
+        
+        template_name = template_mapping.get(request.template_id, "Fullscreen Talking Head")
+        
+        dna_result = await db.execute(text("""
+            SELECT id FROM crm.editing_dna 
+            WHERE name = :template_name AND org_id = :org_id
+            LIMIT 1
+        """), {"template_name": template_name, "org_id": org_id})
+        
+        dna_row = dna_result.first()
+        if not dna_row:
+            # Seed default templates if not found
+            from app.services.editing_dna import seed_default_dna_templates
+            await seed_default_dna_templates(db, org_id)
+            
+            # Try again
+            dna_result = await db.execute(text("""
+                SELECT id FROM crm.editing_dna 
+                WHERE name = :template_name AND org_id = :org_id
+                LIMIT 1
+            """), {"template_name": template_name, "org_id": org_id})
+            
+            dna_row = dna_result.first()
+            if not dna_row:
+                raise HTTPException(status_code=400, detail=f"Template '{request.template_id}' not found")
+        
+        editing_dna_id = dna_row[0]
+        
+        # Start the template pipeline
+        result = await create_video_from_template(
+            db, org_id, current_user.id, editing_dna_id,
+            request.script, request.digital_copy_id, api_key
+        )
+        
+        return {
+            "pipeline_id": result["pipeline_id"],
+            "status": result["status"],
+            "message": "Quick pipeline started successfully"
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to start quick pipeline: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start quick pipeline")
