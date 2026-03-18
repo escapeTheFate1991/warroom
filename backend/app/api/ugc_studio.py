@@ -1292,6 +1292,11 @@ class GenerateScriptRequest(BaseModel):
     use_competitor_intel: bool = False
 
 
+class AutoScriptsRequest(BaseModel):
+    format_slug: Optional[str] = None
+    count: int = Field(default=3, le=10)
+
+
 async def extract_competitor_context(posts: List[Dict[str, Any]], format_slug: str = None) -> Dict[str, Any]:
     """Extract competitor intelligence context from posts."""
     # Filter by format if specified
@@ -2242,7 +2247,7 @@ async def get_competitor_scripts(
         raise HTTPException(status_code=500, detail="Failed to load competitor scripts")
 
 
-@router.post("/generate-script")
+@router.post("/generate-script-from-reference")
 async def generate_script_from_competitor(
     body: GenerateScriptFromCompetitorRequest,
     request: Request,
@@ -2370,6 +2375,159 @@ async def get_competitor_script_detail(
     except Exception as e:
         logger.error(f"Failed to get competitor script detail: {e}")
         raise HTTPException(status_code=500, detail="Failed to load script detail")
+
+
+@router.post("/auto-scripts")
+async def generate_auto_scripts(
+    body: AutoScriptsRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Generate scripts from ALL competitor data aggregated automatically."""
+    org_id = get_org_id(request)
+    api_key = await _get_gemini_key(db)
+    
+    try:
+        # Load ALL competitor posts from last 45 days
+        posts = await load_cached_posts(db, org_id, days=45)
+        
+        if not posts:
+            return {
+                "scripts": [],
+                "format": body.format_slug,
+                "total_competitor_posts_analyzed": 0,
+                "error": "No competitor data available"
+            }
+        
+        # Sort by engagement and take top 30
+        ranked_posts = _sorted_posts_for_analysis(posts)[:30]
+        
+        # If format_slug provided, filter by detected_format
+        if body.format_slug:
+            filtered_posts = [p for p in ranked_posts if p.get('detected_format') == body.format_slug]
+            if filtered_posts:
+                ranked_posts = filtered_posts
+        
+        # Extract competitor context
+        context_data = await extract_competitor_context(ranked_posts, body.format_slug)
+        
+        top_hooks = context_data['top_hooks']
+        audience_themes = context_data['audience_themes']
+        total_posts = len(posts)
+        
+        # Build hooks list for prompt
+        hooks_list = "\n".join([f"- \"{hook}\" ({int(engagement)} engagement)" for hook, engagement, handle in top_hooks[:10]])
+        
+        # Build audience themes list
+        themes_list = "\n".join([f"- {theme}" for theme in audience_themes[:5]])
+        
+        # Get format description if provided
+        format_description = ""
+        if body.format_slug:
+            format_description = VIDEO_FORMATS.get(body.format_slug, f"{body.format_slug} format")
+        
+        # Build Gemini prompt
+        prompt = f"""You are an expert viral video scriptwriter. Based on competitor intelligence from {total_posts} top-performing posts, generate {body.count} ORIGINAL short-form video scripts.
+
+TOP PERFORMING HOOKS (ranked by engagement):
+{hooks_list}
+
+AUDIENCE DEMAND SIGNALS (what viewers are asking about):
+{themes_list}
+
+{f"FORMAT: {format_description}" if format_description else ""}
+
+Generate {body.count} completely original scripts. Each script should:
+- Have a scroll-stopping hook inspired by (but NOT copying) the patterns above
+- Address at least one audience demand signal
+- Be 15-30 seconds when spoken aloud
+- Include a clear call to action
+
+Return a JSON array where each element has: hook, body, cta, why_this_works, estimated_duration, engagement_inspiration
+Return ONLY the JSON array, no markdown."""
+
+        # Call Gemini 2.0 Flash
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+                    params={"key": api_key},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.9, "maxOutputTokens": 2048},
+                    },
+                )
+                
+                # Handle rate limiting
+                if resp.status_code == 429:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Google AI rate limit reached. Please wait a moment and try again."
+                    )
+                
+                if resp.status_code != 200:
+                    logger.error("Auto-scripts generation failed: %s", resp.text[:500])
+                    return {
+                        "scripts": [],
+                        "format": body.format_slug,
+                        "total_competitor_posts_analyzed": total_posts,
+                        "error": f"AI generation failed: {resp.status_code}"
+                    }
+
+                data = resp.json()
+                response_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+                if not response_text:
+                    return {
+                        "scripts": [],
+                        "format": body.format_slug,
+                        "total_competitor_posts_analyzed": total_posts,
+                        "error": "Empty response from AI"
+                    }
+
+                # Parse JSON response, strip markdown fences if present
+                cleaned = response_text.strip()
+                if cleaned.startswith("```"):
+                    cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+
+                try:
+                    scripts = json.loads(cleaned)
+                    if not isinstance(scripts, list):
+                        raise ValueError("Response is not a JSON array")
+                        
+                    return {
+                        "scripts": scripts,
+                        "format": body.format_slug,
+                        "total_competitor_posts_analyzed": total_posts
+                    }
+                    
+                except json.JSONDecodeError as e:
+                    logger.error("Failed to parse Gemini response as JSON: %s", cleaned[:500])
+                    return {
+                        "scripts": [],
+                        "format": body.format_slug,
+                        "total_competitor_posts_analyzed": total_posts,
+                        "error": "Could not parse AI response as JSON"
+                    }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Auto-scripts generation error: %s", e)
+            return {
+                "scripts": [],
+                "format": body.format_slug,
+                "total_competitor_posts_analyzed": total_posts,
+                "error": f"Generation failed: {str(e)[:200]}"
+            }
+            
+    except Exception as e:
+        logger.error("Auto-scripts endpoint error: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to generate auto-scripts: {str(e)[:200]}")
 
 
 # ── Video Pipeline Endpoints ──────────────────────────────────────
