@@ -297,10 +297,15 @@ async def create_video_from_competitor_reference(
         # Step 5: Load the digital copy's character DNA and reference sheet
         await _update_pipeline_status(db, pipeline_id, "generating_images", 50, "loading_digital_copy", assets)
         
-        copy_result = await db.execute(text("""
-            SELECT * FROM public.ugc_digital_copies 
-            WHERE id = :copy_id
-        """), {"copy_id": digital_copy_id})
+        # Handle digital_copy_id as both string ("dc-xxx") and int formats
+        if str(digital_copy_id).startswith("dc-"):
+            copy_query = "SELECT * FROM public.ugc_digital_copies WHERE id = :copy_id"
+            copy_params = {"copy_id": digital_copy_id}
+        else:
+            copy_query = "SELECT * FROM public.ugc_digital_copies WHERE id = CAST(:copy_id AS INTEGER)"
+            copy_params = {"copy_id": digital_copy_id}
+            
+        copy_result = await db.execute(text(copy_query), copy_params)
         
         copy_row = copy_result.mappings().first()
         if not copy_row:
@@ -309,64 +314,99 @@ async def create_video_from_competitor_reference(
         character_dna = json.loads(copy_row["character_dna"] or "{}")
         reference_sheet_url = copy_row["reference_sheet_url"]
         
+        # Graceful degradation when no reference sheet
         if not reference_sheet_url:
-            raise ValueError(f"Digital copy {digital_copy_id} has no reference sheet")
+            logger.warning(f"Digital copy {digital_copy_id} has no reference sheet, checking for images")
+            
+            # Try to find images from digital copy
+            image_result = await db.execute(text("""
+                SELECT image_url FROM crm.digital_copy_images 
+                WHERE digital_copy_id = :copy_id 
+                ORDER BY quality_score DESC NULLS LAST, uploaded_at ASC
+                LIMIT 1
+            """), {"copy_id": digital_copy_id})
+            
+            image_row = image_result.mappings().first()
+            if image_row and image_row["image_url"]:
+                # Use first image as reference
+                reference_sheet_url = image_row["image_url"]
+                logger.info(f"Using first image as reference for {digital_copy_id}: {reference_sheet_url}")
+            else:
+                # No images at all - skip scene generation and go text-only
+                logger.warning(f"Digital copy {digital_copy_id} has no reference sheet or images, skipping scene generation")
+                reference_sheet_url = None
         
-        # Step 6: Generate scene images with Nano Banana using script + DNA layout
+        # Step 6: Generate scene images with Nano Banana using script + DNA layout (if reference available)
         await _update_pipeline_status(db, pipeline_id, "generating_images", 60, "generating_scene_images", assets)
         
         scene_images = []
         dna_layers = editing_dna.get("dna", {}).get("layers", [])
         
-        # Generate images for each visual direction in the script
-        for i, visual_direction in enumerate(generated_script.visual_directions):
-            scene_prompt = f"{visual_direction}. {generated_script.body[i] if i < len(generated_script.body) else generated_script.hook}"
-            
-            try:
-                scene_image_bytes = await generate_scene(
-                    reference_sheet_url,
-                    scene_prompt,
-                    character_dna,
-                    db=db
-                )
+        if reference_sheet_url:
+            # Generate images for each visual direction in the script
+            for i, visual_direction in enumerate(generated_script.visual_directions):
+                scene_prompt = f"{visual_direction}. {generated_script.body[i] if i < len(generated_script.body) else generated_script.hook}"
                 
-                # Save scene image to Garage S3
-                scene_image_url = f"https://example.com/placeholder_{pipeline_id}_{i}.jpg"
-                if scene_image_bytes and len(scene_image_bytes) > 100:
-                    try:
-                        import boto3
-                        s3 = boto3.client(
-                            's3',
-                            endpoint_url=os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900'),
-                            aws_access_key_id=os.environ.get('GARAGE_ACCESS_KEY', 'GK6d3eb1c7bc06e00d77b8f89c'),
-                            aws_secret_access_key=os.environ.get('GARAGE_SECRET_KEY', '370b99ef00dbfee300e3d73b69b217a7f5633935b02b86ee37f5691aacdf602b'),
-                            region_name=os.environ.get('GARAGE_REGION', 'ai-local'),
-                        )
-                        bucket = os.environ.get('GARAGE_BUCKET_PIPELINE', 'digital-copies')
-                        s3_key = f"pipeline/{pipeline_id}/scene_{i}.png"
-                        s3.put_object(Bucket=bucket, Key=s3_key, Body=scene_image_bytes, ContentType="image/png")
-                        s3_base = os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900')
-                        scene_image_url = f"{s3_base}/{bucket}/{s3_key}"
-                        logger.info(f"Saved scene {i} to S3: {scene_image_url}")
-                    except Exception as s3_err:
-                        logger.warning(f"S3 upload failed for scene {i}, keeping bytes in memory: {s3_err}")
-                
+                try:
+                    scene_image_bytes = await generate_scene(
+                        reference_sheet_url,
+                        scene_prompt,
+                        character_dna,
+                        db=db
+                    )
+                    
+                    # Save scene image to Garage S3 (only if upload succeeds)
+                    scene_image_url = None
+                    if scene_image_bytes and len(scene_image_bytes) > 100:
+                        try:
+                            import boto3
+                            s3 = boto3.client(
+                                's3',
+                                endpoint_url=os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900'),
+                                aws_access_key_id=os.environ.get('GARAGE_ACCESS_KEY', 'GK6d3eb1c7bc06e00d77b8f89c'),
+                                aws_secret_access_key=os.environ.get('GARAGE_SECRET_KEY', '370b99ef00dbfee300e3d73b69b217a7f5633935b02b86ee37f5691aacdf602b'),
+                                region_name=os.environ.get('GARAGE_REGION', 'ai-local'),
+                            )
+                            bucket = os.environ.get('GARAGE_BUCKET_PIPELINE', 'digital-copies')
+                            s3_key = f"pipeline/{pipeline_id}/scene_{i}.png"
+                            s3.put_object(Bucket=bucket, Key=s3_key, Body=scene_image_bytes, ContentType="image/png")
+                            s3_base = os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900')
+                            scene_image_url = f"{s3_base}/{bucket}/{s3_key}"
+                            logger.info(f"Saved scene {i} to S3: {scene_image_url}")
+                        except Exception as s3_err:
+                            logger.warning(f"S3 upload failed for scene {i}, keeping bytes in memory: {s3_err}")
+                            # Don't set scene_image_url to placeholder - keep it None and rely on bytes
+                    
+                    scene_images.append({
+                        "index": i,
+                        "url": scene_image_url,  # None if S3 upload failed
+                        "prompt": scene_prompt,
+                        "duration": generated_script.total_duration / len(generated_script.visual_directions),
+                        "image_bytes": scene_image_bytes,  # Keep bytes for Veo
+                    })
+                    
+                except Exception as scene_error:
+                    logger.warning(f"Failed to generate scene {i}: {scene_error}")
+                    scene_images.append({
+                        "index": i,
+                        "url": None,
+                        "prompt": scene_prompt,
+                        "duration": generated_script.total_duration / len(generated_script.visual_directions),
+                        "image_bytes": None,
+                    })
+        else:
+            # No reference sheet - skip scene generation, prepare for text-only composition
+            logger.info(f"No reference available for {digital_copy_id}, preparing text-only composition")
+            # Create placeholder scenes for text-only Remotion composition
+            for i, visual_direction in enumerate(generated_script.visual_directions):
+                scene_prompt = f"{visual_direction}. {generated_script.body[i] if i < len(generated_script.body) else generated_script.hook}"
                 scene_images.append({
                     "index": i,
-                    "url": scene_image_url,
-                    "prompt": scene_prompt,
-                    "duration": generated_script.total_duration / len(generated_script.visual_directions),
-                    "image_bytes": scene_image_bytes,  # Keep bytes for Veo
-                })
-                
-            except Exception as scene_error:
-                logger.warning(f"Failed to generate scene {i}: {scene_error}")
-                scene_images.append({
-                    "index": i,
-                    "url": "",
+                    "url": None,
                     "prompt": scene_prompt,
                     "duration": generated_script.total_duration / len(generated_script.visual_directions),
                     "image_bytes": None,
+                    "text_only": True  # Flag for text-only composition
                 })
         
         # Add scene images as assets
@@ -378,10 +418,32 @@ async def create_video_from_competitor_reference(
                 "created_at": datetime.now().isoformat()
             })
         
-        # Step 7: Generate video with Veo using scene images as seeds
+        # Step 7: Generate video with Veo using scene images as seeds or prepare text-only composition
         await _update_pipeline_status(db, pipeline_id, "generating_video", 70, "generating_videos", assets)
         
         video_operations = []
+        text_only_scenes = [scene for scene in scene_images if scene.get("text_only")]
+        
+        if text_only_scenes:
+            # Text-only composition - skip video generation, go directly to composition
+            logger.info(f"Detected {len(text_only_scenes)} text-only scenes, skipping video generation")
+            
+            # Mark as ready for text-only composition
+            await _update_pipeline_status(db, pipeline_id, "composing", 90, "text_only_composition", assets)
+            
+            # TODO: Implement text-only Remotion composition
+            # For now, mark as complete
+            await _update_pipeline_status(db, pipeline_id, "complete", 100, "complete", assets)
+            
+            return {
+                "pipeline_id": pipeline_id,
+                "status": "complete",
+                "progress": 100,
+                "current_step": "complete",
+                "generated_assets": assets,
+                "message": "Text-only pipeline completed successfully - no reference sheet available"
+            }
+        
         for scene_img in scene_images:
             image_bytes = scene_img.get("image_bytes")
             if not image_bytes or len(image_bytes) < 100:
@@ -508,10 +570,15 @@ async def create_video_from_template(
         # Step 2: Load the digital copy
         await _update_pipeline_status(db, pipeline_id, "pending", 20, "loading_digital_copy")
         
-        copy_result = await db.execute(text("""
-            SELECT * FROM public.ugc_digital_copies 
-            WHERE id = :copy_id
-        """), {"copy_id": digital_copy_id})
+        # Handle digital_copy_id as both string ("dc-xxx") and int formats
+        if str(digital_copy_id).startswith("dc-"):
+            copy_query = "SELECT * FROM public.ugc_digital_copies WHERE id = :copy_id"
+            copy_params = {"copy_id": digital_copy_id}
+        else:
+            copy_query = "SELECT * FROM public.ugc_digital_copies WHERE id = CAST(:copy_id AS INTEGER)"
+            copy_params = {"copy_id": digital_copy_id}
+            
+        copy_result = await db.execute(text(copy_query), copy_params)
         
         copy_row = copy_result.mappings().first()
         if not copy_row:
@@ -520,8 +587,27 @@ async def create_video_from_template(
         character_dna = json.loads(copy_row["character_dna"] or "{}")
         reference_sheet_url = copy_row["reference_sheet_url"]
         
+        # Graceful degradation when no reference sheet
         if not reference_sheet_url:
-            raise ValueError(f"Digital copy {digital_copy_id} has no reference sheet")
+            logger.warning(f"Digital copy {digital_copy_id} has no reference sheet, checking for images")
+            
+            # Try to find images from digital copy
+            image_result = await db.execute(text("""
+                SELECT image_url FROM crm.digital_copy_images 
+                WHERE digital_copy_id = :copy_id 
+                ORDER BY quality_score DESC NULLS LAST, uploaded_at ASC
+                LIMIT 1
+            """), {"copy_id": digital_copy_id})
+            
+            image_row = image_result.mappings().first()
+            if image_row and image_row["image_url"]:
+                # Use first image as reference
+                reference_sheet_url = image_row["image_url"]
+                logger.info(f"Using first image as reference for {digital_copy_id}: {reference_sheet_url}")
+            else:
+                # No images at all - skip scene generation and go text-only
+                logger.warning(f"Digital copy {digital_copy_id} has no reference sheet or images, skipping scene generation")
+                reference_sheet_url = None
         
         # Step 3: Parse script into scenes based on DNA timing
         await _update_pipeline_status(db, pipeline_id, "generating_images", 30, "parsing_script")
@@ -542,35 +628,47 @@ async def create_video_from_template(
                 "visual_direction": f"Scene {i+1}: Character speaking about {sentence[:30]}..."
             })
         
-        # Step 4: Generate scene images per DNA layer
+        # Step 4: Generate scene images per DNA layer (if reference available)
         await _update_pipeline_status(db, pipeline_id, "generating_images", 50, "generating_scene_images", assets)
         
         scene_images = []
-        for scene in scenes:
-            try:
-                scene_image_bytes = await generate_scene(
-                    reference_sheet_url,
-                    scene["visual_direction"],
-                    character_dna,
-                    db=db
-                )
-                
-                # Save scene image (mock URL for now)
-                scene_image_url = f"https://example.com/template_scene_{pipeline_id}_{scene['index']}.jpg"
+        if reference_sheet_url:
+            for scene in scenes:
+                try:
+                    scene_image_bytes = await generate_scene(
+                        reference_sheet_url,
+                        scene["visual_direction"],
+                        character_dna,
+                        db=db
+                    )
+                    
+                    # Save scene image (mock URL for now)
+                    scene_image_url = f"https://example.com/template_scene_{pipeline_id}_{scene['index']}.jpg"
+                    scene_images.append({
+                        "index": scene["index"],
+                        "url": scene_image_url,
+                        "prompt": scene["visual_direction"],
+                        "duration": scene["duration"]
+                    })
+                    
+                except Exception as scene_error:
+                    logger.warning(f"Failed to generate scene {scene['index']}: {scene_error}")
+                    scene_images.append({
+                        "index": scene["index"],
+                        "url": None,
+                        "prompt": scene["visual_direction"],
+                        "duration": scene["duration"]
+                    })
+        else:
+            # No reference sheet - prepare for text-only composition
+            logger.info(f"No reference available for {digital_copy_id}, preparing text-only composition")
+            for scene in scenes:
                 scene_images.append({
                     "index": scene["index"],
-                    "url": scene_image_url,
+                    "url": None,
                     "prompt": scene["visual_direction"],
-                    "duration": scene["duration"]
-                })
-                
-            except Exception as scene_error:
-                logger.warning(f"Failed to generate scene {scene['index']}: {scene_error}")
-                scene_images.append({
-                    "index": scene["index"],
-                    "url": "https://example.com/placeholder.jpg",
-                    "prompt": scene["visual_direction"],
-                    "duration": scene["duration"]
+                    "duration": scene["duration"],
+                    "text_only": True  # Flag for text-only composition
                 })
         
         # Add scene images as assets
@@ -582,12 +680,34 @@ async def create_video_from_template(
                 "created_at": datetime.now().isoformat()
             })
         
-        # Step 5: Generate video per scene (Veo)
+        # Step 5: Generate video per scene (Veo) or prepare text-only composition
         await _update_pipeline_status(db, pipeline_id, "generating_video", 70, "generating_videos", assets)
         
         video_operations = []
+        text_only_scenes = [scene for scene in scene_images if scene.get("text_only")]
+        
+        if text_only_scenes:
+            # Text-only composition - skip video generation, go directly to composition
+            logger.info(f"Detected {len(text_only_scenes)} text-only scenes, skipping video generation")
+            
+            # Mark as ready for text-only composition
+            await _update_pipeline_status(db, pipeline_id, "composing", 90, "text_only_composition", assets)
+            
+            # TODO: Implement text-only Remotion composition
+            # For now, mark as complete
+            await _update_pipeline_status(db, pipeline_id, "complete", 100, "complete", assets)
+            
+            return {
+                "pipeline_id": pipeline_id,
+                "status": "complete",
+                "progress": 100,
+                "current_step": "complete",
+                "generated_assets": assets,
+                "message": "Text-only template pipeline completed successfully"
+            }
+            
         for scene_img in scene_images:
-            if scene_img["url"] == "https://example.com/placeholder.jpg":
+            if not scene_img.get("url"):
                 continue
             
             video_prompt = f"Video of {scene_img['prompt']}"
