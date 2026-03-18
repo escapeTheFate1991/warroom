@@ -184,12 +184,12 @@ CHATTERBOX_URL = os.getenv("CHATTERBOX_URL", "http://localhost:8401")
 
 
 @router.post("/tts")
-async def text_to_speech(text: str = "", voice: str = "", engine: str = ""):
-    """Generate speech. Tries Chatterbox (GPU) first, falls back to edge-tts."""
+async def text_to_speech(text: str = "", voice: str = "", engine: str = "edge"):
+    """Generate speech via edge-tts. Pass engine=chatterbox to use GPU TTS (disabled by default)."""
     text = _validate_tts_input(text)
 
-    # Try Chatterbox first (better quality, GPU-accelerated)
-    if engine != "edge":
+    # Chatterbox (GPU) — only when explicitly requested
+    if engine == "chatterbox":
         try:
             import httpx
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -205,7 +205,7 @@ async def text_to_speech(text: str = "", voice: str = "", engine: str = ""):
             import logging
             logging.getLogger(__name__).warning(f"Chatterbox failed, falling back to edge-tts: {e}")
 
-    # Fallback: edge-tts
+    # Default: edge-tts (one voice, no GPU)
     edge_voice = voice if voice and not voice.startswith("voice_") else "en-US-AvaNeural"
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
         tmp_path = tmp.name

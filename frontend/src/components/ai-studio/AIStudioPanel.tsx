@@ -628,7 +628,9 @@ export default function AIStudioPanel() {
   }, [configured, fetchBlueprints]);
 
   const autoFillBlueprint = async (postId: number) => {
+    if (loadingAutoFill) return; // Prevent double-clicks
     setLoadingAutoFill(true);
+    setGenerationResult(null);
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/blueprints/${postId}/auto-fill`, {
         method: "POST",
@@ -639,8 +641,15 @@ export default function AIStudioPanel() {
         setAutoFilledData(d);
         setWizardScript(d.script || "");
         if (d.storyboard) setWizardStoryboard(d.storyboard);
+      } else if (r.status === 429) {
+        setGenerationResult({ ok: false, error: "Rate limited — wait a moment and try again" });
+      } else {
+        const err = await r.json().catch(() => ({}));
+        setGenerationResult({ ok: false, error: err.detail || err.error || "Auto-fill failed" });
       }
-    } catch {}
+    } catch (e: any) {
+      setGenerationResult({ ok: false, error: e.message || "Auto-fill request failed" });
+    }
     setLoadingAutoFill(false);
   };
 
@@ -1050,7 +1059,8 @@ export default function AIStudioPanel() {
                   style={{ aspectRatio: "9/16" }}
                   onClick={() => {
                     setSelectedBlueprint(bp);
-                    if (brandTopic) autoFillBlueprint(bp.post_id);
+                    setAutoFilledData(null);
+                    setGenerationResult(null);
                   }}
                   onMouseEnter={(e) => {
                     const video = e.currentTarget.querySelector("video");

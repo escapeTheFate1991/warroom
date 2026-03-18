@@ -2569,13 +2569,14 @@ async def _run_video_pipeline_background(
 @router.post("/pipeline/start")
 async def start_video_pipeline(
     request: VideoPipelineStartRequest,
+    http_request: Request,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db)
 ):
     """Start the full video pipeline asynchronously."""
     try:
-        org_id = await get_org_id(current_user.id, db)
+        org_id = get_org_id(http_request)
         
         # Get API key
         try:
@@ -2613,12 +2614,13 @@ async def start_video_pipeline(
 @router.get("/pipeline/{pipeline_id}/status")
 async def get_video_pipeline_status(
     pipeline_id: int,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db)
 ):
     """Get current status of video pipeline."""
     try:
-        org_id = await get_org_id(current_user.id, db)
+        org_id = get_org_id(http_request)
         
         # Verify ownership
         ownership_result = await db.execute(text("""
@@ -2641,12 +2643,13 @@ async def get_video_pipeline_status(
 @router.post("/pipeline/quick")
 async def start_quick_video_pipeline(
     request: VideoPipelineQuickRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db)
 ):
     """Start simplified pipeline using saved template + manual script."""
     try:
-        org_id = await get_org_id(current_user.id, db)
+        org_id = get_org_id(http_request)
         
         # Get API key
         try:
