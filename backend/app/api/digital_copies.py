@@ -73,6 +73,10 @@ UPLOAD_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uplo
 MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50 MB
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
+# Voice samples configuration
+VOICE_SAMPLES_DIR = os.getenv("UGC_VOICE_DIR", "/data/ugc-voices")
+MAX_VOICE_SIZE = 50 * 1024 * 1024  # 50 MB
+
 # Image quality thresholds
 MIN_RESOLUTION_WIDTH = 512
 MIN_RESOLUTION_HEIGHT = 512
@@ -121,6 +125,7 @@ class DigitalCopyResponse(BaseModel):
     reference_sheet_url: Optional[str] = None
     style_dna_url: Optional[str] = None
     target_format: str = "talking_head"
+    voice_samples: List[Dict[str, Any]] = []
     created_at: datetime
     updated_at: datetime
     images: List[ImageResponse] = []
@@ -485,7 +490,7 @@ async def list_digital_copies(
             GROUP BY dc.id, dc.org_id, dc.user_id, dc.name, dc.trigger_token, 
                      dc.status, dc.base_model, dc.training_meta, dc.prompt_anchor,
                      dc.character_dna, dc.reference_sheet_url, dc.style_dna_url, dc.target_format,
-                     dc.created_at, dc.updated_at
+                     dc.voice_samples, dc.created_at, dc.updated_at
             ORDER BY dc.created_at DESC
         """),
         {"org_id": org_id}
@@ -537,7 +542,7 @@ async def get_digital_copy(
             GROUP BY dc.id, dc.org_id, dc.user_id, dc.name, dc.trigger_token, 
                      dc.status, dc.base_model, dc.training_meta, dc.prompt_anchor,
                      dc.character_dna, dc.reference_sheet_url, dc.style_dna_url, dc.target_format,
-                     dc.created_at, dc.updated_at
+                     dc.voice_samples, dc.created_at, dc.updated_at
         """),
         {"copy_id": copy_id, "org_id": org_id}
     )
@@ -601,8 +606,8 @@ async def create_digital_copy(
 
     result = await db.execute(
         text("""
-            INSERT INTO crm.digital_copies (org_id, user_id, name, trigger_token, base_model, character_dna)
-            VALUES (:org_id, :user_id, :name, :trigger_token, :base_model, :character_dna::jsonb)
+            INSERT INTO crm.digital_copies (org_id, user_id, name, trigger_token, base_model, character_dna, voice_samples)
+            VALUES (:org_id, :user_id, :name, :trigger_token, :base_model, :character_dna::jsonb, :voice_samples::jsonb)
             RETURNING *
         """),
         {
@@ -611,7 +616,8 @@ async def create_digital_copy(
             "name": copy_data.name,
             "trigger_token": trigger_token,
             "base_model": copy_data.base_model,
-            "character_dna": json.dumps(initial_dna)
+            "character_dna": json.dumps(initial_dna),
+            "voice_samples": json.dumps([])
         }
     )
     await db.commit()
@@ -1492,7 +1498,7 @@ async def generate_reference_sheet(
             GROUP BY dc.id, dc.org_id, dc.user_id, dc.name, dc.trigger_token, 
                      dc.status, dc.base_model, dc.training_meta, dc.prompt_anchor,
                      dc.character_dna, dc.reference_sheet_url, dc.style_dna_url, dc.target_format,
-                     dc.created_at, dc.updated_at
+                     dc.voice_samples, dc.created_at, dc.updated_at
         """),
         {"copy_id": copy_id, "org_id": org_id}
     )
@@ -1581,6 +1587,156 @@ async def generate_reference_sheet(
         logger.error(f"Failed to generate reference sheet for copy {copy_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate reference sheet: {str(e)}")
 
+
+# ── Voice Samples ─────────────────────────────────────────────────────
+
+@router.post("/digital-copies/{copy_id}/voice-samples")
+async def upload_voice_sample(
+    copy_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    label: str = Form("default"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Upload an audio sample for voice cloning to a digital copy."""
+    org_id = get_org_id(request)
+    
+    # Verify ownership and that the copy exists
+    copy_result = await db.execute(
+        text("SELECT id FROM crm.digital_copies WHERE id = :copy_id AND org_id = :org_id"),
+        {"copy_id": copy_id, "org_id": org_id}
+    )
+    if not copy_result.first():
+        raise HTTPException(status_code=404, detail="Digital copy not found")
+    
+    content = await file.read()
+    if len(content) > MAX_VOICE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+    
+    # Validate audio file type
+    allowed = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm", ".aac")
+    ext = os.path.splitext(file.filename or "voice.mp3")[1].lower()
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail=f"Unsupported audio format. Allowed: {', '.join(allowed)}")
+    
+    # Save file to local storage for now (could be moved to S3 later)
+    voice_dir = os.path.join(VOICE_SAMPLES_DIR, str(copy_id))
+    os.makedirs(voice_dir, exist_ok=True)
+    safe_name = f"voice_{label}_{uuid.uuid4().hex[:8]}{ext}"
+    filepath = os.path.join(voice_dir, safe_name)
+    with open(filepath, "wb") as f:
+        f.write(content)
+    
+    # Store voice sample reference in digital copy's voice_samples array
+    voice_sample_entry = {
+        "filename": safe_name,
+        "label": label,
+        "path": filepath,
+        "size_kb": len(content) // 1024,
+        "content_type": file.content_type or "audio/mpeg",
+        "uploaded_at": datetime.utcnow().isoformat(),
+    }
+    
+    # Get current voice samples and append new one
+    current_result = await db.execute(
+        text("SELECT voice_samples FROM crm.digital_copies WHERE id = :copy_id"),
+        {"copy_id": copy_id}
+    )
+    current_row = current_result.mappings().first()
+    existing_samples = current_row["voice_samples"] if current_row and current_row["voice_samples"] else []
+    
+    existing_samples.append(voice_sample_entry)
+    
+    # Update the digital copy with new voice samples
+    await db.execute(
+        text("""
+            UPDATE crm.digital_copies 
+            SET voice_samples = :voice_samples::jsonb, updated_at = NOW()
+            WHERE id = :copy_id
+        """),
+        {"copy_id": copy_id, "voice_samples": json.dumps(existing_samples)}
+    )
+    await db.commit()
+    
+    return {"ok": True, "voice_sample": voice_sample_entry, "total_samples": len(existing_samples)}
+
+
+@router.get("/digital-copies/{copy_id}/voice-samples")
+async def list_voice_samples(
+    copy_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """List voice samples for a digital copy."""
+    org_id = get_org_id(request)
+    
+    result = await db.execute(
+        text("""
+            SELECT voice_samples 
+            FROM crm.digital_copies 
+            WHERE id = :copy_id AND org_id = :org_id
+        """),
+        {"copy_id": copy_id, "org_id": org_id}
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Digital copy not found")
+    
+    return {"samples": row["voice_samples"] or []}
+
+
+@router.delete("/digital-copies/{copy_id}/voice-samples/{filename}")
+async def delete_voice_sample(
+    copy_id: int,
+    filename: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Delete a voice sample from a digital copy."""
+    org_id = get_org_id(request)
+    
+    # Get current voice samples
+    result = await db.execute(
+        text("""
+            SELECT voice_samples 
+            FROM crm.digital_copies 
+            WHERE id = :copy_id AND org_id = :org_id
+        """),
+        {"copy_id": copy_id, "org_id": org_id}
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Digital copy not found")
+    
+    samples = row["voice_samples"] or []
+    updated_samples = [s for s in samples if s.get("filename") != filename]
+    
+    # Delete file from disk
+    filepath = os.path.join(VOICE_SAMPLES_DIR, str(copy_id), filename)
+    try:
+        if os.path.exists(filepath):
+            os.unlink(filepath)
+    except Exception as e:
+        logger.warning(f"Failed to delete voice file {filepath}: {e}")
+    
+    # Update database
+    await db.execute(
+        text("""
+            UPDATE crm.digital_copies 
+            SET voice_samples = :voice_samples::jsonb, updated_at = NOW()
+            WHERE id = :copy_id
+        """),
+        {"copy_id": copy_id, "voice_samples": json.dumps(updated_samples)}
+    )
+    await db.commit()
+    
+    return {"ok": True, "remaining": len(updated_samples)}
+
+
+# ── Scene Generation ──────────────────────────────────────────────────
 
 class GenerateSceneRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="Scene description")

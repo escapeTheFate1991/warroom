@@ -102,7 +102,7 @@ export default function CompetitorScriptDrawer({
       }
       params.set("limit", "20");
       
-      const response = await authFetch(`${API}/api/ugc-studio/competitor-scripts?${params}`);
+      const response = await authFetch(`${API}/api/ai-studio/ugc/competitor-scripts?${params}`);
       if (response.ok) {
         const data = await response.json();
         const postsData = Array.isArray(data) ? data : data.posts || [];
@@ -143,7 +143,7 @@ export default function CompetitorScriptDrawer({
   // Fetch post detail
   const fetchPostDetail = async (postId: string) => {
     try {
-      const response = await authFetch(`${API}/api/ugc-studio/competitor-scripts/${postId}/detail`);
+      const response = await authFetch(`${API}/api/ai-studio/ugc/competitor-scripts/${postId}/detail`);
       if (response.ok) {
         const data = await response.json();
         setSelectedPost(data);
@@ -173,7 +173,7 @@ export default function CompetitorScriptDrawer({
   const generateScript = async (postId: string) => {
     setGenerating(true);
     try {
-      const response = await authFetch(`${API}/api/ugc-studio/generate-script`, {
+      const response = await authFetch(`${API}/api/ai-studio/ugc/generate-script`, {
         method: "POST",
         body: JSON.stringify({
           reference_post_id: postId,

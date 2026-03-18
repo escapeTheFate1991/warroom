@@ -127,6 +127,26 @@ CREATE TABLE IF NOT EXISTS crm.editing_dna (
 # INITIALIZATION
 # ═══════════════════════════════════════════════════════════════════════
 
+async def _get_api_key(db: Optional[AsyncSession] = None) -> str:
+    """Get Google AI Studio API key from environment or database"""
+    # Try environment variable first
+    key = os.environ.get('GOOGLE_AI_STUDIO_API_KEY')
+    if key:
+        return key
+    
+    # Fall back to database setting
+    if db:
+        try:
+            result = await db.execute(text("SELECT value FROM public.settings WHERE key = 'google_ai_studio_api_key'"))
+            row = result.first()
+            if row and row[0]:
+                return row[0]
+        except Exception as e:
+            logger.error(f"Failed to get Google API key from database: {e}")
+    
+    raise ValueError("Google AI Studio API key not configured. Add it in Settings.")
+
+
 async def init_editing_dna_table(db: AsyncSession):
     """Initialize the editing_dna table if it doesn't exist."""
     try:
@@ -240,9 +260,30 @@ Be precise with coordinates and identify the primary layout pattern."""
             # For this MVP, we'll extract a frame and analyze that
             raise Exception("Video analysis not yet implemented - please provide thumbnail URL")
         
+        # Handle rate limiting
+        if resp.status_code == 429:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=429,
+                detail="Google AI rate limit reached. Please wait a moment and try again."
+            )
+        
+        # Handle quota exhaustion
+        response_text = resp.text.lower()
+        if "quota" in response_text or "exceeded" in response_text:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=402,
+                detail="Google AI billing quota exceeded. Check your billing at https://ai.google.dev"
+            )
+            
         if resp.status_code != 200:
             logger.error(f"Gemini API error: {resp.status_code} {resp.text}")
-            raise Exception(f"Gemini analysis failed: {resp.status_code}")
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=502,
+                detail=f"Gemini analysis failed: {resp.text[:200]}"
+            )
         
         # Parse response
         data = resp.json()

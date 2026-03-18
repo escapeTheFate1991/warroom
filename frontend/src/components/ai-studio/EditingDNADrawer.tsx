@@ -56,7 +56,7 @@ export default function EditingDNADrawer({
   const fetchDNATemplates = async () => {
     setLoading(true);
     try {
-      const response = await authFetch(`${API}/api/ugc-studio/editing-dna`);
+      const response = await authFetch(`${API}/api/ai-studio/ugc/editing-dna`);
       if (response.ok) {
         const data = await response.json();
         const templates = Array.isArray(data) ? data : data.templates || [];
@@ -109,7 +109,7 @@ export default function EditingDNADrawer({
   // Fetch DNA detail
   const fetchDNADetail = async (dnaId: string) => {
     try {
-      const response = await authFetch(`${API}/api/ugc-studio/editing-dna/${dnaId}`);
+      const response = await authFetch(`${API}/api/ai-studio/ugc/editing-dna/${dnaId}`);
       if (response.ok) {
         const data = await response.json();
         setSelectedDNA(data);
@@ -139,7 +139,7 @@ export default function EditingDNADrawer({
   // Extract DNA from competitor post
   const extractDNA = async (postId: string) => {
     try {
-      const response = await authFetch(`${API}/api/ugc-studio/editing-dna/extract`, {
+      const response = await authFetch(`${API}/api/ai-studio/ugc/editing-dna/extract`, {
         method: "POST",
         body: JSON.stringify({ post_id: postId })
       });

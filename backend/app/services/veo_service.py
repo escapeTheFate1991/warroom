@@ -57,8 +57,8 @@ class VeoService:
         self.project_id = DEFAULT_PROJECT_ID
         self.region = DEFAULT_REGION
     
-    async def get_google_api_key(self, db=None) -> str:
-        """Get Google AI Studio API key from env or database"""
+    async def _get_api_key(self, db=None) -> str:
+        """Get Google AI Studio API key from environment or database"""
         if self.api_key:
             return self.api_key
             
@@ -73,11 +73,11 @@ class VeoService:
             from sqlalchemy import text
             result = await db.execute(text("SELECT value FROM public.settings WHERE key = 'google_ai_studio_api_key'"))
             row = result.first()
-            if row:
+            if row and row[0]:
                 self.api_key = row[0]
                 return self.api_key
         
-        raise ValueError("Google AI Studio API key not configured")
+        raise ValueError("Google AI Studio API key not configured. Add it in Settings.")
     
     def _encode_image_base64(self, image_bytes: bytes) -> str:
         """Convert image bytes to base64 string"""
@@ -105,9 +105,9 @@ class VeoService:
             Dict with operation_id and status for polling
         """
         try:
-            api_key = await self.get_google_api_key(db)
+            api_key = await self._get_api_key(db)
             
-            # Prepare image for API
+            # Prepare image for API  
             image_b64 = self._encode_image_base64(seed_image)
             
             # Construct request payload for Veo 3.1
@@ -139,9 +139,28 @@ class VeoService:
                 response = await client.post(url, json=payload, headers=headers)
                 
                 if response.status_code == 404:
-                    # Fallback to Vertex AI if Gemini endpoint not available
-                    return await self._generate_via_vertex_ai(
-                        seed_image, prompt, duration_seconds, aspect_ratio, api_key
+                    # Model not available - return clear error
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=501,
+                        detail="Veo video generation requires Google Cloud Vertex AI project. Contact support to enable."
+                    )
+                
+                # Handle rate limiting
+                if response.status_code == 429:
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Google AI rate limit reached. Please wait a moment and try again."
+                    )
+                
+                # Handle quota exhaustion
+                response_text = response.text.lower()
+                if "quota" in response_text or "exceeded" in response_text:
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=402,
+                        detail="Google AI billing quota exceeded. Check your billing at https://ai.google.dev"
                     )
                 
                 response.raise_for_status()
@@ -204,7 +223,7 @@ class VeoService:
             Dict with status, progress, and video_url when complete
         """
         try:
-            api_key = await self.get_google_api_key(db)
+            api_key = await self._get_api_key(db)
             
             # Handle mock operations
             if operation_id.startswith("mock_veo_"):
@@ -303,7 +322,7 @@ class VeoService:
             Dict with operation_id and status for polling
         """
         try:
-            api_key = await self.get_google_api_key(db)
+            api_key = await self._get_api_key(db)
             
             # Download last frame from video for continuity
             # TODO: Implement video frame extraction

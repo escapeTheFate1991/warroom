@@ -1529,9 +1529,27 @@ Return ONLY the script text, no explanations or metadata."""
                     "generationConfig": {"temperature": 0.9, "maxOutputTokens": 1024},
                 },
             )
+            # Handle rate limiting
+            if resp.status_code == 429:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Google AI rate limit reached. Please wait a moment and try again."
+                )
+            
+            # Handle quota exhaustion
+            response_text = resp.text.lower()
+            if "quota" in response_text or "exceeded" in response_text:
+                raise HTTPException(
+                    status_code=402,
+                    detail="Google AI billing quota exceeded. Check your billing at https://ai.google.dev"
+                )
+                
             if resp.status_code != 200:
                 logger.error("Script generation failed: %s", resp.text[:500])
-                raise HTTPException(500, "Script generation failed")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Google AI API error: {resp.text[:200]}"
+                )
 
             data = resp.json()
             response_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
@@ -2235,13 +2253,13 @@ async def generate_script_from_competitor(
     
     Returns: {hook, body, cta, visual_directions, total_duration, source_reference}
     """
-    from app.services.competitor_script_engine import generate_script_from_reference, _get_google_api_key
+    from app.services.competitor_script_engine import generate_script_from_reference, _get_api_key
     
     org_id = get_org_id(request)
     
     try:
         # Get API key
-        api_key = await _get_google_api_key(db)
+        api_key = await _get_api_key(db)
         if not api_key:
             raise HTTPException(status_code=503, detail="Google AI Studio API key not configured")
             

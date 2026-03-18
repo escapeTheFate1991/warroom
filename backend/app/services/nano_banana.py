@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 
-async def get_google_api_key(db: Optional[AsyncSession] = None) -> str:
+async def _get_api_key(db: Optional[AsyncSession] = None) -> str:
     """Get Google AI Studio API key from environment or database"""
     # Try environment variable first
     key = os.environ.get('GOOGLE_AI_STUDIO_API_KEY')
@@ -30,12 +30,12 @@ async def get_google_api_key(db: Optional[AsyncSession] = None) -> str:
         try:
             result = await db.execute(text("SELECT value FROM public.settings WHERE key = 'google_ai_studio_api_key'"))
             row = result.first()
-            if row:
+            if row and row[0]:
                 return row[0]
         except Exception as e:
             logger.error(f"Failed to get Google API key from database: {e}")
     
-    raise ValueError("Google AI Studio API key not configured")
+    raise ValueError("Google AI Studio API key not configured. Add it in Settings.")
 
 
 async def download_image_bytes(url: str) -> bytes:
@@ -63,7 +63,9 @@ async def call_gemini_api(
     messages: List[Dict[str, Any]],
     generation_config: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Make API call to Gemini"""
+    """Make API call to Gemini with proper error handling"""
+    from fastapi import HTTPException
+    
     url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
     
     payload = {
@@ -82,8 +84,42 @@ async def call_gemini_api(
             json=payload,
             timeout=120.0  # Image generation can be slow
         )
-        response.raise_for_status()
-        return response.json()
+        
+        # Handle rate limiting
+        if response.status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="Google AI rate limit reached. Please wait a moment and try again."
+            )
+        
+        # Handle quota exhaustion
+        if response.status_code == 402 or response.status_code == 403:
+            response_text = response.text.lower()
+            if "quota" in response_text or "exceeded" in response_text:
+                raise HTTPException(
+                    status_code=402,
+                    detail="Google AI billing quota exceeded. Check your billing at https://ai.google.dev"
+                )
+        
+        # Handle other HTTP errors
+        if response.status_code != 200:
+            error_detail = response.text[:200] if response.text else f"HTTP {response.status_code}"
+            raise HTTPException(
+                status_code=502,
+                detail=f"Google AI API error: {error_detail}"
+            )
+        
+        response_data = response.json()
+        
+        # Check for quota errors in response body
+        response_str = str(response_data).lower()
+        if "quota" in response_str and "exceeded" in response_str:
+            raise HTTPException(
+                status_code=402,
+                detail="Google AI billing quota exceeded. Check your billing at https://ai.google.dev"
+            )
+        
+        return response_data
 
 
 async def generate_reference_sheet(
@@ -107,7 +143,7 @@ async def generate_reference_sheet(
     if not reference_images:
         raise ValueError("No reference images provided")
     
-    api_key = await get_google_api_key(db)
+    api_key = await _get_api_key(db)
     
     # Build the prompt with character DNA context
     biological_anchors = character_dna.get("biological_anchors", {})
@@ -183,9 +219,15 @@ Style: Clean reference sheet, consistent lighting, photorealistic"""
         result = await call_gemini_api(api_key, model, messages, generation_config)
     except Exception as e:
         logger.warning(f"Failed with {model}, trying fallback: {e}")
-        # Fallback to stable model
+        # Fallback to stable model for text-only (no image generation)
         model = "gemini-2.0-flash"
-        result = await call_gemini_api(api_key, model, messages, generation_config)
+        try:
+            result = await call_gemini_api(api_key, model, messages, generation_config)
+        except Exception as fallback_error:
+            # If both models fail, try imagen for image generation specifically
+            logger.warning(f"Both gemini models failed, trying imagen: {fallback_error}")
+            model = "imagen-3.0-generate-002"
+            result = await call_gemini_api(api_key, model, messages, generation_config)
     
     # Extract image from response
     candidates = result.get("candidates", [])
@@ -224,7 +266,7 @@ async def generate_scene(
     Returns:
         Generated scene image bytes
     """
-    api_key = await get_google_api_key(db)
+    api_key = await _get_api_key(db)
     
     # Download the reference sheet
     reference_bytes = await download_image_bytes(reference_sheet_url)
@@ -271,9 +313,15 @@ The generated image should show this character naturally integrated into the sce
         result = await call_gemini_api(api_key, model, messages, generation_config)
     except Exception as e:
         logger.warning(f"Failed with {model}, trying fallback: {e}")
-        # Fallback to stable model
+        # Fallback to stable model for text-only (no image generation)
         model = "gemini-2.0-flash"
-        result = await call_gemini_api(api_key, model, messages, generation_config)
+        try:
+            result = await call_gemini_api(api_key, model, messages, generation_config)
+        except Exception as fallback_error:
+            # If both models fail, try imagen for image generation specifically
+            logger.warning(f"Both gemini models failed, trying imagen: {fallback_error}")
+            model = "imagen-3.0-generate-002"
+            result = await call_gemini_api(api_key, model, messages, generation_config)
     
     # Extract image from response
     candidates = result.get("candidates", [])
@@ -311,7 +359,7 @@ async def enrich_character_dna(
     if not reference_images:
         return current_dna
     
-    api_key = await get_google_api_key(db)
+    api_key = await _get_api_key(db)
     
     # Use the first few images for analysis
     analysis_images = reference_images[:3]

@@ -177,8 +177,8 @@ async def init_contracts_tables():
             result = await db.execute(
                 text("""
                     INSERT INTO public.contract_templates
-                        (name, plan_name, monthly_price, setup_fee, default_terms, sections)
-                    VALUES (:name, :plan_name, :monthly_price, :setup_fee,
+                        (org_id, name, plan_name, monthly_price, setup_fee, default_terms, sections)
+                    VALUES (1, :name, :plan_name, :monthly_price, :setup_fee,
                             CAST(:default_terms AS jsonb), CAST(:sections AS jsonb))
                     ON CONFLICT (name) DO NOTHING
                     RETURNING id

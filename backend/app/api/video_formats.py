@@ -71,6 +71,8 @@ def _parse_jsonb_field(value: Any) -> List:
 
 async def _get_format_or_404(db: AsyncSession, format_slug: str, org_id: int) -> Dict[str, Any]:
     """Get a video format by slug, checking both system and org-specific formats."""
+    # Normalize slug: accept both kebab-case and snake_case
+    format_slug = format_slug.replace("-", "_")
     result = await db.execute(
         text("""
             SELECT id, org_id, slug, name, description, why_it_works, 

@@ -237,6 +237,14 @@ export default function AIStudioPanel() {
   const [dnaDrawerOpen, setDnaDrawerOpen] = useState(false);
   const [selectedEditingDna, setSelectedEditingDna] = useState<any>(null);
 
+  // Pipeline state
+  const [pipelineId, setPipelineId] = useState<number | null>(null);
+  const [pipelineStatus, setPipelineStatus] = useState<any>(null);
+  const [selectedReferencePostId, setSelectedReferencePostId] = useState<number | null>(null);
+  
+  // API key notification
+  const [apiKeyWarning, setApiKeyWarning] = useState<string | null>(null);
+
   // Motion Control
   const [mcModel, setMcModel] = useState("kling-3.0");
   const [mcMotionVideo, setMcMotionVideo] = useState<File | null>(null);
@@ -404,106 +412,73 @@ export default function AIStudioPanel() {
   const createAndGenerate = async () => {
     setGenerating(true);
     setGenerationResult(null);
+    setApiKeyWarning(null);
+    
     try {
-      // Check if we have storyboard scenes to use compose-from-scenes endpoint
-      if (storyboardScenes.length > 0) {
-        // Use compose-from-scenes endpoint
-        const composePayload = {
-          project_title: wizardTitle || "Untitled Video",
-          format_slug: selectedFormat,
-          scenes: storyboardScenes.map(scene => ({
-            type: scene.type,
-            template: scene.remotion_template,
-            provider: scene.ai_provider,
-            prompt: scene.ai_prompt,
-            url: scene.media_url,
-            duration_seconds: scene.duration_seconds,
-            animation: scene.animation,
-            props: scene.remotion_props || {}
-          })),
-          audio: {
-            voiceover_url: null,
-            music_url: null,
-            music_volume: 0.15
-          }
-        };
+      // Check required inputs
+      if (!wizardScript) {
+        setGenerationResult({ ok: false, error: "Script is required" });
+        return;
+      }
 
-        const composeResp = await authFetch(`${API}/api/video/compose-from-scenes`, {
-          method: "POST",
-          body: JSON.stringify(composePayload),
-        });
-
-        if (composeResp.ok) {
-          const composeData = await composeResp.json();
-          setGenerationResult({ 
-            ok: true, 
-            generation_id: composeData.generation_id || composeData.task_id,
-            prompt_used: "Composed from storyboard scenes" 
-          });
-          setPollStatus("processing");
-          fetchProjects();
-        } else {
-          const errorData = await composeResp.json().catch(() => ({}));
-          setGenerationResult({ ok: false, error: errorData.detail || errorData.error || "Composition failed" });
+      // Use new pipeline endpoint
+      const pipelinePayload = {
+        reference_post_id: selectedReferencePostId,
+        digital_copy_id: wizardCopyId,
+        editing_dna_id: selectedEditingDna?.id,
+        brand_context: {
+          brand_name: "Stuff N Things",
+          product_name: wizardTitle || "Untitled Video",
+          script: wizardScript
         }
+      };
+
+      const pipelineResp = await authFetch(`${API}/api/ai-studio/ugc/pipeline/start`, {
+        method: "POST",
+        body: JSON.stringify(pipelinePayload),
+      });
+
+      if (pipelineResp.ok) {
+        const pipelineData = await pipelineResp.json();
+        setPipelineId(pipelineData.pipeline_id);
+        setGenerationResult({ 
+          ok: true, 
+          generation_id: pipelineData.pipeline_id?.toString(),
+          prompt_used: "UGC Pipeline started"
+        });
+        setPollStatus("processing");
+        fetchProjects();
+      } else if (pipelineResp.status === 500) {
+        const errorData = await pipelineResp.json().catch(() => ({}));
+        if (errorData.error && errorData.error.toLowerCase().includes("api key")) {
+          setApiKeyWarning("Google AI Studio API key needs billing. Go to Settings to update.");
+          setTimeout(() => setApiKeyWarning(null), 10000); // Auto-dismiss after 10s
+        }
+        setGenerationResult({ ok: false, error: errorData.error || "Pipeline failed to start" });
       } else {
-        // Fallback to original generation flow
-        const createResp = await authFetch(`${API}/api/ai-studio/ugc/projects`, {
-          method: "POST",
-          body: JSON.stringify({
-            template_id: wizardTemplate?.id || null,
-            digital_copy_id: wizardCopyId,
-            title: wizardTitle || wizardTemplate?.name || "Untitled Video",
-            script: wizardScript,
-            content_mode: wizardMode,
-          }),
-        });
-        if (!createResp.ok) { setGenerationResult({ ok: false, error: "Failed to create project" }); return; }
-        const proj = await createResp.json();
-
-        // Update storyboard if modified
-        if (wizardStoryboard.length > 0) {
-          await authFetch(`${API}/api/ai-studio/ugc/projects/${proj.id}`, {
-            method: "PUT",
-            body: JSON.stringify({ storyboard: wizardStoryboard }),
-          });
-        }
-
-        // Generate
-        const genResp = await authFetch(`${API}/api/ai-studio/ugc/generate`, {
-          method: "POST",
-          body: JSON.stringify({
-            project_id: proj.id,
-            model: wizardModel,
-            fixed_lens: fixedLens,
-            include_audio: includeAudio,
-            duration_preset: durationPreset,
-            resolution: resolution
-          }),
-        });
-        const genData = await genResp.json();
-        if (genResp.ok) {
-          setGenerationResult({ ok: true, generation_id: genData.generation_id, prompt_used: genData.prompt_used });
-          setPollingProjectId(proj.id);
-          setPollStatus("processing");
-          fetchProjects();
-        } else {
-          setGenerationResult({ ok: false, error: genData.detail || "Generation failed" });
-        }
+        const errorData = await pipelineResp.json().catch(() => ({}));
+        setGenerationResult({ ok: false, error: errorData.detail || errorData.error || "Pipeline failed to start" });
       }
     } catch (e: any) {
+      if (e.message && e.message.toLowerCase().includes("api key")) {
+        setApiKeyWarning("Google AI Studio API key needs billing. Go to Settings to update.");
+        setTimeout(() => setApiKeyWarning(null), 10000);
+      }
       setGenerationResult({ ok: false, error: e.message });
-    } finally { setGenerating(false); }
+    } finally { 
+      setGenerating(false); 
+    }
   };
 
-  // Polling for generation status
+  // Polling for pipeline status
   useEffect(() => {
-    if (!pollingProjectId || pollStatus !== "processing") return;
+    if (!pipelineId || pollStatus !== "processing") return;
     const interval = setInterval(async () => {
       try {
-        const r = await authFetch(`${API}/api/ai-studio/ugc/generate/${pollingProjectId}/status`);
+        const r = await authFetch(`${API}/api/ai-studio/ugc/pipeline/${pipelineId}/status`);
         if (r.ok) {
           const d = await r.json();
+          setPipelineStatus(d);
           setPollStatus(d.status);
           if (d.status === "completed" || d.status === "failed") {
             clearInterval(interval);
@@ -511,9 +486,9 @@ export default function AIStudioPanel() {
           }
         }
       } catch { }
-    }, 5000);
+    }, 3000); // Poll every 3 seconds as required
     return () => clearInterval(interval);
-  }, [pollingProjectId, pollStatus, fetchProjects]);
+  }, [pipelineId, pollStatus, fetchProjects]);
 
   // ── Script Generator ─────────────────────────────────────
   const VIDEO_FORMATS = [
@@ -656,6 +631,13 @@ export default function AIStudioPanel() {
     setSelectedActionSlug(null);
     setWizardCharacterDna(null);
     setWizardReferenceSheet(null);
+    
+    // Clear new pipeline state
+    setPipelineId(null);
+    setPipelineStatus(null);
+    setSelectedReferencePostId(null);
+    setSelectedEditingDna(null);
+    setApiKeyWarning(null);
   };
 
   const fetchFormatSceneStructure = async (formatSlug: string) => {
@@ -825,6 +807,16 @@ export default function AIStudioPanel() {
 
     return (
       <div className="w-full px-8 py-5 space-y-5">
+        {/* API Key Warning Banner */}
+        {apiKeyWarning && (
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 mb-4">
+            <div className="flex items-center gap-2">
+              <AlertCircle size={16} className="text-yellow-400 flex-shrink-0" />
+              <p className="text-sm text-yellow-300">{apiKeyWarning}</p>
+            </div>
+          </div>
+        )}
+        
         {/* Step indicator */}
         <div className="flex items-center gap-1 mb-2">
           {steps.map((s, i) => (
@@ -1231,6 +1223,27 @@ export default function AIStudioPanel() {
                 rows={12}
                 className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-4 py-3 text-sm text-warroom-text resize-none focus:outline-none focus:border-warroom-accent leading-relaxed font-mono"
               />
+              
+              {/* Script breakdown display */}
+              {wizardScript && (
+                <div className="mt-3 p-3 bg-warroom-surface border border-warroom-border rounded-lg">
+                  <p className="text-[10px] text-warroom-muted uppercase tracking-wider mb-2">Script Breakdown</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <span className="text-orange-400 font-semibold">Hook:</span>
+                      <p className="text-warroom-text mt-1 leading-relaxed">{wizardScript.split('\n\n')[0] || 'No hook detected'}</p>
+                    </div>
+                    <div>
+                      <span className="text-blue-400 font-semibold">Body:</span>
+                      <p className="text-warroom-text mt-1 leading-relaxed">{wizardScript.split('\n\n').slice(1, -1).join(' ') || 'No body content'}</p>
+                    </div>
+                    <div>
+                      <span className="text-emerald-400 font-semibold">CTA:</span>
+                      <p className="text-warroom-text mt-1 leading-relaxed">{wizardScript.split('\n\n').slice(-1)[0] || 'No CTA'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1643,20 +1656,66 @@ export default function AIStudioPanel() {
           </div>
         )}
 
-        {/* Generation result */}
+        {/* Pipeline Progress Display */}
         {generationResult && (
           <div className={`rounded-xl p-4 border ${generationResult.ok ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30"}`}>
             <div className="flex items-center gap-2 mb-1">
               {generationResult.ok ? <CheckCircle size={16} className="text-emerald-400" /> : <AlertCircle size={16} className="text-red-400" />}
-              <span className="text-xs font-medium text-warroom-text">{generationResult.ok ? "Video generation started" : "Generation failed"}</span>
+              <span className="text-xs font-medium text-warroom-text">{generationResult.ok ? "Pipeline started" : "Pipeline failed"}</span>
             </div>
-            {generationResult.ok && pollStatus && (
-              <div className="flex items-center gap-2 text-[11px] text-warroom-muted mt-1">
-                {pollStatus === "processing" && <><Loader2 size={12} className="animate-spin text-warroom-accent" /> Processing video...</>}
-                {pollStatus === "completed" && <><CheckCircle size={12} className="text-emerald-400" /> Video ready — check My Projects</>}
-                {pollStatus === "failed" && <><AlertCircle size={12} className="text-red-400" /> Generation failed</>}
+            
+            {generationResult.ok && pipelineStatus && (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-warroom-text">
+                    {pipelineStatus.current_step ? `Step: ${pipelineStatus.current_step}` : "Initializing..."}
+                  </span>
+                  <span className="text-warroom-muted">
+                    {pipelineStatus.progress ? `${Math.round(pipelineStatus.progress * 100)}%` : "0%"}
+                  </span>
+                </div>
+                
+                {/* Progress bar */}
+                <div className="w-full bg-warroom-bg rounded-full h-2">
+                  <div 
+                    className="bg-warroom-accent h-2 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${(pipelineStatus.progress || 0) * 100}%` }}
+                  />
+                </div>
+                
+                {pollStatus === "processing" && <div className="flex items-center gap-2 text-[11px] text-warroom-muted">
+                  <Loader2 size={12} className="animate-spin text-warroom-accent" /> 
+                  Processing pipeline...
+                </div>}
+                
+                {pollStatus === "completed" && <div className="flex items-center gap-2 text-[11px] text-emerald-400">
+                  <CheckCircle size={12} /> 
+                  Pipeline complete — video ready!
+                </div>}
+                
+                {pollStatus === "failed" && <div className="flex items-center gap-2 text-[11px] text-red-400">
+                  <AlertCircle size={12} /> 
+                  Pipeline failed
+                </div>}
+                
+                {/* Generated assets preview */}
+                {pipelineStatus.generated_assets && pipelineStatus.generated_assets.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-[10px] text-warroom-muted uppercase tracking-wider mb-2">Generated Assets</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {pipelineStatus.generated_assets.map((asset: any, index: number) => (
+                        <div key={index} className="flex items-center gap-1 px-2 py-1 bg-warroom-bg rounded text-[10px] text-warroom-text">
+                          {asset.type === "image" && <Image size={10} />}
+                          {asset.type === "video" && <Video size={10} />}
+                          {asset.name || `Asset ${index + 1}`}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
+            
             {generationResult.error && <p className="text-[11px] text-red-400 mt-1">{generationResult.error}</p>}
           </div>
         )}
@@ -1680,7 +1739,7 @@ export default function AIStudioPanel() {
           <button onClick={() => setWizardStep("storyboard")} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Back</button>
           <div className="flex gap-2">
             <button onClick={resetWizard} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Start Over</button>
-            <button onClick={createAndGenerate} disabled={generating || (storyboardScenes.length === 0 && wizardStoryboard.length === 0)}
+            <button onClick={createAndGenerate} disabled={generating || !wizardScript.trim()}
               className="px-5 py-2 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-40 hover:bg-warroom-accent/80 transition flex items-center gap-1.5 font-medium">
               {generating ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
               {generating ? "Generating..." : "Generate Video"}

@@ -286,9 +286,30 @@ Return JSON in this exact format:
                 }
             )
             
+            # Handle rate limiting
+            if response.status_code == 429:
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=429,
+                    detail="Google AI rate limit reached. Please wait a moment and try again."
+                )
+            
+            # Handle quota exhaustion
+            response_text = response.text.lower()
+            if "quota" in response_text or "exceeded" in response_text:
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=402,
+                    detail="Google AI billing quota exceeded. Check your billing at https://ai.google.dev"
+                )
+                
             if response.status_code != 200:
                 logger.error(f"Gemini API error: {response.status_code} {response.text}")
-                return None
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Gemini API error: {response.text[:200]}"
+                )
                 
             response_data = response.json()
             content = response_data.get("candidates", [{}])[0].get("content", {})
@@ -324,21 +345,23 @@ Return JSON in this exact format:
         return None
 
 
-async def _get_google_api_key(db: AsyncSession) -> Optional[str]:
-    """Get Google AI Studio API key from settings or environment."""
-    try:
-        # Try database first
-        result = await db.execute(
-            select(Setting.value).where(Setting.key == "google_ai_studio_api_key")
-        )
-        api_key = result.scalar_one_or_none()
-        
-        if api_key:
-            return api_key
-            
-        # Fallback to environment variable
-        return os.getenv("GOOGLE_AI_STUDIO_API_KEY")
-        
-    except Exception as e:
-        logger.error(f"Failed to get Google API key: {e}")
-        return os.getenv("GOOGLE_AI_STUDIO_API_KEY")
+async def _get_api_key(db: Optional[AsyncSession] = None) -> str:
+    """Get Google AI Studio API key from environment or database"""
+    # Try environment variable first
+    key = os.environ.get('GOOGLE_AI_STUDIO_API_KEY')
+    if key:
+        return key
+    
+    # Fall back to database setting
+    if db:
+        try:
+            result = await db.execute(
+                select(Setting.value).where(Setting.key == "google_ai_studio_api_key")
+            )
+            api_key = result.scalar_one_or_none()
+            if api_key:
+                return api_key
+        except Exception as e:
+            logger.error(f"Failed to get Google API key from database: {e}")
+    
+    raise ValueError("Google AI Studio API key not configured. Add it in Settings.")
