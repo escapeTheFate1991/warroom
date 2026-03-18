@@ -2715,3 +2715,427 @@ async def start_quick_video_pipeline(
     except Exception as e:
         logger.error(f"Failed to start quick pipeline: {e}")
         raise HTTPException(status_code=500, detail="Failed to start quick pipeline")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  VIDEO BLUEPRINTS — Clone winning competitor video structures
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _parse_content_analysis(raw) -> dict:
+    """Safely parse content_analysis from string or dict."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+@router.get("/blueprints")
+async def list_blueprints(
+    request: Request,
+    format_filter: Optional[str] = None,
+    limit: int = 20,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Return top competitor videos as ready-to-clone blueprints with structure data."""
+    org_id = get_org_id(request)
+
+    query = """
+        SELECT cp.id, cp.hook, cp.detected_format, cp.engagement_score,
+               cp.content_analysis, cp.media_type, cp.media_url,
+               cp.thumbnail_url, cp.post_url, cp.posted_at,
+               c.handle, c.platform, c.profile_image_url
+        FROM crm.competitor_posts cp
+        JOIN crm.competitors c ON c.id = cp.competitor_id
+        WHERE c.org_id = :org_id
+          AND cp.content_analysis IS NOT NULL
+          AND cp.media_type IN ('video', 'reel', 'clip')
+          AND cp.engagement_score > 0
+    """
+    params: dict = {"org_id": org_id, "lim": min(limit, 50)}
+
+    if format_filter:
+        query += " AND cp.detected_format = :fmt"
+        params["fmt"] = format_filter
+
+    query += " ORDER BY cp.engagement_score DESC LIMIT :lim"
+
+    rows = await db.execute(text(query), params)
+    blueprints = []
+
+    # Pre-fetch templatized post IDs for has_visual_dna check
+    tmpl_rows = await db.execute(text(
+        "SELECT source_url FROM public.ugc_video_templates WHERE source_url LIKE 'post:%'"
+    ))
+    templatized_ids = set()
+    for tr in tmpl_rows:
+        try:
+            templatized_ids.add(int(tr[0].replace("post:", "")))
+        except (ValueError, AttributeError):
+            pass
+
+    for r in rows.mappings():
+        ca = _parse_content_analysis(r["content_analysis"])
+        hook_data = ca.get("hook", {})
+        value_data = ca.get("value", {})
+        cta_data = ca.get("cta", {})
+
+        blueprints.append({
+            "post_id": r["id"],
+            "handle": r["handle"],
+            "platform": r["platform"],
+            "profile_image_url": r["profile_image_url"],
+            "thumbnail_url": r["thumbnail_url"],
+            "post_url": r["post_url"],
+            "engagement_score": float(r["engagement_score"] or 0),
+            "format": r["detected_format"],
+            "total_duration": ca.get("total_duration", 0),
+            "structure": {
+                "hook": {
+                    "text": hook_data.get("text", r["hook"] or ""),
+                    "start": hook_data.get("start", 0),
+                    "end": hook_data.get("end", 0),
+                },
+                "value": {
+                    "text": (value_data.get("text", "") or "")[:200],
+                    "start": value_data.get("start", 0),
+                    "end": value_data.get("end", 0),
+                    "key_points": value_data.get("key_points", []),
+                },
+                "cta": {
+                    "text": cta_data.get("text", ""),
+                    "start": cta_data.get("start", 0),
+                    "end": cta_data.get("end", 0),
+                },
+            },
+            "full_script": ca.get("full_script", ""),
+            "has_visual_dna": r["id"] in templatized_ids,
+        })
+
+    return {"blueprints": blueprints}
+
+
+class AutoFillRequest(BaseModel):
+    digital_copy_id: Optional[str] = None
+    brand_topic: str = ""
+
+
+@router.post("/blueprints/{post_id}/auto-fill")
+async def auto_fill_blueprint(
+    post_id: int,
+    body: AutoFillRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Clone a competitor video's structure and optionally rewrite for your topic."""
+    org_id = get_org_id(request)
+
+    row = await db.execute(text("""
+        SELECT cp.id, cp.hook, cp.content_analysis, cp.detected_format,
+               cp.engagement_score, c.handle, c.platform
+        FROM crm.competitor_posts cp
+        JOIN crm.competitors c ON c.id = cp.competitor_id
+        WHERE cp.id = :pid AND c.org_id = :org_id
+    """), {"pid": post_id, "org_id": org_id})
+    post = row.mappings().first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Blueprint post not found")
+
+    ca = _parse_content_analysis(post["content_analysis"])
+    hook_data = ca.get("hook", {})
+    value_data = ca.get("value", {})
+    cta_data = ca.get("cta", {})
+
+    # Build storyboard from real structure
+    storyboard = []
+    if hook_data.get("text"):
+        storyboard.append({
+            "scene": 1, "label": "Hook",
+            "start": hook_data.get("start", 0),
+            "end": hook_data.get("end", 0),
+            "text": hook_data["text"],
+            "direction": f"Direct to camera, {hook_data.get('type', 'statement')} style",
+        })
+    if value_data.get("text"):
+        key_points = value_data.get("key_points", [])
+        if key_points:
+            for i, kp in enumerate(key_points):
+                v_start = value_data.get("start", 0)
+                v_end = value_data.get("end", 0)
+                v_dur = (v_end - v_start) / max(len(key_points), 1)
+                storyboard.append({
+                    "scene": len(storyboard) + 1,
+                    "label": f"Value {i + 1}",
+                    "start": round(v_start + i * v_dur, 1),
+                    "end": round(v_start + (i + 1) * v_dur, 1),
+                    "text": kp,
+                    "direction": "Demonstrate key point",
+                })
+        else:
+            storyboard.append({
+                "scene": len(storyboard) + 1, "label": "Value",
+                "start": value_data.get("start", 0),
+                "end": value_data.get("end", 0),
+                "text": value_data["text"][:300],
+                "direction": "Main content delivery",
+            })
+    if cta_data.get("text"):
+        storyboard.append({
+            "scene": len(storyboard) + 1, "label": "CTA",
+            "start": cta_data.get("start", 0),
+            "end": cta_data.get("end", 0),
+            "text": cta_data["text"],
+            "direction": f"Call to action — {cta_data.get('type', 'engagement')}",
+        })
+
+    full_script = ca.get("full_script", "")
+    rewritten_script = full_script
+
+    # If brand_topic provided, rewrite the script keeping same structure
+    if body.brand_topic and full_script:
+        try:
+            api_key = await _get_gemini_key(db)
+            hook_dur = (hook_data.get("end", 3) - hook_data.get("start", 0))
+            value_dur = (value_data.get("end", 30) - value_data.get("start", 3))
+            cta_dur = (cta_data.get("end", 35) - cta_data.get("start", 30))
+
+            prompt = f"""You are rewriting a viral video script. Keep the EXACT SAME structure, timing, pacing, and energy.
+Only change the TOPIC from the original to "{body.brand_topic}".
+
+Original structure:
+Hook ({hook_dur:.0f}s): "{hook_data.get('text', '')}"
+Value ({value_dur:.0f}s): "{value_data.get('text', '')[:300]}"
+CTA ({cta_dur:.0f}s): "{cta_data.get('text', '')}"
+
+Key points in original: {json.dumps(value_data.get('key_points', []))}
+
+Rewrite for topic: {body.brand_topic}
+Keep the same hook style, same number of steps/points, same CTA approach.
+Return ONLY a JSON object: {{"hook": "...", "value": "...", "cta": "...", "full_script": "..."}}"""
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2048},
+                    },
+                )
+                if resp.status_code == 429:
+                    raise HTTPException(status_code=429, detail="Rate limited — try again shortly")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    raw = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    cleaned = raw.strip()
+                    if cleaned.startswith("```"):
+                        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+                    if cleaned.endswith("```"):
+                        cleaned = cleaned[:-3]
+                    cleaned = cleaned.strip()
+                    try:
+                        rewrite = json.loads(cleaned)
+                        rewritten_script = rewrite.get("full_script", "")
+                        # Update storyboard text with rewritten content
+                        if rewrite.get("hook") and storyboard:
+                            storyboard[0]["text"] = rewrite["hook"]
+                        if rewrite.get("cta") and len(storyboard) > 1:
+                            storyboard[-1]["text"] = rewrite["cta"]
+                    except json.JSONDecodeError:
+                        rewritten_script = cleaned or full_script
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Script rewrite failed, using original: {e}")
+
+    return {
+        "script": rewritten_script or full_script,
+        "storyboard": storyboard,
+        "total_duration": ca.get("total_duration", 0),
+        "source_post_id": post_id,
+        "source_handle": post["handle"],
+        "source_format": post["detected_format"],
+        "source_engagement": float(post["engagement_score"] or 0),
+        "digital_copy_id": body.digital_copy_id,
+        "production_ready": bool(storyboard and (rewritten_script or full_script)),
+    }
+
+
+class ParseVisualsRequest(BaseModel):
+    limit: int = Field(default=5, le=10)
+    min_engagement: float = 1000
+
+
+@router.post("/blueprints/parse-visuals")
+async def parse_visuals_bulk(
+    body: ParseVisualsRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Queue bulk visual DNA parsing for top competitor videos."""
+    org_id = get_org_id(request)
+    api_key = await _get_gemini_key(db)
+
+    rows = await db.execute(text("""
+        SELECT cp.id, cp.post_url, cp.shortcode, cp.engagement_score,
+               c.handle, c.platform
+        FROM crm.competitor_posts cp
+        JOIN crm.competitors c ON c.id = cp.competitor_id
+        WHERE c.org_id = :org_id
+          AND cp.content_analysis IS NOT NULL
+          AND cp.media_type IN ('video', 'reel', 'clip')
+          AND cp.engagement_score >= :min_eng
+          AND NOT EXISTS (
+              SELECT 1 FROM public.ugc_video_templates t
+              WHERE t.source_url = CONCAT('post:', cp.id::text)
+          )
+        ORDER BY cp.engagement_score DESC
+        LIMIT :lim
+    """), {"org_id": org_id, "min_eng": body.min_engagement, "lim": body.limit})
+
+    posts_to_parse = []
+    for r in rows.mappings():
+        url = r["post_url"] or ""
+        if r["shortcode"] and r["platform"] == "instagram":
+            url = f"https://www.instagram.com/reel/{r['shortcode']}/"
+        if url:
+            posts_to_parse.append({
+                "post_id": r["id"], "url": url,
+                "handle": r["handle"], "engagement_score": float(r["engagement_score"] or 0),
+            })
+
+    if posts_to_parse:
+        background_tasks.add_task(_parse_visuals_background, posts_to_parse, api_key)
+
+    return {
+        "queued": len(posts_to_parse),
+        "posts": [{"post_id": p["post_id"], "handle": p["handle"],
+                    "engagement_score": p["engagement_score"], "status": "queued"}
+                   for p in posts_to_parse],
+        "message": f"Processing {len(posts_to_parse)} videos in background.",
+    }
+
+
+async def _parse_visuals_background(posts: list, api_key: str):
+    """Background: download + Gemini analyze each video sequentially."""
+    import asyncio as aio
+    for post in posts:
+        filepath = None
+        try:
+            filepath = await _download_video_for_templatizer(post["url"])
+            if not filepath:
+                logger.warning(f"Could not download video for post {post['post_id']}")
+                continue
+
+            file_uri = await _upload_to_gemini_file_api(api_key, filepath)
+            if not file_uri:
+                continue
+
+            gen_url = f"{GEMINI_API_BASE}/models/gemini-2.5-pro:generateContent"
+            payload = {
+                "system_instruction": {"parts": [{"text": TEMPLATIZER_SYSTEM_PROMPT}]},
+                "contents": [{"parts": [
+                    {"file_data": {"mime_type": "video/mp4", "file_uri": file_uri}},
+                    {"text": "Analyze this video in full detail. Return the JSON template object."},
+                ]}],
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192},
+            }
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(gen_url, params={"key": api_key}, json=payload)
+
+            if resp.status_code != 200:
+                logger.error(f"Gemini visual parse failed for post {post['post_id']}: {resp.status_code}")
+                continue
+
+            raw_text = ""
+            for cand in resp.json().get("candidates", []):
+                for part in cand.get("content", {}).get("parts", []):
+                    raw_text += part.get("text", "")
+
+            cleaned = raw_text.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+
+            analysis = json.loads(cleaned)
+            scenes = analysis.get("scenes", [])
+            storyboard = [
+                {"scene": s.get("scene", 1), "label": s.get("label", ""),
+                 "seconds": s.get("seconds", ""), "direction": s.get("direction", ""),
+                 "camera": s.get("camera", ""), "mood": s.get("mood", "")}
+                for s in scenes
+            ]
+
+            template_id = f"tmpl-bp-{post['post_id']}"
+            async with leadgen_engine.begin() as conn:
+                await conn.execute(text("""
+                    INSERT INTO public.ugc_video_templates
+                    (id, name, description, category, duration_seconds, scene_count,
+                     storyboard, prompt_template, source_url, source_analysis)
+                    VALUES (:id, :name, :desc, :cat, :dur, :sc, :sb::jsonb,
+                            :pt, :src, :sa::jsonb)
+                    ON CONFLICT (id) DO UPDATE SET
+                        source_analysis = EXCLUDED.source_analysis,
+                        storyboard = EXCLUDED.storyboard
+                """), {
+                    "id": template_id,
+                    "name": analysis.get("title", f"Blueprint {post['post_id']}"),
+                    "desc": analysis.get("description", ""),
+                    "cat": analysis.get("category", "ugc"),
+                    "dur": analysis.get("duration_seconds", 30),
+                    "sc": len(scenes),
+                    "sb": json.dumps(storyboard),
+                    "pt": analysis.get("script", ""),
+                    "src": f"post:{post['post_id']}",
+                    "sa": json.dumps(analysis),
+                })
+
+            logger.info(f"Visual DNA parsed for post {post['post_id']}: {len(scenes)} scenes")
+
+        except json.JSONDecodeError:
+            logger.error(f"JSON parse failed for post {post['post_id']}")
+        except Exception as e:
+            logger.error(f"Visual parse failed for post {post['post_id']}: {e}")
+        finally:
+            if filepath and os.path.exists(filepath):
+                os.unlink(filepath)
+            await aio.sleep(5)  # Rate limit between videos
+
+
+@router.get("/blueprints/{post_id}/visual-dna")
+async def get_blueprint_visual_dna(
+    post_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Return visual DNA analysis for a specific blueprint post."""
+    row = await db.execute(text("""
+        SELECT source_analysis, storyboard, name, description
+        FROM public.ugc_video_templates WHERE source_url = :src
+    """), {"src": f"post:{post_id}"})
+    tmpl = row.mappings().first()
+    if not tmpl:
+        raise HTTPException(
+            status_code=404,
+            detail="Visual DNA not yet parsed. Use POST /blueprints/parse-visuals to process.",
+        )
+    analysis = tmpl["source_analysis"]
+    if isinstance(analysis, str):
+        analysis = json.loads(analysis)
+    return {
+        "post_id": post_id,
+        "name": tmpl["name"],
+        "description": tmpl["description"],
+        "analysis": analysis,
+        "storyboard": tmpl["storyboard"],
+    }

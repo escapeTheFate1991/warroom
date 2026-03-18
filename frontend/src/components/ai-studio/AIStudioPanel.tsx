@@ -176,12 +176,21 @@ export default function AIStudioPanel() {
   const [generating, setGenerating] = useState(false);
   const [generationResult, setGenerationResult] = useState<{ ok: boolean; generation_id?: string; prompt_used?: string; error?: string } | null>(null);
 
-  // New state for auto-scripts
+  // New state for auto-scripts (legacy)
   const [autoScripts, setAutoScripts] = useState<any[]>([]);
   const [loadingAutoScripts, setLoadingAutoScripts] = useState(false);
   const [selectedAutoScriptIdx, setSelectedAutoScriptIdx] = useState<number | null>(null);
   const [totalPostsAnalyzed, setTotalPostsAnalyzed] = useState(0);
   const [createFlowSection, setCreateFlowSection] = useState<"format" | "scripts" | "generate">("format");
+
+  // Blueprint state (video cloning)
+  const [blueprints, setBlueprints] = useState<any[]>([]);
+  const [loadingBlueprints, setLoadingBlueprints] = useState(false);
+  const [selectedBlueprint, setSelectedBlueprint] = useState<any | null>(null);
+  const [autoFilledData, setAutoFilledData] = useState<any | null>(null);
+  const [loadingAutoFill, setLoadingAutoFill] = useState(false);
+  const [brandTopic, setBrandTopic] = useState("");
+  const [blueprintFormatFilter, setBlueprintFormatFilter] = useState<string | null>(null);
 
   // Character DNA and Reference Sheet for selected character
   const [wizardCharacterDna, setWizardCharacterDna] = useState<any>(null);
@@ -599,6 +608,42 @@ export default function AIStudioPanel() {
     setLoadingAutoScripts(false);
   };
 
+  // ── Blueprint fetchers ────────────────────────────────
+  const fetchBlueprints = useCallback(async (formatFilter?: string) => {
+    setLoadingBlueprints(true);
+    try {
+      const params = new URLSearchParams({ limit: "20" });
+      if (formatFilter) params.set("format_filter", formatFilter);
+      const r = await authFetch(`${API}/api/ai-studio/ugc/blueprints?${params}`);
+      if (r.ok) {
+        const d = await r.json();
+        setBlueprints(d.blueprints || []);
+      }
+    } catch {}
+    setLoadingBlueprints(false);
+  }, []);
+
+  useEffect(() => {
+    if (configured) fetchBlueprints();
+  }, [configured, fetchBlueprints]);
+
+  const autoFillBlueprint = async (postId: number) => {
+    setLoadingAutoFill(true);
+    try {
+      const r = await authFetch(`${API}/api/ai-studio/ugc/blueprints/${postId}/auto-fill`, {
+        method: "POST",
+        body: JSON.stringify({ digital_copy_id: wizardCopyId, brand_topic: brandTopic }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        setAutoFilledData(d);
+        setWizardScript(d.script || "");
+        if (d.storyboard) setWizardStoryboard(d.storyboard);
+      }
+    } catch {}
+    setLoadingAutoFill(false);
+  };
+
   const insertHookAtCursor = (hook: string) => {
     const ta = scriptTextareaRef.current;
     if (ta) {
@@ -668,6 +713,11 @@ export default function AIStudioPanel() {
     setSelectedAutoScriptIdx(null);
     setTotalPostsAnalyzed(0);
     setCreateFlowSection("format");
+
+    // Clear blueprint state
+    setSelectedBlueprint(null);
+    setAutoFilledData(null);
+    setBrandTopic("");
   };
 
   const fetchFormatSceneStructure = async (formatSlug: string) => {
@@ -823,14 +873,14 @@ export default function AIStudioPanel() {
 
 
   /* ═══════════════════════════════════════════════════════
-   *  TAB: CREATE VIDEO (New Flow)
+   *  TAB: CREATE VIDEO — Blueprint Cloning Machine
    * ═══════════════════════════════════════════════════════ */
   function renderCreateVideo() {
     return (
-      <div className="w-full px-8 py-5 space-y-5">
+      <div className="w-full px-8 py-5 space-y-6">
         {/* API Key Warning Banner */}
         {apiKeyWarning && (
-          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 mb-4">
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3">
             <div className="flex items-center gap-2">
               <AlertCircle size={16} className="text-yellow-400 flex-shrink-0" />
               <p className="text-sm text-yellow-300">{apiKeyWarning}</p>
@@ -838,371 +888,201 @@ export default function AIStudioPanel() {
           </div>
         )}
 
-        {/* Section Content */}
-        {createFlowSection === "format" && renderFormatSection()}
-        {createFlowSection === "scripts" && renderScriptsSection()}
-        {createFlowSection === "generate" && renderGenerateSection()}
-      </div>
-    );
-  }
-
-  // ── Section 1: Format Selection ──────────────────────────────
-  function renderFormatSection() {
-    return (
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-warroom-text">Choose Your Viral Format</h2>
-          <p className="text-xs text-warroom-muted mt-0.5">Select a viral format with competitor intelligence.</p>
-        </div>
-
-        {/* Format Picker */}
-        <FormatPicker
-          onSelect={(format) => {
-            setSelectedFormat(format.slug);
-            setWizardTitle(format.name);
-            fetchAutoScripts(format.slug);
-            setCreateFlowSection("scripts");
-          }}
-          selectedFormat={selectedFormat || undefined}
-          onUseHook={(hook) => {
-            setScriptParts(prev => ({ ...prev, hook }));
-            setScriptTab("hook-lab");
-          }}
-        />
-      </div>
-    );
-  }
-
-  // ── Section 2: Auto-Generated Scripts ──────────────────────────────
-  function renderScriptsSection() {
-    return (
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-warroom-text">AI-Generated Scripts</h2>
-            <p className="text-xs text-warroom-muted mt-0.5">Scripts generated from competitor analysis for {selectedFormat}.</p>
-          </div>
-          <button
-            onClick={() => selectedFormat && fetchAutoScripts(selectedFormat)}
-            disabled={loadingAutoScripts}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg hover:border-warroom-accent/30 transition"
-          >
-            {loadingAutoScripts ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-            Regenerate
-          </button>
-        </div>
-
-        {/* Auto Scripts */}
-        {loadingAutoScripts ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="animate-spin text-warroom-accent" size={24} />
-          </div>
-        ) : autoScripts.length > 0 ? (
-          <div className="space-y-4">
-            {/* Scripts count info */}
-            {totalPostsAnalyzed > 0 && (
-              <div className="text-xs text-warroom-muted bg-warroom-surface border border-warroom-border rounded-lg px-3 py-2">
-                📊 Generated from {totalPostsAnalyzed} competitor posts analyzed
-              </div>
-            )}
-
-            {/* Auto-generated scripts */}
-            {autoScripts.map((script, i) => (
-              <div key={i} className={`bg-warroom-surface border rounded-xl p-5 space-y-3 transition ${
-                selectedAutoScriptIdx === i ? "border-warroom-accent" : "border-warroom-border"
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-warroom-muted font-medium">Script {i + 1}</span>
-                  <button
-                    onClick={() => {
-                      setWizardScript(`${script.hook}\n\n${script.body}\n\n${script.cta}`);
-                      setSelectedAutoScriptIdx(i);
-                      setCreateFlowSection("generate");
-                    }}
-                    className="px-3 py-1.5 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 transition"
-                  >
-                    Use This Script
+        {/* ── SECTION A: Production Bar ──────────────────── */}
+        <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            {/* Avatar / Digital Copy */}
+            <div className="flex-shrink-0">
+              <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Avatar</label>
+              <div className="flex gap-2">
+                <button onClick={() => { setSelectedCharacterId(null); setWizardCopyId(null); }}
+                  className={`w-11 h-11 rounded-lg border flex items-center justify-center transition ${!selectedCharacterId ? "border-warroom-accent bg-warroom-accent/10" : "border-warroom-border bg-warroom-bg"}`}>
+                  <Sparkles size={14} className="text-warroom-accent" />
+                </button>
+                {copies.slice(0, 4).map(copy => (
+                  <button key={copy.id}
+                    onClick={() => { setSelectedCharacterId(Number(copy.id)); setWizardCopyId(copy.id); }}
+                    className={`w-11 h-11 rounded-lg border overflow-hidden transition ${selectedCharacterId === Number(copy.id) ? "border-warroom-accent ring-1 ring-warroom-accent" : "border-warroom-border"}`}>
+                    {copy.images?.[0] ? <img src={copy.images[0].image_url} className="w-full h-full object-cover" alt={copy.name} /> : <User size={14} className="text-warroom-muted m-auto" />}
                   </button>
+                ))}
+                <button onClick={() => handleTabChange("digital-copies")}
+                  className="w-11 h-11 rounded-lg border-2 border-dashed border-warroom-border hover:border-warroom-accent transition flex items-center justify-center">
+                  <Plus size={14} className="text-warroom-muted" />
+                </button>
+              </div>
+            </div>
+
+            {/* Blueprint indicator */}
+            <div className="flex-shrink-0">
+              <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Blueprint</label>
+              {selectedBlueprint ? (
+                <div className="flex items-center gap-2 px-3 py-2 bg-warroom-accent/10 border border-warroom-accent/30 rounded-lg">
+                  <span className="text-xs text-warroom-accent font-medium truncate max-w-[120px]">@{selectedBlueprint.handle}</span>
+                  <button onClick={() => { setSelectedBlueprint(null); setAutoFilledData(null); }} className="text-warroom-muted hover:text-warroom-text"><X size={12} /></button>
                 </div>
-                <p className="text-sm text-orange-400 font-semibold leading-relaxed">{script.hook}</p>
-                <p className="text-sm text-warroom-text leading-relaxed whitespace-pre-wrap">{script.body}</p>
-                <p className="text-sm text-emerald-400 font-medium">{script.cta}</p>
-                {script.why_this_works && (
-                  <p className="text-xs text-warroom-muted italic mt-2 pt-2 border-t border-warroom-border">
-                    💡 {script.why_this_works}
-                  </p>
+              ) : (
+                <div className="px-3 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-xs text-warroom-muted">Select below ↓</div>
+              )}
+            </div>
+
+            {/* Topic input */}
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Your Topic</label>
+              <div className="flex gap-2">
+                <input value={brandTopic} onChange={e => setBrandTopic(e.target.value)}
+                  placeholder="What's your video about? (e.g. AI website management)"
+                  className="flex-1 bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
+                <button onClick={() => selectedBlueprint && autoFillBlueprint(selectedBlueprint.post_id)}
+                  disabled={!selectedBlueprint || loadingAutoFill}
+                  className="px-4 py-2 bg-warroom-accent text-white text-xs font-medium rounded-lg disabled:opacity-40 hover:bg-warroom-accent/80 transition flex items-center gap-1.5">
+                  {loadingAutoFill ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                  Clone
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── SECTION B: Auto-Filled Storyboard ──────────── */}
+        {autoFilledData && (
+          <div className="bg-warroom-surface border border-warroom-accent/30 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-warroom-text">Production Storyboard</h3>
+                <p className="text-xs text-warroom-muted">
+                  Cloned from @{autoFilledData.source_handle} · {autoFilledData.total_duration?.toFixed(0)}s · {autoFilledData.source_format?.replace(/_/g, " ")}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setAutoFilledData(null)}
+                  className="px-3 py-1.5 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Clear</button>
+                <button onClick={createAndGenerate} disabled={generating}
+                  className="px-4 py-2 bg-warroom-accent text-white text-xs font-medium rounded-lg disabled:opacity-40 flex items-center gap-1.5">
+                  {generating ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                  Produce Video
+                </button>
+              </div>
+            </div>
+
+            {/* Editable script */}
+            <div className="bg-warroom-bg rounded-lg p-4">
+              <textarea value={wizardScript} onChange={e => setWizardScript(e.target.value)} rows={6}
+                className="w-full bg-transparent text-sm text-warroom-text resize-none focus:outline-none leading-relaxed" placeholder="Script will be auto-filled..." />
+            </div>
+
+            {/* Storyboard scenes */}
+            <div className="space-y-2">
+              {(autoFilledData.storyboard || []).map((scene: any, i: number) => (
+                <div key={i} className="flex items-start gap-3 p-3 bg-warroom-bg rounded-lg">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-warroom-accent/20 text-warroom-accent flex items-center justify-center text-xs font-bold">{i + 1}</div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-warroom-text">{scene.label}</span>
+                      <span className="text-[10px] text-warroom-muted">{scene.start?.toFixed?.(1) ?? scene.start}s – {scene.end?.toFixed?.(1) ?? scene.end}s</span>
+                    </div>
+                    <p className="text-xs text-warroom-muted leading-relaxed">{scene.text || scene.direction}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Generation result */}
+            {generationResult && (
+              <div className={`rounded-xl p-4 border ${generationResult.ok ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30"}`}>
+                <div className="flex items-center gap-2">
+                  {generationResult.ok ? <CheckCircle size={16} className="text-emerald-400" /> : <AlertCircle size={16} className="text-red-400" />}
+                  <span className="text-xs text-warroom-text">{generationResult.ok ? "Pipeline started" : generationResult.error}</span>
+                </div>
+                {generationResult.ok && pipelineStatus && (
+                  <div className="mt-2">
+                    <div className="w-full bg-warroom-bg rounded-full h-2">
+                      <div className="bg-warroom-accent h-2 rounded-full transition-all" style={{ width: `${(pipelineStatus.progress || 0) * 100}%` }} />
+                    </div>
+                  </div>
                 )}
               </div>
-            ))}
-
-            {/* Manual script option */}
-            <div className="border-t border-warroom-border pt-4">
-              <h3 className="text-sm font-semibold text-warroom-text mb-3">Or Write Your Own Script</h3>
-              <textarea
-                value={wizardScript}
-                onChange={(e) => setWizardScript(e.target.value)}
-                placeholder="[HOOK] Wait, you guys are still doing it the old way?
-
-[BODY] So I just found this product and honestly...
-
-[CTA] Link in bio — trust me on this one."
-                rows={8}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-4 py-3 text-sm text-warroom-text resize-none focus:outline-none focus:border-warroom-accent leading-relaxed font-mono"
-              />
-              <div className="flex justify-between mt-3">
-                <button
-                  onClick={() => setScriptDrawerOpen(true)}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg hover:border-warroom-accent/30 hover:text-warroom-accent transition"
-                >
-                  <TrendingUp size={12} /> Hook Lab
-                </button>
-                <button
-                  onClick={() => {
-                    if (wizardScript.trim()) {
-                      setSelectedAutoScriptIdx(null);
-                      setCreateFlowSection("generate");
-                    }
-                  }}
-                  disabled={!wizardScript.trim()}
-                  className="px-4 py-1.5 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-40 hover:bg-warroom-accent/80 transition"
-                >
-                  Use Custom Script
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-12 text-warroom-muted">
-            <Sparkles size={28} className="mx-auto mb-2 text-warroom-accent/30" />
-            <p className="text-xs">No auto-generated scripts available.</p>
-            <p className="text-xs mt-2">Try selecting a different format or write your own script below.</p>
-          </div>
-        )}
-
-        <div className="flex justify-between pt-4">
-          <button
-            onClick={() => setCreateFlowSection("format")}
-            className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg"
-          >
-            Back to Format
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Section 3: Generate ──────────────────────────────
-  function renderGenerateSection() {
-    return (
-      <div className="space-y-5">
-        <div>
-          <h2 className="text-sm font-semibold text-warroom-text">Generate Video</h2>
-          <p className="text-xs text-warroom-muted mt-0.5">Review your script, choose character, and generate your video.</p>
-        </div>
-
-        {/* Script Preview */}
-        {wizardScript && (
-          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-warroom-muted font-medium">Script Preview</span>
-              <button
-                onClick={() => setCreateFlowSection("scripts")}
-                className="text-xs text-warroom-accent hover:underline"
-              >
-                Edit Script
-              </button>
-            </div>
-            <pre className="text-xs text-warroom-text whitespace-pre-wrap font-mono leading-relaxed max-h-32 overflow-y-auto">{wizardScript}</pre>
-          </div>
-        )}
-
-        {/* Character selector (existing carousel from old Settings step) */}
-        <div>
-          <label className="text-xs text-warroom-muted block mb-3">Choose Character</label>
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            {/* No Character Option */}
-            <div 
-              onClick={() => { 
-                setSelectedCharacterId(null); 
-                setWizardCopyId(null);
-                setWizardCharacterDna(null);
-                setWizardReferenceSheet(null);
-              }}
-              className={`flex-shrink-0 cursor-pointer transition ${selectedCharacterId === null ? "ring-2 ring-warroom-accent" : ""}`}
-            >
-              <div className="w-20 h-20 rounded-xl bg-warroom-surface border border-warroom-border flex flex-col items-center justify-center p-2">
-                <Sparkles size={20} className="text-warroom-accent mb-1" />
-                <span className="text-xs text-warroom-text text-center leading-tight">AI Only</span>
-              </div>
-            </div>
-
-            {/* Character Options */}
-            {copies.map(copy => (
-              <div 
-                key={copy.id}
-                onClick={() => { 
-                  setSelectedCharacterId(Number(copy.id)); 
-                  setWizardCopyId(copy.id);
-                  setWizardCharacterDna((copy as any).character_dna || null);
-                  setWizardReferenceSheet((copy as any).reference_sheet_url || null);
-                }}
-                className={`flex-shrink-0 cursor-pointer transition ${selectedCharacterId === Number(copy.id) ? "ring-2 ring-warroom-accent" : ""}`}
-              >
-                <div className="w-20 h-20 rounded-xl overflow-hidden bg-warroom-surface border border-warroom-border">
-                  {copy.images && copy.images.length > 0 ? (
-                    <img src={copy.images[0].image_url} alt={copy.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-warroom-muted">
-                      <User size={24} />
-                    </div>
-                  )}
-                </div>
-                <p className="text-xs text-warroom-text text-center mt-1 truncate w-20">{copy.name}</p>
-              </div>
-            ))}
-
-            {/* Create New Character */}
-            <div 
-              onClick={() => handleTabChange("digital-copies")}
-              className="flex-shrink-0 cursor-pointer"
-            >
-              <div className="w-20 h-20 rounded-xl border-2 border-dashed border-warroom-border bg-warroom-surface hover:border-warroom-accent hover:bg-warroom-accent/5 transition flex flex-col items-center justify-center">
-                <Plus size={20} className="text-warroom-muted mb-1" />
-                <span className="text-xs text-warroom-muted text-center leading-tight">Create</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Content type toggle */}
-        <div>
-          <label className="text-xs text-warroom-muted block mb-1.5">Content Type</label>
-          <div className="flex gap-3">
-            {(["product", "service"] as const).map(m => (
-              <button key={m} onClick={() => setWizardMode(m)}
-                className={`flex-1 py-3 rounded-xl border text-xs font-medium transition ${wizardMode === m ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent" : "border-warroom-border bg-warroom-bg text-warroom-muted hover:border-warroom-accent/30"}`}>
-                {m === "product" ? "🛍️ Product Ad" : "💼 Service / Talking Head"}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Model & Advanced Settings */}
-        <div className="pt-2 border-t border-warroom-border">
-          <label className="text-xs text-warroom-muted block mb-3">Generation Options</label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Model</label>
-              <select value={wizardModel} onChange={e => setWizardModel(e.target.value as any)}
-                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-2.5 py-1.5 text-xs text-warroom-text focus:outline-none focus:border-warroom-accent">
-                <option value="seeddance-1.5">Seeddance 1.5 Pro ✨</option>
-                <option value="veo-3.1">Veo 3.1 HQ</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Duration</label>
-              <div className="flex bg-warroom-bg border border-warroom-border rounded-lg overflow-hidden">
-                {(["7s", "12s", "Auto"] as const).map(d => (
-                  <button key={d} onClick={() => setDurationPreset(d)} className={`flex-1 text-[11px] py-1.5 transition ${durationPreset === d ? "bg-warroom-accent/20 text-warroom-accent font-medium" : "text-warroom-muted hover:bg-warroom-surface"}`}>{d}</button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-4 mt-3">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input type="checkbox" checked={fixedLens} onChange={e => setFixedLens(e.target.checked)} className="accent-warroom-accent w-3.5 h-3.5" />
-              <span className="text-xs text-warroom-text">Fixed Lens</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input type="checkbox" checked={includeAudio} onChange={e => setIncludeAudio(e.target.checked)} className="accent-warroom-accent w-3.5 h-3.5" />
-              <span className="text-xs text-warroom-text">Auto-Audio Generation</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Generation Result Display */}
-        {generationResult && (
-          <div className={`rounded-xl p-4 border ${generationResult.ok ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30"}`}>
-            <div className="flex items-center gap-2 mb-1">
-              {generationResult.ok ? <CheckCircle size={16} className="text-emerald-400" /> : <AlertCircle size={16} className="text-red-400" />}
-              <span className="text-xs font-medium text-warroom-text">{generationResult.ok ? "Pipeline started" : "Pipeline failed"}</span>
-            </div>
-            
-            {generationResult.ok && pipelineStatus && (
-              <div className="mt-3 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-warroom-text">
-                    {pipelineStatus.current_step ? `Step: ${pipelineStatus.current_step}` : "Initializing..."}
-                  </span>
-                  <span className="text-warroom-muted">
-                    {pipelineStatus.progress ? `${Math.round(pipelineStatus.progress * 100)}%` : "0%"}
-                  </span>
-                </div>
-                
-                {/* Progress bar */}
-                <div className="w-full bg-warroom-bg rounded-full h-2">
-                  <div 
-                    className="bg-warroom-accent h-2 rounded-full transition-all duration-300 ease-out"
-                    style={{ width: `${(pipelineStatus.progress || 0) * 100}%` }}
-                  />
-                </div>
-                
-                {pollStatus === "processing" && <div className="flex items-center gap-2 text-[11px] text-warroom-muted">
-                  <Loader2 size={12} className="animate-spin text-warroom-accent" /> 
-                  Processing pipeline...
-                </div>}
-                
-                {pollStatus === "completed" && <div className="flex items-center gap-2 text-[11px] text-emerald-400">
-                  <CheckCircle size={12} /> 
-                  Pipeline complete — video ready!
-                </div>}
-                
-                {pollStatus === "failed" && <div className="flex items-center gap-2 text-[11px] text-red-400">
-                  <AlertCircle size={12} /> 
-                  Pipeline failed
-                </div>}
-              </div>
             )}
-            
-            {generationResult.error && <p className="text-[11px] text-red-400 mt-1">{generationResult.error}</p>}
           </div>
         )}
 
-        {/* Distribution Panel — shown when video is completed */}
-        {generationResult?.ok && pollStatus === "completed" && (
-          <div className="mt-6">
-            <DistributionPanel
-              videoProjectId={pollingProjectId ? parseInt(pollingProjectId) : null}
-              videoUrl={projects.find(p => p.id === pollingProjectId)?.video_url || null}
-              caption={wizardScript || ""}
-              onDistribute={(result) => {
-                console.log("Distribution launched:", result);
-              }}
-            />
+        {/* ── SECTION C: Winning Blueprints Grid ──────────── */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-sm font-semibold text-warroom-text">Winning Blueprints</h2>
+              <p className="text-xs text-warroom-muted">Click a video to clone its structure with your persona</p>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {["all", "transformation", "direct_to_camera", "myth_buster", "pov", "expose"].map(f => (
+                <button key={f}
+                  onClick={() => { setBlueprintFormatFilter(f === "all" ? null : f); fetchBlueprints(f === "all" ? undefined : f); }}
+                  className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition ${
+                    (f === "all" && !blueprintFormatFilter) || blueprintFormatFilter === f
+                      ? "bg-warroom-accent/20 text-warroom-accent" : "bg-warroom-bg text-warroom-muted hover:text-warroom-text"
+                  }`}>
+                  {f === "all" ? "All" : f.replace(/_/g, " ")}
+                </button>
+              ))}
+              <button onClick={() => fetchBlueprints(blueprintFormatFilter || undefined)} className="p-1 text-warroom-muted hover:text-warroom-text"><RefreshCw size={12} /></button>
+            </div>
           </div>
-        )}
 
-        <div className="flex justify-between">
-          <button
-            onClick={() => setCreateFlowSection("scripts")}
-            className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg"
-          >
-            Back to Scripts
-          </button>
-          <div className="flex gap-2">
-            <button onClick={resetWizard} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Start Over</button>
-            <button onClick={createAndGenerate} disabled={generating || !wizardScript.trim()}
-              className="px-5 py-2 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-40 hover:bg-warroom-accent/80 transition flex items-center gap-1.5 font-medium">
-              {generating ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
-              {generating ? "Generating..." : "Generate Video"}
-            </button>
-          </div>
+          {loadingBlueprints ? (
+            <div className="flex justify-center py-12"><Loader2 className="animate-spin text-warroom-accent" size={24} /></div>
+          ) : blueprints.length === 0 ? (
+            <div className="text-center py-12 text-warroom-muted">
+              <Film size={28} className="mx-auto mb-2 text-warroom-accent/30" />
+              <p className="text-xs">No competitor videos analyzed yet.</p>
+              <p className="text-xs mt-1">Add competitors in the Competitors tab to get blueprints.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {blueprints.map(bp => (
+                <button key={bp.post_id}
+                  onClick={() => {
+                    setSelectedBlueprint(bp);
+                    if (brandTopic) autoFillBlueprint(bp.post_id);
+                  }}
+                  className={`text-left bg-warroom-surface border rounded-xl p-4 transition hover:border-warroom-accent/50 ${
+                    selectedBlueprint?.post_id === bp.post_id ? "border-warroom-accent ring-1 ring-warroom-accent/30" : "border-warroom-border"
+                  }`}>
+                  <div className="flex items-start gap-3 mb-3">
+                    {bp.thumbnail_url ? (
+                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-warroom-bg flex-shrink-0">
+                        <img src={bp.thumbnail_url} className="w-full h-full object-cover" alt="" />
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 rounded-lg bg-warroom-bg flex items-center justify-center flex-shrink-0"><Film size={20} className="text-warroom-muted" /></div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-xs font-medium text-warroom-text">@{bp.handle}</span>
+                        <span className="text-[10px] text-warroom-muted">{bp.platform}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-warroom-muted">
+                        <span className="px-1.5 py-0.5 rounded bg-warroom-bg font-medium">{bp.format?.replace(/_/g, " ") || "video"}</span>
+                        <span>{bp.total_duration ? `${Math.round(bp.total_duration)}s` : ""}</span>
+                        <span className="text-emerald-400 font-medium">{bp.engagement_score?.toLocaleString()} eng</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {bp.structure?.hook?.text && <p className="text-xs text-orange-400 font-medium line-clamp-2">🎣 {bp.structure.hook.text}</p>}
+                    {bp.structure?.value?.key_points?.length > 0 && <p className="text-[10px] text-warroom-muted">📋 {bp.structure.value.key_points.length} key points</p>}
+                    {bp.structure?.cta?.text && <p className="text-xs text-emerald-400/70 line-clamp-1">🎯 {bp.structure.cta.text.slice(0, 60)}{bp.structure.cta.text.length > 60 ? "..." : ""}</p>}
+                  </div>
+                  {bp.has_visual_dna && (
+                    <div className="mt-2 flex items-center gap-1 text-[10px] text-purple-400"><Eye size={10} /> Visual DNA available</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
   }
-
-
 
 
 
