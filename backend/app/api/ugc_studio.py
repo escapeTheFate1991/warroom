@@ -28,6 +28,7 @@ from app.api.content_intel import load_cached_posts, _sorted_posts_for_analysis,
 from sqlalchemy import select
 import httpx
 from app.services.competitor_script_engine import get_top_scripts, generate_script_from_reference, extract_hook_body_cta
+from app.api.digital_copies import s3_url_to_presigned, S3_PUBLIC_URL, S3_BUCKET
 from app.services.editing_dna import extract_visual_layout, synthesize_editing_dna, process_competitor_for_dna, map_dna_to_remotion_config, seed_default_dna_templates
 
 router = APIRouter()
@@ -2722,6 +2723,19 @@ async def start_quick_video_pipeline(
 # ═══════════════════════════════════════════════════════════════════════
 
 
+def _presign_if_s3(url: str) -> str:
+    """Convert Garage S3 URL to presigned URL if needed."""
+    if not url:
+        return url
+    garage_base = os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900')
+    if url.startswith(garage_base):
+        try:
+            return s3_url_to_presigned(url)
+        except Exception:
+            return url
+    return url
+
+
 def _parse_content_analysis(raw) -> dict:
     """Safely parse content_analysis from string or dict."""
     if isinstance(raw, dict):
@@ -2795,8 +2809,8 @@ async def list_blueprints(
             "handle": r["handle"],
             "platform": r["platform"],
             "profile_image_url": r["profile_image_url"],
-            "thumbnail_url": r["thumbnail_url"],
-            "media_url": r["media_url"],
+            "thumbnail_url": _presign_if_s3(r["thumbnail_url"] or ""),
+            "media_url": _presign_if_s3(r["media_url"] or ""),
             "post_url": ig_url,
             "engagement_score": float(r["engagement_score"] or 0),
             "format": r["detected_format"],
