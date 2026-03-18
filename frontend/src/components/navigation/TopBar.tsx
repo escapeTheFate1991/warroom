@@ -1,44 +1,24 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Search, Sun, Moon, User, LogOut, ChevronDown, Menu } from "lucide-react";
+import { Sun, Moon, User, LogOut, ChevronDown, Menu } from "lucide-react";
 import NotificationBell from "@/components/notifications/NotificationBell";
+import GlobalSearch from "@/components/GlobalSearch";
 import { useThemeContext } from "@/components/ui/ThemeProvider";
 
-const SEARCH_SCOPES: Record<string, { label: string; placeholder: string }> = {
-  dashboard: { label: "Everything", placeholder: "Search metrics, deals, contacts..." },
-  chat: { label: "Everything", placeholder: "Search anything..." },
-  leadgen: { label: "Leads", placeholder: "Search leads by name, location..." },
-  prospects: { label: "Prospects", placeholder: "Search prospects..." },
-  "crm-deals": { label: "Deals", placeholder: "Search deals..." },
-  "crm-contacts": { label: "Contacts", placeholder: "Search contacts..." },
-  "crm-activities": { label: "Activities", placeholder: "Search activities..." },
-  communications: { label: "Communications", placeholder: "Search operators, calls, or CRM contacts..." },
-  email: { label: "Email", placeholder: "Search emails..." },
-  pipeline: { label: "Content", placeholder: "Search content..." },
-  social: { label: "Social", placeholder: "Search social accounts..." },
-  workflows: { label: "Workflows", placeholder: "Search workflow names, triggers, or actions..." },
-  "marketing-campaigns": { label: "Marketing Campaigns", placeholder: "Search campaigns, audiences, or channels..." },
-  "marketing-templates": { label: "Marketing Templates", placeholder: "Search template names or use cases..." },
-  settings: { label: "Settings", placeholder: "Search settings..." },
-};
 
-const DEFAULT_SCOPE = { label: "Search", placeholder: "Search..." };
 
 interface TopBarProps {
   activeTab: string;
   userName?: string;
   onLogout: () => void;
-  onSearch?: (query: string, scope: string) => void;
   onMenuToggle?: () => void; // hamburger for mobile sidebar
   onNavigate?: (tab: string) => void;
 }
 
-export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenuToggle, onNavigate }: TopBarProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+export default function TopBar({ activeTab, userName, onLogout, onMenuToggle, onNavigate }: TopBarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const scope = SEARCH_SCOPES[activeTab] || DEFAULT_SCOPE;
   const { theme, toggleTheme } = useThemeContext();
 
   useEffect(() => {
@@ -51,11 +31,7 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenu
     return () => document.removeEventListener("mousedown", handler);
   }, [showUserMenu]);
 
-  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && searchQuery.trim() && onSearch) {
-      onSearch(searchQuery.trim(), activeTab);
-    }
-  };
+
 
   return (
     <div className="bg-warroom-surface border-b border-warroom-border px-3 py-2.5 flex-shrink-0">
@@ -71,18 +47,8 @@ export default function TopBar({ activeTab, userName, onLogout, onSearch, onMenu
           </button>
         )}
 
-        {/* Search + actions grouped together in the center */}
-        <div className="relative w-full max-w-xl">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-warroom-muted" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={handleSearchKeyDown}
-            placeholder={scope.placeholder}
-            className="glass-card inner-glow w-full pl-9 pr-4 py-2 text-sm text-warroom-text placeholder:text-warroom-muted/50 focus:outline-none focus:shadow-glow-sm focus:border-warroom-accent"
-          />
-        </div>
+        {/* Global Search */}
+        <GlobalSearch />
 
         {/* Actions sit right next to search */}
         <div className="flex items-center gap-1 flex-shrink-0">
