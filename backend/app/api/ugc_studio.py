@@ -3145,3 +3145,134 @@ async def get_blueprint_visual_dna(
         "analysis": analysis,
         "storyboard": tmpl["storyboard"],
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  MEDIA DOWNLOAD — Store Instagram CDN media to Garage S3
+# ═══════════════════════════════════════════════════════════════════════
+
+class DownloadMediaRequest(BaseModel):
+    limit: int = Field(default=50, le=200)
+    download_videos: bool = True
+    download_thumbnails: bool = True
+
+
+@router.post("/blueprints/download-media")
+async def download_media_to_s3(
+    body: DownloadMediaRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Download Instagram CDN thumbnails and videos to Garage S3, update DB with local URLs."""
+    org_id = get_org_id(request)
+
+    # Find posts with Instagram CDN URLs that need downloading
+    rows = await db.execute(text("""
+        SELECT cp.id, cp.thumbnail_url, cp.media_url, cp.shortcode, c.handle
+        FROM crm.competitor_posts cp
+        JOIN crm.competitors c ON c.id = cp.competitor_id
+        WHERE c.org_id = :org_id
+          AND cp.media_type IN ('video', 'reel', 'clip')
+          AND (cp.thumbnail_url LIKE '%instagram%' OR cp.media_url LIKE '%instagram%')
+        ORDER BY cp.engagement_score DESC
+        LIMIT :lim
+    """), {"org_id": org_id, "lim": body.limit})
+
+    posts_to_dl = []
+    for r in rows.mappings():
+        posts_to_dl.append(dict(r))
+
+    if posts_to_dl:
+        background_tasks.add_task(
+            _download_media_background, posts_to_dl,
+            body.download_thumbnails, body.download_videos,
+        )
+
+    return {
+        "queued": len(posts_to_dl),
+        "message": f"Downloading media for {len(posts_to_dl)} posts in background.",
+    }
+
+
+async def _download_media_background(
+    posts: list, dl_thumbnails: bool, dl_videos: bool,
+):
+    """Background: download media from Instagram CDN and store in Garage S3."""
+    import asyncio as aio
+    import boto3
+
+    s3 = boto3.client(
+        's3',
+        endpoint_url=os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900'),
+        aws_access_key_id=os.environ.get('GARAGE_ACCESS_KEY', 'GK6d3eb1c7bc06e00d77b8f89c'),
+        aws_secret_access_key=os.environ.get('GARAGE_SECRET_KEY', '370b99ef00dbfee300e3d73b69b217a7f5633935b02b86ee37f5691aacdf602b'),
+        region_name=os.environ.get('GARAGE_REGION', 'ai-local'),
+    )
+    bucket = 'digital-copies'
+    s3_base = os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900')
+
+    success = 0
+    failed = 0
+
+    for post in posts:
+        post_id = post["id"]
+        updates = {}
+
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            # Download thumbnail
+            if dl_thumbnails and post.get("thumbnail_url") and "instagram" in (post["thumbnail_url"] or ""):
+                try:
+                    resp = await client.get(post["thumbnail_url"])
+                    if resp.status_code == 200 and len(resp.content) > 500:
+                        ext = "jpg"
+                        ct = resp.headers.get("content-type", "")
+                        if "png" in ct:
+                            ext = "png"
+                        elif "webp" in ct:
+                            ext = "webp"
+                        s3_key = f"competitor-media/{post_id}/thumb.{ext}"
+                        s3.put_object(Bucket=bucket, Key=s3_key, Body=resp.content, ContentType=ct or "image/jpeg")
+                        updates["thumbnail_url"] = f"{s3_base}/{bucket}/{s3_key}"
+                        logger.info(f"Downloaded thumbnail for post {post_id} ({len(resp.content)//1024}KB)")
+                except Exception as e:
+                    logger.warning(f"Thumbnail download failed for post {post_id}: {e}")
+
+            # Download video
+            if dl_videos and post.get("media_url") and "instagram" in (post["media_url"] or ""):
+                try:
+                    resp = await client.get(post["media_url"])
+                    if resp.status_code == 200 and len(resp.content) > 10000:
+                        s3_key = f"competitor-media/{post_id}/video.mp4"
+                        s3.put_object(Bucket=bucket, Key=s3_key, Body=resp.content, ContentType="video/mp4")
+                        updates["media_url"] = f"{s3_base}/{bucket}/{s3_key}"
+                        logger.info(f"Downloaded video for post {post_id} ({len(resp.content)//1024}KB)")
+                except Exception as e:
+                    logger.warning(f"Video download failed for post {post_id}: {e}")
+
+        # Update DB with local URLs
+        if updates:
+            try:
+                set_parts = []
+                params: dict = {"pid": post_id}
+                if "thumbnail_url" in updates:
+                    set_parts.append("thumbnail_url = :thumb")
+                    params["thumb"] = updates["thumbnail_url"]
+                if "media_url" in updates:
+                    set_parts.append("media_url = :media")
+                    params["media"] = updates["media_url"]
+
+                if set_parts:
+                    async with leadgen_engine.begin() as conn:
+                        await conn.execute(text(
+                            f"UPDATE crm.competitor_posts SET {', '.join(set_parts)} WHERE id = :pid"
+                        ), params)
+                    success += 1
+            except Exception as e:
+                logger.error(f"DB update failed for post {post_id}: {e}")
+                failed += 1
+
+        await aio.sleep(0.5)  # Rate limit
+
+    logger.info(f"Media download complete: {success} updated, {failed} failed out of {len(posts)}")
