@@ -2748,7 +2748,7 @@ async def list_blueprints(
     query = """
         SELECT cp.id, cp.hook, cp.detected_format, cp.engagement_score,
                cp.content_analysis, cp.media_type, cp.media_url,
-               cp.thumbnail_url, cp.post_url, cp.posted_at,
+               cp.thumbnail_url, cp.post_url, cp.posted_at, cp.shortcode,
                c.handle, c.platform, c.profile_image_url
         FROM crm.competitor_posts cp
         JOIN crm.competitors c ON c.id = cp.competitor_id
@@ -2785,13 +2785,19 @@ async def list_blueprints(
         value_data = ca.get("value", {})
         cta_data = ca.get("cta", {})
 
+        # Build Instagram URL from shortcode if available
+        ig_url = r["post_url"] or ""
+        if r["shortcode"] and r["platform"] == "instagram":
+            ig_url = f"https://www.instagram.com/reel/{r['shortcode']}/"
+
         blueprints.append({
             "post_id": r["id"],
             "handle": r["handle"],
             "platform": r["platform"],
             "profile_image_url": r["profile_image_url"],
             "thumbnail_url": r["thumbnail_url"],
-            "post_url": r["post_url"],
+            "media_url": r["media_url"],
+            "post_url": ig_url,
             "engagement_score": float(r["engagement_score"] or 0),
             "format": r["detected_format"],
             "total_duration": ca.get("total_duration", 0),

@@ -1018,7 +1018,7 @@ export default function AIStudioPanel() {
               <p className="text-xs text-warroom-muted">Click a video to clone its structure with your persona</p>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
-              {["all", "transformation", "direct_to_camera", "myth_buster", "pov", "expose"].map(f => (
+              {["all", "transformation", "speed_run", "myth_buster", "direct_to_camera", "pov", "expose", "show_dont_tell", "challenge", "unclassified"].map(f => (
                 <button key={f}
                   onClick={() => { setBlueprintFormatFilter(f === "all" ? null : f); fetchBlueprints(f === "all" ? undefined : f); }}
                   className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition ${
@@ -1041,45 +1041,72 @@ export default function AIStudioPanel() {
               <p className="text-xs mt-1">Add competitors in the Competitors tab to get blueprints.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
               {blueprints.map(bp => (
-                <button key={bp.post_id}
+                <div key={bp.post_id}
+                  className={`group relative bg-warroom-surface border rounded-xl overflow-hidden transition cursor-pointer ${
+                    selectedBlueprint?.post_id === bp.post_id ? "border-warroom-accent ring-2 ring-warroom-accent/30" : "border-warroom-border hover:border-warroom-accent/50"
+                  }`}
+                  style={{ aspectRatio: "9/16" }}
                   onClick={() => {
                     setSelectedBlueprint(bp);
                     if (brandTopic) autoFillBlueprint(bp.post_id);
                   }}
-                  className={`text-left bg-warroom-surface border rounded-xl p-4 transition hover:border-warroom-accent/50 ${
-                    selectedBlueprint?.post_id === bp.post_id ? "border-warroom-accent ring-1 ring-warroom-accent/30" : "border-warroom-border"
-                  }`}>
-                  <div className="flex items-start gap-3 mb-3">
-                    {bp.thumbnail_url ? (
-                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-warroom-bg flex-shrink-0">
-                        <img src={bp.thumbnail_url} className="w-full h-full object-cover" alt="" />
-                      </div>
-                    ) : (
-                      <div className="w-16 h-16 rounded-lg bg-warroom-bg flex items-center justify-center flex-shrink-0"><Film size={20} className="text-warroom-muted" /></div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className="text-xs font-medium text-warroom-text">@{bp.handle}</span>
-                        <span className="text-[10px] text-warroom-muted">{bp.platform}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] text-warroom-muted">
-                        <span className="px-1.5 py-0.5 rounded bg-warroom-bg font-medium">{bp.format?.replace(/_/g, " ") || "video"}</span>
-                        <span>{bp.total_duration ? `${Math.round(bp.total_duration)}s` : ""}</span>
-                        <span className="text-emerald-400 font-medium">{bp.engagement_score?.toLocaleString()} eng</span>
-                      </div>
+                  onMouseEnter={(e) => {
+                    const video = e.currentTarget.querySelector("video");
+                    if (video) { video.currentTime = 0; video.play().catch(() => {}); }
+                  }}
+                  onMouseLeave={(e) => {
+                    const video = e.currentTarget.querySelector("video");
+                    if (video) { video.pause(); video.currentTime = 0; }
+                  }}
+                >
+                  {/* Video/Thumbnail — full card */}
+                  {bp.media_url ? (
+                    <video
+                      src={bp.media_url}
+                      poster={bp.thumbnail_url || undefined}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : bp.thumbnail_url ? (
+                    <img src={bp.thumbnail_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                  ) : (
+                    <div className="absolute inset-0 bg-warroom-bg flex items-center justify-center">
+                      <Film size={32} className="text-warroom-muted/30" />
+                    </div>
+                  )}
+
+                  {/* Gradient overlay at bottom — shown on hover */}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-[11px] font-medium text-white">@{bp.handle}</span>
+                      <span className="text-[10px] text-white/60">{bp.format?.replace(/_/g, " ")}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-white/70">
+                      <span>{bp.total_duration ? `${Math.round(bp.total_duration)}s` : ""}</span>
+                      <span className="text-emerald-300 font-medium">{bp.engagement_score?.toLocaleString()} eng</span>
                     </div>
                   </div>
-                  <div className="space-y-1.5">
-                    {bp.structure?.hook?.text && <p className="text-xs text-orange-400 font-medium line-clamp-2">🎣 {bp.structure.hook.text}</p>}
-                    {bp.structure?.value?.key_points?.length > 0 && <p className="text-[10px] text-warroom-muted">📋 {bp.structure.value.key_points.length} key points</p>}
-                    {bp.structure?.cta?.text && <p className="text-xs text-emerald-400/70 line-clamp-1">🎯 {bp.structure.cta.text.slice(0, 60)}{bp.structure.cta.text.length > 60 ? "..." : ""}</p>}
-                  </div>
-                  {bp.has_visual_dna && (
-                    <div className="mt-2 flex items-center gap-1 text-[10px] text-purple-400"><Eye size={10} /> Visual DNA available</div>
+
+                  {/* Top-right: external link */}
+                  {bp.post_url && (
+                    <a href={bp.post_url} target="_blank" rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute top-2 right-2 p-1.5 bg-black/50 rounded-lg text-white/70 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                      <ExternalLink size={12} />
+                    </a>
                   )}
-                </button>
+
+                  {/* Selection checkmark */}
+                  {selectedBlueprint?.post_id === bp.post_id && (
+                    <div className="absolute top-2 left-2 w-6 h-6 bg-warroom-accent rounded-full flex items-center justify-center">
+                      <CheckCircle size={14} className="text-white" />
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
