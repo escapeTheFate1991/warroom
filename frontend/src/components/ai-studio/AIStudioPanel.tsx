@@ -176,6 +176,13 @@ export default function AIStudioPanel() {
   const [generating, setGenerating] = useState(false);
   const [generationResult, setGenerationResult] = useState<{ ok: boolean; generation_id?: string; prompt_used?: string; error?: string } | null>(null);
 
+  // New state for auto-scripts
+  const [autoScripts, setAutoScripts] = useState<any[]>([]);
+  const [loadingAutoScripts, setLoadingAutoScripts] = useState(false);
+  const [selectedAutoScriptIdx, setSelectedAutoScriptIdx] = useState<number | null>(null);
+  const [totalPostsAnalyzed, setTotalPostsAnalyzed] = useState(0);
+  const [createFlowSection, setCreateFlowSection] = useState<"format" | "scripts" | "generate">("format");
+
   // Character DNA and Reference Sheet for selected character
   const [wizardCharacterDna, setWizardCharacterDna] = useState<any>(null);
   const [wizardReferenceSheet, setWizardReferenceSheet] = useState<string | null>(null);
@@ -576,6 +583,22 @@ export default function AIStudioPanel() {
     } finally { setGeneratingScript(false); }
   };
 
+  const fetchAutoScripts = async (formatSlug: string) => {
+    setLoadingAutoScripts(true);
+    try {
+      const r = await authFetch(`${API}/api/ai-studio/ugc/auto-scripts`, {
+        method: "POST",
+        body: JSON.stringify({ format_slug: formatSlug, count: 3 }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        setAutoScripts(d.scripts || []);
+        setTotalPostsAnalyzed(d.total_competitor_posts_analyzed || 0);
+      }
+    } catch {}
+    setLoadingAutoScripts(false);
+  };
+
   const insertHookAtCursor = (hook: string) => {
     const ta = scriptTextareaRef.current;
     if (ta) {
@@ -638,6 +661,13 @@ export default function AIStudioPanel() {
     setSelectedReferencePostId(null);
     setSelectedEditingDna(null);
     setApiKeyWarning(null);
+
+    // Clear auto-scripts state
+    setAutoScripts([]);
+    setLoadingAutoScripts(false);
+    setSelectedAutoScriptIdx(null);
+    setTotalPostsAnalyzed(0);
+    setCreateFlowSection("format");
   };
 
   const fetchFormatSceneStructure = async (formatSlug: string) => {
@@ -793,18 +823,9 @@ export default function AIStudioPanel() {
 
 
   /* ═══════════════════════════════════════════════════════
-   *  TAB: CREATE VIDEO (Wizard)
+   *  TAB: CREATE VIDEO (New Flow)
    * ═══════════════════════════════════════════════════════ */
   function renderCreateVideo() {
-    const steps: { id: WizardStep; label: string }[] = [
-      { id: "template", label: "Template" },
-      { id: "settings", label: "Settings" },
-      { id: "script", label: "Script" },
-      { id: "storyboard", label: "Storyboard" },
-      { id: "generate", label: "Generate" },
-    ];
-    const stepIdx = steps.findIndex(s => s.id === wizardStep);
-
     return (
       <div className="w-full px-8 py-5 space-y-5">
         {/* API Key Warning Banner */}
@@ -816,145 +837,186 @@ export default function AIStudioPanel() {
             </div>
           </div>
         )}
-        
-        {/* Step indicator */}
-        <div className="flex items-center gap-1 mb-2">
-          {steps.map((s, i) => (
-            <div key={s.id} className="flex items-center">
-              <button onClick={() => { if (i <= stepIdx) setWizardStep(s.id); }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition ${i === stepIdx ? "bg-warroom-accent text-white" : i < stepIdx ? "bg-warroom-accent/20 text-warroom-accent cursor-pointer" : "bg-warroom-bg text-warroom-muted"}`}>
-                <span className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold border border-current">{i + 1}</span>
-                <span className="hidden sm:inline">{s.label}</span>
-              </button>
-              {i < steps.length - 1 && <ChevronRight size={14} className="text-warroom-border mx-0.5" />}
-            </div>
-          ))}
-        </div>
 
-        {/* Step content */}
-        {wizardStep === "template" && renderStepTemplate()}
-        {wizardStep === "settings" && renderStepSettings()}
-        {wizardStep === "script" && renderStepScript()}
-        {wizardStep === "storyboard" && renderStepStoryboard()}
-        {wizardStep === "generate" && renderStepGenerate()}
+        {/* Section Content */}
+        {createFlowSection === "format" && renderFormatSection()}
+        {createFlowSection === "scripts" && renderScriptsSection()}
+        {createFlowSection === "generate" && renderGenerateSection()}
       </div>
     );
   }
 
-  // ── Step 1: Pick Template ──────────────────────────────
-  function renderStepTemplate() {
-    const canProceed = selectedFormat !== null;
-    
+  // ── Section 1: Format Selection ──────────────────────────────
+  function renderFormatSection() {
     return (
       <div className="space-y-4">
         <div>
           <h2 className="text-sm font-semibold text-warroom-text">Choose Your Viral Format</h2>
-          <p className="text-xs text-warroom-muted mt-0.5">Select a viral format with competitor intelligence and choose your creative method.</p>
+          <p className="text-xs text-warroom-muted mt-0.5">Select a viral format with competitor intelligence.</p>
         </div>
 
-        {/* Viral Formats Grid */}
+        {/* Format Picker */}
         <FormatPicker
           onSelect={(format) => {
             setSelectedFormat(format.slug);
-            setWizardTemplate(null);
             setWizardTitle(format.name);
-            setWizardStoryboard([]);
+            fetchAutoScripts(format.slug);
+            setCreateFlowSection("scripts");
           }}
           selectedFormat={selectedFormat || undefined}
           onUseHook={(hook) => {
-            // Update script parts with the hook and switch to Hook Lab
             setScriptParts(prev => ({ ...prev, hook }));
             setScriptTab("hook-lab");
-            // Advance to script step if not already there
-            if (wizardStep === "template") {
-              setWizardStep("script");
-            }
           }}
         />
+      </div>
+    );
+  }
 
-        {/* Creative Method Selector */}
-        {selectedFormat && (
-          <div className="space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold text-warroom-text">Creative Method</h3>
-              <p className="text-xs text-warroom-muted mt-0.5">How do you want to create this video?</p>
+  // ── Section 2: Auto-Generated Scripts ──────────────────────────────
+  function renderScriptsSection() {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-warroom-text">AI-Generated Scripts</h2>
+            <p className="text-xs text-warroom-muted mt-0.5">Scripts generated from competitor analysis for {selectedFormat}.</p>
+          </div>
+          <button
+            onClick={() => selectedFormat && fetchAutoScripts(selectedFormat)}
+            disabled={loadingAutoScripts}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg hover:border-warroom-accent/30 transition"
+          >
+            {loadingAutoScripts ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            Regenerate
+          </button>
+        </div>
+
+        {/* Auto Scripts */}
+        {loadingAutoScripts ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="animate-spin text-warroom-accent" size={24} />
+          </div>
+        ) : autoScripts.length > 0 ? (
+          <div className="space-y-4">
+            {/* Scripts count info */}
+            {totalPostsAnalyzed > 0 && (
+              <div className="text-xs text-warroom-muted bg-warroom-surface border border-warroom-border rounded-lg px-3 py-2">
+                📊 Generated from {totalPostsAnalyzed} competitor posts analyzed
+              </div>
+            )}
+
+            {/* Auto-generated scripts */}
+            {autoScripts.map((script, i) => (
+              <div key={i} className={`bg-warroom-surface border rounded-xl p-5 space-y-3 transition ${
+                selectedAutoScriptIdx === i ? "border-warroom-accent" : "border-warroom-border"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-warroom-muted font-medium">Script {i + 1}</span>
+                  <button
+                    onClick={() => {
+                      setWizardScript(`${script.hook}\n\n${script.body}\n\n${script.cta}`);
+                      setSelectedAutoScriptIdx(i);
+                      setCreateFlowSection("generate");
+                    }}
+                    className="px-3 py-1.5 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 transition"
+                  >
+                    Use This Script
+                  </button>
+                </div>
+                <p className="text-sm text-orange-400 font-semibold leading-relaxed">{script.hook}</p>
+                <p className="text-sm text-warroom-text leading-relaxed whitespace-pre-wrap">{script.body}</p>
+                <p className="text-sm text-emerald-400 font-medium">{script.cta}</p>
+                {script.why_this_works && (
+                  <p className="text-xs text-warroom-muted italic mt-2 pt-2 border-t border-warroom-border">
+                    💡 {script.why_this_works}
+                  </p>
+                )}
+              </div>
+            ))}
+
+            {/* Manual script option */}
+            <div className="border-t border-warroom-border pt-4">
+              <h3 className="text-sm font-semibold text-warroom-text mb-3">Or Write Your Own Script</h3>
+              <textarea
+                value={wizardScript}
+                onChange={(e) => setWizardScript(e.target.value)}
+                placeholder="[HOOK] Wait, you guys are still doing it the old way?
+
+[BODY] So I just found this product and honestly...
+
+[CTA] Link in bio — trust me on this one."
+                rows={8}
+                className="w-full bg-warroom-bg border border-warroom-border rounded-xl px-4 py-3 text-sm text-warroom-text resize-none focus:outline-none focus:border-warroom-accent leading-relaxed font-mono"
+              />
+              <div className="flex justify-between mt-3">
+                <button
+                  onClick={() => setScriptDrawerOpen(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg hover:border-warroom-accent/30 hover:text-warroom-accent transition"
+                >
+                  <TrendingUp size={12} /> Hook Lab
+                </button>
+                <button
+                  onClick={() => {
+                    if (wizardScript.trim()) {
+                      setSelectedAutoScriptIdx(null);
+                      setCreateFlowSection("generate");
+                    }
+                  }}
+                  disabled={!wizardScript.trim()}
+                  className="px-4 py-1.5 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-40 hover:bg-warroom-accent/80 transition"
+                >
+                  Use Custom Script
+                </button>
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <button
-                onClick={() => setCreativeMethod("ai-avatar")}
-                className={`p-4 rounded-xl border text-left transition ${
-                  creativeMethod === "ai-avatar"
-                    ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
-                    : "border-warroom-border bg-warroom-surface text-warroom-text hover:border-warroom-accent/30"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-lg">🤖</span>
-                  <span className="text-xs font-semibold">AI Avatar (Digital Copy)</span>
-                </div>
-                <p className="text-xs text-warroom-muted">Uses digital copy + Kling/Veo for key scenes</p>
-              </button>
-              
-              <button
-                onClick={() => setCreativeMethod("product-focused")}
-                className={`p-4 rounded-xl border text-left transition ${
-                  creativeMethod === "product-focused"
-                    ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
-                    : "border-warroom-border bg-warroom-surface text-warroom-text hover:border-warroom-accent/30"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-lg">📦</span>
-                  <span className="text-xs font-semibold">Product-Focused (Remotion/B-Roll)</span>
-                </div>
-                <p className="text-xs text-warroom-muted">Remotion templates + product images</p>
-              </button>
-              
-              <button
-                onClick={() => setCreativeMethod("stock-text")}
-                className={`p-4 rounded-xl border text-left transition ${
-                  creativeMethod === "stock-text"
-                    ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
-                    : "border-warroom-border bg-warroom-surface text-warroom-text hover:border-warroom-accent/30"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-lg">📝</span>
-                  <span className="text-xs font-semibold">Stock/Text-Only</span>
-                </div>
-                <p className="text-xs text-warroom-muted">Pure Remotion with text overlays and stock footage</p>
-              </button>
-            </div>
+          </div>
+        ) : (
+          <div className="text-center py-12 text-warroom-muted">
+            <Sparkles size={28} className="mx-auto mb-2 text-warroom-accent/30" />
+            <p className="text-xs">No auto-generated scripts available.</p>
+            <p className="text-xs mt-2">Try selecting a different format or write your own script below.</p>
           </div>
         )}
 
-        <div className="flex justify-end">
-          <button onClick={() => setWizardStep("settings")} disabled={!canProceed}
-            className="px-4 py-2 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-40 hover:bg-warroom-accent/80 transition flex items-center gap-1">
-            Next <ChevronRight size={14} />
+        <div className="flex justify-between pt-4">
+          <button
+            onClick={() => setCreateFlowSection("format")}
+            className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg"
+          >
+            Back to Format
           </button>
         </div>
       </div>
     );
   }
 
-  // ── Step 2: Set the Star ───────────────────────────────────
-  function renderStepSettings() {
+  // ── Section 3: Generate ──────────────────────────────
+  function renderGenerateSection() {
     return (
       <div className="space-y-5">
         <div>
-          <h2 className="text-sm font-semibold text-warroom-text">Set the Star</h2>
-          <p className="text-xs text-warroom-muted mt-0.5">Choose your character and action template for this video.</p>
+          <h2 className="text-sm font-semibold text-warroom-text">Generate Video</h2>
+          <p className="text-xs text-warroom-muted mt-0.5">Review your script, choose character, and generate your video.</p>
         </div>
 
-        {/* Title */}
-        <div>
-          <label className="text-xs text-warroom-muted block mb-1">Video Title</label>
-          <input value={wizardTitle} onChange={e => setWizardTitle(e.target.value)} placeholder="My UGC Ad"
-            className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
-        </div>
+        {/* Script Preview */}
+        {wizardScript && (
+          <div className="bg-warroom-bg border border-warroom-border rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-warroom-muted font-medium">Script Preview</span>
+              <button
+                onClick={() => setCreateFlowSection("scripts")}
+                className="text-xs text-warroom-accent hover:underline"
+              >
+                Edit Script
+              </button>
+            </div>
+            <pre className="text-xs text-warroom-text whitespace-pre-wrap font-mono leading-relaxed max-h-32 overflow-y-auto">{wizardScript}</pre>
+          </div>
+        )}
 
-        {/* Character Carousel */}
+        {/* Character selector (existing carousel from old Settings step) */}
         <div>
           <label className="text-xs text-warroom-muted block mb-3">Choose Character</label>
           <div className="flex gap-3 overflow-x-auto pb-2">
@@ -1012,31 +1074,7 @@ export default function AIStudioPanel() {
           </div>
         </div>
 
-        {/* Action Template Selector */}
-        <div>
-          <label className="text-xs text-warroom-muted block mb-3">Action Template</label>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {actionTemplates.map(template => (
-              <button
-                key={template.id}
-                onClick={() => setSelectedActionSlug(template.slug)}
-                className={`p-4 rounded-xl border text-left transition ${
-                  selectedActionSlug === template.slug
-                    ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
-                    : "border-warroom-border bg-warroom-surface text-warroom-text hover:border-warroom-accent/30"
-                }`}
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="text-xl">{template.icon}</span>
-                  <span className="font-medium text-sm">{template.name}</span>
-                </div>
-                <p className="text-xs text-warroom-muted leading-relaxed">{template.description}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Content mode */}
+        {/* Content type toggle */}
         <div>
           <label className="text-xs text-warroom-muted block mb-1.5">Content Type</label>
           <div className="flex gap-3">
@@ -1048,8 +1086,6 @@ export default function AIStudioPanel() {
             ))}
           </div>
         </div>
-
-
 
         {/* Model & Advanced Settings */}
         <div className="pt-2 border-t border-warroom-border">
@@ -1084,13 +1120,91 @@ export default function AIStudioPanel() {
           </div>
         </div>
 
+        {/* Generation Result Display */}
+        {generationResult && (
+          <div className={`rounded-xl p-4 border ${generationResult.ok ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30"}`}>
+            <div className="flex items-center gap-2 mb-1">
+              {generationResult.ok ? <CheckCircle size={16} className="text-emerald-400" /> : <AlertCircle size={16} className="text-red-400" />}
+              <span className="text-xs font-medium text-warroom-text">{generationResult.ok ? "Pipeline started" : "Pipeline failed"}</span>
+            </div>
+            
+            {generationResult.ok && pipelineStatus && (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-warroom-text">
+                    {pipelineStatus.current_step ? `Step: ${pipelineStatus.current_step}` : "Initializing..."}
+                  </span>
+                  <span className="text-warroom-muted">
+                    {pipelineStatus.progress ? `${Math.round(pipelineStatus.progress * 100)}%` : "0%"}
+                  </span>
+                </div>
+                
+                {/* Progress bar */}
+                <div className="w-full bg-warroom-bg rounded-full h-2">
+                  <div 
+                    className="bg-warroom-accent h-2 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${(pipelineStatus.progress || 0) * 100}%` }}
+                  />
+                </div>
+                
+                {pollStatus === "processing" && <div className="flex items-center gap-2 text-[11px] text-warroom-muted">
+                  <Loader2 size={12} className="animate-spin text-warroom-accent" /> 
+                  Processing pipeline...
+                </div>}
+                
+                {pollStatus === "completed" && <div className="flex items-center gap-2 text-[11px] text-emerald-400">
+                  <CheckCircle size={12} /> 
+                  Pipeline complete — video ready!
+                </div>}
+                
+                {pollStatus === "failed" && <div className="flex items-center gap-2 text-[11px] text-red-400">
+                  <AlertCircle size={12} /> 
+                  Pipeline failed
+                </div>}
+              </div>
+            )}
+            
+            {generationResult.error && <p className="text-[11px] text-red-400 mt-1">{generationResult.error}</p>}
+          </div>
+        )}
+
+        {/* Distribution Panel — shown when video is completed */}
+        {generationResult?.ok && pollStatus === "completed" && (
+          <div className="mt-6">
+            <DistributionPanel
+              videoProjectId={pollingProjectId ? parseInt(pollingProjectId) : null}
+              videoUrl={projects.find(p => p.id === pollingProjectId)?.video_url || null}
+              caption={wizardScript || ""}
+              onDistribute={(result) => {
+                console.log("Distribution launched:", result);
+              }}
+            />
+          </div>
+        )}
+
         <div className="flex justify-between">
-          <button onClick={() => setWizardStep("template")} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Back</button>
-          <button onClick={() => setWizardStep("script")} className="px-4 py-2 bg-warroom-accent text-white text-xs rounded-lg hover:bg-warroom-accent/80 transition flex items-center gap-1">Next <ChevronRight size={14} /></button>
+          <button
+            onClick={() => setCreateFlowSection("scripts")}
+            className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg"
+          >
+            Back to Scripts
+          </button>
+          <div className="flex gap-2">
+            <button onClick={resetWizard} className="px-4 py-2 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Start Over</button>
+            <button onClick={createAndGenerate} disabled={generating || !wizardScript.trim()}
+              className="px-5 py-2 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-40 hover:bg-warroom-accent/80 transition flex items-center gap-1.5 font-medium">
+              {generating ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+              {generating ? "Generating..." : "Generate Video"}
+            </button>
+          </div>
         </div>
       </div>
     );
   }
+
+
+
+
 
   // ── Step 3: Script ─────────────────────────────────────
   function renderStepScript() {

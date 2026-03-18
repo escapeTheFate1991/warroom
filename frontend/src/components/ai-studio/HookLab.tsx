@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Sparkles, Loader2, Info, Zap, ChevronDown } from "lucide-react";
+import { Sparkles, Loader2, Zap, ChevronDown } from "lucide-react";
 import { authFetch, API } from "@/lib/api";
 import SimulationPanel from "./SimulationPanel";
 import PersonaSelector from "./PersonaSelector";
@@ -19,6 +19,7 @@ interface HookLabProps {
   formatSlug: string;
   onScriptChange: (script: { hook: string; body: string; cta: string }) => void;
   initialScript?: { hook: string; body: string; cta: string };
+  autoScript?: { hook: string; body: string; cta: string } | null;  // NEW
   onSimulationComplete?: (frictionData: Record<string, "low" | "medium" | "high">) => void;
 }
 
@@ -30,7 +31,8 @@ interface HookScore {
 interface CompetitorHook {
   hook_text: string;
   handle: string;
-  likes: number;
+  likes?: number;
+  engagement_score?: number;
   platform: string;
 }
 
@@ -44,14 +46,9 @@ interface CompetitorData {
   audience_demands: AudienceTheme[];
 }
 
-interface GeneratedScript {
-  hook: string;
-  body: string;
-  cta: string;
-  why_this_works?: string;
-}
 
-export default function HookLab({ formatSlug, onScriptChange, initialScript, onSimulationComplete }: HookLabProps) {
+
+export default function HookLab({ formatSlug, onScriptChange, initialScript, autoScript, onSimulationComplete }: HookLabProps) {
   const [script, setScript] = useState({
     hook: initialScript?.hook || "",
     body: initialScript?.body || "",
@@ -63,8 +60,6 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript, onS
   const [showCompetitorSidebar, setShowCompetitorSidebar] = useState(false);
   const [competitorData, setCompetitorData] = useState<CompetitorData | null>(null);
   const [loadingCompetitorData, setLoadingCompetitorData] = useState(false);
-  const [generatingScript, setGeneratingScript] = useState(false);
-  const [whyThisWorks, setWhyThisWorks] = useState<string>("");
 
   // Simulation state
   const [showPersonaSelector, setShowPersonaSelector] = useState(false);
@@ -76,6 +71,19 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript, onS
   const hookTextareaRef = useRef<HTMLTextAreaElement>(null);
   const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<NodeJS.Timeout>();
+
+  // When autoScript changes, populate textareas
+  useEffect(() => {
+    if (autoScript) {
+      const newScript = {
+        hook: autoScript.hook || "",
+        body: autoScript.body || "",
+        cta: autoScript.cta || ""
+      };
+      setScript(newScript);
+      onScriptChange(newScript);
+    }
+  }, [autoScript, onScriptChange]);
 
   // Debounced hook scoring
   const debouncedScoreHook = useCallback((hookText: string) => {
@@ -149,11 +157,11 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript, onS
         // Fallback data
         setCompetitorData({
           hooks: [
-            { hook_text: "Wait, you guys are still doing it the old way?", handle: "techexpert", likes: 15420, platform: "instagram" },
-            { hook_text: "Nobody talks about this but here's the secret...", handle: "marketingpro", likes: 28750, platform: "tiktok" },
-            { hook_text: "I tested this for 30 days. Here's what happened.", handle: "testergirl", likes: 12340, platform: "instagram" },
-            { hook_text: "Stop doing [X]. Here's why.", handle: "industry_insider", likes: 9876, platform: "linkedin" },
-            { hook_text: "The [industry] doesn't want you to know this...", handle: "whistleblower", likes: 34567, platform: "youtube" }
+            { hook_text: "Wait, you guys are still doing it the old way?", handle: "techexpert", engagement_score: 15420, platform: "instagram" },
+            { hook_text: "Nobody talks about this but here's the secret...", handle: "marketingpro", engagement_score: 28750, platform: "tiktok" },
+            { hook_text: "I tested this for 30 days. Here's what happened.", handle: "testergirl", engagement_score: 12340, platform: "instagram" },
+            { hook_text: "Stop doing [X]. Here's why.", handle: "industry_insider", engagement_score: 9876, platform: "linkedin" },
+            { hook_text: "The [industry] doesn't want you to know this...", handle: "whistleblower", engagement_score: 34567, platform: "youtube" }
           ],
           audience_demands: [
             { theme: "Cost-effective solutions for small businesses", frequency: 127 },
@@ -164,6 +172,8 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript, onS
           ]
         });
       }
+      // Show sidebar after loading data
+      setShowCompetitorSidebar(true);
     } catch {
       setCompetitorData(null);
     } finally {
@@ -171,62 +181,12 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript, onS
     }
   };
 
-  const generateScriptWithIntel = async () => {
-    setGeneratingScript(true);
-    setWhyThisWorks("");
-    
-    try {
-      // First load competitor data
-      await loadCompetitorData();
-      
-      const response = await authFetch(`${API}/api/ai-studio/ugc/generate-script`, {
-        method: "POST",
-        body: JSON.stringify({
-          format: formatSlug,  // API expects 'format' not 'format_slug'
-          topic: "content marketing",  // API requires 'topic' field
-          hook: script.hook || "",  // API expects 'hook' field
-          use_competitor_intel: true,
-          current_hook: script.hook,
-          current_body: script.body,
-          current_cta: script.cta
-        })
-      });
 
-      if (response.ok) {
-        const data: GeneratedScript = await response.json();
-        setScript({
-          hook: data.hook || script.hook,
-          body: data.body || script.body,
-          cta: data.cta || script.cta
-        });
-        setWhyThisWorks(data.why_this_works || "");
-        // Show sidebar with reference posts after generation
-        setShowCompetitorSidebar(true);
-      } else {
-        // Fallback generation
-        const fallbackScript = {
-          hook: `Wait, you guys are still ${formatSlug === "transformation" ? "struggling with the old method" : "doing it manually"}?`,
-          body: `Let me show you exactly how I ${formatSlug === "transformation" ? "transformed my results" : "solved this problem"} in just 30 days. The difference is incredible and honestly, I wish I'd discovered this sooner. Here's the exact step-by-step process...`,
-          cta: `Link in bio — trust me on this one. This changed everything for me.`
-        };
-        setScript(fallbackScript);
-        setWhyThisWorks("This script follows proven viral patterns: curiosity hook + personal story + clear outcome + urgency.");
-      }
-    } catch {
-      // Even more basic fallback
-      setScript(prev => ({
-        ...prev,
-        hook: prev.hook || "Here's something nobody talks about...",
-        body: prev.body || "Your compelling story and demonstration goes here...",
-        cta: prev.cta || "Link in bio for more!"
-      }));
-    } finally {
-      setGeneratingScript(false);
-    }
-  };
 
   const applyHook = (hookText: string) => {
-    setScript(prev => ({ ...prev, hook: hookText }));
+    const newScript = { ...script, hook: hookText };
+    setScript(newScript);
+    onScriptChange(newScript);
     if (hookTextareaRef.current) {
       hookTextareaRef.current.focus();
     }
@@ -435,18 +395,18 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript, onS
 
         {/* Action Buttons */}
         <div className="space-y-3">
-          {/* Generate Script Button */}
+          {/* Show Competitor Intel Button */}
           <button
-            onClick={generateScriptWithIntel}
-            disabled={generatingScript}
+            onClick={loadCompetitorData}
+            disabled={loadingCompetitorData}
             className="w-full py-3 px-4 bg-warroom-accent text-white text-sm font-medium rounded-lg hover:bg-warroom-accent/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
           >
-            {generatingScript ? (
+            {loadingCompetitorData ? (
               <Loader2 size={16} className="animate-spin" />
             ) : (
               <Sparkles size={16} />
             )}
-            {generatingScript ? "Generating..." : "✨ Generate Script using Competitor Intel"}
+            {loadingCompetitorData ? "Loading..." : "✨ Show Competitor Intel"}
           </button>
 
           {/* Simulate Button */}
@@ -507,93 +467,40 @@ export default function HookLab({ formatSlug, onScriptChange, initialScript, onS
           </div>
         )}
 
-        {/* Why This Works Panel */}
-        {whyThisWorks && (
-          <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4">
-            <h4 className="text-xs font-semibold text-warroom-accent mb-2 flex items-center gap-1">
-              <Info size={12} />
-              Why This Works
-            </h4>
-            <p className="text-xs text-warroom-muted leading-relaxed">
-              {whyThisWorks}
-            </p>
-          </div>
-        )}
+
       </div>
 
       {/* Right Column - Competitor Sidebar (30%) */}
-      <div className="lg:col-span-3 space-y-4">
-        {/* Sidebar Content - only shown after generation */}
-        {showCompetitorSidebar && (
-          <div className="space-y-6">
-            {loadingCompetitorData ? (
-              <div className="flex justify-center py-8">
-                <Loader2 size={20} className="animate-spin text-warroom-accent" />
-              </div>
-            ) : competitorData ? (
+      <div className="lg:col-span-3">
+        {showCompetitorSidebar && competitorData && (
+          <div className="w-64 border-l border-warroom-border pl-4 space-y-2 overflow-y-auto">
+            <h3 className="text-xs font-semibold text-warroom-text sticky top-0 bg-warroom-surface py-1">
+              Top Hooks by Engagement
+            </h3>
+            {competitorData.hooks?.map((h, i) => (
+              <button key={i} 
+                onClick={() => {
+                  setScript(prev => ({ ...prev, hook: h.hook_text }));
+                  onScriptChange({ ...script, hook: h.hook_text });
+                }}
+                className="text-left w-full p-2 rounded-lg hover:bg-warroom-bg transition">
+                <span className="text-xs text-warroom-accent font-bold mr-1">{i + 1}.</span>
+                <span className="text-xs text-warroom-text">"{h.hook_text}"</span>
+                <span className="text-[10px] text-warroom-muted block mt-0.5">
+                  @{h.handle} · {h.engagement_score?.toLocaleString()} eng
+                </span>
+              </button>
+            ))}
+            
+            {competitorData.audience_demands?.length > 0 && (
               <>
-                {/* Winning Hooks Section */}
-                <div>
-                  <h3 className="text-xs font-semibold text-warroom-text mb-3">
-                    Reference Posts Used
-                  </h3>
-                  <div className="space-y-3">
-                    {competitorData.hooks.slice(0, 6).map((hook, index) => (
-                      <div key={index} className="bg-warroom-surface border border-warroom-border rounded-lg p-3">
-                        <p className="text-xs text-warroom-text mb-2 leading-relaxed">
-                          {hook.hook_text.length > 60 
-                            ? `${hook.hook_text.slice(0, 60)}...` 
-                            : hook.hook_text
-                          }
-                        </p>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs text-warroom-muted">
-                            @{hook.handle} · {hook.likes.toLocaleString()} likes
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => applyHook(hook.hook_text)}
-                          className="w-full py-1.5 px-2 bg-warroom-accent/20 text-warroom-accent text-xs font-medium rounded hover:bg-warroom-accent/30 transition-colors"
-                        >
-                          Apply
-                        </button>
-                      </div>
-                    ))}
+                <h3 className="text-xs font-semibold text-warroom-text mt-4">Audience Demands</h3>
+                {competitorData.audience_demands.map((d, i) => (
+                  <div key={i} className="text-xs text-warroom-muted p-1">
+                    • {d.theme} ({d.frequency}x)
                   </div>
-                </div>
-
-                {/* Audience Demand Signals */}
-                <div>
-                  <h3 className="text-xs font-semibold text-warroom-text mb-3">
-                    Audience Demand Signals
-                  </h3>
-                  <div className="space-y-2">
-                    {competitorData.audience_demands.slice(0, 5).map((theme, index) => (
-                      <div key={index} className="bg-warroom-surface border border-warroom-border rounded-lg p-3">
-                        <p className="text-xs text-warroom-text mb-2 leading-relaxed">
-                          {theme.theme}
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-warroom-muted">
-                            {theme.frequency} mentions
-                          </span>
-                          <button
-                            onClick={() => appendToBody(theme.theme)}
-                            className="py-1 px-2 bg-warroom-accent/20 text-warroom-accent text-xs font-medium rounded hover:bg-warroom-accent/30 transition-colors"
-                          >
-                            Write About This
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                ))}
               </>
-            ) : (
-              <div className="text-center py-8 text-warroom-muted">
-                <p className="text-xs">No competitor data available</p>
-                <p className="text-xs mt-1">Check back later</p>
-              </div>
             )}
           </div>
         )}
