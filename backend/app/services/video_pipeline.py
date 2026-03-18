@@ -330,23 +330,43 @@ async def create_video_from_competitor_reference(
                     db=db
                 )
                 
-                # Save scene image (in real implementation, save to S3/storage)
-                scene_image_url = f"https://example.com/scene_{pipeline_id}_{i}.jpg"
+                # Save scene image to Garage S3
+                scene_image_url = f"https://example.com/placeholder_{pipeline_id}_{i}.jpg"
+                if scene_image_bytes and len(scene_image_bytes) > 100:
+                    try:
+                        import boto3
+                        s3 = boto3.client(
+                            's3',
+                            endpoint_url=os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900'),
+                            aws_access_key_id=os.environ.get('GARAGE_ACCESS_KEY', 'GK6d3eb1c7bc06e00d77b8f89c'),
+                            aws_secret_access_key=os.environ.get('GARAGE_SECRET_KEY', '370b99ef00dbfee300e3d73b69b217a7f5633935b02b86ee37f5691aacdf602b'),
+                            region_name=os.environ.get('GARAGE_REGION', 'ai-local'),
+                        )
+                        bucket = os.environ.get('GARAGE_BUCKET_PIPELINE', 'digital-copies')
+                        s3_key = f"pipeline/{pipeline_id}/scene_{i}.png"
+                        s3.put_object(Bucket=bucket, Key=s3_key, Body=scene_image_bytes, ContentType="image/png")
+                        s3_base = os.environ.get('GARAGE_ENDPOINT', 'http://10.0.0.11:3900')
+                        scene_image_url = f"{s3_base}/{bucket}/{s3_key}"
+                        logger.info(f"Saved scene {i} to S3: {scene_image_url}")
+                    except Exception as s3_err:
+                        logger.warning(f"S3 upload failed for scene {i}, keeping bytes in memory: {s3_err}")
+                
                 scene_images.append({
                     "index": i,
                     "url": scene_image_url,
                     "prompt": scene_prompt,
-                    "duration": generated_script.total_duration / len(generated_script.visual_directions)
+                    "duration": generated_script.total_duration / len(generated_script.visual_directions),
+                    "image_bytes": scene_image_bytes,  # Keep bytes for Veo
                 })
                 
             except Exception as scene_error:
                 logger.warning(f"Failed to generate scene {i}: {scene_error}")
-                # Use placeholder
                 scene_images.append({
                     "index": i,
-                    "url": "https://example.com/placeholder.jpg",
+                    "url": "",
                     "prompt": scene_prompt,
-                    "duration": generated_script.total_duration / len(generated_script.visual_directions)
+                    "duration": generated_script.total_duration / len(generated_script.visual_directions),
+                    "image_bytes": None,
                 })
         
         # Add scene images as assets
@@ -363,21 +383,18 @@ async def create_video_from_competitor_reference(
         
         video_operations = []
         for scene_img in scene_images:
-            if scene_img["url"] == "https://example.com/placeholder.jpg":
-                continue  # Skip placeholder images
+            image_bytes = scene_img.get("image_bytes")
+            if not image_bytes or len(image_bytes) < 100:
+                logger.warning(f"Skipping scene {scene_img['index']}: no image bytes")
+                continue
             
-            # In real implementation, download image bytes and pass to Veo
-            # For now, create mock operation
             video_prompt = f"Video of {scene_img['prompt']}"
             
             try:
-                # Mock image bytes for now
-                mock_image_bytes = b"mock_image_data"
-                
                 video_operation = await generate_video_from_image(
-                    mock_image_bytes,
+                    image_bytes,
                     video_prompt,
-                    duration_seconds=int(scene_img["duration"]),
+                    duration_seconds=min(int(scene_img["duration"]), 8),
                     aspect_ratio="9:16",
                     db=db
                 )

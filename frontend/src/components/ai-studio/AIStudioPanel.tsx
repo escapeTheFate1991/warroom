@@ -437,14 +437,14 @@ export default function AIStudioPanel() {
         return;
       }
 
-      // Use new pipeline endpoint
+      // Use new pipeline endpoint — wire blueprint post_id if available
       const pipelinePayload = {
-        reference_post_id: selectedReferencePostId,
+        reference_post_id: selectedBlueprint?.post_id || selectedReferencePostId,
         digital_copy_id: wizardCopyId,
         editing_dna_id: selectedEditingDna?.id,
         brand_context: {
           brand_name: "Stuff N Things",
-          product_name: wizardTitle || "Untitled Video",
+          product_name: wizardTitle || brandTopic || "Untitled Video",
           script: wizardScript
         }
       };
@@ -957,11 +957,15 @@ export default function AIStudioPanel() {
               <div className="flex gap-2">
                 <button onClick={() => setAutoFilledData(null)}
                   className="px-3 py-1.5 bg-warroom-bg border border-warroom-border text-xs text-warroom-muted rounded-lg">Clear</button>
-                <button onClick={createAndGenerate} disabled={generating}
-                  className="px-4 py-2 bg-warroom-accent text-white text-xs font-medium rounded-lg disabled:opacity-40 flex items-center gap-1.5">
+                <button onClick={createAndGenerate} disabled={generating || !wizardScript.trim() || (!selectedBlueprint && !selectedReferencePostId)}
+                  className="px-4 py-2 bg-warroom-accent text-white text-xs font-medium rounded-lg disabled:opacity-40 flex items-center gap-1.5"
+                  title={!wizardCopyId ? "Select an avatar (Digital Copy) to generate video" : ""}>
                   {generating ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
                   Produce Video
                 </button>
+                {!wizardCopyId && (
+                  <span className="text-[10px] text-yellow-400">⚠️ Select an avatar above to produce</span>
+                )}
               </div>
             </div>
 
