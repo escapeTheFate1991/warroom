@@ -1091,15 +1091,25 @@ export default function AIStudioPanel() {
                       preload="auto"
                       className="absolute inset-0 w-full h-full object-cover"
                       onError={(e) => {
-                        // Expired CDN URL — hide video, show fallback
                         const el = e.currentTarget;
                         el.style.display = "none";
                         const fallback = el.nextElementSibling as HTMLElement;
                         if (fallback?.dataset.fallback) fallback.style.display = "flex";
                       }}
+                      ref={(el) => {
+                        if (!el) return;
+                        // Fallback timeout: if video hasn't loaded metadata in 4s, it's probably an expired CDN URL
+                        setTimeout(() => {
+                          if (el.readyState === 0 && el.style.display !== "none") {
+                            el.style.display = "none";
+                            const fallback = el.nextElementSibling as HTMLElement;
+                            if (fallback?.dataset?.fallback) fallback.style.display = "flex";
+                          }
+                        }, 4000);
+                      }}
                     />
                   ) : null}
-                  {/* Fallback: shown when video fails or no media_url */}
+                  {/* Fallback: shown when video fails, expired CDN, or no media_url */}
                   <div
                     data-fallback="true"
                     style={{ display: bp.media_url ? "none" : "flex" }}
