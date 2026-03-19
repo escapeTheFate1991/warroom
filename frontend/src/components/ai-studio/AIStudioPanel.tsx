@@ -1075,14 +1075,14 @@ export default function AIStudioPanel() {
                   }}
                   onMouseEnter={(e) => {
                     const video = e.currentTarget.querySelector("video");
-                    if (video) { video.currentTime = 0; video.play().catch(() => {}); }
+                    if (video && video.style.display !== "none") { video.currentTime = 0; video.play().catch(() => {}); }
                   }}
                   onMouseLeave={(e) => {
                     const video = e.currentTarget.querySelector("video");
-                    if (video) { video.pause(); video.currentTime = 0; }
+                    if (video && video.style.display !== "none") { video.pause(); video.currentTime = 0; }
                   }}
                 >
-                  {/* Video/Thumbnail — first frame as thumbnail, plays on hover */}
+                  {/* Video/Thumbnail — first frame as thumbnail, plays on hover, fallback on error */}
                   {bp.media_url ? (
                     <video
                       src={`${bp.media_url}#t=0.1`}
@@ -1090,14 +1090,24 @@ export default function AIStudioPanel() {
                       playsInline
                       preload="auto"
                       className="absolute inset-0 w-full h-full object-cover"
+                      onError={(e) => {
+                        // Expired CDN URL — hide video, show fallback
+                        const el = e.currentTarget;
+                        el.style.display = "none";
+                        const fallback = el.nextElementSibling as HTMLElement;
+                        if (fallback?.dataset.fallback) fallback.style.display = "flex";
+                      }}
                     />
-                  ) : bp.thumbnail_url ? (
-                    <img src={bp.thumbnail_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                  ) : (
-                    <div className="absolute inset-0 bg-warroom-bg flex items-center justify-center">
-                      <Film size={32} className="text-warroom-muted/30" />
-                    </div>
-                  )}
+                  ) : null}
+                  {/* Fallback: shown when video fails or no media_url */}
+                  <div
+                    data-fallback="true"
+                    style={{ display: bp.media_url ? "none" : "flex" }}
+                    className="absolute inset-0 bg-warroom-bg items-center justify-center flex-col gap-2"
+                  >
+                    <Film size={32} className="text-warroom-muted/30" />
+                    {bp.handle && <span className="text-[10px] text-warroom-muted">@{bp.handle}</span>}
+                  </div>
 
                   {/* Gradient overlay at bottom — shown on hover */}
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-10 opacity-0 group-hover:opacity-100 transition-opacity">
