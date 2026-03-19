@@ -60,7 +60,8 @@ export default function SchedulerCalendar() {
                 `${API}/api/scheduler/calendar?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`
             );
             const data = await res.json();
-            setScheduledItems(data.posts || data.data || data || []);
+            const posts = data.posts || data.data || data || [];
+            setScheduledItems(Array.isArray(posts) ? posts : []);
         } catch (error) {
             console.error("Failed to fetch schedule", error);
         } finally {
