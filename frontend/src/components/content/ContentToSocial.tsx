@@ -14,7 +14,7 @@ import React, { useState, useCallback } from 'react'
 import { authFetch } from '@/lib/api'
 
 // Platform configurations matching backend
-const PLATFORM_CONFIGS = {
+const PLATFORM_CONFIGS: Record<string, { name: string; emoji: string; maxChars: number; color: string }> = {
   instagram: { name: 'Instagram', emoji: '📷', maxChars: 2200, color: 'bg-pink-500' },
   tiktok: { name: 'TikTok', emoji: '🎵', maxChars: 2200, color: 'bg-black' },
   twitter: { name: 'Twitter/X', emoji: '🐦', maxChars: 280, color: 'bg-blue-400' },
