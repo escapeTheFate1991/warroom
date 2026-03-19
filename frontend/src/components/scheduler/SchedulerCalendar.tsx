@@ -115,26 +115,35 @@ export default function SchedulerCalendar() {
     setLoading(true);
     try {
       const year = currentDate.getFullYear();
-      const month = currentDate.getMonth() + 1; // API expects 1-indexed month
+      const month = currentDate.getMonth(); // 0-indexed
+      // Build ISO date range for backend (expects start_date/end_date)
+      const startDate = new Date(year, month, 1).toISOString();
+      const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
 
-      const [calendarRes, timesRes] = await Promise.all([
-        authFetch(`${API}/api/scheduler/calendar?year=${year}&month=${month}`),
-        authFetch(`${API}/api/scheduler/optimal-times`),
-      ]);
+      const calendarRes = await authFetch(
+        `${API}/api/scheduler/calendar?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`
+      );
 
       if (calendarRes.ok) {
         const calendarData = await calendarRes.json();
-        setScheduledPosts(calendarData.posts || calendarData.data || calendarData || []);
+        const posts = calendarData.posts || calendarData.data || calendarData;
+        setScheduledPosts(Array.isArray(posts) ? posts : []);
       } else {
         console.error("Failed to fetch calendar:", calendarRes.status);
         setScheduledPosts([]);
       }
 
-      if (timesRes.ok) {
-        const timesData = await timesRes.json();
-        setOptimalTimes(timesData.times || timesData.data || timesData || []);
-      } else {
-        console.error("Failed to fetch optimal times:", timesRes.status);
+      // optimal-times endpoint may not exist yet — fail silently
+      try {
+        const timesRes = await authFetch(`${API}/api/scheduler/optimal-times`);
+        if (timesRes.ok) {
+          const timesData = await timesRes.json();
+          const times = timesData.times || timesData.data || timesData;
+          setOptimalTimes(Array.isArray(times) ? times : []);
+        } else {
+          setOptimalTimes([]);
+        }
+      } catch {
         setOptimalTimes([]);
       }
     } catch (error) {
