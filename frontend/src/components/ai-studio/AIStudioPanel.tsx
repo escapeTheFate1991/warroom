@@ -505,7 +505,7 @@ export default function AIStudioPanel() {
           const d = await r.json();
           setPipelineStatus(d);
           setPollStatus(d.status);
-          if (d.status === "completed" || d.status === "failed") {
+          if (d.status === "completed" || d.status === "complete" || d.status === "failed") {
             clearInterval(interval);
             fetchProjects();
           }
@@ -944,6 +944,14 @@ export default function AIStudioPanel() {
               ) : (
                 <div className="px-3 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-xs text-warroom-muted">Select below ↓</div>
               )}
+            </div>
+
+            {/* Project name */}
+            <div className="flex-shrink-0 min-w-[160px]">
+              <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Project Name</label>
+              <input value={wizardTitle} onChange={e => setWizardTitle(e.target.value)}
+                placeholder="My Video Project"
+                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
             </div>
 
             {/* Topic input */}
