@@ -228,7 +228,7 @@ export default function CarouselPreview({
               <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
-                className="w-full h-32 p-3 bg-white/90 text-black text-sm rounded-lg resize-none"
+                className="w-full h-32 p-3 bg-warroom-surface/90 text-black text-sm rounded-lg resize-none"
                 autoFocus
               />
               <div className="flex gap-2 mt-2">
