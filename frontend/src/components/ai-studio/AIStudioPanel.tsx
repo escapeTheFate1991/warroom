@@ -1071,14 +1071,13 @@ export default function AIStudioPanel() {
                     if (video) { video.pause(); video.currentTime = 0; }
                   }}
                 >
-                  {/* Video/Thumbnail — full card */}
+                  {/* Video/Thumbnail — first frame as thumbnail, plays on hover */}
                   {bp.media_url ? (
                     <video
-                      src={bp.media_url}
-                      poster={bp.thumbnail_url || undefined}
+                      src={`${bp.media_url}#t=0.1`}
                       muted
                       playsInline
-                      preload="metadata"
+                      preload="auto"
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                   ) : bp.thumbnail_url ? (
