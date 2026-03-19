@@ -5,7 +5,7 @@ import {
   Sparkles, Loader2, Plus, Trash2, Upload, Image, Video, Film,
   User, Play, Eye, Clock, ChevronRight, FileText, Wand2,
   CheckCircle, AlertCircle, RefreshCw, X, Camera, Link, Mic,
-  ExternalLink, Zap, TrendingUp, Save, Settings, BarChart,
+  ExternalLink, Zap, TrendingUp, Save, Settings, BarChart, Grid3X3,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import ScrollTabs from "@/components/ui/ScrollTabs";
@@ -17,6 +17,7 @@ import PerformanceDashboard from "./PerformanceDashboard";
 import DigitalCopiesPanel from "./DigitalCopiesPanel";
 import CompetitorScriptDrawer from "./CompetitorScriptDrawer";
 import EditingDNADrawer from "./EditingDNADrawer";
+import CarouselPreview from "./CarouselPreview";
 
 const VideoEditor = dynamic(() => import("./VideoEditor"), {
   loading: () => (
@@ -143,7 +144,7 @@ interface CompetitorVideo {
   media_type: string;
 }
 
-type MainTab = "create-video" | "digital-copies" | "templatizer" | "projects" | "performance" | "motion-control" | "video-editor";
+type MainTab = "create-video" | "digital-copies" | "templatizer" | "projects" | "performance" | "motion-control" | "video-editor" | "create-carousel";
 type WizardStep = "template" | "settings" | "script" | "storyboard" | "generate";
 
 export default function AIStudioPanel() {
@@ -248,6 +249,14 @@ export default function AIStudioPanel() {
   const [scheduling, setScheduling] = useState(false);
   const [scheduleSuccess, setScheduleSuccess] = useState(false);
 
+  // Carousel state
+  const [carouselText, setCarouselText] = useState("");
+  const [carouselFormat, setCarouselFormat] = useState<"portrait" | "square" | "story">("portrait");
+  const [carouselSlides, setCarouselSlides] = useState<any[]>([]);
+  const [generatingCarousel, setGeneratingCarousel] = useState(false);
+  const [generatingImages, setGeneratingImages] = useState(false);
+  const [currentCarouselId, setCurrentCarouselId] = useState<number | null>(null);
+
   // Drawer states
   const [scriptDrawerOpen, setScriptDrawerOpen] = useState(false);
   const [dnaDrawerOpen, setDnaDrawerOpen] = useState(false);
@@ -273,7 +282,7 @@ export default function AIStudioPanel() {
   const mcCharacterImageRef = useRef<HTMLInputElement>(null);
 
   // ── Hash-based tab routing ─────────────────────────────
-  const validTabs: MainTab[] = ["create-video", "digital-copies", "templatizer", "projects", "performance", "motion-control", "video-editor"];
+  const validTabs: MainTab[] = ["create-video", "digital-copies", "templatizer", "projects", "performance", "motion-control", "video-editor", "create-carousel"];
   
   const handleTabChange = (tab: MainTab) => {
     setActiveTab(tab);
@@ -827,6 +836,7 @@ export default function AIStudioPanel() {
       <ScrollTabs
         tabs={[
           { id: "create-video", label: "Create Video", icon: Wand2 },
+          { id: "create-carousel", label: "Create Carousel", icon: Grid3X3 },
           { id: "video-editor", label: "Video Editor", icon: Play },
           { id: "motion-control", label: "Motion Control", icon: Video },
           { id: "digital-copies", label: "Digital Copies", icon: User },
@@ -843,6 +853,7 @@ export default function AIStudioPanel() {
       <div className="flex-1 overflow-y-auto">
         {activeTab === "digital-copies" && <DigitalCopiesPanel />}
         {activeTab === "create-video" && renderCreateVideo()}
+        {activeTab === "create-carousel" && renderCreateCarousel()}
         {activeTab === "video-editor" && <VideoEditor />}
         {activeTab === "motion-control" && renderMotionControl()}
         {activeTab === "templatizer" && renderTemplatizer()}
@@ -1444,6 +1455,191 @@ export default function AIStudioPanel() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /* ═══════════════════════════════════════════════════════
+   *  TAB: CREATE CAROUSEL — Text to Instagram Carousel
+   * ═══════════════════════════════════════════════════════ */
+  function renderCreateCarousel() {
+    const generateCarousel = async () => {
+      if (!carouselText.trim()) {
+        alert("Please enter some text content");
+        return;
+      }
+
+      setGeneratingCarousel(true);
+      setCarouselSlides([]);
+      setCurrentCarouselId(null);
+
+      try {
+        const response = await authFetch(`${API}/api/carousel/generate`, {
+          method: "POST",
+          body: JSON.stringify({
+            text: carouselText,
+            format: carouselFormat
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setCarouselSlides(data.slides);
+          setCurrentCarouselId(data.carousel_id);
+        } else {
+          const error = await response.json();
+          alert(error.detail || "Failed to generate carousel");
+        }
+      } catch (error) {
+        console.error("Error generating carousel:", error);
+        alert("Failed to generate carousel");
+      } finally {
+        setGeneratingCarousel(false);
+      }
+    };
+
+    const generateImages = async () => {
+      if (carouselSlides.length === 0) {
+        alert("No slides to generate images for");
+        return;
+      }
+
+      setGeneratingImages(true);
+
+      try {
+        const response = await authFetch(`${API}/api/carousel/generate-images`, {
+          method: "POST",
+          body: JSON.stringify({
+            slides: carouselSlides,
+            brand_colors: {
+              primary: "#007bff",
+              secondary: "#6c757d",
+              background: "#ffffff",
+              text: "#212529"
+            }
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setCarouselSlides(data.slides);
+        } else {
+          const error = await response.json();
+          alert(error.detail || "Failed to generate images");
+        }
+      } catch (error) {
+        console.error("Error generating images:", error);
+        alert("Failed to generate images");
+      } finally {
+        setGeneratingImages(false);
+      }
+    };
+
+    const handleSlideEdit = (slideIndex: number, newText: string) => {
+      const updatedSlides = [...carouselSlides];
+      updatedSlides[slideIndex] = { ...updatedSlides[slideIndex], text: newText };
+      setCarouselSlides(updatedSlides);
+    };
+
+    return (
+      <div className="p-5 space-y-6">
+        <div>
+          <h2 className="text-sm font-semibold text-warroom-text">Create Instagram Carousel</h2>
+          <p className="text-xs text-warroom-muted mt-0.5">Convert long-form content into engaging carousel slides.</p>
+        </div>
+
+        {/* Text Input Section */}
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-warroom-text block mb-2">
+              Content to Convert
+            </label>
+            <textarea
+              value={carouselText}
+              onChange={(e) => setCarouselText(e.target.value)}
+              placeholder="Paste your article, blog post, transcript, or any long-form content here..."
+              className="w-full h-32 p-3 bg-warroom-surface border border-warroom-border rounded-lg text-sm resize-none"
+            />
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div>
+              <label className="text-xs font-medium text-warroom-text block mb-2">
+                Format
+              </label>
+              <div className="flex bg-warroom-bg border border-warroom-border rounded-lg p-1">
+                <button
+                  onClick={() => setCarouselFormat("portrait")}
+                  className={`px-3 py-1.5 text-xs rounded-md transition ${
+                    carouselFormat === "portrait"
+                      ? "bg-warroom-surface text-warroom-text font-medium shadow-sm"
+                      : "text-warroom-muted hover:text-warroom-text"
+                  }`}
+                >
+                  Portrait (4:5)
+                </button>
+                <button
+                  onClick={() => setCarouselFormat("square")}
+                  className={`px-3 py-1.5 text-xs rounded-md transition ${
+                    carouselFormat === "square"
+                      ? "bg-warroom-surface text-warroom-text font-medium shadow-sm"
+                      : "text-warroom-muted hover:text-warroom-text"
+                  }`}
+                >
+                  Square (1:1)
+                </button>
+                <button
+                  onClick={() => setCarouselFormat("story")}
+                  className={`px-3 py-1.5 text-xs rounded-md transition ${
+                    carouselFormat === "story"
+                      ? "bg-warroom-surface text-warroom-text font-medium shadow-sm"
+                      : "text-warroom-muted hover:text-warroom-text"
+                  }`}
+                >
+                  Story (9:16)
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={generateCarousel}
+                disabled={generatingCarousel || !carouselText.trim()}
+                className="px-4 py-2 bg-warroom-accent text-white text-xs rounded-lg disabled:opacity-50 transition flex items-center gap-2"
+              >
+                {generatingCarousel ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                {generatingCarousel ? "Generating..." : "Generate Slides"}
+              </button>
+
+              {carouselSlides.length > 0 && (
+                <button
+                  onClick={generateImages}
+                  disabled={generatingImages}
+                  className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs rounded-lg disabled:opacity-50 transition flex items-center gap-2"
+                >
+                  {generatingImages ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />}
+                  {generatingImages ? "Generating..." : "Generate Images"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Carousel Preview */}
+        {carouselSlides.length > 0 && (
+          <div className="border border-warroom-border rounded-xl p-4">
+            <CarouselPreview
+              carouselId={currentCarouselId || undefined}
+              slides={carouselSlides}
+              format={carouselFormat}
+              onEdit={handleSlideEdit}
+              onPublish={(result) => {
+                console.log("Carousel published:", result);
+                // Show success notification or redirect
+              }}
+            />
           </div>
         )}
       </div>

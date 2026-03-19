@@ -31,6 +31,7 @@ const LeadgenPanel = dynamic(() => import("@/components/leadgen/LeadgenPanel"), 
 const SettingsPanel = dynamic(() => import("@/components/settings/SettingsPanel"), { loading: PanelLoader });
 const WorkflowsPanel = dynamic(() => import("@/components/workflows/WorkflowsPanel"), { loading: PanelLoader });
 const ContactsManager = dynamic(() => import("@/components/crm/ContactsManager"), { loading: PanelLoader });
+const OrgChartPanel = dynamic(() => import("@/components/org-chart/OrgChartPanel"), { loading: PanelLoader });
 const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboard"), { loading: PanelLoader });
 const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
 const EmailTemplatesPanel = dynamic(() => import("@/components/marketing/EmailTemplatesPanel"), { loading: PanelLoader });
@@ -114,6 +115,7 @@ const SECTIONS = [
       { id: "prospects", label: "Prospects", icon: UserPlus },
       { id: "organizations", label: "Organizations", icon: Building2 },
       { id: "crm-contacts", label: "Contacts", icon: Users },
+      { id: "org-chart", label: "Org Chart", icon: Building2 },
     ],
   },
   {
@@ -153,7 +155,7 @@ type TabId =
   | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
   | "scheduler" | "recycle"
   | "kanban" | "leadgen"
-  | "pipeline-board" | "organizations" | "crm-contacts"
+  | "pipeline-board" | "organizations" | "crm-contacts" | "org-chart"
   | "library-search" | "library-educate"
   | "ai-studio" | "workflows"
   | "marketing-campaigns" | "marketing-templates"
@@ -298,6 +300,7 @@ function WarRoom() {
           {activeTab === "pipeline-board" && <UnifiedPipeline />}
           {activeTab === "organizations" && <OrganizationsPanel />}
           {activeTab === "crm-contacts" && <ContactsManager />}
+          {activeTab === "org-chart" && <OrgChartPanel />}
           {activeTab === "library-search" && <LibraryPanel />}
           {activeTab === "library-educate" && <EducatePanel />}
           {activeTab === "workflows" && <WorkflowsPanel />}

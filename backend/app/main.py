@@ -41,6 +41,31 @@ async def _init_content_scheduler_tables(engine):
         return False
 
 
+async def _init_carousel_tables(engine):
+    """Initialize carousel tables from migration file."""
+    try:
+        import os
+        from pathlib import Path
+        
+        migration_path = Path(__file__).parent / "db" / "carousel_migration.sql"
+        if not migration_path.exists():
+            logger.error(f"Carousel migration file not found: {migration_path}")
+            return False
+            
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+        
+        async with engine.begin() as conn:
+            raw = await conn.get_raw_connection()
+            await raw.driver_connection.execute(migration_sql)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Carousel table initialization failed: {e}")
+        return False
+
+
 async def _init_agent_chat_tables(engine):
     """Initialize agent chat tables from migration file."""
     try:
@@ -462,6 +487,10 @@ async def lifespan(app: FastAPI):
         await _init_content_scheduler_tables(leadgen_engine)
         logger.info("Content scheduler tables initialized")
 
+        # Carousel tables (crm schema) — text-to-carousel + Instagram posting
+        await _init_carousel_tables(crm_engine)
+        logger.info("Carousel tables initialized")
+
     except Exception as e:
         logger.error("Failed to initialize databases: %s", e)
 
@@ -732,6 +761,7 @@ app.include_router(token_metering.router, prefix="/api/tokens", tags=["token-met
 app.include_router(audit_trail.router, prefix="/api/audit", tags=["audit-trail"])
 app.include_router(vector_memory.router, prefix="/api/memory", tags=["vector-memory"])
 app.include_router(content_scheduler.router, prefix="/api/scheduler", tags=["content-scheduler"])
+app.include_router(carousel.router, prefix="/api/carousel", tags=["carousel"])
 app.include_router(video_formats.router, prefix="/api", tags=["video-formats"])
 app.include_router(simulate.router, prefix="/api/simulate", tags=["simulate"])
 
