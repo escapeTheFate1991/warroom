@@ -43,6 +43,7 @@ const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter
 const ActivityCalendar = dynamic(() => import("@/components/dashboard/ActivityCalendar"), { loading: PanelLoader });
 const PlatformContent = dynamic(() => import("@/components/content/PlatformContent"), { loading: PanelLoader });
 const ContentTracker = dynamic(() => import("@/components/content/ContentTracker"), { loading: PanelLoader });
+const ContentToSocial = dynamic(() => import("@/components/content/ContentToSocial"), { loading: PanelLoader });
 
 // New Platform-Specific Pages
 const InstagramPage = dynamic(() => import("@/components/social/platforms/InstagramPage"), { loading: PanelLoader });
@@ -99,6 +100,7 @@ const SECTIONS = [
     label: "CONTENT",
     items: [
       { id: "pipeline", label: "Pipeline", icon: Film },
+      { id: "content-social", label: "URL → Social", icon: Share2 },
       { id: "scheduler", label: "Scheduler", icon: CalendarDays },
       { id: "recycle", label: "Recycle", icon: BarChart3 },
       { id: "social-instagram", label: "Instagram", icon: Instagram },
@@ -150,7 +152,7 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "intelligence" | "prospects"
+  | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "content-social" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
   | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
   | "scheduler" | "recycle"
@@ -282,6 +284,7 @@ function WarRoom() {
           {activeTab === "content-facebook" && <PlatformContent platform="facebook" />}
           {activeTab === "content-x" && <PlatformContent platform="x" />}
           {activeTab === "pipeline" && <ContentPipeline />}
+          {activeTab === "content-social" && <ContentToSocial />}
           
           {/* New Platform-Specific Pages */}
           {activeTab === "social-instagram" && <InstagramPage />}
