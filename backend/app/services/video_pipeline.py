@@ -23,6 +23,51 @@ from app.services.video_composer import build_composition, generate_remotion_con
 
 logger = logging.getLogger(__name__)
 
+
+async def create_project_from_pipeline(
+    db: AsyncSession, pipeline_id: int, user_id: int,
+    title: str, script: str, digital_copy_id: Optional[int],
+    reference_post_id: Optional[int], assets: List[Dict],
+    status: str = "complete", video_url: str = ""
+):
+    """Bridge: create a ugc_video_projects entry when pipeline completes."""
+    project_id = str(uuid.uuid4())
+    
+    # Find final video URL from assets
+    if not video_url:
+        for asset in reversed(assets):
+            if asset.get("type") in ("composed_video", "scene_video") and asset.get("url"):
+                video_url = asset["url"]
+                break
+    
+    storyboard_json = json.dumps([
+        {"index": a.get("index", i), "type": a.get("type"), "url": a.get("url", ""), "prompt": a.get("prompt", "")}
+        for i, a in enumerate(assets) if a.get("type") in ("scene_image", "scene_video", "composed_video")
+    ])
+    
+    await db.execute(text("""
+        INSERT INTO public.ugc_video_projects (
+            id, user_id, title, script, digital_copy_id, status, video_url,
+            storyboard, generation_id, content_mode
+        ) VALUES (
+            :id, :user_id, :title, :script, :copy_id, :status, :video_url,
+            :storyboard::jsonb, :gen_id, 'competitor_clone'
+        ) ON CONFLICT (id) DO NOTHING
+    """), {
+        "id": project_id,
+        "user_id": user_id,
+        "title": title,
+        "script": script,
+        "copy_id": str(digital_copy_id) if digital_copy_id else None,
+        "status": "completed" if status == "complete" else "processing",
+        "video_url": video_url,
+        "storyboard": storyboard_json,
+        "gen_id": str(pipeline_id),
+    })
+    await db.commit()
+    logger.info(f"Created project {project_id} from pipeline {pipeline_id}")
+    return project_id
+
 # ═══════════════════════════════════════════════════════════════════════
 # DATABASE SETUP
 # ═══════════════════════════════════════════════════════════════════════
@@ -435,6 +480,16 @@ async def create_video_from_competitor_reference(
             # For now, mark as complete
             await _update_pipeline_status(db, pipeline_id, "complete", 100, "complete", assets)
             
+            # Bridge: create project so it shows in My Projects
+            await create_project_from_pipeline(
+                db, pipeline_id, user_id,
+                title=brand_context.get("product_name", "Untitled Video"),
+                script=brand_context.get("script", ""),
+                digital_copy_id=digital_copy_id,
+                reference_post_id=reference_post_id,
+                assets=assets, status="complete"
+            )
+            
             return {
                 "pipeline_id": pipeline_id,
                 "status": "complete",
@@ -697,6 +752,16 @@ async def create_video_from_template(
             # For now, mark as complete
             await _update_pipeline_status(db, pipeline_id, "complete", 100, "complete", assets)
             
+            # Bridge: create project from template pipeline
+            await create_project_from_pipeline(
+                db, pipeline_id, user_id,
+                title=brand_context.get("product_name", "Untitled Video"),
+                script=brand_context.get("script", ""),
+                digital_copy_id=digital_copy_id,
+                reference_post_id=None,
+                assets=assets, status="complete"
+            )
+            
             return {
                 "pipeline_id": pipeline_id,
                 "status": "complete",
@@ -845,6 +910,16 @@ async def get_pipeline_status(db: AsyncSession, pipeline_id: int) -> Dict[str, A
                 # For now, mark as complete
                 await _update_pipeline_status(
                     db, pipeline_id, "complete", 100, "complete", generated_assets
+                )
+                
+                # Bridge: create project so it shows in My Projects
+                await create_project_from_pipeline(
+                    db, pipeline_id, user_id,
+                    title=brand_context.get("product_name", "Untitled Video"),
+                    script=brand_context.get("script", ""),
+                    digital_copy_id=digital_copy_id,
+                    reference_post_id=reference_post_id,
+                    assets=generated_assets, status="complete"
                 )
                 
                 pipeline_data["status"] = "complete"
