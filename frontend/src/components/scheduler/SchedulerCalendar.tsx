@@ -1,587 +1,364 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
-  Calendar, ChevronLeft, ChevronRight, Plus, Clock, Instagram, Youtube, 
-  Facebook, Twitter, MoreHorizontal, Edit2, Trash2, Eye, Settings
+    Calendar as CalendarIcon,
+    ChevronLeft,
+    ChevronRight,
+    Plus,
+    Filter,
+    MoreHorizontal,
+    Instagram,
+    Youtube,
+    Twitter,
+    Facebook,
+    Clock,
+    CheckCircle2,
+    CalendarDays,
+    Loader2,
+    Linkedin,
+    Send,
+    Eye,
+    Edit3,
+    AtSign
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { CreateContentModal } from "./CreateContentModal";
 import { authFetch, API } from "@/lib/api";
-import LoadingState from "@/components/ui/LoadingState";
+
+const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 interface ScheduledPost {
-  id: string;
-  content: string;
-  platform: string;
-  scheduled_for: string;
-  status: string;
-  media_url?: string;
-  account_username?: string;
+    id: string;
+    platform: string;
+    content_type: string;
+    caption: string;
+    scheduled_for: string;
+    status: string;
+    media_path?: string;
+    published_url?: string;
 }
-
-interface CalendarDay {
-  date: Date;
-  posts: ScheduledPost[];
-  isToday: boolean;
-  isCurrentMonth: boolean;
-}
-
-interface OptimalTime {
-  platform: string;
-  hour: number;
-  engagement_score: number;
-  day_of_week: number;
-}
-
-const PLATFORM_CONFIG = {
-  instagram: { name: "Instagram", icon: Instagram, color: "#E4405F", shortColor: "bg-pink-500" },
-  tiktok: { name: "TikTok", icon: TwitterIcon, color: "#000000", shortColor: "bg-gray-900" },
-  youtube: { name: "YouTube", icon: Youtube, color: "#FF0000", shortColor: "bg-red-500" },
-  facebook: { name: "Facebook", icon: Facebook, color: "#1877F2", shortColor: "bg-blue-500" },
-};
-
-// Custom TikTok Icon
-function TwitterIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-5.201 1.743l-.002-.001.002.001a2.895 2.895 0 0 1 3.183-4.51v-3.5a6.329 6.329 0 0 0-1.183-.11C5.6 8.205 2.17 11.634 2.17 15.98c0 4.344 3.429 7.674 7.774 7.674 4.344 0 7.874-3.33 7.874-7.674V10.12a8.23 8.23 0 0 0 4.715 1.49V8.56a4.831 4.831 0 0 1-2.944-1.874z"/>
-    </svg>
-  );
-}
-
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
 
 export default function SchedulerCalendar() {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
-  const [optimalTimes, setOptimalTimes] = useState<OptimalTime[]>([]);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedPost, setSelectedPost] = useState<ScheduledPost | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+    const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+    const [scheduledItems, setScheduledItems] = useState<ScheduledPost[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [publishingId, setPublishingId] = useState<string | null>(null);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // New post form state
-  const [newPost, setNewPost] = useState({
-    title: "",
-    content: "",
-    platforms: [] as string[],
-    scheduled_for: "",
-    media_urls: [] as string[],
-  });
-
-  // Generate calendar grid
-  const generateCalendar = useCallback((): CalendarDay[] => {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startDate = new Date(firstDay);
-    startDate.setDate(startDate.getDate() - firstDay.getDay());
-    
-    const calendar: CalendarDay[] = [];
-    const today = new Date();
-    
-    for (let i = 0; i < 42; i++) {
-      const date = new Date(startDate);
-      date.setDate(startDate.getDate() + i);
-      
-      const postsForDay = scheduledPosts.filter(post => {
-        const postDate = new Date(post.scheduled_for);
-        return (
-          postDate.getDate() === date.getDate() &&
-          postDate.getMonth() === date.getMonth() &&
-          postDate.getFullYear() === date.getFullYear()
-        );
-      });
-      
-      calendar.push({
-        date: new Date(date),
-        posts: postsForDay,
-        isToday: date.toDateString() === today.toDateString(),
-        isCurrentMonth: date.getMonth() === month
-      });
-    }
-    
-    return calendar;
-  }, [currentDate, scheduledPosts]);
-
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const year = currentDate.getFullYear();
-      const month = currentDate.getMonth(); // 0-indexed
-      // Build ISO date range for backend (expects start_date/end_date)
-      const startDate = new Date(year, month, 1).toISOString();
-      const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
-
-      const calendarRes = await authFetch(
-        `${API}/api/scheduler/calendar?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`
-      );
-
-      if (calendarRes.ok) {
-        const calendarData = await calendarRes.json();
-        const posts = calendarData.posts || calendarData.data || calendarData;
-        setScheduledPosts(Array.isArray(posts) ? posts : []);
-      } else {
-        console.error("Failed to fetch calendar:", calendarRes.status);
-        setScheduledPosts([]);
-      }
-
-      // optimal-times endpoint may not exist yet — fail silently
-      try {
-        const timesRes = await authFetch(`${API}/api/scheduler/optimal-times`);
-        if (timesRes.ok) {
-          const timesData = await timesRes.json();
-          const times = timesData.times || timesData.data || timesData;
-          setOptimalTimes(Array.isArray(times) ? times : []);
-        } else {
-          setOptimalTimes([]);
+    const fetchSchedule = async () => {
+        setLoading(true);
+        try {
+            // Build date range for current month
+            const year = selectedDate.getFullYear();
+            const month = selectedDate.getMonth();
+            const startDate = new Date(year, month, 1).toISOString();
+            const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+            
+            const res = await authFetch(
+                `${API}/api/scheduler/calendar?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`
+            );
+            const data = await res.json();
+            setScheduledItems(data.posts || data.data || data || []);
+        } catch (error) {
+            console.error("Failed to fetch schedule", error);
+        } finally {
+            setLoading(false);
         }
-      } catch {
-        setOptimalTimes([]);
-      }
-    } catch (error) {
-      console.error("Failed to load calendar data:", error);
-      setScheduledPosts([]);
-      setOptimalTimes([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentDate]);
+    };
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+    useEffect(() => {
+        fetchSchedule();
+    }, [selectedDate]);
 
-  const handleCreatePost = async () => {
-    if (!newPost.content || !newPost.scheduled_for || newPost.platforms.length === 0) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await authFetch(`${API}/api/scheduler/posts`, {
-        method: "POST",
-        body: JSON.stringify(newPost),
-      });
-      if (res.ok) {
-        setShowAddModal(false);
-        setNewPost({ title: "", content: "", platforms: [], scheduled_for: "", media_urls: [] });
-        await loadData();
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        setError(errData.error || errData.message || "Failed to create post");
-      }
-    } catch (err) {
-      setError("Network error — could not create post");
-      console.error("Create post error:", err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+    const handlePublishNow = async (item: ScheduledPost) => {
+        setPublishingId(item.id);
+        try {
+            const response = await authFetch(`${API}/api/scheduler/posts/${item.id}/publish`, {
+                method: "POST",
+            });
 
-  const handlePublishPost = async (postId: string) => {
-    try {
-      const res = await authFetch(`${API}/api/scheduler/posts/${postId}/publish`, { method: "POST" });
-      if (res.ok) {
-        setSelectedPost(null);
-        await loadData();
-      } else {
-        console.error("Failed to publish post:", res.status);
-      }
-    } catch (err) {
-      console.error("Publish error:", err);
-    }
-  };
+            if (response.ok) {
+                await fetchSchedule();
+            } else {
+                const data = await response.json();
+                alert(data.error || "Failed to publish");
+            }
+        } catch (error) {
+            console.error("Publish error", error);
+        } finally {
+            setPublishingId(null);
+        }
+    };
 
-  const handleDeletePost = async (postId: string) => {
-    try {
-      const res = await authFetch(`${API}/api/scheduler/posts/${postId}`, { method: "DELETE" });
-      if (res.ok) {
-        setSelectedPost(null);
-        await loadData();
-      } else {
-        console.error("Failed to delete post:", res.status);
-      }
-    } catch (err) {
-      console.error("Delete error:", err);
-    }
-  };
+    // Calendar generation logic
+    const startOfMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    const endOfMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0);
+    const dateOffset = startOfMonth.getDay();
 
-  const handlePostClick = async (post: ScheduledPost) => {
-    try {
-      const res = await authFetch(`${API}/api/scheduler/posts/${post.id}`);
-      if (res.ok) {
-        const detail = await res.json();
-        setSelectedPost(detail.post || detail.data || detail);
-      } else {
-        setSelectedPost(post); // Fallback to calendar data
-      }
-    } catch {
-      setSelectedPost(post);
-    }
-  };
+    const calendarGrid = Array.from({ length: 42 }, (_, i) => {
+        const date = new Date(startOfMonth);
+        date.setDate(i - dateOffset + 1);
 
-  const togglePlatform = (platform: string) => {
-    setNewPost(prev => ({
-      ...prev,
-      platforms: prev.platforms.includes(platform)
-        ? prev.platforms.filter(p => p !== platform)
-        : [...prev.platforms, platform],
-    }));
-  };
+        const itemsForDate = scheduledItems.filter(item => {
+            if (!item.scheduled_for) return false;
+            const d = new Date(item.scheduled_for);
+            return d.getDate() === date.getDate() &&
+                d.getMonth() === date.getMonth() &&
+                d.getFullYear() === date.getFullYear();
+        });
 
-  const navigateMonth = (direction: "prev" | "next") => {
-    setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setMonth(prev.getMonth() + (direction === "prev" ? -1 : 1));
-      return newDate;
+        return {
+            date,
+            isCurrentMonth: date.getMonth() === selectedDate.getMonth(),
+            items: itemsForDate
+        };
     });
-  };
 
-  const formatTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true
+    const selectedDateItems = scheduledItems.filter(item => {
+        if (!item.scheduled_for) return false;
+        const d = new Date(item.scheduled_for);
+        return d.getDate() === selectedDate.getDate() &&
+            d.getMonth() === selectedDate.getMonth() &&
+            d.getFullYear() === selectedDate.getFullYear();
     });
-  };
 
-  const calendarDays = generateCalendar();
+    const getPlatformIcon = (platform: string) => {
+        switch (platform.toLowerCase()) {
+            case 'instagram': return <Instagram className="h-3 w-3" />;
+            case 'youtube': return <Youtube className="h-3 w-3" />;
+            case 'twitter': return <Twitter className="h-3 w-3" />;
+            case 'facebook': return <Facebook className="h-3 w-3" />;
+            case 'linkedin': return <Linkedin className="h-3 w-3" />;
+            case 'threads': return <AtSign className="h-3 w-3" />;
+            default: return <CalendarIcon className="h-3 w-3" />;
+        }
+    };
 
-  if (loading) {
-    return <LoadingState />;
-  }
-
-  return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="h-14 border-b border-warroom-border flex items-center justify-between px-6 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <Calendar size={20} className="text-warroom-accent" />
-          <div>
-            <h2 className="text-lg font-bold">Content Scheduler</h2>
-            <p className="text-[11px] text-warroom-muted -mt-0.5">
-              Schedule and manage posts across all platforms
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-warroom-accent text-white text-sm font-medium hover:bg-warroom-accent/80 transition"
-          >
-            <Plus size={14} />
-            Schedule Post
-          </button>
-          <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-warroom-surface border border-warroom-border text-sm hover:border-warroom-accent/30 transition">
-            <Settings size={14} />
-            Settings
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-hidden flex">
-        {/* Calendar */}
-        <div className="flex-1 p-6">
-          {/* Calendar Header */}
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold">
-              {MONTHS[currentDate.getMonth()]} {currentDate.getFullYear()}
-            </h3>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigateMonth("prev")}
-                className="p-2 rounded-lg bg-warroom-surface border border-warroom-border hover:border-warroom-accent/30 transition"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <button
-                onClick={() => setCurrentDate(new Date())}
-                className="px-3 py-2 rounded-lg bg-warroom-surface border border-warroom-border text-sm hover:border-warroom-accent/30 transition"
-              >
-                Today
-              </button>
-              <button
-                onClick={() => navigateMonth("next")}
-                className="p-2 rounded-lg bg-warroom-surface border border-warroom-border hover:border-warroom-accent/30 transition"
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-
-          {/* Calendar Grid */}
-          <div className="grid grid-cols-7 gap-px bg-warroom-border rounded-lg overflow-hidden">
-            {/* Day Headers */}
-            {DAYS.map(day => (
-              <div key={day} className="bg-warroom-surface p-3 text-center">
-                <span className="text-xs font-medium text-warroom-muted">{day}</span>
-              </div>
-            ))}
-
-            {/* Calendar Days */}
-            {calendarDays.map((day, index) => (
-              <div
-                key={index}
-                className={`bg-warroom-bg min-h-[120px] p-2 cursor-pointer hover:bg-warroom-surface/50 transition ${
-                  day.isToday ? "bg-warroom-accent/5 border-2 border-warroom-accent/20" : ""
-                } ${!day.isCurrentMonth ? "opacity-40" : ""}`}
-                onClick={() => setSelectedDate(day.date)}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`text-sm font-medium ${
-                    day.isToday ? "text-warroom-accent" : day.isCurrentMonth ? "text-warroom-text" : "text-warroom-muted"
-                  }`}>
-                    {day.date.getDate()}
-                  </span>
-                  {day.posts.length > 0 && (
-                    <span className="text-xs px-1 py-0.5 rounded bg-warroom-accent/20 text-warroom-accent">
-                      {day.posts.length}
-                    </span>
-                  )}
+    return (
+        <div className="max-w-7xl mx-auto space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-warroom-text tracking-tight">Content Calendar</h1>
+                    <p className="text-warroom-muted mt-1 text-base sm:text-lg">Manage and schedule your AI-generated campaigns.</p>
                 </div>
-                
-                {/* Post Pills */}
-                <div className="space-y-1">
-                  {day.posts.slice(0, 3).map((post) => {
-                    const config = PLATFORM_CONFIG[post.platform as keyof typeof PLATFORM_CONFIG];
-                    return (
-                      <div
-                        key={post.id}
-                        className={`text-xs px-2 py-1 rounded ${config.shortColor} text-white truncate cursor-pointer hover:opacity-80`}
-                        title={`${formatTime(post.scheduled_for)} - ${post.content}`}
-                        onClick={(e) => { e.stopPropagation(); handlePostClick(post); }}
-                      >
-                        {formatTime(post.scheduled_for)}
-                      </div>
-                    );
-                  })}
-                  {day.posts.length > 3 && (
-                    <div className="text-xs px-2 py-1 rounded bg-warroom-muted text-white">
-                      +{day.posts.length - 3} more
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Sidebar */}
-        <div className="w-80 border-l border-warroom-border p-6">
-          {/* Optimal Times */}
-          <div className="mb-6">
-            <h4 className="text-sm font-bold mb-3">Optimal Posting Times</h4>
-            <div className="space-y-2">
-              {optimalTimes.map((time, index) => {
-                const config = PLATFORM_CONFIG[time.platform as keyof typeof PLATFORM_CONFIG];
-                const Icon = config.icon;
-                return (
-                  <div key={index} className="flex items-center justify-between p-3 bg-warroom-surface border border-warroom-border rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Icon size={16} style={{ color: config.color }} />
-                      <span className="text-sm">{config.name}</span>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-medium">
-                        {time.hour}:00 {time.hour >= 12 ? 'PM' : 'AM'}
-                      </div>
-                      <div className="text-xs text-warroom-muted">
-                        {time.engagement_score}% engagement
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Upcoming Posts */}
-          <div>
-            <h4 className="text-sm font-bold mb-3">Upcoming Posts</h4>
-            <div className="space-y-3">
-              {scheduledPosts
-                .filter(post => new Date(post.scheduled_for) > new Date())
-                .slice(0, 5)
-                .map((post) => {
-                  const config = PLATFORM_CONFIG[post.platform as keyof typeof PLATFORM_CONFIG];
-                  const Icon = config.icon;
-                  return (
-                    <div key={post.id} className="p-3 bg-warroom-surface border border-warroom-border rounded-lg">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <Icon size={14} style={{ color: config.color }} />
-                          <span className="text-xs text-warroom-muted">{post.account_username}</span>
-                        </div>
-                        <button className="opacity-0 group-hover:opacity-100">
-                          <MoreHorizontal size={14} className="text-warroom-muted" />
-                        </button>
-                      </div>
-                      <p className="text-sm line-clamp-2 mb-2">{post.content}</p>
-                      <div className="flex items-center gap-2 text-xs text-warroom-muted">
-                        <Clock size={12} />
-                        {new Date(post.scheduled_for).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                          hour12: true
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Add Post Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowAddModal(false)}>
-          <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4">Schedule New Post</h3>
-            {error && (
-              <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
-            )}
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Title (optional)</label>
-                <input
-                  type="text"
-                  value={newPost.title}
-                  onChange={(e) => setNewPost(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="Post title"
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Content *</label>
-                <textarea
-                  value={newPost.content}
-                  onChange={(e) => setNewPost(prev => ({ ...prev, content: e.target.value }))}
-                  placeholder="Write your post content..."
-                  rows={4}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm resize-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Platforms *</label>
-                <div className="flex gap-2">
-                  {Object.entries(PLATFORM_CONFIG).map(([key, config]) => {
-                    const Icon = config.icon;
-                    const selected = newPost.platforms.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => togglePlatform(key)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition ${
-                          selected
-                            ? "border-warroom-accent bg-warroom-accent/10 text-warroom-accent"
-                            : "border-warroom-border text-warroom-muted hover:border-warroom-accent/30"
-                        }`}
-                      >
-                        <Icon size={14} />
-                        {config.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Scheduled For *</label>
-                <input
-                  type="datetime-local"
-                  value={newPost.scheduled_for}
-                  onChange={(e) => setNewPost(prev => ({ ...prev, scheduled_for: e.target.value }))}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                onClick={() => { setShowAddModal(false); setError(null); }}
-                className="px-4 py-2 text-sm rounded-lg text-warroom-muted hover:text-warroom-text transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreatePost}
-                disabled={submitting || !newPost.content || !newPost.scheduled_for || newPost.platforms.length === 0}
-                className="px-4 py-2 text-sm rounded-lg bg-warroom-accent text-white hover:bg-warroom-accent/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {submitting ? "Scheduling..." : "Schedule Post"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Post Detail Modal */}
-      {selectedPost && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setSelectedPost(null)}>
-          <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6 w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-start justify-between mb-4">
-              <h3 className="text-lg font-bold">Post Detail</h3>
-              <div className="flex items-center gap-1">
-                {(() => {
-                  const config = PLATFORM_CONFIG[selectedPost.platform as keyof typeof PLATFORM_CONFIG];
-                  if (!config) return null;
-                  const Icon = config.icon;
-                  return <Icon size={16} style={{ color: config.color }} />;
-                })()}
-                <span className="text-xs text-warroom-muted">{selectedPost.platform}</span>
-              </div>
-            </div>
-            <p className="text-sm mb-2">{selectedPost.content}</p>
-            <div className="flex items-center gap-2 text-xs text-warroom-muted mb-4">
-              <Clock size={12} />
-              {new Date(selectedPost.scheduled_for).toLocaleString("en-US", {
-                weekday: "short", month: "short", day: "numeric",
-                hour: "numeric", minute: "2-digit", hour12: true,
-              })}
-            </div>
-            <div className="text-xs mb-4">
-              <span className={`px-2 py-0.5 rounded-full ${
-                selectedPost.status === "published" ? "bg-green-500/20 text-green-400" :
-                selectedPost.status === "failed" ? "bg-red-500/20 text-red-400" :
-                "bg-warroom-accent/20 text-warroom-accent"
-              }`}>
-                {selectedPost.status}
-              </span>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => handleDeletePost(selectedPost.id)}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg text-red-400 hover:bg-red-500/10 transition"
-              >
-                <Trash2 size={14} />
-                Delete
-              </button>
-              {selectedPost.status === "scheduled" && (
                 <button
-                  onClick={() => handlePublishPost(selectedPost.id)}
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg bg-warroom-accent text-white hover:bg-warroom-accent/80 transition"
+                    onClick={() => setIsCreateModalOpen(true)}
+                    className="flex items-center gap-2 bg-warroom-accent hover:bg-warroom-accent/90 text-white px-4 sm:px-6 py-3 rounded-xl font-bold transition-all shadow-lg text-sm sm:text-base"
                 >
-                  <Eye size={14} />
-                  Publish Now
+                    <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
+                    <span className="hidden sm:inline">SCHEDULE NEW</span>
+                    <span className="sm:hidden">NEW</span>
                 </button>
-              )}
-              <button
-                onClick={() => setSelectedPost(null)}
-                className="px-4 py-2 text-sm rounded-lg text-warroom-muted hover:text-warroom-text transition"
-              >
-                Close
-              </button>
             </div>
-          </div>
+
+            {/* Create Content Modal */}
+            <CreateContentModal
+                isOpen={isCreateModalOpen}
+                onClose={() => {
+                    setIsCreateModalOpen(false);
+                    fetchSchedule(); // Refresh schedule after creating content
+                }}
+            />
+
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                <div className="lg:col-span-1 lg:order-2 order-1">
+                    <div className="bg-warroom-surface rounded-3xl p-6 h-full flex flex-col min-h-[600px] border border-warroom-border shadow-xl">
+                        <div className="flex items-center justify-between mb-8 pb-4 border-b border-warroom-border">
+                            <div className="flex items-center gap-3">
+                                <div className="h-12 w-12 rounded-2xl bg-warroom-accent/10 flex items-center justify-center text-warroom-accent border border-warroom-accent/20">
+                                    <CalendarDays className="h-6 w-6" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-warroom-text uppercase tracking-tighter">
+                                        {selectedDate.toLocaleString('default', { month: 'short', day: 'numeric' })}
+                                    </h3>
+                                    <p className="text-xs text-warroom-muted font-bold">{selectedDateItems.length} Items</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 space-y-8 overflow-y-auto max-h-[500px] pr-2 custom-scrollbar">
+                            {selectedDateItems.map(item => (
+                                <motion.div 
+                                    key={item.id} 
+                                    className="relative group/item"
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ duration: 0.3 }}
+                                >
+                                    <div className={cn(
+                                        "absolute left-0 top-0 bottom-0 w-1 rounded-full transition-all group-hover/item:w-1.5",
+                                        item.status === 'published' ? 'bg-emerald-500' : 'bg-warroom-accent'
+                                    )}></div>
+                                    <div className="pl-6 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-black text-warroom-muted uppercase tracking-widest flex items-center gap-1.5">
+                                                <Clock className="h-3 w-3" />
+                                                {new Date(item.scheduled_for).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                            <span className={cn(
+                                                "text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-tighter",
+                                                item.status === 'published' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-warroom-accent/10 text-warroom-accent'
+                                            )}>
+                                                {item.status}
+                                            </span>
+                                        </div>
+                                        <h4 className="text-warroom-text font-bold leading-tight group-hover/item:text-warroom-accent transition-colors cursor-pointer line-clamp-2 uppercase tracking-tighter italic">
+                                            {item.caption}
+                                        </h4>
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex items-center gap-1.5 text-[10px] text-warroom-muted font-black uppercase tracking-widest">
+                                                {getPlatformIcon(item.platform)}
+                                                <span>{item.platform}</span>
+                                            </div>
+                                            <span className="text-[10px] text-warroom-muted uppercase font-black tracking-tighter">{item.content_type || 'Post'}</span>
+                                        </div>
+                                        <div className="pt-2 flex gap-2">
+                                            <button className="h-8 flex-1 bg-warroom-bg hover:bg-warroom-surface text-warroom-text rounded-lg text-[10px] font-black uppercase tracking-widest transition-all border border-warroom-border flex items-center justify-center gap-2">
+                                                <Eye className="h-3 w-3" /> Preview
+                                            </button>
+                                            <button
+                                                disabled={item.status === 'published' || publishingId === item.id}
+                                                onClick={() => handlePublishNow(item)}
+                                                className={cn(
+                                                    "h-8 flex-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all border flex items-center justify-center gap-2 shadow-lg",
+                                                    item.status === 'published' ? "bg-warroom-surface border-warroom-border text-warroom-muted opacity-50" : "bg-warroom-accent/20 border-warroom-accent/30 text-warroom-accent hover:bg-warroom-accent/30"
+                                                )}
+                                            >
+                                                {publishingId === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                                                {item.status === 'published' ? "Published" : "Publish"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            ))}
+
+                            {selectedDateItems.length === 0 && (
+                                <div className="flex-1 flex flex-col items-center justify-center text-center space-y-4 py-20 px-4">
+                                    <div className="h-20 w-20 rounded-full bg-warroom-surface/30 flex items-center justify-center border border-dashed border-warroom-border">
+                                        <CalendarIcon className="h-8 w-8 text-warroom-muted" />
+                                    </div>
+                                    <div>
+                                        <p className="text-warroom-text font-bold uppercase tracking-tighter">No items today</p>
+                                        <p className="text-xs text-warroom-muted mt-1">Ready to create magic?</p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-auto pt-6 border-t border-warroom-border">
+                            <div className="bg-warroom-bg rounded-2xl p-5 border border-warroom-border/50 space-y-3 shadow-2xl">
+                                <p className="text-[10px] font-black text-warroom-text uppercase tracking-widest flex items-center gap-2">
+                                    <CheckCircle2 className="h-3 w-3 text-emerald-500" /> Smart Flow Active
+                                </p>
+                                <p className="text-[10px] text-warroom-muted leading-relaxed font-medium">
+                                    AI is monitoring {selectedDateItems.length} items for global peak engagement times.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="lg:col-span-3 lg:order-1 order-2 space-y-6">
+                    <div className="bg-warroom-surface rounded-3xl overflow-hidden border border-warroom-border">
+                        <div className="p-4 sm:p-6 border-b border-warroom-border">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="flex items-center gap-2 sm:gap-4">
+                                    <h2 className="text-lg sm:text-xl font-black text-warroom-text uppercase tracking-tighter">
+                                        {selectedDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                                    </h2>
+                                    <div className="flex gap-1">
+                                        <button
+                                            onClick={() => setSelectedDate(new Date(selectedDate.setMonth(selectedDate.getMonth() - 1)))}
+                                            className="h-8 w-8 rounded-lg hover:bg-warroom-surface flex items-center justify-center transition-colors text-warroom-muted"
+                                        >
+                                            <ChevronLeft className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => setSelectedDate(new Date(selectedDate.setMonth(selectedDate.getMonth() + 1)))}
+                                            className="h-8 w-8 rounded-lg hover:bg-warroom-surface flex items-center justify-center transition-colors text-warroom-muted"
+                                        >
+                                            <ChevronRight className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 sm:gap-4">
+                                    <div className="flex flex-wrap items-center gap-2 sm:gap-4 sm:border-r sm:border-warroom-border sm:pr-4">
+                                        <div className="flex items-center gap-1.5">
+                                            <div className="h-2 w-2 rounded-full bg-warroom-accent shadow-[0_0_8px_rgba(99,102,241,0.6)]"></div>
+                                            <span className="text-[10px] font-bold text-warroom-muted uppercase tracking-widest">Scheduled</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                            <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
+                                            <span className="text-[10px] font-bold text-warroom-muted uppercase tracking-widest">Published</span>
+                                        </div>
+                                    </div>
+                                    <button className="h-10 w-10 flex items-center justify-center rounded-xl bg-warroom-bg/50 border border-warroom-border text-warroom-muted hover:text-warroom-text transition-all">
+                                        <Filter className="h-5 w-5" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-7 text-center py-4 bg-warroom-bg/30">
+                            {days.map(day => (
+                                <div key={day} className="text-[10px] font-black text-warroom-muted uppercase tracking-widest">{day}</div>
+                            ))}
+                        </div>
+
+                        <div className="grid grid-cols-7 border-t border-warroom-border">
+                            {calendarGrid.map((slot, i) => (
+                                <div
+                                    key={i}
+                                    onClick={() => setSelectedDate(slot.date)}
+                                    className={cn(
+                                        "min-h-[80px] md:min-h-[140px] p-1 sm:p-2 border-r border-b border-warroom-border transition-all cursor-pointer group relative",
+                                        !slot.isCurrentMonth ? "bg-warroom-bg/40 opacity-20" : "hover:bg-warroom-accent/5",
+                                        slot.date.toDateString() === selectedDate.toDateString() ? "bg-warroom-accent/5" : ""
+                                    )}
+                                >
+                                    <div className="flex justify-between items-start mb-2">
+                                        <span className={cn(
+                                            "text-xs font-bold h-7 w-7 flex items-center justify-center rounded-lg transition-all",
+                                            slot.date.toDateString() === selectedDate.toDateString() ? "bg-warroom-accent text-white shadow-lg" : "text-warroom-muted group-hover:text-warroom-text"
+                                        )}>
+                                            {slot.date.getDate()}
+                                        </span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        {slot.items.slice(0, 3).map(item => (
+                                            <div
+                                                key={item.id}
+                                                className={cn(
+                                                    "p-2 rounded-lg text-[10px] font-bold border flex flex-col gap-1 transition-all",
+                                                    item.status === 'published'
+                                                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                                        : 'bg-warroom-accent/10 border-warroom-accent/20 text-warroom-accent shadow-sm'
+                                                )}
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <span className="truncate">{item.content_type || 'Post'}</span>
+                                                    {getPlatformIcon(item.platform)}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {slot.items.length > 3 && (
+                                            <div className="text-[8px] text-warroom-muted font-bold text-center">
+                                                + {slot.items.length - 3} more
+                                            </div>
+                                        )}
+                                    </div>
+                                    {slot.date.toDateString() === new Date().toDateString() && (
+                                        <div className="absolute top-2 right-2 h-1.5 w-1.5 bg-warroom-accent rounded-full animate-ping"></div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-      )}
-    </div>
-  );
+    );
 }
