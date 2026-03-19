@@ -2548,7 +2548,7 @@ class VideoPipelineQuickRequest(BaseModel):
     digital_copy_id: int = Field(..., description="Digital copy to use")
 
 async def _run_video_pipeline_background(
-    db: AsyncSession,
+    pipeline_id: int,
     org_id: int,
     user_id: int,
     reference_post_id: int,
@@ -2557,14 +2557,28 @@ async def _run_video_pipeline_background(
     api_key: str
 ):
     """Background task to run the full video pipeline."""
-    try:
-        result = await create_video_from_competitor_reference(
-            db, org_id, user_id, reference_post_id, 
-            digital_copy_id, brand_context, api_key
-        )
-        logger.info(f"Pipeline {result.get('pipeline_id')} completed with status: {result.get('status')}")
-    except Exception as e:
-        logger.error(f"Background pipeline failed: {e}")
+    from app.db.crm_db import crm_engine
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy import text
+    
+    async with AsyncSession(crm_engine) as db:
+        try:
+            result = await create_video_from_competitor_reference(
+                db, org_id, user_id, reference_post_id, 
+                digital_copy_id, brand_context, api_key,
+                existing_pipeline_id=pipeline_id
+            )
+            logger.info(f"Pipeline {pipeline_id} completed with status: {result.get('status')}")
+        except Exception as e:
+            logger.error(f"Background pipeline {pipeline_id} failed: {e}")
+            # Update pipeline status to failed
+            try:
+                await db.execute(text(
+                    "UPDATE crm.video_pipelines SET status = 'failed', current_step = :err WHERE id = :pid"
+                ), {"err": str(e)[:500], "pid": pipeline_id})
+                await db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update pipeline {pipeline_id} status: {db_error}")
 
 @router.post("/pipeline/start")
 async def start_video_pipeline(
@@ -2593,16 +2607,40 @@ async def start_video_pipeline(
             if not api_key:
                 raise HTTPException(status_code=400, detail="Google AI Studio API key not configured")
         
-        # Start the pipeline synchronously to get initial result
-        result = await create_video_from_competitor_reference(
-            db, org_id, current_user.id, request.reference_post_id,
-            request.digital_copy_id, request.brand_context, api_key
-        )
+        # Create pipeline record first
+        from app.services.video_pipeline import init_pipeline_table
+        await init_pipeline_table(db)
         
+        result = await db.execute(text("""
+            INSERT INTO crm.video_pipelines (
+                org_id, user_id, digital_copy_id, reference_post_id, 
+                status, current_step, progress
+            ) VALUES (
+                :org_id, :user_id, :digital_copy_id, :reference_post_id,
+                'pending', 'queued', 0
+            ) RETURNING id
+        """), {
+            "org_id": org_id,
+            "user_id": current_user.id,
+            "digital_copy_id": request.digital_copy_id,
+            "reference_post_id": request.reference_post_id
+        })
+        
+        pipeline_id = result.scalar()
+        await db.commit()
+        
+        # Launch background task
+        import asyncio
+        asyncio.create_task(_run_video_pipeline_background(
+            pipeline_id, org_id, current_user.id, request.reference_post_id,
+            request.digital_copy_id, request.brand_context, api_key
+        ))
+        
+        # Return immediately
         return {
-            "pipeline_id": result["pipeline_id"],
-            "status": result["status"],
-            "message": "Pipeline started successfully"
+            "pipeline_id": pipeline_id,
+            "status": "pending",
+            "message": "Pipeline started"
         }
         
     except ValueError as e:

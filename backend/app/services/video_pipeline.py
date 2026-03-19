@@ -7,6 +7,9 @@ import os
 import json
 import logging
 import uuid
+import asyncio
+import httpx
+import tempfile
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
@@ -188,6 +191,14 @@ async def _update_pipeline_status(
     await db.execute(text(query), update_data)
     await db.commit()
 
+async def _download_asset(url: str, dest: str) -> None:
+    """Download asset from URL to local file."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        with open(dest, "wb") as f:
+            f.write(resp.content)
+
 async def create_video_from_competitor_reference(
     db: AsyncSession,
     org_id: int,
@@ -195,7 +206,8 @@ async def create_video_from_competitor_reference(
     reference_post_id: int,
     digital_copy_id: int,
     brand_context: Dict[str, Any],
-    api_key: str
+    api_key: str,
+    existing_pipeline_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Full pipeline: competitor post → script → DNA → scene images → video → composition.
@@ -215,24 +227,28 @@ async def create_video_from_competitor_reference(
     # Initialize pipeline table if needed
     await init_pipeline_table(db)
     
-    # Create pipeline record
-    result = await db.execute(text("""
-        INSERT INTO crm.video_pipelines (
-            org_id, user_id, digital_copy_id, reference_post_id, 
-            status, current_step, progress
-        ) VALUES (
-            :org_id, :user_id, :digital_copy_id, :reference_post_id,
-            'pending', 'loading_reference', 0
-        ) RETURNING id
-    """), {
-        "org_id": org_id,
-        "user_id": user_id,
-        "digital_copy_id": digital_copy_id,
-        "reference_post_id": reference_post_id
-    })
-    
-    pipeline_id = result.scalar()
-    await db.commit()
+    # Use existing pipeline_id or create new record
+    if existing_pipeline_id:
+        pipeline_id = existing_pipeline_id
+    else:
+        # Create pipeline record
+        result = await db.execute(text("""
+            INSERT INTO crm.video_pipelines (
+                org_id, user_id, digital_copy_id, reference_post_id, 
+                status, current_step, progress
+            ) VALUES (
+                :org_id, :user_id, :digital_copy_id, :reference_post_id,
+                'pending', 'loading_reference', 0
+            ) RETURNING id
+        """), {
+            "org_id": org_id,
+            "user_id": user_id,
+            "digital_copy_id": digital_copy_id,
+            "reference_post_id": reference_post_id
+        })
+        
+        pipeline_id = result.scalar()
+        await db.commit()
     
     assets = []
     
