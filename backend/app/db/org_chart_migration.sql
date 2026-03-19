@@ -1,47 +1,86 @@
 -- Org Chart & Goal Ancestry Migration for War Room
 -- Adds organizational structure and goal hierarchy tracking
 
-BEGIN;
+-- Check if tables exist first to avoid conflicts
+DO $$
+BEGIN
+    -- Create org_members table if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables 
+                  WHERE table_schema = 'crm' AND table_name = 'org_members') THEN
+        CREATE TABLE crm.org_members (
+            id SERIAL PRIMARY KEY,
+            org_id INT NOT NULL,
+            member_type TEXT NOT NULL DEFAULT 'agent', -- 'human' | 'agent'
+            agent_id INT,
+            user_id INT,
+            name TEXT NOT NULL,
+            title TEXT,
+            department TEXT,
+            reports_to_id INT,
+            role TEXT DEFAULT 'employee', -- 'ceo' | 'director' | 'manager' | 'employee' | 'contractor'
+            skills JSONB DEFAULT '[]'::jsonb,
+            budget_allocation NUMERIC(12,2) DEFAULT 0,
+            status TEXT DEFAULT 'active', -- 'active' | 'onboarding' | 'offboarded'
+            hired_at TIMESTAMPTZ DEFAULT NOW(),
+            metadata JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    END IF;
 
--- Set schema to CRM where this functionality belongs
-SET search_path TO crm, public;
+    -- Create org_goals table if it doesn't exist (renamed to avoid conflict with existing goals table)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables 
+                  WHERE table_schema = 'crm' AND table_name = 'org_goals') THEN
+        CREATE TABLE crm.org_goals (
+            id SERIAL PRIMARY KEY,
+            org_id INT NOT NULL,
+            parent_goal_id INT,
+            title TEXT NOT NULL,
+            description TEXT,
+            goal_type TEXT DEFAULT 'project', -- 'mission' | 'department' | 'project' | 'task'
+            owner_member_id INT,
+            status TEXT DEFAULT 'active', -- 'active' | 'paused' | 'completed' | 'cancelled'
+            progress INT DEFAULT 0,
+            due_date DATE,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    END IF;
+END $$;
 
--- Organizational Members Table
-CREATE TABLE IF NOT EXISTS crm.org_members (
-    id SERIAL PRIMARY KEY,
-    org_id INT NOT NULL,
-    member_type TEXT NOT NULL DEFAULT 'agent', -- 'human' | 'agent'
-    agent_id INT,
-    user_id INT,
-    name TEXT NOT NULL,
-    title TEXT,
-    department TEXT,
-    reports_to_id INT REFERENCES crm.org_members(id) ON DELETE SET NULL,
-    role TEXT DEFAULT 'employee', -- 'ceo' | 'director' | 'manager' | 'employee' | 'contractor'
-    skills JSONB DEFAULT '[]'::jsonb,
-    budget_allocation NUMERIC(12,2) DEFAULT 0,
-    status TEXT DEFAULT 'active', -- 'active' | 'onboarding' | 'offboarded'
-    hired_at TIMESTAMPTZ DEFAULT NOW(),
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- Add foreign key constraints after table creation (only if not already exist)
+DO $$
+BEGIN
+    -- Add self-referencing foreign key for org_members reports_to_id
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                  WHERE constraint_name = 'fk_org_members_reports_to' 
+                  AND table_schema = 'crm' 
+                  AND table_name = 'org_members') THEN
+        ALTER TABLE crm.org_members 
+            ADD CONSTRAINT fk_org_members_reports_to 
+            FOREIGN KEY (reports_to_id) REFERENCES crm.org_members(id) ON DELETE SET NULL;
+    END IF;
 
--- Goals Table with hierarchy support
-CREATE TABLE IF NOT EXISTS crm.goals (
-    id SERIAL PRIMARY KEY,
-    org_id INT NOT NULL,
-    parent_goal_id INT REFERENCES crm.goals(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    description TEXT,
-    goal_type TEXT DEFAULT 'project', -- 'mission' | 'department' | 'project' | 'task'
-    owner_member_id INT REFERENCES crm.org_members(id) ON DELETE SET NULL,
-    status TEXT DEFAULT 'active', -- 'active' | 'paused' | 'completed' | 'cancelled'
-    progress INT DEFAULT 0,
-    due_date DATE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+    -- Add foreign key for org_goals parent relationship
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                  WHERE constraint_name = 'fk_org_goals_parent' 
+                  AND table_schema = 'crm' 
+                  AND table_name = 'org_goals') THEN
+        ALTER TABLE crm.org_goals 
+            ADD CONSTRAINT fk_org_goals_parent 
+            FOREIGN KEY (parent_goal_id) REFERENCES crm.org_goals(id) ON DELETE CASCADE;
+    END IF;
+    
+    -- Add foreign key for org_goals owner relationship
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints 
+                  WHERE constraint_name = 'fk_org_goals_owner' 
+                  AND table_schema = 'crm' 
+                  AND table_name = 'org_goals') THEN
+        ALTER TABLE crm.org_goals 
+            ADD CONSTRAINT fk_org_goals_owner 
+            FOREIGN KEY (owner_member_id) REFERENCES crm.org_members(id) ON DELETE SET NULL;
+    END IF;
+END $$;
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_org_members_org_id ON crm.org_members(org_id);
@@ -71,7 +110,7 @@ UPDATE crm.org_members SET reports_to_id = (
 ) WHERE name IN ('Copy Agent', 'Design Agent', 'Dev Agent') AND org_id = 1;
 
 -- Add some demo goals
-INSERT INTO crm.goals (org_id, title, description, goal_type, status, progress)
+INSERT INTO crm.org_goals (org_id, title, description, goal_type, status, progress)
 VALUES 
     (1, 'Build War Room Platform', 'Complete development of the War Room CRM and AI platform', 'mission', 'active', 75),
     (1, 'Implement Org Chart System', 'Build visual org chart with agent/human hierarchy', 'project', 'active', 0),
@@ -79,16 +118,16 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 -- Set goal ownership and hierarchy
-UPDATE crm.goals SET owner_member_id = (
+UPDATE crm.org_goals SET owner_member_id = (
     SELECT id FROM crm.org_members WHERE name = 'Eddy Stuff' AND org_id = 1
 ) WHERE title = 'Build War Room Platform' AND org_id = 1;
 
-UPDATE crm.goals SET 
-    parent_goal_id = (SELECT id FROM crm.goals WHERE title = 'Build War Room Platform' AND org_id = 1),
+UPDATE crm.org_goals SET 
+    parent_goal_id = (SELECT id FROM crm.org_goals WHERE title = 'Build War Room Platform' AND org_id = 1),
     owner_member_id = (SELECT id FROM crm.org_members WHERE name = 'Dev Agent' AND org_id = 1)
 WHERE title = 'Implement Org Chart System' AND org_id = 1;
 
-UPDATE crm.goals SET owner_member_id = (
+UPDATE crm.org_goals SET owner_member_id = (
     SELECT id FROM crm.org_members WHERE name = 'Copy Agent' AND org_id = 1
 ) WHERE title = 'Launch Marketing Campaign' AND org_id = 1;
 

@@ -429,7 +429,7 @@ async def move_org_member(
 
 # ── Goals Endpoints ─────────────────────────────────────────────
 
-@router.get("/api/goals", response_model=List[Goal])
+@router.get("/api/org-goals", response_model=List[Goal])
 async def list_goals(
     request: Request,
     db=Depends(get_tenant_db)
@@ -440,7 +440,7 @@ async def list_goals(
     query = """
         SELECT id, org_id, parent_goal_id, title, description, goal_type,
                owner_member_id, status, progress, due_date, created_at, updated_at
-        FROM goals
+        FROM org_goals
         WHERE org_id = :org_id
         ORDER BY created_at ASC
     """
@@ -466,7 +466,7 @@ async def list_goals(
     
     return goals
 
-@router.post("/api/goals", response_model=Goal)
+@router.post("/api/org-goals", response_model=Goal)
 async def create_goal(
     goal: GoalCreate,
     request: Request,
@@ -477,7 +477,7 @@ async def create_goal(
     
     # Validate parent_goal_id if provided
     if goal.parent_goal_id:
-        check_query = "SELECT id FROM goals WHERE id = :parent_goal_id AND org_id = :org_id"
+        check_query = "SELECT id FROM org_goals WHERE id = :parent_goal_id AND org_id = :org_id"
         check_result = await db.execute(text(check_query), {
             "parent_goal_id": goal.parent_goal_id,
             "org_id": org_id
@@ -496,7 +496,7 @@ async def create_goal(
             raise HTTPException(status_code=404, detail="Owner member not found")
     
     insert_query = """
-        INSERT INTO goals 
+        INSERT INTO org_goals 
         (org_id, parent_goal_id, title, description, goal_type, owner_member_id, due_date)
         VALUES 
         (:org_id, :parent_goal_id, :title, :description, :goal_type, :owner_member_id, :due_date)
@@ -531,7 +531,7 @@ async def create_goal(
         updated_at=row.updated_at.isoformat() if row.updated_at else ""
     )
 
-@router.put("/api/goals/{goal_id}", response_model=Goal)
+@router.put("/api/org-goals/{goal_id}", response_model=Goal)
 async def update_goal(
     goal_id: int,
     updates: GoalUpdate,
@@ -548,7 +548,7 @@ async def update_goal(
     for field, value in updates.dict(exclude_unset=True).items():
         if field == "parent_goal_id" and value:
             # Validate parent exists
-            check_query = "SELECT id FROM goals WHERE id = :parent_goal_id AND org_id = :org_id"
+            check_query = "SELECT id FROM org_goals WHERE id = :parent_goal_id AND org_id = :org_id"
             check_result = await db.execute(text(check_query), {
                 "parent_goal_id": value,
                 "org_id": org_id
@@ -575,7 +575,7 @@ async def update_goal(
     update_fields.append("updated_at = NOW()")
     
     update_query = f"""
-        UPDATE goals 
+        UPDATE org_goals 
         SET {", ".join(update_fields)}
         WHERE id = :goal_id AND org_id = :org_id
         RETURNING id, org_id, parent_goal_id, title, description, goal_type,

@@ -184,7 +184,7 @@ export default function OrgChartPanel() {
 
   const loadGoals = useCallback(async () => {
     try {
-      const response = await authFetch(`${API}/api/goals`);
+      const response = await authFetch(`${API}/api/org-goals`);
       if (!response.ok) {
         throw new Error(`Failed to load goals: ${response.statusText}`);
       }
