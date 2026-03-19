@@ -122,7 +122,7 @@ export default function MentalLibraryPanel() {
   const [allTags, setAllTags] = useState<string[]>([]);
   
   // View states
-  const [viewingDocument, setViewingDocument] = useState<Document | null>(null);
+  const [viewingDocument, setViewingDocument] = useState<any>(null);
   const [viewingChunks, setViewingChunks] = useState<{ video: Video; chunks: Chunk[] } | null>(null);
   
   // UI states
