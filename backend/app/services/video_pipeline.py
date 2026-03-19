@@ -492,8 +492,54 @@ async def create_video_from_competitor_reference(
             # Mark as ready for text-only composition
             await _update_pipeline_status(db, pipeline_id, "composing", 90, "text_only_composition", assets)
             
-            # TODO: Implement text-only Remotion composition
-            # For now, mark as complete
+            # Compose final video from generated assets
+            try:
+                # Build storyboard structure from assets
+                storyboard_data = {
+                    "scenes": [
+                        {
+                            "index": a.get("metadata", {}).get("index", i),
+                            "type": a.get("type", "scene"),
+                            "duration": a.get("metadata", {}).get("duration", 3.0),
+                            "prompt": a.get("metadata", {}).get("prompt", ""),
+                        }
+                        for i, a in enumerate(assets) if a.get("type") in ("scene_image", "scene_video")
+                    ]
+                }
+                
+                script_data = {
+                    "title": brand_context.get("product_name", "Video"),
+                    "full_script": brand_context.get("script", ""),
+                }
+                
+                composition = build_composition(storyboard_data, script_data, assets)
+                
+                await _update_pipeline_status(db, pipeline_id, "composing", 95, "rendering_final_video", assets)
+                
+                # Render with ffmpeg (available in Docker container)
+                final_video_path = await asyncio.to_thread(render_with_ffmpeg, composition)
+                
+                # Upload to S3 if available
+                final_video_url = final_video_path  # Default to local path
+                try:
+                    from app.services.garage_s3 import upload_file
+                    s3_key = f"pipeline/{pipeline_id}/final_video.mp4"
+                    final_video_url = await upload_file(final_video_path, s3_key)
+                except Exception as s3_err:
+                    logger.warning(f"S3 upload failed, keeping local path: {s3_err}")
+                
+                # Add final video to assets
+                assets.append({
+                    "type": "composed_video",
+                    "url": final_video_url,
+                    "metadata": {"index": len(assets), "prompt": "Final composed video"},
+                    "created_at": datetime.now().isoformat()
+                })
+                
+            except Exception as comp_err:
+                logger.warning(f"Composition failed (non-fatal): {comp_err}")
+                # Don't fail the whole pipeline — the individual scene assets are still available
+            
             await _update_pipeline_status(db, pipeline_id, "complete", 100, "complete", assets)
             
             # Bridge: create project so it shows in My Projects
@@ -764,15 +810,61 @@ async def create_video_from_template(
             # Mark as ready for text-only composition
             await _update_pipeline_status(db, pipeline_id, "composing", 90, "text_only_composition", assets)
             
-            # TODO: Implement text-only Remotion composition
-            # For now, mark as complete
+            # Compose final video from generated assets
+            try:
+                # Build storyboard structure from assets
+                storyboard_data = {
+                    "scenes": [
+                        {
+                            "index": a.get("metadata", {}).get("index", i),
+                            "type": a.get("type", "scene"),
+                            "duration": a.get("metadata", {}).get("duration", 3.0),
+                            "prompt": a.get("metadata", {}).get("prompt", ""),
+                        }
+                        for i, a in enumerate(assets) if a.get("type") in ("scene_image", "scene_video")
+                    ]
+                }
+                
+                script_data = {
+                    "title": script_text or "Template Video",
+                    "full_script": script_text,
+                }
+                
+                composition = build_composition(storyboard_data, script_data, assets)
+                
+                await _update_pipeline_status(db, pipeline_id, "composing", 95, "rendering_final_video", assets)
+                
+                # Render with ffmpeg (available in Docker container)
+                final_video_path = await asyncio.to_thread(render_with_ffmpeg, composition)
+                
+                # Upload to S3 if available
+                final_video_url = final_video_path  # Default to local path
+                try:
+                    from app.services.garage_s3 import upload_file
+                    s3_key = f"pipeline/{pipeline_id}/final_video.mp4"
+                    final_video_url = await upload_file(final_video_path, s3_key)
+                except Exception as s3_err:
+                    logger.warning(f"S3 upload failed, keeping local path: {s3_err}")
+                
+                # Add final video to assets
+                assets.append({
+                    "type": "composed_video",
+                    "url": final_video_url,
+                    "metadata": {"index": len(assets), "prompt": "Final composed video"},
+                    "created_at": datetime.now().isoformat()
+                })
+                
+            except Exception as comp_err:
+                logger.warning(f"Composition failed (non-fatal): {comp_err}")
+                # Don't fail the whole pipeline — the individual scene assets are still available
+            
             await _update_pipeline_status(db, pipeline_id, "complete", 100, "complete", assets)
             
             # Bridge: create project from template pipeline
             await create_project_from_pipeline(
                 db, pipeline_id, user_id,
-                title=brand_context.get("product_name", "Untitled Video"),
-                script=brand_context.get("script", ""),
+                title="Template Video",
+                script=script_text,
                 digital_copy_id=digital_copy_id,
                 reference_post_id=None,
                 assets=assets, status="complete"
@@ -922,19 +1014,67 @@ async def get_pipeline_status(db: AsyncSession, pipeline_id: int) -> Dict[str, A
                     db, pipeline_id, "composing", 95, "composing_final_video", generated_assets
                 )
                 
-                # TODO: Implement actual composition logic here
-                # For now, mark as complete
+                # Compose final video from generated assets
+                try:
+                    # Build storyboard structure from assets
+                    storyboard_data = {
+                        "scenes": [
+                            {
+                                "index": a.get("metadata", {}).get("index", i),
+                                "type": a.get("type", "scene"),
+                                "duration": a.get("metadata", {}).get("duration", 3.0),
+                                "prompt": a.get("metadata", {}).get("prompt", ""),
+                            }
+                            for i, a in enumerate(generated_assets) if a.get("type") in ("scene_image", "scene_video")
+                        ]
+                    }
+                    
+                    # Extract script data from pipeline
+                    script_asset = next((a for a in generated_assets if a.get("type") == "script"), None)
+                    script_data = {
+                        "title": "Generated Video",
+                        "full_script": script_asset.get("metadata", {}).get("hook", "") if script_asset else "",
+                    }
+                    
+                    composition = build_composition(storyboard_data, script_data, generated_assets)
+                    
+                    await _update_pipeline_status(db, pipeline_id, "composing", 95, "rendering_final_video", generated_assets)
+                    
+                    # Render with ffmpeg (available in Docker container)
+                    final_video_path = await asyncio.to_thread(render_with_ffmpeg, composition)
+                    
+                    # Upload to S3 if available
+                    final_video_url = final_video_path  # Default to local path
+                    try:
+                        from app.services.garage_s3 import upload_file
+                        s3_key = f"pipeline/{pipeline_id}/final_video.mp4"
+                        final_video_url = await upload_file(final_video_path, s3_key)
+                    except Exception as s3_err:
+                        logger.warning(f"S3 upload failed, keeping local path: {s3_err}")
+                    
+                    # Add final video to assets
+                    generated_assets.append({
+                        "type": "composed_video",
+                        "url": final_video_url,
+                        "metadata": {"index": len(generated_assets), "prompt": "Final composed video"},
+                        "created_at": datetime.now().isoformat()
+                    })
+                    
+                except Exception as comp_err:
+                    logger.warning(f"Composition failed (non-fatal): {comp_err}")
+                    # Don't fail the whole pipeline — the individual scene assets are still available
+                
                 await _update_pipeline_status(
                     db, pipeline_id, "complete", 100, "complete", generated_assets
                 )
                 
                 # Bridge: create project so it shows in My Projects
                 await create_project_from_pipeline(
-                    db, pipeline_id, user_id,
-                    title=brand_context.get("product_name", "Untitled Video"),
-                    script=brand_context.get("script", ""),
-                    digital_copy_id=digital_copy_id,
-                    reference_post_id=reference_post_id,
+                    db, pipeline_id, pipeline_data["user_id"],
+                    title="Generated Video",
+                    script="",
+                    digital_copy_id=pipeline_data["digital_copy_id"],
+                    reference_post_id=pipeline_data.get("reference_post_id"),
                     assets=generated_assets, status="complete"
                 )
                 

@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -106,34 +107,18 @@ def build_composition(storyboard: dict, script: dict, assets: List[dict]) -> Com
         scene_start = current_time
         scene_end = current_time + scene_duration
         
-        # Add background layer for this scene
-        bg_asset = _find_asset(assets, "background", scene_idx)
-        if bg_asset:
+        # Add scene image/video as background layer for this scene
+        scene_asset = _find_asset(assets, "scene_image", scene_idx) or _find_asset(assets, "scene_video", scene_idx)
+        if scene_asset and scene_asset["path"]:
             composition.layers.append(CompositionLayer(
                 type="background",
-                asset_path=bg_asset["path"],
+                asset_path=scene_asset["path"],
                 start_time=scene_start,
                 end_time=scene_end,
                 position={"x": 0, "y": 0, "width": 1080, "height": 1920},
                 opacity=1.0,
                 transition_in="fade" if scene_idx > 0 else "cut",
                 transition_out="fade",
-                z_index=z_index
-            ))
-            z_index += 1
-        
-        # Add avatar video layer for this scene
-        avatar_asset = _find_asset(assets, "avatar-video", scene_idx)
-        if avatar_asset:
-            composition.layers.append(CompositionLayer(
-                type="avatar-video",
-                asset_path=avatar_asset["path"],
-                start_time=scene_start,
-                end_time=scene_end,
-                position={"x": 200, "y": 400, "width": 680, "height": 1200},  # Centered with room for text
-                opacity=1.0,
-                transition_in="cut",
-                transition_out="cut",
                 z_index=z_index
             ))
             z_index += 1
@@ -185,14 +170,15 @@ def build_composition(storyboard: dict, script: dict, assets: List[dict]) -> Com
 def _find_asset(assets: List[dict], asset_type: str, scene_idx: int) -> Optional[dict]:
     """Find asset by type and scene index."""
     for asset in assets:
-        if (asset.get("type") == asset_type and 
-            asset.get("scene_index") == scene_idx):
-            return asset
+        # Check metadata for index if scene_index not at top level
+        asset_index = asset.get("scene_index") or asset.get("metadata", {}).get("index")
+        if (asset.get("type") == asset_type and asset_index == scene_idx):
+            return {"path": asset.get("url", "")}
     
     # Fallback: find first asset of this type
     for asset in assets:
         if asset.get("type") == asset_type:
-            return asset
+            return {"path": asset.get("url", "")}
     
     return None
 
@@ -275,6 +261,7 @@ def render_with_ffmpeg(composition: Composition) -> str:
     
     # Check if ffmpeg is available
     if not _check_ffmpeg():
+        logger.warning("ffmpeg not available for video rendering, skipping composition")
         raise RuntimeError("ffmpeg not available for video rendering")
     
     # Create temporary directory for processing
@@ -290,9 +277,42 @@ def render_with_ffmpeg(composition: Composition) -> str:
         
         # Prepare input files
         input_files = []
+        downloaded_files = []  # Track downloaded files for cleanup
+        
         for layer in sorted_layers:
-            if layer.asset_path and Path(layer.asset_path).exists():
-                input_files.extend(["-i", layer.asset_path])
+            if not layer.asset_path:
+                continue
+                
+            asset_path = layer.asset_path
+            
+            # Check if asset is a URL that needs downloading
+            if asset_path.startswith(("http://", "https://")):
+                try:
+                    import httpx
+                    import asyncio
+                    
+                    # Download to temp file
+                    temp_file = temp_path / f"asset_{len(downloaded_files)}.{asset_path.split('.')[-1]}"
+                    
+                    async def download_asset():
+                        async with httpx.AsyncClient() as client:
+                            resp = await client.get(asset_path)
+                            resp.raise_for_status()
+                            with open(temp_file, "wb") as f:
+                                f.write(resp.content)
+                    
+                    # Run download in sync context
+                    asyncio.run(download_asset())
+                    downloaded_files.append(temp_file)
+                    asset_path = str(temp_file)
+                    
+                except Exception as download_err:
+                    logger.warning(f"Failed to download asset {layer.asset_path}: {download_err}")
+                    continue
+            
+            # Check if local file exists
+            if Path(asset_path).exists():
+                input_files.extend(["-i", asset_path])
         
         # Add background audio if available
         if composition.audio_track and Path(composition.audio_track).exists():
