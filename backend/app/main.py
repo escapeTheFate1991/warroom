@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate, digital_copies
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate, digital_copies, content_social, org_chart, carousel
 from app.api import entities, goals, approvals, task_checkout, budget, search
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
@@ -200,6 +200,61 @@ async def _run_swarm_personas_migration():
 
     except Exception as e:
         logger.error(f"Swarm Personas migration failed: {e}")
+        return False
+
+
+async def _run_content_social_migration():
+    """Run Content Social migration (content_drafts table for URL → social posts pipeline)."""
+    try:
+        from pathlib import Path
+        import re
+
+        migration_path = Path(__file__).parent / "db" / "content_social_migration.sql"
+        if not migration_path.exists():
+            logger.error(f"Content Social migration file not found: {migration_path}")
+            return False
+
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+
+        # Strip SQL comments (-- to end of line) then split on semicolons
+        cleaned = re.sub(r'--[^\n]*', '', migration_sql)
+        statements = [s.strip() for s in cleaned.split(';') if s.strip()]
+
+        async with crm_engine.begin() as conn:
+            raw = await conn.get_raw_connection()
+            for stmt in statements:
+                await raw.driver_connection.execute(stmt)
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Content Social migration failed: {e}")
+        return False
+
+
+async def _run_org_chart_migration():
+    """Run Org Chart & Goal Ancestry migration."""
+    try:
+        from pathlib import Path
+        
+        migration_path = Path(__file__).parent / "db" / "org_chart_migration.sql"
+        if not migration_path.exists():
+            logger.error(f"Org Chart migration file not found: {migration_path}")
+            return False
+        
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+        
+        # Use raw asyncpg connection for multi-statement execution
+        async with crm_engine.begin() as conn:
+            raw = await conn.get_raw_connection()
+            await raw.driver_connection.execute(migration_sql)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Org Chart migration failed: {e}")
         return False
 
 
@@ -498,6 +553,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Digital Copies migration error: %s", e)
 
+    # Content Social migration (URL → Social Posts pipeline)
+    try:
+        await _run_content_social_migration()
+        logger.info("Content Social migration applied")
+    except Exception as e:
+        logger.error("Content Social migration error: %s", e)
+
+    # Org Chart & Goal Ancestry migration (organizational structure)
+    try:
+        await _run_org_chart_migration()
+        logger.info("Org Chart migration applied")
+    except Exception as e:
+        logger.error("Org Chart migration error: %s", e)
+
     # Start background scheduler (competitor syncs, etc.)
     from app.services.scheduler import start_scheduler, stop_scheduler
     await start_scheduler()
@@ -625,6 +694,7 @@ app.include_router(social.router, prefix="/api/social", tags=["social"])
 app.include_router(social_oauth.router, prefix="/api/social", tags=["social-oauth"])
 app.include_router(social_content.router, prefix="/api/social/content", tags=["social-content"])
 app.include_router(social_sync.router, prefix="/api/social", tags=["social-sync"])
+app.include_router(content_social.router, prefix="/api/content-social", tags=["content-social"])
 app.include_router(competitors.router, prefix="/api", tags=["competitors"])
 app.include_router(content_intel.router, prefix="/api/content-intel", tags=["content-intelligence"])
 app.include_router(files.router, prefix="/api/files", tags=["files"])
@@ -669,6 +739,7 @@ app.include_router(simulate.router, prefix="/api/simulate", tags=["simulate"])
 app.include_router(entities.router, prefix="/api/entities", tags=["entities"])
 app.include_router(goals.router, prefix="/api/goals", tags=["goals"])
 app.include_router(approvals.router, prefix="/api/approvals", tags=["approvals"])
+app.include_router(org_chart.router, tags=["org-chart"])
 app.include_router(task_checkout.router, prefix="/api/tasks", tags=["task-checkout"])
 app.include_router(budget.router, prefix="/api/agents", tags=["agent-budget"])
 
