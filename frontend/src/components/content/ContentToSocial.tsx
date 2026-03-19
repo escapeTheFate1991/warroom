@@ -18,8 +18,8 @@ const PLATFORM_CONFIGS: Record<string, { name: string; emoji: string; maxChars: 
   instagram: { name: 'Instagram', emoji: '📷', maxChars: 2200, color: 'bg-pink-500' },
   tiktok: { name: 'TikTok', emoji: '🎵', maxChars: 2200, color: 'bg-black' },
   twitter: { name: 'Twitter/X', emoji: '🐦', maxChars: 280, color: 'bg-blue-400' },
-  linkedin: { name: 'LinkedIn', emoji: '💼', maxChars: 3000, color: 'bg-blue-600' },
-  facebook: { name: 'Facebook', emoji: '👥', maxChars: 63206, color: 'bg-blue-500' }
+  linkedin: { name: 'LinkedIn', emoji: '💼', maxChars: 3000, color: 'bg-warroom-accent' },
+  facebook: { name: 'Facebook', emoji: '👥', maxChars: 63206, color: 'bg-warroom-accent/100' }
 }
 
 const TONE_OPTIONS = [
@@ -265,30 +265,30 @@ export default function ContentToSocial() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">
+      <div className="bg-warroom-surface rounded-lg border border-warroom-border p-6">
+        <h1 className="text-2xl font-bold text-warroom-text mb-2">
           📄➡️📱 Content to Social Media
         </h1>
-        <p className="text-slate-600 mb-6">
+        <p className="text-warroom-muted mb-6">
           Extract content from any URL and generate optimized social media posts for multiple platforms
         </p>
 
         {/* Error/Success Messages */}
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-200 rounded-lg">
             <p className="text-red-800">{error}</p>
           </div>
         )}
         
         {success && (
-          <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="mb-4 p-4 bg-emerald-500/10 border border-green-200 rounded-lg">
             <p className="text-green-800">{success}</p>
           </div>
         )}
 
         {/* Step 1: URL Input */}
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900">
+          <h2 className="text-lg font-semibold text-warroom-text">
             1. Extract Content from URL
           </h2>
           
@@ -298,27 +298,27 @@ export default function ContentToSocial() {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://example.com/article or youtube.com/watch?v=..."
-              className="flex-1 px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-3 py-2 border border-warroom-border rounded-md focus:outline-none focus:ring-2 focus:ring-warroom-accent"
               disabled={extracting}
             />
             <button
               onClick={handleExtract}
               disabled={extracting || !url.trim()}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-warroom-accent text-white rounded-md hover:bg-warroom-accent/80 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {extracting ? 'Extracting...' : 'Extract'}
             </button>
           </div>
           
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-warroom-muted">
             Supports: Articles, blog posts, YouTube videos, GitHub repos, and more
           </p>
         </div>
 
         {/* Extracted Content Preview */}
         {extractedContent && (
-          <div className="mt-6 p-4 bg-slate-50 rounded-lg">
-            <h3 className="font-semibold text-slate-900 mb-2">📄 Extracted Content</h3>
+          <div className="mt-6 p-4 bg-warroom-bg rounded-lg">
+            <h3 className="font-semibold text-warroom-text mb-2">📄 Extracted Content</h3>
             <div className="space-y-2">
               <p><strong>Title:</strong> {extractedContent.title}</p>
               <p><strong>Type:</strong> {extractedContent.content_type}</p>
@@ -327,13 +327,13 @@ export default function ContentToSocial() {
               {extractedContent.summary && (
                 <div>
                   <strong>Summary:</strong>
-                  <p className="mt-1 text-slate-600">{extractedContent.summary}</p>
+                  <p className="mt-1 text-warroom-muted">{extractedContent.summary}</p>
                 </div>
               )}
               {extractedContent.social_summary && (
                 <div>
                   <strong>Hook:</strong>
-                  <p className="mt-1 text-slate-600">{extractedContent.social_summary.hook}</p>
+                  <p className="mt-1 text-warroom-muted">{extractedContent.social_summary.hook}</p>
                 </div>
               )}
             </div>
@@ -343,7 +343,7 @@ export default function ContentToSocial() {
         {/* Step 2: Platform Selection & Generation */}
         {extractedContent && (
           <div className="mt-8 space-y-4">
-            <h2 className="text-lg font-semibold text-slate-900">
+            <h2 className="text-lg font-semibold text-warroom-text">
               2. Select Platforms & Generate Posts
             </h2>
             
@@ -359,8 +359,8 @@ export default function ContentToSocial() {
                     onClick={() => togglePlatform(key)}
                     className={`px-3 py-2 rounded-md text-sm font-medium border transition-colors ${
                       selectedPlatforms.includes(key)
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                        ? 'bg-warroom-accent text-white border-blue-600'
+                        : 'bg-warroom-surface text-slate-700 border-warroom-border hover:border-slate-400'
                     }`}
                   >
                     {config.emoji} {config.name}
@@ -387,11 +387,11 @@ export default function ContentToSocial() {
                     />
                     <div className={`p-3 rounded-lg border text-center transition-colors ${
                       selectedTone === tone.value
-                        ? 'bg-blue-50 border-blue-500 text-blue-900'
-                        : 'bg-white border-slate-200 hover:border-slate-300'
+                        ? 'bg-warroom-accent/10 border-blue-500 text-blue-900'
+                        : 'bg-warroom-surface border-warroom-border hover:border-warroom-border'
                     }`}>
                       <div className="font-medium text-sm">{tone.label}</div>
-                      <div className="text-xs text-slate-600 mt-1">{tone.description}</div>
+                      <div className="text-xs text-warroom-muted mt-1">{tone.description}</div>
                     </div>
                   </label>
                 ))}
@@ -412,7 +412,7 @@ export default function ContentToSocial() {
         {/* Generated Posts Preview & Editing */}
         {Object.keys(generatedPosts).length > 0 && (
           <div className="mt-8 space-y-6">
-            <h2 className="text-lg font-semibold text-slate-900">
+            <h2 className="text-lg font-semibold text-warroom-text">
               3. Review & Edit Generated Posts
             </h2>
             
@@ -427,16 +427,16 @@ export default function ContentToSocial() {
                 if (!post) return null
                 
                 return (
-                  <div key={platform} className="border border-slate-200 rounded-lg p-4">
+                  <div key={platform} className="border border-warroom-border rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center space-x-2">
                         <span className={`w-3 h-3 rounded-full ${config.color}`} />
                         <h3 className="font-semibold">{config.emoji} {config.name}</h3>
-                        <span className="text-sm text-slate-500">
+                        <span className="text-sm text-warroom-muted">
                           ({post.post_type})
                         </span>
                       </div>
-                      <div className={`text-sm ${isOverLimit ? 'text-red-600' : 'text-slate-500'}`}>
+                      <div className={`text-sm ${isOverLimit ? 'text-red-400' : 'text-warroom-muted'}`}>
                         {charCount}/{config.maxChars} chars
                       </div>
                     </div>
@@ -445,15 +445,15 @@ export default function ContentToSocial() {
                       value={editedText}
                       onChange={(e) => updatePostText(platform, e.target.value)}
                       className={`w-full h-32 p-3 border rounded-md resize-none ${
-                        isOverLimit ? 'border-red-300' : 'border-slate-300'
+                        isOverLimit ? 'border-red-300' : 'border-warroom-border'
                       }`}
                       placeholder="Post content..."
                     />
                     
                     {post.hashtags && post.hashtags.length > 0 && (
                       <div className="mt-2">
-                        <span className="text-sm text-slate-600">Suggested hashtags: </span>
-                        <span className="text-sm text-blue-600">
+                        <span className="text-sm text-warroom-muted">Suggested hashtags: </span>
+                        <span className="text-sm text-warroom-accent">
                           {post.hashtags.join(' ')}
                         </span>
                       </div>
@@ -461,7 +461,7 @@ export default function ContentToSocial() {
                     
                     {post.suggested_media && post.suggested_media.length > 0 && (
                       <div className="mt-2">
-                        <span className="text-sm text-slate-600">
+                        <span className="text-sm text-warroom-muted">
                           📷 {post.suggested_media.length} suggested image(s)
                         </span>
                       </div>
@@ -476,7 +476,7 @@ export default function ContentToSocial() {
         {/* Step 3: Scheduling */}
         {Object.keys(generatedPosts).length > 0 && (
           <div className="mt-8 space-y-4">
-            <h2 className="text-lg font-semibold text-slate-900">
+            <h2 className="text-lg font-semibold text-warroom-text">
               4. Schedule Posts
             </h2>
             
@@ -490,7 +490,7 @@ export default function ContentToSocial() {
                   value={scheduledFor}
                   onChange={(e) => setScheduledFor(e.target.value)}
                   min={getMinScheduleTime()}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-warroom-border rounded-md focus:outline-none focus:ring-2 focus:ring-warroom-accent"
                 />
               </div>
               
@@ -503,7 +503,7 @@ export default function ContentToSocial() {
                     type="checkbox"
                     checked={requireApproval}
                     onChange={(e) => setRequireApproval(e.target.checked)}
-                    className="rounded border-slate-300"
+                    className="rounded border-warroom-border"
                   />
                   <span className="text-sm">Require manual approval before posting</span>
                 </label>
