@@ -391,7 +391,7 @@ export default function EducatePanel() {
               <div>
                 <h4 className="text-sm font-medium mb-2">Full Document</h4>
                 <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4 text-sm whitespace-pre-wrap">
-                  {viewingDocument.document || viewingDocument.document_text || "No document text available"}
+                  {viewingDocument["document"] || viewingDocument.document_text || "No document text available"}
                 </div>
               </div>
             </div>

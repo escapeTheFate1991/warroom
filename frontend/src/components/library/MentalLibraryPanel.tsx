@@ -561,7 +561,7 @@ export default function MentalLibraryPanel() {
               </h3>
               <div className="flex items-center gap-2">
                 <button 
-                  onClick={() => copyToClipboard(viewingDocument.document || viewingDocument.document_text)}
+                  onClick={() => copyToClipboard(viewingDocument["document"] || viewingDocument.document_text)}
                   className="text-warroom-muted hover:text-warroom-text transition"
                 >
                   <Copy size={16} />
@@ -586,7 +586,7 @@ export default function MentalLibraryPanel() {
               <div>
                 <h4 className="text-sm font-medium mb-2">Full Document</h4>
                 <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4 text-sm whitespace-pre-wrap">
-                  {viewingDocument.document || viewingDocument.document_text || "No document text available"}
+                  {viewingDocument["document"] || viewingDocument.document_text || "No document text available"}
                 </div>
               </div>
             </div>
