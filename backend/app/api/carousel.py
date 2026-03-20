@@ -68,7 +68,7 @@ async def generate_carousel(
     Returns: {"slides": [...], "total_slides": int, "format": str}
     """
     try:
-        org_id = await get_org_id(user, db)
+        org_id = get_org_id(http_request)
         
         # Validate format
         if request.format not in ["portrait", "square", "story"]:
@@ -119,7 +119,7 @@ async def generate_carousel_images(
     Returns: {"image_urls": [...], "slides_updated": int}
     """
     try:
-        org_id = await get_org_id(user, db)
+        org_id = get_org_id(http_request)
         
         # Default brand colors
         brand_colors = request.brand_colors or {
@@ -156,6 +156,7 @@ async def generate_carousel_images(
 @router.get("/preview/{carousel_id}")
 async def preview_carousel(
     carousel_id: int,
+    http_request: Request = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db)
 ):
@@ -164,7 +165,7 @@ async def preview_carousel(
     Returns: Complete carousel data with slides, metadata, status
     """
     try:
-        org_id = await get_org_id(user, db)
+        org_id = get_org_id(http_request)
         
         # Get carousel data
         query = text("""
@@ -216,7 +217,7 @@ async def update_carousel(
     Returns: Updated carousel data
     """
     try:
-        org_id = await get_org_id(user, db)
+        org_id = get_org_id(http_request)
         
         # Build update query dynamically
         updates = []
@@ -276,7 +277,7 @@ async def publish_carousel(
     Returns: {"media_id": str, "permalink": str, "published_at": str}
     """
     try:
-        org_id = await get_org_id(user, db)
+        org_id = get_org_id(http_request)
         
         # Get carousel data
         query = text("""
@@ -381,6 +382,7 @@ async def list_carousels(
     limit: int = 20,
     offset: int = 0,
     status: Optional[str] = None,
+    http_request: Request = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db)
 ):
@@ -389,7 +391,7 @@ async def list_carousels(
     Returns: {"carousels": [...], "total": int}
     """
     try:
-        org_id = await get_org_id(user, db)
+        org_id = get_org_id(http_request)
         
         # Build query with optional status filter
         where_clause = "WHERE org_id = :org_id"
@@ -455,6 +457,7 @@ async def list_carousels(
 @router.delete("/{carousel_id}")
 async def delete_carousel(
     carousel_id: int,
+    http_request: Request = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db)
 ):
@@ -463,7 +466,7 @@ async def delete_carousel(
     Returns: {"deleted": True}
     """
     try:
-        org_id = await get_org_id(user, db)
+        org_id = get_org_id(http_request)
         
         query = text("DELETE FROM crm.carousel_posts WHERE id = :carousel_id AND org_id = :org_id RETURNING id")
         result = await db.execute(query, {"carousel_id": carousel_id, "org_id": org_id})
