@@ -320,8 +320,15 @@ export default function AIStudioPanel() {
     setLoadingCopies(true);
     try {
       const r = await authFetch(`${API}/api/digital-copies`);
-      if (r.ok) { const d = await r.json(); setCopies(Array.isArray(d) ? d : d.digital_copies || d.data || []); }
-    } catch { }
+      if (r.ok) { 
+        const d = await r.json(); 
+        setCopies(Array.isArray(d) ? d : d.digital_copies || d.data || []); 
+      } else {
+        setCopies([]); // Set empty array on API failure
+      }
+    } catch { 
+      setCopies([]); // Set empty array on error
+    }
     setLoadingCopies(false);
   }, []);
 
@@ -329,8 +336,15 @@ export default function AIStudioPanel() {
     setLoadingTemplates(true);
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/templates`);
-      if (r.ok) { const d = await r.json(); setTemplates(d.templates || []); }
-    } catch { }
+      if (r.ok) { 
+        const d = await r.json(); 
+        setTemplates(d.templates || []); 
+      } else {
+        setTemplates([]); // Set empty array on API failure
+      }
+    } catch { 
+      setTemplates([]); // Set empty array on error
+    }
     setLoadingTemplates(false);
   }, []);
 
@@ -338,8 +352,15 @@ export default function AIStudioPanel() {
     setLoadingProjects(true);
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/projects`);
-      if (r.ok) { const d = await r.json(); setProjects(d.projects || []); }
-    } catch { }
+      if (r.ok) { 
+        const d = await r.json(); 
+        setProjects(d.projects || []); 
+      } else {
+        setProjects([]); // Set empty array on API failure
+      }
+    } catch { 
+      setProjects([]); // Set empty array on error
+    }
     setLoadingProjects(false);
   }, []);
 
@@ -366,8 +387,15 @@ export default function AIStudioPanel() {
     setLoadingCompetitorVideos(true);
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/competitor-videos?limit=20`);
-      if (r.ok) { const d = await r.json(); setCompetitorVideos(d.videos || []); }
-    } catch { }
+      if (r.ok) { 
+        const d = await r.json(); 
+        setCompetitorVideos(d.videos || []); 
+      } else {
+        setCompetitorVideos([]); // Set empty array on API failure
+      }
+    } catch { 
+      setCompetitorVideos([]); // Set empty array on error
+    }
     setLoadingCompetitorVideos(false);
   }, []);
 
@@ -627,8 +655,12 @@ export default function AIStudioPanel() {
       if (r.ok) {
         const d = await r.json();
         setBlueprints(d.blueprints || []);
+      } else {
+        setBlueprints([]); // Set empty array on API failure
       }
-    } catch {}
+    } catch {
+      setBlueprints([]); // Set empty array on error
+    }
     setLoadingBlueprints(false);
   }, []);
 
@@ -919,7 +951,7 @@ export default function AIStudioPanel() {
                   className={`w-11 h-11 rounded-lg border flex items-center justify-center transition ${!selectedCharacterId ? "border-warroom-accent bg-warroom-accent/10" : "border-warroom-border bg-warroom-bg"}`}>
                   <Sparkles size={14} className="text-warroom-accent" />
                 </button>
-                {copies.slice(0, 4).map(copy => (
+                {Array.isArray(copies) && copies.slice(0, 4).map(copy => (
                   <button key={copy.id}
                     onClick={() => { setSelectedCharacterId(Number(copy.id)); setWizardCopyId(copy.id); }}
                     className={`w-11 h-11 rounded-lg border overflow-hidden transition ${selectedCharacterId === Number(copy.id) ? "border-warroom-accent ring-1 ring-warroom-accent" : "border-warroom-border"}`}>
@@ -1005,7 +1037,7 @@ export default function AIStudioPanel() {
 
             {/* Storyboard scenes */}
             <div className="space-y-2">
-              {(autoFilledData.storyboard || []).map((scene: any, i: number) => (
+              {Array.isArray(autoFilledData.storyboard) && autoFilledData.storyboard.map((scene: any, i: number) => (
                 <div key={i} className="flex items-start gap-3 p-3 bg-warroom-bg rounded-lg">
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-warroom-accent/20 text-warroom-accent flex items-center justify-center text-xs font-bold">{i + 1}</div>
                   <div className="flex-1">
@@ -1077,7 +1109,7 @@ export default function AIStudioPanel() {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-              {blueprints.map(bp => (
+              {Array.isArray(blueprints) && blueprints.map(bp => (
                 <div key={bp.post_id}
                   className={`group relative bg-warroom-surface border rounded-xl overflow-hidden transition cursor-pointer ${
                     selectedBlueprint?.post_id === bp.post_id ? "border-warroom-accent ring-2 ring-warroom-accent/30" : "border-warroom-border hover:border-warroom-accent/50"
@@ -1255,7 +1287,7 @@ export default function AIStudioPanel() {
             <div>
               <h4 className="text-xs font-semibold text-warroom-text mb-2">Scenes ({templatizeResult.analysis.scenes?.length || 0})</h4>
               <div className="space-y-2">
-                {(templatizeResult.analysis.scenes || []).map((s: any, i: number) => (
+                {Array.isArray(templatizeResult.analysis.scenes) && templatizeResult.analysis.scenes.map((s: any, i: number) => (
                   <div key={i} className="bg-warroom-bg rounded-lg p-3 border border-warroom-border">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="w-5 h-5 rounded-full bg-warroom-accent/20 text-warroom-accent flex items-center justify-center text-[10px] font-bold">{s.scene}</span>
@@ -1296,7 +1328,7 @@ export default function AIStudioPanel() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {competitorVideos.map(v => (
+              {Array.isArray(competitorVideos) && competitorVideos.map(v => (
                 <div key={v.post_id} className="bg-warroom-surface border border-warroom-border rounded-xl p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-full bg-warroom-bg flex items-center justify-center text-warroom-muted text-[10px] font-bold">
@@ -1459,7 +1491,7 @@ export default function AIStudioPanel() {
           </div>
         ) : (
           <div className="space-y-3">
-            {projects.map(p => (
+            {Array.isArray(projects) && projects.map(p => (
               <div key={p.id} className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">

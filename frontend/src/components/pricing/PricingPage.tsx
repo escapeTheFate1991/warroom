@@ -26,11 +26,17 @@ export default function PricingPage() {
       const response = await authFetch(`${API}/api/crm/products?category=ai-automation&is_active=true`);
       if (response.ok) {
         const data = await response.json();
-        const sortedProducts = data.sort((a: Product, b: Product) => a.tier_level - b.tier_level);
+        // Ensure data is an array before sorting and setting
+        const productsArray = Array.isArray(data) ? data : (data.products || []);
+        const sortedProducts = productsArray.sort((a: Product, b: Product) => a.tier_level - b.tier_level);
         setProducts(sortedProducts);
+      } else {
+        console.error("Failed to load products - API response not OK");
+        setProducts([]); // Set empty array on failure
       }
     } catch (error) {
       console.error("Failed to load products:", error);
+      setProducts([]); // Set empty array on error
     } finally {
       setLoading(false);
     }
@@ -110,7 +116,7 @@ export default function PricingPage() {
       <div className="flex-1 px-8 py-12">
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {products.map((product) => (
+            {Array.isArray(products) && products.map((product) => (
               <div
                 key={product.id}
                 className={getTierColors(product.tier_level, selectedTier === product.tier_level)}
@@ -172,7 +178,7 @@ export default function PricingPage() {
 
                 {/* Features */}
                 <div className="space-y-3 mb-8">
-                  {product.features.map((feature, index) => (
+                  {Array.isArray(product.features) && product.features.map((feature, index) => (
                     <div key={index} className="flex items-start gap-3">
                       <Check className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
                       <span className="text-sm text-warroom-text">{feature}</span>
