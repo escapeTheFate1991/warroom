@@ -1024,7 +1024,14 @@ export default function AIStudioPanel() {
               <div className={`rounded-xl p-4 border ${generationResult.ok ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30"}`}>
                 <div className="flex items-center gap-2">
                   {generationResult.ok ? <CheckCircle size={16} className="text-emerald-400" /> : <AlertCircle size={16} className="text-red-400" />}
-                  <span className="text-xs text-warroom-text">{generationResult.ok ? "Pipeline started" : generationResult.error}</span>
+                  <span className="text-xs text-warroom-text">
+                    {generationResult.ok 
+                      ? "Pipeline started" 
+                      : typeof generationResult.error === 'string' 
+                        ? generationResult.error 
+                        : generationResult.error?.msg || generationResult.error?.detail || 'Generation failed'
+                    }
+                  </span>
                 </div>
                 {generationResult.ok && pipelineStatus && (
                   <div className="mt-2">
@@ -1124,7 +1131,11 @@ export default function AIStudioPanel() {
                     className="absolute inset-0 bg-warroom-bg items-center justify-center flex-col gap-2"
                   >
                     <Film size={32} className="text-warroom-muted/30" />
-                    {bp.handle && <span className="text-[10px] text-warroom-muted">@{bp.handle}</span>}
+                    {bp.media_url ? (
+                      <span className="text-[10px] text-warroom-muted">Media expired</span>
+                    ) : (
+                      <span className="text-[10px] text-warroom-muted">{bp.handle ? `@${bp.handle}` : 'No preview'}</span>
+                    )}
                   </div>
 
                   {/* Gradient overlay at bottom — shown on hover */}
