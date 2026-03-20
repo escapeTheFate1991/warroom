@@ -1085,7 +1085,7 @@ export default function AIStudioPanel() {
                       ? "Pipeline started" 
                       : typeof generationResult.error === 'string' 
                         ? generationResult.error 
-                        : generationResult.error?.msg || generationResult.error?.detail || 'Generation failed'
+                        : (generationResult.error as any)?.msg || (generationResult.error as any)?.detail || 'Generation failed'
                     }
                   </span>
                 </div>
