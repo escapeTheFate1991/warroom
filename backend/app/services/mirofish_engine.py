@@ -536,12 +536,124 @@ Be authentic to your persona - don't all respond the same way!"""
             logger.error(f"Performance comparison failed: {e}")
             raise
     
+    async def store_simulation_result(
+        self, 
+        org_id: int, 
+        content_data: Dict[str, Any], 
+        result: Dict[str, Any],
+        personas: List[Dict[str, Any]],
+        db: AsyncSession
+    ) -> int:
+        """Store simulation result in the database"""
+        try:
+            # Extract content preview
+            content_preview = (
+                content_data.get("text", "") or 
+                content_data.get("filename", "") or 
+                "Content simulation"
+            )[:200]
+            
+            persona_ids = [i for i in range(len(personas))]  # Simple ID mapping for now
+            
+            query = text("""
+                INSERT INTO crm.simulation_results 
+                (org_id, script_hook, script_body, format_slug, persona_ids, 
+                 engagement_score, predicted_metrics, optimization_recommendation, created_at)
+                VALUES 
+                (:org_id, :hook, :body, :format, :persona_ids, 
+                 :engagement_score, :metrics, :recommendations, NOW())
+                RETURNING id
+            """)
+            
+            result_row = await db.execute(query, {
+                "org_id": org_id,
+                "hook": content_preview[:100],
+                "body": content_preview,
+                "format": content_data.get("platform", "unknown"),
+                "persona_ids": persona_ids,
+                "engagement_score": result["viral_score"],
+                "metrics": json.dumps({
+                    "engagement_rate": result["engagement_rate"],
+                    "sentiment": result["sentiment"],
+                    "confidence": result["confidence"],
+                    "personas_used": len(personas)
+                }),
+                "recommendations": json.dumps(result["recommendations"])
+            })
+            
+            simulation_id = result_row.fetchone()[0]
+            await db.commit()
+            
+            logger.info(f"Stored simulation {simulation_id} for org {org_id}")
+            return simulation_id
+            
+        except Exception as e:
+            logger.error(f"Failed to store simulation result: {e}")
+            await db.rollback()
+            raise
+
     async def get_stored_prediction(self, post_id: int, db: AsyncSession) -> Optional[Dict[str, Any]]:
-        """Get stored prediction for a post (placeholder for now)"""
-        # TODO: Implement prediction storage in database
-        return None
+        """Get stored prediction for a post"""
+        try:
+            query = text("""
+                SELECT id, engagement_score, predicted_metrics, optimization_recommendation, created_at
+                FROM crm.simulation_results 
+                WHERE script_hook LIKE :search OR script_body LIKE :search
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """)
+            
+            result = await db.execute(query, {"search": f"%{post_id}%"})
+            row = result.fetchone()
+            
+            if not row:
+                return None
+                
+            return {
+                "id": row[0],
+                "viral_score": row[1],
+                "predicted_metrics": json.loads(row[2]) if row[2] else {},
+                "recommendations": json.loads(row[3]) if row[3] else [],
+                "created_at": row[4]
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get stored prediction: {e}")
+            return None
     
     async def get_simulation_history(self, org_id: int, db: AsyncSession, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-        """Get historical simulations for organization (placeholder for now)"""
-        # TODO: Implement history storage and retrieval
-        return []
+        """Get historical simulations for organization"""
+        try:
+            query = text("""
+                SELECT id, script_hook, format_slug, engagement_score, 
+                       predicted_metrics, created_at
+                FROM crm.simulation_results 
+                WHERE org_id = :org_id
+                ORDER BY created_at DESC 
+                LIMIT :limit OFFSET :offset
+            """)
+            
+            result = await db.execute(query, {
+                "org_id": org_id,
+                "limit": limit,
+                "offset": offset
+            })
+            
+            history = []
+            for row in result.fetchall():
+                metrics = json.loads(row[4]) if row[4] else {}
+                history.append({
+                    "id": row[0],
+                    "content_preview": row[1],
+                    "platform": row[2],
+                    "viral_score": row[3],
+                    "engagement_rate": metrics.get("engagement_rate", 0.0),
+                    "created_at": row[5].isoformat() if row[5] else "",
+                    "actual_performance": None  # TODO: Link to actual post performance
+                })
+                
+            return history
+            
+        except Exception as e:
+            logger.error(f"Failed to get simulation history: {e}")
+            return []

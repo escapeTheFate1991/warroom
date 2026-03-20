@@ -99,7 +99,7 @@ async def simulate_content(
         # Store simulation in history (background task)
         background_tasks.add_task(
             _store_simulation_history,
-            org_id, user_id, request, result
+            org_id, user_id, request, result, personas
         )
         
         return SimulationResult(
@@ -230,11 +230,27 @@ async def _store_simulation_history(
     org_id: int,
     user_id: int,
     request: SimulationRequest,
-    result: Dict[str, Any]
+    result: Dict[str, Any],
+    personas: List[Dict[str, Any]]
 ):
     """Background task to store simulation in history"""
     try:
-        # TODO: Store in database when we have the schema
-        logger.info(f"Simulation stored for org {org_id}, user {user_id}")
+        from app.db.crm_db import crm_session
+        from app.services.mirofish_engine import MiroFishEngine
+        
+        content_data = {
+            "text": request.content_text,
+            "platform": request.platform,
+            "audience_context": request.audience_context,
+            "video_id": request.video_id
+        }
+        
+        async with crm_session() as db:
+            engine = MiroFishEngine()
+            simulation_id = await engine.store_simulation_result(
+                org_id, content_data, result, personas, db
+            )
+            logger.info(f"Simulation {simulation_id} stored for org {org_id}, user {user_id}")
+            
     except Exception as e:
         logger.error(f"Failed to store simulation history: {e}")

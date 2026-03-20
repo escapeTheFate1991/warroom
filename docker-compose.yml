@@ -53,6 +53,8 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY}
       # Anthropic (for deep audit AI analysis)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # Google AI Studio (for video generation and AI features)
+      GOOGLE_AI_STUDIO_API_KEY: ${GOOGLE_AI_STUDIO_API_KEY}
       # SQLite read-only mount from the mental-library skill volume
       MENTAL_LIBRARY_DB: ${MENTAL_LIBRARY_DB:-/data/mental-library/mental_library.db}
       VOICE_IO_SCRIPTS_PATH: /voice-io-scripts
