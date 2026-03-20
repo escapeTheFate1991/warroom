@@ -30,6 +30,7 @@ import httpx
 from app.services.competitor_script_engine import get_top_scripts, generate_script_from_reference, extract_hook_body_cta
 from app.api.digital_copies import s3_url_to_presigned, S3_PUBLIC_URL, S3_BUCKET
 from app.services.editing_dna import extract_visual_layout, synthesize_editing_dna, process_competitor_for_dna, map_dna_to_remotion_config, seed_default_dna_templates
+from fastapi.responses import FileResponse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -3347,3 +3348,27 @@ async def _download_media_background(
         await aio.sleep(0.5)  # Rate limit
 
     logger.info(f"Media download complete: {success} updated, {failed} failed out of {len(posts)}")
+
+# ═══════════════════════════════════════════════════════════════════════
+#  STATIC FILE SERVING — Serve generated videos
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.get("/videos/{filename}")
+async def serve_video(
+    filename: str,
+    user: User = Depends(get_current_user),
+):
+    """Serve generated video files."""
+    # Validate filename to prevent path traversal
+    if not filename.endswith(('.mp4', '.mov', '.webm')):
+        raise HTTPException(status_code=400, detail="Invalid video format")
+    
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    video_path = os.path.join(VIDEOS_DIR, filename)
+    
+    if not os.path.exists(video_path):
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    return FileResponse(video_path, media_type="video/mp4")
