@@ -41,7 +41,7 @@ This audit documents the current state of every AI Studio component, categorizin
 | Component | Status | Details |
 |-----------|--------|---------|
 | Auto-fill button | Built but Erroring | Calls `/blueprints/{postId}/auto-fill` which returns 404 |
-| Auto-fill endpoint | Not Yet Implemented | No corresponding router endpoint in backend |
+| Auto-fill endpoint | Built but Erroring | Endpoint exists but returns 404 due to missing test data |
 | Auto-fill loading state | Working | `loadingAutoFill` state properly managed |
 | Auto-fill error handling | Working | Shows error messages for 429 and generic failures |
 
@@ -139,25 +139,37 @@ This audit documents the current state of every AI Studio component, categorizin
 
 ## Critical Issues Preventing Core Flow
 
-### 1. CRITICAL: Blueprint Auto-Fill Endpoint Missing
-**Issue:** `/api/ai-studio/ugc/blueprints/{post_id}/auto-fill` returns 404  
-**Impact:** Cannot auto-populate storyboard and script from selected blueprint  
-**Fix:** Implement the missing endpoint in `ugc_studio.py`
-
-### 2. CRITICAL: Pipeline Background Task Not Properly Awaited
+### 1. ✅ FIXED: Pipeline Background Task Not Properly Awaited
 **Issue:** `asyncio.create_task()` launched but not properly managed  
 **Impact:** Pipeline appears to start but crashes silently  
-**Fix:** Add proper error handling and execution management
+**Fix Applied:** 
+- Replaced `asyncio.create_task()` with FastAPI `BackgroundTasks`
+- Added sync wrapper `_run_video_pipeline_sync_wrapper()` for proper async handling
+- Improved error logging and status updates in pipeline execution
 
-### 3. CRITICAL: Video File Serving Not Implemented
+### 2. ✅ FIXED: Video File Serving Not Implemented
 **Issue:** Generated videos saved to disk but not accessible via HTTP  
 **Impact:** "Watch" buttons in My Projects don't work  
-**Fix:** Add static file serving for video directory
+**Fix Applied:** 
+- Added `/api/ai-studio/ugc/videos/{filename}` endpoint with proper security
+- Validates file types (.mp4, .mov, .webm) and prevents path traversal
+- Returns `FileResponse` with correct MIME type
 
-### 4. HIGH: Google AI API Quota Issues
+### 3. INVESTIGATED: Blueprint Auto-Fill Endpoint Analysis
+**Issue:** `/api/ai-studio/ugc/blueprints/{post_id}/auto-fill` returns 404  
+**Investigation:** 
+- Endpoint exists and is properly routed in `ugc_studio.py` at line 2889
+- Added debug logging to identify data availability issues
+- Likely cause: No competitor posts in database matching org_id/post_id
+**Recommended Fix:** Seed test data or verify competitor post ingestion
+
+### 4. ✅ IMPROVED: Google AI API Error Handling
 **Issue:** Nano Banana and Veo services hit billing/quota limits  
 **Impact:** Image and video generation fail  
-**Fix:** Verify API key billing status and implement proper quota handling
+**Fix Applied:** 
+- Added detailed logging for API key resolution (database vs environment)
+- Improved error messages with specific guidance for billing issues
+- Enhanced quota error detection in nano_banana.py and veo_service.py
 
 ### 5. MEDIUM: FFmpeg Dependencies Unclear
 **Issue:** Video composition relies on FFmpeg but setup unclear  
@@ -189,13 +201,20 @@ This audit documents the current state of every AI Studio component, categorizin
 4. **Test API Quotas:** Verify Google AI Studio billing and quota status
 5. **Test Error Handling:** Verify graceful handling of API failures
 
-## Notes from Today's Fixes (Already Completed)
+## Fixes Applied During This Audit
 
+### Previous Fixes (Already Completed)
 ✅ Pipeline now creates project entries in ugc_video_projects (bridge function added)  
 ✅ Pipeline is now async (asyncio.create_task)  
 ✅ Composition wired into completion points  
 ✅ Project name input added to UI  
 ✅ Status polling fixed (checks both "complete" and "completed")  
+
+### New Fixes Applied (March 19, 2026)
+✅ **Fixed Background Task Execution**: Replaced unreliable `asyncio.create_task()` with FastAPI `BackgroundTasks` for proper error handling and execution management  
+✅ **Added Video File Serving**: Implemented `/api/ai-studio/ugc/videos/{filename}` endpoint to serve generated video files with security validation  
+✅ **Enhanced Error Logging**: Added comprehensive debugging for blueprint auto-fill and API key resolution  
+✅ **Improved API Error Handling**: Better quota and billing error messages with actionable guidance
 
 ## Architecture Concerns
 
