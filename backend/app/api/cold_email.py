@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import text
 
@@ -309,7 +309,7 @@ class UpdateDraftRequest(BaseModel):
 # ── Template Endpoints ───────────────────────────────────────────────
 
 @router.get("/cold-emails/templates")
-async def list_templates(active_only: bool = Query(True)):
+async def list_templates(request: Request, active_only: bool = Query(True)):
     """List all cold email templates."""
     org_id = get_org_id(request)
     clause = "WHERE is_active = TRUE" if active_only else ""
@@ -322,7 +322,7 @@ async def list_templates(active_only: bool = Query(True)):
 
 
 @router.post("/cold-emails/templates", status_code=201)
-async def create_template(req: CreateTemplateRequest):
+async def create_template(req: CreateTemplateRequest, request: Request):
     """Create a new cold email template."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -349,7 +349,7 @@ async def create_template(req: CreateTemplateRequest):
 # ── Generate Email Draft ─────────────────────────────────────────────
 
 @router.post("/cold-emails/generate", status_code=201)
-async def generate_email(req: GenerateEmailRequest):
+async def generate_email(req: GenerateEmailRequest, request: Request):
     """Generate a personalized cold email draft using template variable substitution.
 
     Provide either contact_submission_id (pulls name/email from DB) or
@@ -528,6 +528,7 @@ async def generate_email(req: GenerateEmailRequest):
 
 @router.get("/cold-emails/drafts")
 async def list_drafts(
+    request: Request,
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -569,7 +570,7 @@ async def list_drafts(
 
 
 @router.get("/cold-emails/drafts/{draft_id}")
-async def get_draft(draft_id: int):
+async def get_draft(draft_id: int, request: Request):
     """Get a single cold email draft by ID."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -584,7 +585,7 @@ async def get_draft(draft_id: int):
 
 
 @router.patch("/cold-emails/drafts/{draft_id}")
-async def update_draft(draft_id: int, req: UpdateDraftRequest):
+async def update_draft(draft_id: int, req: UpdateDraftRequest, request: Request):
     """Update a draft's subject, body, or status."""
     org_id = get_org_id(request)
     updates = []
@@ -622,7 +623,7 @@ async def update_draft(draft_id: int, req: UpdateDraftRequest):
 
 
 @router.post("/cold-emails/drafts/{draft_id}/send")
-async def send_draft(draft_id: int):
+async def send_draft(draft_id: int, request: Request):
     """Send a cold email draft via the email service."""
     org_id = get_org_id(request)
     async with _session() as db:

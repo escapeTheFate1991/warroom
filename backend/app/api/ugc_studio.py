@@ -2547,6 +2547,22 @@ class VideoPipelineQuickRequest(BaseModel):
     script: str = Field(..., description="Manual script text")
     digital_copy_id: int = Field(..., description="Digital copy to use")
 
+def _run_video_pipeline_sync_wrapper(
+    pipeline_id: int,
+    org_id: int,
+    user_id: int,
+    reference_post_id: int,
+    digital_copy_id: int,
+    brand_context: Dict[str, Any],
+    api_key: str
+):
+    """Sync wrapper for background task to run the full video pipeline."""
+    import asyncio
+    asyncio.run(_run_video_pipeline_background(
+        pipeline_id, org_id, user_id, reference_post_id,
+        digital_copy_id, brand_context, api_key
+    ))
+
 async def _run_video_pipeline_background(
     pipeline_id: int,
     org_id: int,
@@ -2629,12 +2645,12 @@ async def start_video_pipeline(
         pipeline_id = result.scalar()
         await db.commit()
         
-        # Launch background task
-        import asyncio
-        asyncio.create_task(_run_video_pipeline_background(
+        # Launch background task using FastAPI BackgroundTasks
+        background_tasks.add_task(
+            _run_video_pipeline_sync_wrapper,
             pipeline_id, org_id, current_user.id, request.reference_post_id,
             request.digital_copy_id, request.brand_context, api_key
-        ))
+        )
         
         # Return immediately
         return {

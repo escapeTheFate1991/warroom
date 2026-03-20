@@ -483,6 +483,7 @@ async def submit_contact(body: ContactSubmission, request: Request):
 
 @router.get("/contact-submissions")
 async def list_submissions(
+    request: Request,
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
@@ -531,7 +532,7 @@ async def list_submissions(
 
 
 @router.get("/contact-submissions/{submission_id}")
-async def get_submission(submission_id: int):
+async def get_submission(submission_id: int, request: Request):
     """Get a single contact submission by ID."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -552,7 +553,7 @@ async def get_submission(submission_id: int):
 
 
 @router.patch("/contact-submissions/{submission_id}")
-async def update_submission(submission_id: int, body: ContactUpdate):
+async def update_submission(submission_id: int, body: ContactUpdate, request: Request):
     """Update status, assignment, or notes on a submission."""
     org_id = get_org_id(request)
     updates = []

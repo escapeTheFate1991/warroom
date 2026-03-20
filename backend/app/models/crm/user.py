@@ -77,6 +77,9 @@ class User(CrmBase):
     # Session tracking
     last_login = Column(TIMESTAMP(timezone=True))
     login_count = Column(Integer, default=0)
+    
+    # Billing/Grandfathering
+    is_grandfathered = Column(Boolean, default=False)  # First 100 customers locked at $99
 
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())

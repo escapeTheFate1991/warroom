@@ -9,7 +9,7 @@ import {
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
   CalendarDays, FileSignature, DollarSign, PhoneCall,
-  BarChart2, PieChart, TrendingUp, UserPlus, Sparkles,
+  BarChart2, PieChart, TrendingUp, UserPlus, Sparkles, Brain,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/navigation/Sidebar";
@@ -64,6 +64,7 @@ const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsP
 const CommunicationsConsole = dynamic(() => import("@/components/communications/CommunicationsConsole"), { loading: PanelLoader });
 const ProfilePage = dynamic(() => import("@/components/profile/ProfilePage"), { loading: PanelLoader });
 const AIStudioPanel = dynamic(() => import("@/components/ai-studio/AIStudioPanel"), { loading: PanelLoader });
+const MiroFishPanel = dynamic(() => import("@/components/mirofish/MiroFishPanel"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -94,6 +95,7 @@ const SECTIONS = [
     items: [
       { id: "social", label: "Analytics", icon: Share2 },
       { id: "intelligence", label: "Competitor Intel", icon: FileBarChart },
+      { id: "mirofish", label: "MiroFish", icon: Brain },
     ],
   },
   {
@@ -152,7 +154,7 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "content-social" | "intelligence" | "prospects"
+  | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "content-social" | "intelligence" | "mirofish" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
   | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
   | "scheduler" | "recycle"
@@ -296,6 +298,7 @@ function WarRoom() {
           {activeTab === "scheduler" && <SchedulerCalendar />}
           {activeTab === "recycle" && <RecyclePanel />}
           {activeTab === "intelligence" && <CompetitorIntel />}
+          {activeTab === "mirofish" && <MiroFishPanel />}
           {activeTab === "kanban" && <KanbanPanel />}
           {activeTab === "leadgen" && <LeadgenPanel />}
           {activeTab === "communications" && <CommunicationsConsole />}

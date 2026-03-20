@@ -38,6 +38,8 @@ async def list_products(
     request: Request,
     search: Optional[str] = None,
     sku: Optional[str] = None,
+    category: Optional[str] = None,
+    is_active: Optional[bool] = None,
     limit: int = Query(default=50, le=500),
     offset: int = 0,
     db: AsyncSession = Depends(get_tenant_db),
@@ -56,8 +58,12 @@ async def list_products(
         )
     if sku:
         query = query.where(Product.sku.ilike(f"%{sku}%"))
+    if category:
+        query = query.where(Product.category == category)
+    if is_active is not None:
+        query = query.where(Product.is_active == is_active)
     
-    query = query.order_by(Product.name).offset(offset).limit(limit)
+    query = query.order_by(Product.tier_level, Product.name).offset(offset).limit(limit)
     
     result = await db.execute(query)
     return result.scalars().all()
