@@ -363,7 +363,7 @@ async def get_invoice(invoice_id: int, request: Request):
 
 
 @router.patch("/invoices/{invoice_id}")
-async def update_invoice(invoice_id: int, body: InvoiceUpdate):
+async def update_invoice(invoice_id: int, body: InvoiceUpdate, request: Request):
     """Update an invoice (items, status, notes, due_date, etc.)."""
     org_id = get_org_id(request)
     # Fetch current invoice
@@ -435,7 +435,7 @@ async def update_invoice(invoice_id: int, body: InvoiceUpdate):
 
 
 @router.delete("/invoices/{invoice_id}")
-async def delete_invoice(invoice_id: int):
+async def delete_invoice(invoice_id: int, request: Request):
     """Soft-delete an invoice (set status to cancelled)."""
     org_id = get_org_id(request)
     async with _session() as sess:
@@ -455,7 +455,7 @@ async def delete_invoice(invoice_id: int):
 
 
 @router.post("/invoices/{invoice_id}/send")
-async def send_invoice(invoice_id: int):
+async def send_invoice(invoice_id: int, request: Request):
     """Send invoice to client via email."""
     org_id = get_org_id(request)
     async with _session() as sess:
@@ -488,7 +488,7 @@ async def send_invoice(invoice_id: int):
 
 
 @router.post("/invoices/{invoice_id}/mark-paid")
-async def mark_invoice_paid(invoice_id: int):
+async def mark_invoice_paid(invoice_id: int, request: Request):
     """Mark an invoice as paid."""
     org_id = get_org_id(request)
     async with _session() as sess:
@@ -518,7 +518,7 @@ async def mark_invoice_paid(invoice_id: int):
 
 
 @router.get("/invoices/{invoice_id}/pdf")
-async def get_invoice_pdf(invoice_id: int):
+async def get_invoice_pdf(invoice_id: int, request: Request):
     """Generate and return invoice as HTML (printable to PDF)."""
     org_id = get_org_id(request)
     async with _session() as sess:

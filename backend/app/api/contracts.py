@@ -664,7 +664,7 @@ async def get_contract(contract_id: int, request: Request):
 
 
 @router.patch("/contracts/{contract_id}")
-async def update_contract(contract_id: int, data: ContractUpdate):
+async def update_contract(contract_id: int, data: ContractUpdate, request: Request):
     """Update a contract (only draft/sent contracts can be edited)."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -721,7 +721,7 @@ async def update_contract(contract_id: int, data: ContractUpdate):
 
 
 @router.get("/contracts/{contract_id}/html", response_class=HTMLResponse)
-async def get_contract_html(contract_id: int):
+async def get_contract_html(contract_id: int, request: Request):
     """Render the full contract as a professional, printable HTML document."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -1105,7 +1105,7 @@ async def get_contract_html(contract_id: int):
 
 
 @router.post("/contracts/{contract_id}/send")
-async def send_contract(contract_id: int):
+async def send_contract(contract_id: int, request: Request):
     """Email the contract to the client."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -1160,7 +1160,7 @@ async def send_contract(contract_id: int):
 
 
 @router.post("/contracts/{contract_id}/mark-signed")
-async def mark_contract_signed(contract_id: int):
+async def mark_contract_signed(contract_id: int, request: Request):
     """Mark a contract as signed and set it active."""
     org_id = get_org_id(request)
     async with _session() as db:
