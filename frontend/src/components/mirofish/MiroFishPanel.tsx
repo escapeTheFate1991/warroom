@@ -72,10 +72,15 @@ export default function MiroFishPanel() {
       const response = await authFetch('/api/video-copycat/storyboards');
       if (response.ok) {
         const data = await response.json();
-        setVideoProjects(data);
+        // Ensure data is an array
+        setVideoProjects(Array.isArray(data) ? data : (data.projects || data.storyboards || []));
+      } else {
+        console.error('Failed to load video projects - API response not OK');
+        setVideoProjects([]);
       }
     } catch (error) {
       console.error('Failed to load video projects:', error);
+      setVideoProjects([]);
     }
   };
 
@@ -85,10 +90,15 @@ export default function MiroFishPanel() {
       const response = await authFetch('/api/social/content');
       if (response.ok) {
         const data = await response.json();
-        setPublishedContent(data);
+        // Ensure data is an array
+        setPublishedContent(Array.isArray(data) ? data : (data.content || data.posts || []));
+      } else {
+        console.error('Failed to load published content - API response not OK');
+        setPublishedContent([]);
       }
     } catch (error) {
       console.error('Failed to load published content:', error);
+      setPublishedContent([]);
     }
   };
 
@@ -204,7 +214,7 @@ export default function MiroFishPanel() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {videoProjects.map((project) => (
+            {Array.isArray(videoProjects) && videoProjects.map((project) => (
               <div
                 key={project.id}
                 onClick={() => setSelectedProject(project.id)}
@@ -279,7 +289,7 @@ export default function MiroFishPanel() {
           </div>
         ) : (
           <div className="space-y-2">
-            {publishedContent.map((content) => (
+            {Array.isArray(publishedContent) && publishedContent.map((content) => (
               <div
                 key={content.id}
                 onClick={() => setSelectedPublishedContent(content.id)}
