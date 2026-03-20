@@ -187,6 +187,21 @@ SEED_TEMPLATES = [
         ]),
         "prompt_template": "Create a {duration}-second testimonial-style UGC video:\n{scenes}\nTone: {tone}\nEnergy: {energy}",
     },
+    {
+        "id": "tpl-behind-scenes",
+        "name": "Behind the Scenes (25s)",
+        "description": "Show the process — build trust and transparency",
+        "category": "lifestyle",
+        "duration_seconds": 25,
+        "scene_count": 4,
+        "storyboard": json.dumps([
+            {"scene": 1, "label": "Setup", "seconds": "0-5", "direction": "Show the workspace or setup. Casual filming, natural lighting. Invite viewer in.", "camera": "wide", "mood": "welcoming"},
+            {"scene": 2, "label": "Process", "seconds": "5-15", "direction": "Show the actual work being done. Hands-on action, detailed shots, real-time work.", "camera": "close-up", "mood": "focused"},
+            {"scene": 3, "label": "Challenge", "seconds": "15-20", "direction": "Briefly show a problem or decision point. Makes it relatable and real.", "camera": "medium", "mood": "thoughtful"},
+            {"scene": 4, "label": "Reveal", "seconds": "20-25", "direction": "Show the end result with pride. Brief explanation of what makes it special.", "camera": "wide-to-close", "mood": "accomplished"},
+        ]),
+        "prompt_template": "Create a {duration}-second behind-the-scenes UGC video:\n{scenes}\nTone: {tone}\nEnergy: {energy}",
+    },
 ]
 
 
