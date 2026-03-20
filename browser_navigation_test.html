@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WAR ROOM Navigation Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-results { margin-top: 20px; }
+        .success { color: green; }
+        .error { color: red; }
+        .loading { color: orange; }
+        .tab-test { margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 WAR ROOM Navigation Test</h1>
+    <p>This test loads each tab in the WAR ROOM application to check for crashes.</p>
+    
+    <button onclick="runNavigationTest()">Start Navigation Test</button>
+    <button onclick="clearResults()">Clear Results</button>
+    
+    <div id="results" class="test-results"></div>
+
+    <script>
+        const WARROOM_URL = 'http://localhost:3300';
+        
+        // All tabs from page.tsx - grouped for better testing
+        const TAB_GROUPS = {
+            'Core Navigation': [
+                'dashboard', 'chat', 'agents', 'agent-create', 'agent-edit', 'settings', 'profile'
+            ],
+            'Social & Content': [
+                'social', 'content-instagram', 'content-youtube', 'content-facebook', 'content-x', 
+                'pipeline', 'content-social', 'social-instagram', 'social-tiktok', 'social-youtube', 
+                'social-facebook', 'scheduler', 'recycle'
+            ],
+            'Business Operations': [
+                'leadgen', 'prospects', 'pipeline-board', 'organizations', 'crm-contacts', 
+                'crm-products', 'pricing', 'org-chart', 'communications'
+            ],
+            'Tools & Intelligence': [
+                'intelligence', 'mirofish', 'kanban', 'ai-studio', 'workflows', 'library-search', 
+                'library-educate', 'marketing-campaigns', 'marketing-templates'
+            ],
+            'Finance & Admin': [
+                'email', 'calendar', 'invoices', 'contracts', 'reports-overview'
+            ]
+        };
+
+        let testResults = {};
+        let currentTestFrame = null;
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+            testResults = {};
+            if (currentTestFrame) {
+                document.body.removeChild(currentTestFrame);
+                currentTestFrame = null;
+            }
+        }
+
+        function addResult(tab, status, error = null) {
+            testResults[tab] = { status, error, timestamp: new Date().toLocaleTimeString() };
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            const resultsDiv = document.getElementById('results');
+            let html = '<h2>Test Results</h2>';
+            
+            let totalTests = 0;
+            let passed = 0;
+            let failed = 0;
+
+            for (const [groupName, tabs] of Object.entries(TAB_GROUPS)) {
+                html += `<h3>${groupName}</h3>`;
+                
+                for (const tab of tabs) {
+                    totalTests++;
+                    const result = testResults[tab];
+                    
+                    if (!result) {
+                        html += `<div class="tab-test loading">⏳ ${tab} - Waiting...</div>`;
+                    } else {
+                        if (result.status === 'success') {
+                            passed++;
+                            html += `<div class="tab-test success">✅ ${tab} - OK (${result.timestamp})</div>`;
+                        } else if (result.status === 'error') {
+                            failed++;
+                            html += `<div class="tab-test error">❌ ${tab} - CRASH: ${result.error} (${result.timestamp})</div>`;
+                        } else {
+                            html += `<div class="tab-test loading">⏳ ${tab} - Testing...</div>`;
+                        }
+                    }
+                }
+            }
+
+            html += `<h3>Summary</h3>`;
+            html += `<p>Total: ${totalTests} | Passed: ${passed} | Failed: ${failed}</p>`;
+            
+            if (totalTests > 0 && passed + failed === totalTests) {
+                if (failed === 0) {
+                    html += `<p class="success"><strong>🎉 All tabs load successfully!</strong></p>`;
+                } else {
+                    html += `<p class="error"><strong>🔥 ${failed} tabs have crashes that need fixes.</strong></p>`;
+                }
+            }
+
+            resultsDiv.innerHTML = html;
+        }
+
+        function createTestFrame() {
+            if (currentTestFrame) {
+                document.body.removeChild(currentTestFrame);
+            }
+            
+            currentTestFrame = document.createElement('iframe');
+            currentTestFrame.style.position = 'absolute';
+            currentTestFrame.style.top = '-1000px';
+            currentTestFrame.style.left = '-1000px';
+            currentTestFrame.style.width = '800px';
+            currentTestFrame.style.height = '600px';
+            currentTestFrame.style.border = 'none';
+            document.body.appendChild(currentTestFrame);
+            
+            return currentTestFrame;
+        }
+
+        async function testTab(tab) {
+            return new Promise((resolve) => {
+                const frame = createTestFrame();
+                const startTime = Date.now();
+                const timeoutMs = 10000; // 10 second timeout per tab
+
+                // Set up timeout
+                const timeout = setTimeout(() => {
+                    console.error(`Tab ${tab} timed out after ${timeoutMs}ms`);
+                    resolve({ success: false, error: `Timeout after ${timeoutMs}ms` });
+                }, timeoutMs);
+
+                // Set up error handling
+                let errorCaught = false;
+                const originalError = window.onerror;
+                
+                frame.onload = function() {
+                    try {
+                        // Check if the frame loaded successfully
+                        const frameDoc = frame.contentDocument || frame.contentWindow.document;
+                        
+                        // Look for error indicators
+                        setTimeout(() => {
+                            try {
+                                const loadTime = Date.now() - startTime;
+                                
+                                // Check for React error boundaries or crash indicators
+                                const errorElements = frameDoc.querySelectorAll('[data-testid="error"], .error-boundary, .react-error-overlay');
+                                const hasConsoleErrors = frame.contentWindow.console && frame.contentWindow.console.error;
+                                
+                                if (errorElements.length > 0) {
+                                    resolve({ success: false, error: 'React error boundary triggered' });
+                                } else if (errorCaught) {
+                                    resolve({ success: false, error: 'JavaScript error detected' });
+                                } else {
+                                    resolve({ success: true, loadTime });
+                                }
+                            } catch (e) {
+                                resolve({ success: false, error: `Frame access error: ${e.message}` });
+                            } finally {
+                                clearTimeout(timeout);
+                                window.onerror = originalError;
+                            }
+                        }, 2000); // Wait 2 seconds for tab to fully load
+                        
+                    } catch (e) {
+                        clearTimeout(timeout);
+                        window.onerror = originalError;
+                        resolve({ success: false, error: `Load error: ${e.message}` });
+                    }
+                };
+
+                frame.onerror = function(error) {
+                    errorCaught = true;
+                    clearTimeout(timeout);
+                    window.onerror = originalError;
+                    resolve({ success: false, error: `Frame error: ${error}` });
+                };
+
+                // Override console.error in the frame to catch errors
+                frame.onload = function() {
+                    try {
+                        const frameWindow = frame.contentWindow;
+                        if (frameWindow) {
+                            const originalConsoleError = frameWindow.console.error;
+                            frameWindow.console.error = function(...args) {
+                                if (args[0] && typeof args[0] === 'string' && args[0].includes('.map')) {
+                                    errorCaught = true;
+                                }
+                                return originalConsoleError.apply(this, args);
+                            };
+                        }
+                        
+                        // Continue with the rest of the onload logic
+                        setTimeout(() => {
+                            try {
+                                const loadTime = Date.now() - startTime;
+                                
+                                if (errorCaught) {
+                                    resolve({ success: false, error: 'Console .map error detected' });
+                                } else {
+                                    resolve({ success: true, loadTime });
+                                }
+                            } catch (e) {
+                                resolve({ success: false, error: `Frame access error: ${e.message}` });
+                            } finally {
+                                clearTimeout(timeout);
+                            }
+                        }, 2000);
+                        
+                    } catch (e) {
+                        clearTimeout(timeout);
+                        resolve({ success: false, error: `Frame setup error: ${e.message}` });
+                    }
+                };
+
+                // Load the tab
+                frame.src = `${WARROOM_URL}/?tab=${tab}`;
+            });
+        }
+
+        async function runNavigationTest() {
+            clearResults();
+            console.log('🚀 Starting WAR ROOM navigation test...');
+            
+            updateDisplay(); // Show initial state
+            
+            // Flatten all tabs for testing
+            const allTabs = Object.values(TAB_GROUPS).flat();
+            
+            for (const tab of allTabs) {
+                console.log(`Testing tab: ${tab}`);
+                addResult(tab, 'testing');
+                
+                try {
+                    const result = await testTab(tab);
+                    
+                    if (result.success) {
+                        console.log(`✅ ${tab} - OK (${result.loadTime}ms)`);
+                        addResult(tab, 'success');
+                    } else {
+                        console.error(`❌ ${tab} - ${result.error}`);
+                        addResult(tab, 'error', result.error);
+                    }
+                } catch (error) {
+                    console.error(`❌ ${tab} - Unexpected error:`, error);
+                    addResult(tab, 'error', error.message);
+                }
+                
+                // Small delay between tests to avoid overwhelming the server
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            console.log('✅ Navigation test complete!');
+        }
+
+        // Initialize display
+        updateDisplay();
+    </script>
+</body>
+</html>
