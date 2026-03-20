@@ -67,6 +67,7 @@ const CommunicationsConsole = dynamic(() => import("@/components/communications/
 const ProfilePage = dynamic(() => import("@/components/profile/ProfilePage"), { loading: PanelLoader });
 const AIStudioPanel = dynamic(() => import("@/components/ai-studio/AIStudioPanel"), { loading: PanelLoader });
 const MiroFishPanel = dynamic(() => import("@/components/mirofish/MiroFishPanel"), { loading: PanelLoader });
+const PricingPage = dynamic(() => import("@/components/pricing/PricingPage"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -122,6 +123,7 @@ const SECTIONS = [
       { id: "organizations", label: "Organizations", icon: Building2 },
       { id: "crm-contacts", label: "Contacts", icon: Users },
       { id: "crm-products", label: "Products", icon: Package },
+      { id: "pricing", label: "Pricing", icon: DollarSign },
       { id: "org-chart", label: "Org Chart", icon: Building2 },
     ],
   },
@@ -162,7 +164,7 @@ type TabId =
   | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
   | "scheduler" | "recycle"
   | "kanban" | "leadgen"
-  | "pipeline-board" | "organizations" | "crm-contacts" | "crm-products" | "org-chart"
+  | "pipeline-board" | "organizations" | "crm-contacts" | "crm-products" | "pricing" | "org-chart"
   | "library-search" | "library-educate"
   | "ai-studio" | "workflows"
   | "marketing-campaigns" | "marketing-templates"
@@ -310,6 +312,7 @@ function WarRoom() {
           {activeTab === "organizations" && <OrganizationsPanel />}
           {activeTab === "crm-contacts" && <ContactsManager />}
           {activeTab === "crm-products" && <ProductsPanel />}
+          {activeTab === "pricing" && <PricingPage />}
           {activeTab === "org-chart" && <OrgChartPanel />}
           {activeTab === "library-search" && <LibraryPanel />}
           {activeTab === "library-educate" && <EducatePanel />}
