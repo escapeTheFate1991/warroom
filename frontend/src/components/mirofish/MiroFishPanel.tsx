@@ -495,7 +495,7 @@ export default function MiroFishPanel() {
         <div>
           <h4 className="font-medium mb-3">Audience Sentiment</h4>
           <div className="space-y-2">
-            {Object.entries(simulationResult.sentiment).map(([sentiment, value]) => (
+            {simulationResult.sentiment && Object.entries(simulationResult.sentiment).map(([sentiment, value]) => (
               <div key={sentiment} className="flex items-center">
                 <span className="w-20 text-sm capitalize">{sentiment}</span>
                 <div className="flex-1 bg-warroom-border rounded-full h-2 mx-3">
@@ -518,7 +518,7 @@ export default function MiroFishPanel() {
         <div>
           <h4 className="font-medium mb-3">Recommendations</h4>
           <div className="space-y-3">
-            {simulationResult.recommendations.map((rec, index) => (
+            {Array.isArray(simulationResult.recommendations) && simulationResult.recommendations.map((rec, index) => (
               <div key={index} className="bg-warroom-bg border border-warroom-border rounded-lg p-4">
                 <div className="flex items-start space-x-3">
                   <div className={`w-2 h-2 rounded-full mt-2 ${
