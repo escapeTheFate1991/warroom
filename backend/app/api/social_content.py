@@ -321,7 +321,7 @@ async def x_tweets(request: Request, limit: int = 25, db: AsyncSession = Depends
 # Cross-platform summary and unified content endpoint
 # ═══════════════════════════════════════════════════════════
 
-@router.get("")
+@router.get("/content")
 async def get_all_content(request: Request, limit: int = 50, db: AsyncSession = Depends(get_tenant_db)):
     """
     Unified endpoint for all published content across platforms.
