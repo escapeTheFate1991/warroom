@@ -13,6 +13,12 @@ interface Product {
   description: string | null;
   price: number;
   quantity: number;
+  billing_interval: string;
+  features: string[];
+  stripe_price_id: string | null;
+  is_active: boolean;
+  tier_level: number;
+  category: string;
   created_at: string;
   updated_at: string;
 }
@@ -23,6 +29,11 @@ interface ProductFormData {
   description: string;
   price: string;
   quantity: string;
+  billing_interval: string;
+  features: string;
+  stripe_price_id: string;
+  tier_level: string;
+  category: string;
 }
 
 export default function ProductsPanel() {
@@ -31,12 +42,18 @@ export default function ProductsPanel() {
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [formData, setFormData] = useState<ProductFormData>({
     name: "",
     sku: "",
     description: "",
     price: "",
     quantity: "",
+    billing_interval: "monthly",
+    features: "",
+    stripe_price_id: "",
+    tier_level: "1",
+    category: "general",
   });
 
   const loadProducts = async () => {
@@ -72,6 +89,11 @@ export default function ProductsPanel() {
       description: "",
       price: "",
       quantity: "",
+      billing_interval: "monthly",
+      features: "",
+      stripe_price_id: "",
+      tier_level: "1",
+      category: "general",
     });
     setShowModal(true);
   };
@@ -84,6 +106,11 @@ export default function ProductsPanel() {
       description: product.description || "",
       price: product.price.toString(),
       quantity: product.quantity.toString(),
+      billing_interval: product.billing_interval || "monthly",
+      features: product.features?.join("\n") || "",
+      stripe_price_id: product.stripe_price_id || "",
+      tier_level: product.tier_level?.toString() || "1",
+      category: product.category || "general",
     });
     setShowModal(true);
   };
@@ -99,6 +126,11 @@ export default function ProductsPanel() {
         description: formData.description || null,
         price: parseFloat(formData.price),
         quantity: parseInt(formData.quantity),
+        billing_interval: formData.billing_interval,
+        features: formData.features.split("\n").filter(f => f.trim()),
+        stripe_price_id: formData.stripe_price_id || null,
+        tier_level: parseInt(formData.tier_level),
+        category: formData.category,
       };
 
       const url = editingProduct
@@ -164,10 +196,22 @@ export default function ProductsPanel() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="h-14 border-b border-warroom-border flex items-center px-6 justify-between">
-        <h2 className="text-sm font-semibold flex items-center gap-2">
-          <Package size={16} />
-          Products
-        </h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Package size={16} />
+            Products
+          </h2>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="bg-warroom-bg border border-warroom-border rounded-lg px-3 py-1.5 text-sm text-warroom-text"
+          >
+            <option value="all">All Categories</option>
+            <option value="general">General</option>
+            <option value="ai-automation">AI Automation</option>
+            <option value="crm">CRM</option>
+          </select>
+        </div>
         <button
           onClick={handleAddProduct}
           className="flex items-center gap-2 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-sm font-medium transition"
@@ -179,20 +223,21 @@ export default function ProductsPanel() {
 
       <div className="flex-1 overflow-y-auto p-6">
         {/* Products Table */}
-        {!loading && products.length > 0 && (
+        {!loading && products.filter(p => categoryFilter === "all" || p.category === categoryFilter).length > 0 && (
           <div className="bg-warroom-surface border border-warroom-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-warroom-border bg-warroom-bg">
                   <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Name</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">SKU</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Category</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Price</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Quantity</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Tier</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Status</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-warroom-muted uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {products.map((product) => (
+                {products.filter(p => categoryFilter === "all" || p.category === categoryFilter).map((product) => (
                   <tr key={product.id} className="border-b border-warroom-border/50 hover:bg-warroom-border/20">
                     <td className="px-4 py-3">
                       <p className="font-medium text-warroom-text">{product.name}</p>
@@ -201,22 +246,43 @@ export default function ProductsPanel() {
                           {product.description}
                         </p>
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-warroom-text font-mono text-xs">{product.sku}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-warroom-text font-medium">{formatPrice(product.price)}</span>
+                      <p className="text-xs text-warroom-muted font-mono mt-0.5">{product.sku}</p>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded-full ${
-                        product.quantity > 10 
+                        product.category === 'ai-automation' 
+                          ? "bg-blue-500/20 text-blue-400"
+                          : "bg-gray-500/20 text-gray-400"
+                      }`}>
+                        {product.category.replace('-', ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-warroom-text font-medium">
+                        {product.billing_interval === 'custom' 
+                          ? 'Custom' 
+                          : `${formatPrice(product.price)}/${product.billing_interval === 'monthly' ? 'mo' : product.billing_interval}`
+                        }
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        product.tier_level === 1 
                           ? "bg-green-500/20 text-green-400"
-                          : product.quantity > 0
-                          ? "bg-yellow-500/20 text-yellow-400"
+                          : product.tier_level === 2
+                          ? "bg-purple-500/20 text-purple-400"
+                          : "bg-yellow-500/20 text-yellow-400"
+                      }`}>
+                        Tier {product.tier_level}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        product.is_active 
+                          ? "bg-green-500/20 text-green-400"
                           : "bg-red-500/20 text-red-400"
                       }`}>
-                        {product.quantity} in stock
+                        {product.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -253,7 +319,7 @@ export default function ProductsPanel() {
         )}
 
         {/* Empty State */}
-        {!loading && products.length === 0 && (
+        {!loading && products.filter(p => categoryFilter === "all" || p.category === categoryFilter).length === 0 && (
           <EmptyState
             icon={<Package size={32} />}
             title="No Products"
@@ -349,6 +415,24 @@ export default function ProductsPanel() {
 
                     <div>
                       <label className="block text-xs font-medium text-warroom-muted mb-1">
+                        Billing Interval *
+                      </label>
+                      <select
+                        value={formData.billing_interval}
+                        onChange={(e) => setFormData(prev => ({ ...prev, billing_interval: e.target.value }))}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                      >
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                        <option value="one-time">One-time</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-warroom-muted mb-1">
                         Quantity *
                       </label>
                       <input
@@ -361,6 +445,62 @@ export default function ProductsPanel() {
                         placeholder="0"
                       />
                     </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-warroom-muted mb-1">
+                        Tier Level *
+                      </label>
+                      <select
+                        value={formData.tier_level}
+                        onChange={(e) => setFormData(prev => ({ ...prev, tier_level: e.target.value }))}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                      >
+                        <option value="1">Tier 1 - Starter</option>
+                        <option value="2">Tier 2 - Professional</option>
+                        <option value="3">Tier 3 - Enterprise</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-warroom-muted mb-1">
+                        Category *
+                      </label>
+                      <select
+                        value={formData.category}
+                        onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                      >
+                        <option value="general">General</option>
+                        <option value="ai-automation">AI Automation</option>
+                        <option value="crm">CRM</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-warroom-muted mb-1">
+                      Features (one per line)
+                    </label>
+                    <textarea
+                      value={formData.features}
+                      onChange={(e) => setFormData(prev => ({ ...prev, features: e.target.value }))}
+                      rows={4}
+                      className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent resize-none"
+                      placeholder="Feature 1&#10;Feature 2&#10;Feature 3"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-warroom-muted mb-1">
+                      Stripe Price ID
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.stripe_price_id}
+                      onChange={(e) => setFormData(prev => ({ ...prev, stripe_price_id: e.target.value }))}
+                      className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent font-mono"
+                      placeholder="price_1234567890"
+                    />
                   </div>
                 </div>
 

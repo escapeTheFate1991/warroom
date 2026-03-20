@@ -490,6 +490,12 @@ class ProductResponse(BaseSchema):
     description: Optional[str] = None
     quantity: int = 0
     price: Optional[Decimal] = None
+    billing_interval: str = "monthly"
+    features: List[str] = []
+    stripe_price_id: Optional[str] = None
+    is_active: bool = True
+    tier_level: int = 1
+    category: str = "general"
     created_at: datetime
     updated_at: datetime
 
@@ -499,6 +505,12 @@ class ProductCreate(BaseModel):
     description: Optional[str] = None
     quantity: int = 0
     price: Optional[Decimal] = None
+    billing_interval: str = "monthly"
+    features: List[str] = []
+    stripe_price_id: Optional[str] = None
+    is_active: bool = True
+    tier_level: int = 1
+    category: str = "general"
 
 class ProductUpdate(BaseModel):
     sku: Optional[str] = None
@@ -506,6 +518,12 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     quantity: Optional[int] = None
     price: Optional[Decimal] = None
+    billing_interval: Optional[str] = None
+    features: Optional[List[str]] = None
+    stripe_price_id: Optional[str] = None
+    is_active: Optional[bool] = None
+    tier_level: Optional[int] = None
+    category: Optional[str] = None
 
 
 # ===== Email Schemas =====

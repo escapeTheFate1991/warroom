@@ -220,6 +220,7 @@ class TemplateCreate(BaseModel):
 # ── Invoice Endpoints ────────────────────────────────────────────────
 @router.get("/invoices")
 async def list_invoices(
+    request: Request,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
     status: Optional[str] = Query(None),
@@ -271,7 +272,7 @@ async def list_invoices(
 
 
 @router.post("/invoices")
-async def create_invoice(body: InvoiceCreate):
+async def create_invoice(body: InvoiceCreate, request: Request):
     """Create a new invoice with auto-generated invoice number."""
     org_id = get_org_id(request)
     invoice_number = await _next_invoice_number()
@@ -313,7 +314,7 @@ async def create_invoice(body: InvoiceCreate):
 
 
 @router.get("/invoices/templates")
-async def list_templates():
+async def list_templates(request: Request):
     """List all invoice templates."""
     org_id = get_org_id(request)
     async with _session() as sess:
@@ -325,7 +326,7 @@ async def list_templates():
 
 
 @router.post("/invoices/templates")
-async def create_template(body: TemplateCreate):
+async def create_template(body: TemplateCreate, request: Request):
     """Create a new invoice template."""
     org_id = get_org_id(request)
     async with _session() as sess:
@@ -348,7 +349,7 @@ async def create_template(body: TemplateCreate):
 
 
 @router.get("/invoices/{invoice_id}")
-async def get_invoice(invoice_id: int):
+async def get_invoice(invoice_id: int, request: Request):
     """Get invoice detail by ID."""
     org_id = get_org_id(request)
     async with _session() as sess:

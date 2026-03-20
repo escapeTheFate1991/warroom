@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import text
@@ -291,7 +291,7 @@ async def _get_contract_or_404(db, contract_id: int):
 # ── Template Endpoints ───────────────────────────────────────────────
 
 @router.get("/contracts/templates")
-async def list_templates():
+async def list_templates(request: Request):
     """List all active contract templates."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -322,7 +322,7 @@ async def list_templates():
 
 
 @router.post("/contracts/templates", status_code=201)
-async def create_template(data: TemplateCreate):
+async def create_template(data: TemplateCreate, request: Request):
     """Create a new contract template."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -352,6 +352,7 @@ async def create_template(data: TemplateCreate):
 
 @router.get("/contracts")
 async def list_contracts(
+    request: Request,
     status: Optional[str] = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
@@ -415,7 +416,7 @@ async def list_contracts(
 
 
 @router.post("/contracts", status_code=201)
-async def create_contract(data: ContractCreate):
+async def create_contract(data: ContractCreate, request: Request):
     """Create a new contract from a template."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -479,7 +480,7 @@ async def create_contract(data: ContractCreate):
 # ── Create Contract from CRM Deal ────────────────────────────────────
 
 @router.post("/contracts/from-deal", status_code=201)
-async def create_contract_from_deal(data: ContractFromDeal):
+async def create_contract_from_deal(data: ContractFromDeal, request: Request):
     """Create a contract pre-populated from a CRM deal's person/organization."""
     org_id = get_org_id(request)
     from app.db.crm_db import crm_engine
@@ -592,7 +593,7 @@ async def create_contract_from_deal(data: ContractFromDeal):
 
 
 @router.get("/contracts/by-deal/{deal_id}")
-async def get_contracts_by_deal(deal_id: int):
+async def get_contracts_by_deal(deal_id: int, request: Request):
     """Return all contracts linked to a specific CRM deal."""
     org_id = get_org_id(request)
     async with _session() as db:
@@ -625,7 +626,7 @@ async def get_contracts_by_deal(deal_id: int):
 
 
 @router.get("/contracts/{contract_id}")
-async def get_contract(contract_id: int):
+async def get_contract(contract_id: int, request: Request):
     """Get full contract details including deal pipeline state."""
     org_id = get_org_id(request)
     async with _session() as db:
