@@ -56,7 +56,7 @@ class MiroFishEngine:
                     c.handle,
                     c.platform,
                     c.avg_engagement_rate,
-                    cp.text,
+                    cp.post_text,
                     cp.likes,
                     cp.comments,
                     cp.shares,
