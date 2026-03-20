@@ -10,11 +10,11 @@ import logging
 import base64
 import re
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from collections import Counter, defaultdict
 
 from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File, Form
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2553,10 +2553,19 @@ from fastapi import BackgroundTasks
 from app.services.video_pipeline import create_video_from_competitor_reference, create_video_from_template, get_pipeline_status
 
 class VideoPipelineStartRequest(BaseModel):
-    reference_post_id: int = Field(..., description="ID of competitor post to use as reference")
-    digital_copy_id: int = Field(..., description="Digital copy/character to use")
+    reference_post_id: Optional[int] = Field(None, description="ID of competitor post to use as reference")
+    digital_copy_id: Optional[Union[int, str]] = Field(None, description="Digital copy/character to use")
     editing_dna_id: Optional[int] = Field(None, description="Optional editing DNA template ID")
-    brand_context: Dict[str, Any] = Field(..., description="Brand context (brand_name, product_name, target_audience, key_message)")
+    brand_context: Dict[str, Any] = Field(default_factory=dict, description="Brand context (brand_name, product_name, target_audience, key_message)")
+
+    @validator('digital_copy_id', pre=True)
+    def coerce_digital_copy_id(cls, v):
+        if v is None:
+            return None
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return None
 
 class VideoPipelineQuickRequest(BaseModel):
     template_id: str = Field(..., description="Template ID (e.g. 'split_vertical', 'fullscreen')")
