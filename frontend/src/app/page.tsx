@@ -10,6 +10,7 @@ import {
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
   CalendarDays, FileSignature, DollarSign, PhoneCall,
   BarChart2, PieChart, TrendingUp, UserPlus, Sparkles, Brain,
+  Package,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/navigation/Sidebar";
@@ -61,6 +62,7 @@ const ReportsOverview = dynamic(() => import("@/components/reports/ReportsOvervi
 const ProspectsPanel = dynamic(() => import("@/components/prospects/ProspectsPanel"), { loading: PanelLoader });
 const UnifiedPipeline = dynamic(() => import("@/components/crm/UnifiedPipeline"), { loading: PanelLoader });
 const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsPanel"), { loading: PanelLoader });
+const ProductsPanel = dynamic(() => import("@/components/crm/ProductsPanel"), { loading: PanelLoader });
 const CommunicationsConsole = dynamic(() => import("@/components/communications/CommunicationsConsole"), { loading: PanelLoader });
 const ProfilePage = dynamic(() => import("@/components/profile/ProfilePage"), { loading: PanelLoader });
 const AIStudioPanel = dynamic(() => import("@/components/ai-studio/AIStudioPanel"), { loading: PanelLoader });
@@ -119,6 +121,7 @@ const SECTIONS = [
       { id: "prospects", label: "Prospects", icon: UserPlus },
       { id: "organizations", label: "Organizations", icon: Building2 },
       { id: "crm-contacts", label: "Contacts", icon: Users },
+      { id: "crm-products", label: "Products", icon: Package },
       { id: "org-chart", label: "Org Chart", icon: Building2 },
     ],
   },
@@ -159,7 +162,7 @@ type TabId =
   | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
   | "scheduler" | "recycle"
   | "kanban" | "leadgen"
-  | "pipeline-board" | "organizations" | "crm-contacts" | "org-chart"
+  | "pipeline-board" | "organizations" | "crm-contacts" | "crm-products" | "org-chart"
   | "library-search" | "library-educate"
   | "ai-studio" | "workflows"
   | "marketing-campaigns" | "marketing-templates"
@@ -306,6 +309,7 @@ function WarRoom() {
           {activeTab === "pipeline-board" && <UnifiedPipeline />}
           {activeTab === "organizations" && <OrganizationsPanel />}
           {activeTab === "crm-contacts" && <ContactsManager />}
+          {activeTab === "crm-products" && <ProductsPanel />}
           {activeTab === "org-chart" && <OrgChartPanel />}
           {activeTab === "library-search" && <LibraryPanel />}
           {activeTab === "library-educate" && <EducatePanel />}
