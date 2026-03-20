@@ -2913,6 +2913,20 @@ async def auto_fill_blueprint(
 ):
     """Clone a competitor video's structure and optionally rewrite for your topic."""
     org_id = get_org_id(request)
+    
+    # Debug: Check what competitor posts exist
+    debug_result = await db.execute(text("""
+        SELECT cp.id, c.handle, c.org_id, COUNT(*) as total_posts
+        FROM crm.competitor_posts cp
+        JOIN crm.competitors c ON c.id = cp.competitor_id
+        GROUP BY cp.id, c.handle, c.org_id
+        ORDER BY cp.id DESC
+        LIMIT 5
+    """))
+    debug_posts = debug_result.mappings().all()
+    logger.info(f"Auto-fill debug: Found {len(debug_posts)} posts, looking for post_id={post_id}, org_id={org_id}")
+    for p in debug_posts:
+        logger.info(f"  Post {p['id']}: handle={p['handle']}, org_id={p['org_id']}")
 
     row = await db.execute(text("""
         SELECT cp.id, cp.hook, cp.content_analysis, cp.detected_format,
@@ -2923,7 +2937,10 @@ async def auto_fill_blueprint(
     """), {"pid": post_id, "org_id": org_id})
     post = row.mappings().first()
     if not post:
-        raise HTTPException(status_code=404, detail="Blueprint post not found")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Blueprint post {post_id} not found for org {org_id}. Available posts: {[p['id'] for p in debug_posts]}"
+        )
 
     ca = _parse_content_analysis(post["content_analysis"])
     hook_data = ca.get("hook", {})
