@@ -256,6 +256,9 @@ interface AudienceIntel {
   top_commenters: AudienceCommenter[];
   engagement_quality: Record<string, number>;
   content_formats: Record<string, number>;
+  top_engagers?: any[];
+  cross_competitor_overlap?: any[];
+  engagement_distribution?: Record<string, number>;
 }
 
 interface HashtagItem {
