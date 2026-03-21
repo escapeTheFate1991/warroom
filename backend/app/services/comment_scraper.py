@@ -154,12 +154,16 @@ def _extract_comments_from_graphql(data: dict, out: list):
                         node = edge.get("node", edge) if isinstance(edge, dict) else {}
                         if isinstance(node, dict) and node.get("text"):
                             owner = node.get("owner", {})
+                            username = owner.get("username", "") or node.get("username", "")
                             out.append({
-                                "username": owner.get("username", "") or node.get("username", ""),
+                                "username": username,
+                                "profile_url": f"https://www.instagram.com/{username}/" if username else None,
                                 "text": node["text"],
                                 "likes": node.get("edge_liked_by", {}).get("count", 0) or node.get("like_count", 0),
                                 "timestamp": _format_timestamp(node.get("created_at")),
                                 "is_reply": bool(node.get("edge_threaded_comments")),
+                                "is_verified": owner.get("is_verified", False),
+                                "profile_pic_url": owner.get("profile_pic_url"),
                             })
         
         # Recurse into data/user/etc
@@ -177,12 +181,16 @@ def _extract_comments_from_v1(data: dict, out: list):
         if not isinstance(c, dict):
             continue
         user = c.get("user", {})
+        username = user.get("username", "")
         out.append({
-            "username": user.get("username", ""),
+            "username": username,
+            "profile_url": f"https://www.instagram.com/{username}/" if username else None,
             "text": c.get("text", ""),
             "likes": c.get("comment_like_count", 0),
             "timestamp": _format_timestamp(c.get("created_at")),
             "is_reply": bool(c.get("parent_comment_id")),
+            "is_verified": user.get("is_verified", False),
+            "profile_pic_url": user.get("profile_pic_url"),
         })
 
 
@@ -267,10 +275,13 @@ async def _extract_comments_from_dom(page) -> list:
                 
                 comments.push({
                     username: username,
+                    profile_url: username ? `https://www.instagram.com/${username}/` : null,
                     text: commentText,
                     likes: likes,
                     timestamp: timestamp || null,
-                    is_reply: isReply
+                    is_reply: isReply,
+                    is_verified: false,  // Can't easily detect from DOM
+                    profile_pic_url: null  // Not available in DOM
                 });
             }
             

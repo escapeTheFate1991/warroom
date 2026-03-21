@@ -376,9 +376,17 @@ def _sorted_posts_for_analysis(posts: List[Dict[str, Any]]) -> List[Dict[str, An
 
 def _post_hook(post: Dict[str, Any]) -> str:
     """Return a reliable hook for a cached post."""
+    # First, try to extract from transcript (spoken audio)
+    transcript_hook, has_verbal_hook = extract_hook_from_transcript(post.get("transcript"))
+    if has_verbal_hook and transcript_hook:
+        return transcript_hook
+    
+    # Fallback to stored hook (which might be from old post_text extraction)
     stored_hook = str(post.get("hook") or "").strip()
     if stored_hook:
         return stored_hook
+    
+    # Last resort: extract from post description (but this should be avoided)
     return extract_hook_from_text(post.get("post_text", "") or "")
 
 
@@ -1026,6 +1034,141 @@ def extract_hook_from_text(text: str) -> str:
     return first_line[:150] + "..." if len(first_line) > 150 else first_line
 
 
+def extract_hook_from_transcript(transcript_data: Optional[str]) -> Tuple[str, bool]:
+    """Extract hook from transcript data (first 3-5 seconds of spoken audio).
+    
+    Returns:
+        Tuple[str, bool]: (hook_text, has_verbal_hook)
+    """
+    if not transcript_data:
+        return "", False
+    
+    try:
+        segments = json.loads(transcript_data) if isinstance(transcript_data, str) else transcript_data
+        if not segments or not isinstance(segments, list):
+            return "", False
+    except (json.JSONDecodeError, TypeError):
+        return "", False
+    
+    # Find segments in the first 3-5 seconds (hook window)
+    hook_segments = [
+        segment for segment in segments 
+        if isinstance(segment, dict) and 
+           segment.get("start", 0) < 5.0 and 
+           segment.get("text", "").strip()
+    ]
+    
+    if not hook_segments:
+        return "", False
+    
+    # Combine text from hook window segments
+    hook_text = " ".join(
+        segment.get("text", "").strip() 
+        for segment in sorted(hook_segments, key=lambda s: s.get("start", 0))
+    ).strip()
+    
+    if not hook_text or len(hook_text) < 5:
+        return "", False
+    
+    # Clean up the hook text
+    hook_text = re.sub(r'\s+', ' ', hook_text)  # Normalize whitespace
+    
+    # Return first complete sentence or up to 150 chars
+    if NLTK_AVAILABLE:
+        try:
+            sentences = sent_tokenize(hook_text)
+            if sentences:
+                first_sentence = sentences[0].strip()
+                if 10 <= len(first_sentence) <= 200:
+                    return first_sentence, True
+        except Exception:
+            pass
+    
+    # Fallback: extract until first punctuation or limit length
+    for delimiter in ['.', '!', '?']:
+        if delimiter in hook_text:
+            hook = hook_text.split(delimiter)[0].strip() + delimiter
+            if 10 <= len(hook) <= 200:
+                return hook, True
+    
+    # Return truncated version if too long
+    if len(hook_text) > 150:
+        return hook_text[:147] + "...", True
+    
+    return hook_text, True
+
+
+def extract_value_from_transcript(transcript_data: Optional[str]) -> str:
+    """Extract value/message content from transcript (middle section)."""
+    if not transcript_data:
+        return ""
+    
+    try:
+        segments = json.loads(transcript_data) if isinstance(transcript_data, str) else transcript_data
+        if not segments or not isinstance(segments, list):
+            return ""
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    
+    # Find segments in the middle section (after 5s, before last 10s)
+    total_duration = max(segment.get("end", 0) for segment in segments) if segments else 0
+    value_start = 5.0
+    value_end = max(total_duration - 10.0, value_start + 5.0)  # At least 5s of value content
+    
+    value_segments = [
+        segment for segment in segments 
+        if isinstance(segment, dict) and 
+           value_start <= segment.get("start", 0) < value_end and 
+           segment.get("text", "").strip()
+    ]
+    
+    if not value_segments:
+        return ""
+    
+    # Combine text from value segments
+    value_text = " ".join(
+        segment.get("text", "").strip() 
+        for segment in sorted(value_segments, key=lambda s: s.get("start", 0))
+    ).strip()
+    
+    return re.sub(r'\s+', ' ', value_text)
+
+
+def extract_cta_from_transcript(transcript_data: Optional[str]) -> str:
+    """Extract CTA from transcript (last 5-10 seconds)."""
+    if not transcript_data:
+        return ""
+    
+    try:
+        segments = json.loads(transcript_data) if isinstance(transcript_data, str) else transcript_data
+        if not segments or not isinstance(segments, list):
+            return ""
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    
+    # Find segments in the last 10 seconds
+    total_duration = max(segment.get("end", 0) for segment in segments) if segments else 0
+    cta_start = max(total_duration - 10.0, 0)
+    
+    cta_segments = [
+        segment for segment in segments 
+        if isinstance(segment, dict) and 
+           segment.get("start", 0) >= cta_start and 
+           segment.get("text", "").strip()
+    ]
+    
+    if not cta_segments:
+        return ""
+    
+    # Combine text from CTA segments
+    cta_text = " ".join(
+        segment.get("text", "").strip() 
+        for segment in sorted(cta_segments, key=lambda s: s.get("start", 0))
+    ).strip()
+    
+    return re.sub(r'\s+', ' ', cta_text)
+
+
 def extract_ngrams(text: str, n: int = 2) -> List[str]:
     """Extract n-grams from text using NLTK if available."""
     if not text or not NLTK_AVAILABLE:
@@ -1153,7 +1296,7 @@ async def save_competitor_posts(db: AsyncSession, competitor_id: int, org_id: in
                     "comments": post.comments,
                     "shares": post.shares,
                     "engagement_score": post.engagement_score,
-                    "hook": extract_hook_from_text(post.text),
+                    "hook": "",  # Will be populated by content_analyzer from transcript
                     "post_url": post.url,
                     "posted_at": post.timestamp
                 }

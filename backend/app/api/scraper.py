@@ -13,7 +13,7 @@ Endpoints:
 import asyncio
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -338,14 +338,43 @@ async def _save_posts_to_cache(
             row = existing.fetchone()
 
             if row:
-                # Update engagement metrics only
+                # Get existing post details to check for expired URLs
+                existing_post = await db.execute(
+                    text("SELECT media_url, thumbnail_url, posted_at FROM crm.competitor_posts WHERE id = :id"),
+                    {"id": row[0]}
+                )
+                existing_data = existing_post.fetchone()
+                
+                # Determine if we should force refresh URLs
+                force_refresh_urls = False
+                if existing_data:
+                    existing_media_url = existing_data[0] or ""
+                    existing_posted_at = existing_data[2]
+                    
+                    # Check if this is an Instagram CDN URL that's older than 24 hours
+                    if ("scontent" in existing_media_url and 
+                        existing_posted_at and 
+                        (datetime.now() - existing_posted_at.replace(tzinfo=None)).days >= 1):
+                        force_refresh_urls = True
+                
+                # Choose URL update strategy
+                if force_refresh_urls and post.media_url:
+                    # Force refresh: use new URLs even if they're different
+                    media_url_update = post.media_url
+                    thumbnail_url_update = post.thumbnail_url
+                else:
+                    # Normal update: only update if new URL is not empty
+                    media_url_update = post.media_url if post.media_url else existing_data[0] if existing_data else ""
+                    thumbnail_url_update = post.thumbnail_url if post.thumbnail_url else existing_data[1] if existing_data else ""
+                
+                # Update engagement metrics and URLs
                 await db.execute(
                     text("""
                         UPDATE crm.competitor_posts SET
                             likes = :likes, comments = :comments, shares = :shares,
                             engagement_score = :score, post_text = :text, hook = :hook,
-                            media_type = :media_type, media_url = COALESCE(NULLIF(:media_url, ''), media_url),
-                            thumbnail_url = COALESCE(NULLIF(:thumbnail_url, ''), thumbnail_url),
+                            media_type = :media_type, media_url = :media_url,
+                            thumbnail_url = :thumbnail_url,
                             shortcode = COALESCE(NULLIF(:shortcode, ''), shortcode),
                             fetched_at = NOW()
                         WHERE id = :id AND org_id = :org_id
@@ -359,8 +388,8 @@ async def _save_posts_to_cache(
                         "text": post.caption,
                         "hook": post.hook,
                         "media_type": post.media_type,
-                        "media_url": post.media_url,
-                        "thumbnail_url": post.thumbnail_url,
+                        "media_url": media_url_update,
+                        "thumbnail_url": thumbnail_url_update,
                         "shortcode": post.shortcode,
                         "org_id": org_id,
                     },
