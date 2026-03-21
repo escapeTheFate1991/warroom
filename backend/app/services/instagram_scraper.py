@@ -393,12 +393,37 @@ async def _login_to_instagram(context) -> bool:
     """Login to Instagram and save session cookies.
     
     Reads credentials from environment variables:
-      INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD
+      INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD (env vars)
+    or from DB settings: instagram_scraper_username, instagram_scraper_password, instagram_totp_secret
     """
     from app.config import settings
     
     username = settings.INSTAGRAM_USERNAME
     password = settings.INSTAGRAM_PASSWORD
+    totp_secret = settings.INSTAGRAM_TOTP_SECRET
+    
+    # Fall back to DB settings if env vars are empty
+    if not username or not password:
+        try:
+            from sqlalchemy import text as sa_text
+            from sqlalchemy.ext.asyncio import create_async_engine
+            _engine = create_async_engine(settings.CRM_DB_URL, echo=False)
+            async with _engine.connect() as _conn:
+                for key, attr in [("instagram_scraper_username", "username"), ("instagram_scraper_password", "password"), ("instagram_totp_secret", "totp")]:
+                    r = await _conn.execute(sa_text(f"SELECT value FROM public.settings WHERE key = :k AND value != ''"), {"k": key})
+                    row = r.first()
+                    if row:
+                        if attr == "username":
+                            username = row[0]
+                        elif attr == "password":
+                            password = row[0]
+                        elif attr == "totp":
+                            totp_secret = row[0]
+            await _engine.dispose()
+            if username:
+                logger.info("Loaded Instagram credentials from DB settings")
+        except Exception as e:
+            logger.warning(f"Failed to load Instagram credentials from DB: {e}")
     
     if not username or not password:
         logger.warning("No Instagram credentials configured — scraping without login")
@@ -462,7 +487,7 @@ async def _login_to_instagram(context) -> bool:
         two_fa_input = await page.query_selector('input[name="verificationCode"], input[name="security_code"], input[aria-label="Security Code"], input[aria-label="Verification Code"]')
         if two_fa_input or "two_factor" in current_url or "challenge" in current_url:
             logger.info("Instagram 2FA challenge detected — attempting TOTP")
-            totp_secret = settings.INSTAGRAM_TOTP_SECRET
+            # totp_secret already loaded from env or DB above
             if not totp_secret:
                 logger.error("Instagram 2FA required but INSTAGRAM_TOTP_SECRET not configured")
                 await page.close()

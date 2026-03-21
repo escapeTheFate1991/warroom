@@ -48,7 +48,7 @@ const API_KEY_GROUPS: Record<string, { label: string; keys: string[] }> = {
   },
   meta: {
     label: "Meta (Facebook / Instagram / Threads)",
-    keys: ["meta_app_id", "meta_app_secret", "instagram_app_id", "instagram_app_secret", "threads_client_id", "threads_client_secret"],
+    keys: ["meta_app_id", "meta_app_secret", "instagram_app_id", "instagram_app_secret", "threads_client_id", "threads_client_secret", "instagram_scraper_username", "instagram_scraper_password", "instagram_totp_secret"],
   },
   x: {
     label: "X (Twitter)",
@@ -77,6 +77,9 @@ const KEY_LABELS: Record<string, string> = {
   instagram_app_secret: "Instagram App Secret",
   threads_client_id: "Threads Client ID",
   threads_client_secret: "Threads Client Secret",
+  instagram_scraper_username: "IG AI Intel — Username",
+  instagram_scraper_password: "IG AI Intel — Password",
+  instagram_totp_secret: "IG AI Intel — TOTP Secret (2FA)",
   x_client_id: "Client ID",
   x_client_secret: "Client Secret",
   tiktok_client_key: "Client Key",
