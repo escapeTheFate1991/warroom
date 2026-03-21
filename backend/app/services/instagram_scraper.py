@@ -458,9 +458,61 @@ async def _login_to_instagram(context) -> bool:
         # Check for common post-login states
         current_url = page.url
         
-        # Check for challenge/verification
-        if "challenge" in current_url or "suspicious" in current_url.lower():
-            logger.error("Instagram is requesting verification — manual intervention needed")
+        # Check for 2FA / verification code page
+        two_fa_input = await page.query_selector('input[name="verificationCode"], input[name="security_code"], input[aria-label="Security Code"], input[aria-label="Verification Code"]')
+        if two_fa_input or "two_factor" in current_url or "challenge" in current_url:
+            logger.info("Instagram 2FA challenge detected — attempting TOTP")
+            totp_secret = settings.INSTAGRAM_TOTP_SECRET
+            if not totp_secret:
+                logger.error("Instagram 2FA required but INSTAGRAM_TOTP_SECRET not configured")
+                await page.close()
+                return False
+            
+            try:
+                import pyotp
+                totp = pyotp.TOTP(totp_secret)
+                code = totp.now()
+                logger.info("Generated TOTP code: %s***", code[:3])
+                
+                # Wait for the 2FA input to appear if not already found
+                if not two_fa_input:
+                    two_fa_input = await page.wait_for_selector(
+                        'input[name="verificationCode"], input[name="security_code"], input[aria-label="Security Code"], input[aria-label="Verification Code"], input[type="number"]',
+                        timeout=10000
+                    )
+                
+                await two_fa_input.fill(code)
+                
+                # Find and click confirm/submit button
+                confirm_btn = await page.query_selector('button:has-text("Confirm"), button:has-text("Submit"), button:has-text("Verify"), button[type="submit"]')
+                if confirm_btn:
+                    await confirm_btn.click()
+                else:
+                    await two_fa_input.press("Enter")
+                
+                await asyncio.sleep(5)
+                
+                # Check if we passed 2FA
+                current_url = page.url
+                if "two_factor" in current_url or "challenge" in current_url:
+                    logger.error("2FA verification failed — code may be expired")
+                    await page.close()
+                    return False
+                
+                logger.info("2FA verification successful")
+                
+            except ImportError:
+                logger.error("pyotp not installed — run: pip install pyotp")
+                await page.close()
+                return False
+            except Exception as e:
+                logger.error("2FA handling failed: %s", e)
+                await page.close()
+                return False
+        
+        # Check for suspicious login challenge (different from 2FA)
+        if "suspicious" in current_url.lower():
+            logger.error("Instagram suspicious login challenge — manual intervention needed")
             await page.close()
             return False
         
