@@ -323,6 +323,28 @@ DEFAULT_SETTINGS = [
         "description": "Threads Client Secret",
         "is_secret": True,
     },
+    # ── IG AI Intel (Scraper Login) ──
+    {
+        "key": "instagram_scraper_username",
+        "value": "",
+        "category": "api_keys",
+        "description": "Instagram scraper login username (for competitor intel scraping)",
+        "is_secret": False,
+    },
+    {
+        "key": "instagram_scraper_password",
+        "value": "",
+        "category": "api_keys",
+        "description": "Instagram scraper login password",
+        "is_secret": True,
+    },
+    {
+        "key": "instagram_totp_secret",
+        "value": "",
+        "category": "api_keys",
+        "description": "Instagram TOTP 2FA secret (base32 key from authenticator setup)",
+        "is_secret": True,
+    },
     {
         "key": "x_client_id",
         "value": "",
