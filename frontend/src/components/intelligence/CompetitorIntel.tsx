@@ -2460,7 +2460,7 @@ export default function CompetitorIntel() {
                             </div>
                           )}
 
-                          {globalAudienceIntel.cross_competitor_overlap?.length > 0 && (
+                          {globalAudienceIntel.cross_competitor_overlap && globalAudienceIntel.cross_competitor_overlap.length > 0 && (
                             <div>
                               <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">🔄 Shared Audience Members</p>
                               <div className="space-y-2">
