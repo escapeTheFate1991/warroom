@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     # ── Instagram Scraper (authenticated session) ──────────────────
     INSTAGRAM_USERNAME: str = ""
     INSTAGRAM_PASSWORD: str = ""
+    INSTAGRAM_TOTP_SECRET: str = ""  # Base32 TOTP secret for 2FA
 
     # ── Admin seed ───────────────────────────────────────────────────
     ADMIN_PASSWORD: str = ""
