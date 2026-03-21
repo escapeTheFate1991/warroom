@@ -7,6 +7,7 @@ import { API, authFetch } from "@/lib/api";
 import { useThemeContext } from "@/components/ui/ThemeProvider";
 import ScrollTabs from "@/components/ui/ScrollTabs";
 import StripeSettingsPanel from "@/components/settings/StripeSettingsPanel";
+import SocialAccountsTab from "@/components/settings/SocialAccountsTab";
 
 
 interface Setting {
@@ -114,7 +115,7 @@ const SETTINGS_TABS = [
   { id: "general", label: "General", icon: Building2 },
   { id: "business", label: "Business Details", icon: Building2 },
   { id: "email", label: "Email & Calendar", icon: Mail },
-  { id: "social", label: "Social Media", icon: Share2 },
+  { id: "social", label: "Social Accounts", icon: Share2 },
   { id: "communications", label: "Communications", icon: PhoneCall },
   { id: "products", label: "Products & Billing", icon: Package },
   { id: "scoring", label: "Lead Scoring", icon: Target },
@@ -1757,162 +1758,7 @@ export default function SettingsPanel() {
   };
 
   const renderSocialTab = () => {
-    const platforms = [
-      { key: 'instagram', name: 'Instagram', icon: '📷', color: 'bg-gradient-to-r from-purple-500 to-pink-500' },
-      { key: 'facebook', name: 'Facebook', icon: '📘', color: 'bg-blue-600' },
-      { key: 'threads', name: 'Threads', icon: '🧵', color: 'bg-gray-800' },
-      { key: 'x', name: 'X (Twitter)', icon: '🐦', color: 'bg-black' },
-      { key: 'tiktok', name: 'TikTok', icon: '📱', color: 'bg-black' },
-      { key: 'youtube', name: 'YouTube', icon: '🎥', color: 'bg-red-600' }
-    ];
-
-    const formatNumber = (num: number | null) => {
-      if (!num) return "—";
-      if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-      if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-      return num.toString();
-    };
-
-    const getAccountsByPlatform = (platform: string) => {
-      return socialAccounts.filter(account => account.platform === platform);
-    };
-
-    if (socialLoading) {
-      return (
-        <div className="flex items-center justify-center py-20 text-warroom-muted">
-          <Loader2 size={24} className="animate-spin mr-3" />
-          Loading social accounts...
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-6">
-        <div>
-          <h3 className="text-sm font-semibold text-warroom-text mb-1">Social Media Connections</h3>
-          <p className="text-xs text-warroom-muted mb-4">Connect and manage multiple accounts per platform for multi-account posting strategy</p>
-          
-          <div className="space-y-4">
-            {platforms.map((platform) => {
-              const accounts = getAccountsByPlatform(platform.key);
-              const isConnecting = socialConnecting === platform.key;
-
-              return (
-                <div key={platform.key} className="bg-warroom-surface border border-warroom-border rounded-lg">
-                  {/* Platform header */}
-                  <div className="flex items-center justify-between p-4 border-b border-warroom-border/50">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 ${platform.color} rounded-lg flex items-center justify-center text-white text-lg`}>
-                        {platform.icon}
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-medium text-warroom-text">{platform.name}</h4>
-                        <p className="text-xs text-warroom-muted">
-                          {accounts.length === 0 ? "No accounts connected" : `${accounts.length} account${accounts.length > 1 ? 's' : ''} connected`}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => connectSocialPlatform(platform.key)}
-                      disabled={isConnecting}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 rounded-lg text-sm font-medium transition"
-                    >
-                      {isConnecting ? (
-                        <>
-                          <Loader2 size={14} className="animate-spin" />
-                          Connecting...
-                        </>
-                      ) : (
-                        <>
-                          <Plus size={14} />
-                          Add Account
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Connected accounts */}
-                  {accounts.length > 0 && (
-                    <div className="p-4 space-y-3">
-                      {accounts.map((account) => (
-                        <div key={account.id} className="flex items-center justify-between p-3 bg-warroom-bg rounded-lg border border-warroom-border/30">
-                          <div className="flex items-center gap-3">
-                            {account.profile_pic_url ? (
-                              <img
-                                src={account.profile_pic_url}
-                                alt={account.display_name || account.username}
-                                className="w-8 h-8 rounded-full"
-                              />
-                            ) : (
-                              <div className="w-8 h-8 bg-warroom-muted/20 rounded-full flex items-center justify-center">
-                                <span className="text-xs text-warroom-muted">{(account.display_name || account.username)?.[0]?.toUpperCase()}</span>
-                              </div>
-                            )}
-                            <div>
-                              <p className="text-sm font-medium text-warroom-text">
-                                {account.display_name || account.username}
-                              </p>
-                              <div className="flex items-center gap-3 text-xs text-warroom-muted">
-                                <span>@{account.username}</span>
-                                {account.follower_count && (
-                                  <span>{formatNumber(account.follower_count)} followers</span>
-                                )}
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                                  account.visibility_type === 'shared_org' 
-                                    ? 'bg-blue-500/20 text-blue-400'
-                                    : account.visibility_type === 'shared'
-                                    ? 'bg-green-500/20 text-green-400'
-                                    : 'bg-gray-500/20 text-gray-400'
-                                }`}>
-                                  {account.visibility_type === 'shared_org' ? 'Org' : 
-                                   account.visibility_type === 'shared' ? 'Shared' : 'Private'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-green-400" title="Connected" />
-                            <button
-                              onClick={() => disconnectSocialAccount(account.id)}
-                              className="p-1.5 text-warroom-muted hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
-                              title="Disconnect account"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Empty state */}
-                  {accounts.length === 0 && (
-                    <div className="p-8 text-center text-warroom-muted">
-                      <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-warroom-accent/10 flex items-center justify-center text-xl">
-                        {platform.icon}
-                      </div>
-                      <p className="text-sm">No {platform.name} accounts connected</p>
-                      <p className="text-xs mt-1">Connect your first account to get started with multi-account posting</p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Help text */}
-        <div className="bg-warroom-bg/50 border border-warroom-border/50 rounded-lg p-4">
-          <h4 className="text-sm font-medium text-warroom-text mb-2">Multi-Account Strategy</h4>
-          <div className="space-y-1 text-xs text-warroom-muted">
-            <p>• <strong>Private:</strong> Only you can post to this account</p>
-            <p>• <strong>Shared:</strong> Team members can post to this account</p>
-            <p>• <strong>Organization:</strong> Account is shared across your organization</p>
-            <p>• Connect multiple accounts per platform to diversify your content reach</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <SocialAccountsTab />;
   };
 
   const renderCommunicationsTab = () => {

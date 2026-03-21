@@ -392,38 +392,12 @@ async def _has_valid_session(context) -> bool:
 async def _login_to_instagram(context) -> bool:
     """Login to Instagram and save session cookies.
     
-    Reads credentials from environment variables:
-      INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD (env vars)
-    or from DB settings: instagram_scraper_username, instagram_scraper_password, instagram_totp_secret
+    Uses the new multi-account system with fallback to legacy settings.
     """
-    from app.config import settings
+    from app.services.instagram_account_manager import get_instagram_credentials_for_scraping, mark_instagram_account_used
     
-    username = settings.INSTAGRAM_USERNAME
-    password = settings.INSTAGRAM_PASSWORD
-    totp_secret = settings.INSTAGRAM_TOTP_SECRET
-    
-    # Fall back to DB settings if env vars are empty
-    if not username or not password:
-        try:
-            from sqlalchemy import text as sa_text
-            from sqlalchemy.ext.asyncio import create_async_engine
-            _engine = create_async_engine(settings.CRM_DB_URL, echo=False)
-            async with _engine.connect() as _conn:
-                for key, attr in [("instagram_scraper_username", "username"), ("instagram_scraper_password", "password"), ("instagram_totp_secret", "totp")]:
-                    r = await _conn.execute(sa_text(f"SELECT value FROM public.settings WHERE key = :k AND value != ''"), {"k": key})
-                    row = r.first()
-                    if row:
-                        if attr == "username":
-                            username = row[0]
-                        elif attr == "password":
-                            password = row[0]
-                        elif attr == "totp":
-                            totp_secret = row[0]
-            await _engine.dispose()
-            if username:
-                logger.info("Loaded Instagram credentials from DB settings")
-        except Exception as e:
-            logger.warning(f"Failed to load Instagram credentials from DB: {e}")
+    # Get credentials from the account manager (handles env vars, social accounts, and legacy settings)
+    username, password, totp_secret, account_id = await get_instagram_credentials_for_scraping()
     
     if not username or not password:
         logger.warning("No Instagram credentials configured — scraping without login")
@@ -570,11 +544,20 @@ async def _login_to_instagram(context) -> bool:
         cookies = await context.cookies()
         await _save_cookies(cookies)
         logger.info("Successfully logged in to Instagram as @%s", username)
+        
+        # Mark account as used in the social accounts system
+        await mark_instagram_account_used(account_id)
+        
         await page.close()
         return True
         
     except Exception as e:
         logger.error("Instagram login error: %s", e)
+        
+        # Mark account as having an error in the social accounts system
+        from app.services.instagram_account_manager import mark_instagram_account_error
+        await mark_instagram_account_error(account_id, f"Login error: {str(e)}")
+        
         try:
             await page.close()
         except Exception:

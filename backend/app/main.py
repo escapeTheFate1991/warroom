@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate, digital_copies, content_social, org_chart, carousel, auto_reply
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate, digital_copies, content_social, org_chart, carousel, auto_reply, cdn_migration, social_accounts
 from app.api import entities, goals, approvals, task_checkout, budget, search, mirofish
 from app.api.webhooks.instagram import router as instagram_webhook_router
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
@@ -714,6 +714,7 @@ app.include_router(mental_library.router, prefix="/api/ml", tags=["mental-librar
 app.include_router(library_ingest.router, prefix="/api/library", tags=["library-ingest"])
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+app.include_router(social_accounts.router, prefix="/api/settings/social-accounts", tags=["social-accounts"])
 app.include_router(usage.router, prefix="/api/usage", tags=["usage"])
 app.include_router(social.router, prefix="/api/social", tags=["social"])
 app.include_router(social_oauth.router, prefix="/api/social", tags=["social-oauth"])
@@ -763,6 +764,9 @@ app.include_router(instagram_webhook_router, tags=["webhooks"])
 app.include_router(video_formats.router, prefix="/api", tags=["video-formats"])
 app.include_router(simulate.router, prefix="/api/simulate", tags=["simulate"])
 app.include_router(mirofish.router, tags=["mirofish"])
+
+# Background Jobs
+app.include_router(cdn_migration.router, tags=["background-jobs"])
 
 # Paperclip Architecture Routes
 app.include_router(entities.router, prefix="/api/entities", tags=["entities"])
