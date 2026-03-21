@@ -2410,7 +2410,7 @@ export default function CompetitorIntel() {
                             </div>
                           )}
                           {/* Enhanced Audience Intelligence */}
-                          {globalAudienceIntel.top_engagers?.length > 0 && (
+                          {globalAudienceIntel.top_engagers && globalAudienceIntel.top_engagers.length > 0 && (
                             <div>
                               <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">🏆 Top Engagers Across All Competitors</p>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
