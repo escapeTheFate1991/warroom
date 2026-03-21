@@ -2132,7 +2132,7 @@ export default function CompetitorIntel() {
                               <div>
                                 <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🏆 Top Engagers</p>
                                 <div className="space-y-2">
-                                  {ai.top_engagers.slice(0, 10).map((engager: any, i: number) => (
+                                  {ai.top_engagers?.slice(0, 10).map((engager: any, i: number) => (
                                     <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg p-3">
                                       <div className="flex items-center justify-between mb-1">
                                         <div className="flex items-center gap-2">
@@ -2221,7 +2221,7 @@ export default function CompetitorIntel() {
                             )}
 
                             {/* Legacy Top Commenters - fallback if enhanced data not available */}
-                            {(!ai.top_engagers || ai.top_engagers.length === 0) && ai.top_commenters?.length > 0 && (
+                            {(!ai.top_engagers || ai.top_engagers?.length === 0) && ai.top_commenters?.length > 0 && (
                               <div>
                                 <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">👥 Most Active Commenters</p>
                                 <div className="flex flex-wrap gap-1.5">
@@ -2414,7 +2414,7 @@ export default function CompetitorIntel() {
                             <div>
                               <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">🏆 Top Engagers Across All Competitors</p>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                {globalAudienceIntel.top_engagers.slice(0, 8).map((engager: any, i: number) => (
+                                {globalAudienceIntel.top_engagers?.slice(0, 8).map((engager: any, i: number) => (
                                   <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg p-2">
                                     <div className="flex items-center justify-between">
                                       <div className="flex items-center gap-2">
