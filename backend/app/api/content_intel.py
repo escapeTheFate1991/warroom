@@ -181,6 +181,29 @@ class AudienceCommenter(BaseModel):
     count: int = 0
 
 
+class TopEngager(BaseModel):
+    """Enhanced commenter profile with cross-competitor data."""
+    username: str
+    profile_url: Optional[str] = None
+    interaction_count: int
+    engagement_level: str = "medium"
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    followers: Optional[int] = None
+    is_verified: bool = False
+    competitors_engaged_with: List[str] = Field(default_factory=list)
+
+
+class CrossCompetitorOverlap(BaseModel):
+    """Commenter who engages with multiple competitors."""
+    username: str
+    profile_url: Optional[str] = None
+    competitors: List[str] = Field(default_factory=list)
+    total_interactions: int = 0
+    engagement_level: str = "medium"
+    profile_summary: Optional[str] = None
+
+
 class AudienceIntelResponse(BaseModel):
     posts_analyzed: int = 0
     comments_analyzed: int = 0
@@ -194,6 +217,9 @@ class AudienceIntelResponse(BaseModel):
     top_commenters: List[AudienceCommenter] = Field(default_factory=list)
     engagement_quality: Dict[str, int] = Field(default_factory=dict)
     content_formats: Dict[str, int] = Field(default_factory=dict)
+    # Enhanced fields
+    top_engagers: List[TopEngager] = Field(default_factory=list)
+    cross_competitor_overlap: List[CrossCompetitorOverlap] = Field(default_factory=list)
 
 
 class InstagramAdviceItem(BaseModel):
@@ -2822,6 +2848,137 @@ def _build_instagram_profile_advice(
     )
 
 
+async def _get_enhanced_audience_data(db: AsyncSession, org_id: int, competitor_id: Optional[int] = None) -> Dict[str, List]:
+    """Get enhanced audience data with commenter profiles and cross-competitor analysis."""
+    try:
+        # Extract commenters from comments_data JSONB - this is our current data source
+        query = """
+        WITH commenter_data AS (
+            SELECT 
+                cp.id,
+                cp.competitor_id,
+                c.handle as competitor_handle,
+                cp.comments_data,
+                cp.engagement_score,
+                cp.posted_at
+            FROM crm.competitor_posts cp
+            JOIN crm.competitors c ON cp.competitor_id = c.id
+            WHERE c.org_id = :org_id
+              AND cp.comments_data IS NOT NULL
+              AND (cp.comments_data->>'analyzed')::int > 0
+        """
+        
+        if competitor_id:
+            query += " AND cp.competitor_id = :competitor_id"
+        
+        query += " ORDER BY cp.engagement_score DESC LIMIT 100"
+        
+        params = {"org_id": org_id}
+        if competitor_id:
+            params["competitor_id"] = competitor_id
+            
+        result = await db.execute(text(query), params)
+        posts = result.fetchall()
+        
+        if not posts:
+            return {"top_engagers": [], "cross_competitor_overlap": []}
+        
+        # Extract and aggregate commenter data from JSONB
+        commenter_stats = {}  # username -> {competitors: set, interactions: int, first_seen, last_seen}
+        
+        for post in posts:
+            comments_data = post.comments_data
+            if isinstance(comments_data, str):
+                comments_data = json.loads(comments_data)
+            
+            competitor_handle = post.competitor_handle
+            posted_at = post.posted_at or datetime.now()
+            
+            # Extract from top_commenters
+            top_commenters = comments_data.get("top_commenters", [])
+            for commenter in top_commenters:
+                username = commenter.get("username", "")
+                if not username or len(username) > 50:  # Skip invalid usernames
+                    continue
+                
+                interaction_count = commenter.get("count", 0)
+                
+                if username not in commenter_stats:
+                    commenter_stats[username] = {
+                        "competitors": set(),
+                        "interactions": 0,
+                        "first_seen": posted_at,
+                        "last_seen": posted_at
+                    }
+                
+                commenter_stats[username]["competitors"].add(competitor_handle)
+                commenter_stats[username]["interactions"] += interaction_count
+                commenter_stats[username]["last_seen"] = max(commenter_stats[username]["last_seen"], posted_at)
+                commenter_stats[username]["first_seen"] = min(commenter_stats[username]["first_seen"], posted_at)
+        
+        if not commenter_stats:
+            return {"top_engagers": [], "cross_competitor_overlap": []}
+        
+        # Build top engagers (top 20 by total interactions)
+        sorted_commenters = sorted(commenter_stats.items(), key=lambda x: x[1]["interactions"], reverse=True)
+        top_engagers = []
+        
+        for username, stats in sorted_commenters[:20]:
+            # Determine engagement level
+            if stats["interactions"] >= 10:
+                engagement_level = "high"
+            elif stats["interactions"] >= 3:
+                engagement_level = "medium"
+            else:
+                engagement_level = "low"
+            
+            profile_url = f"https://www.instagram.com/{username}/" if username else None
+            
+            top_engagers.append(TopEngager(
+                username=username,
+                profile_url=profile_url,
+                interaction_count=stats["interactions"],
+                engagement_level=engagement_level,
+                first_seen_at=stats["first_seen"],
+                last_seen_at=stats["last_seen"],
+                competitors_engaged_with=list(stats["competitors"])
+            ))
+        
+        # Build cross-competitor overlap (commenters engaging with multiple competitors)
+        cross_competitor_list = []
+        for username, stats in commenter_stats.items():
+            if len(stats["competitors"]) > 1:  # Engaged with multiple competitors
+                profile_url = f"https://www.instagram.com/{username}/" if username else None
+                
+                # Determine engagement level
+                if stats["interactions"] >= 10:
+                    engagement_level = "high"
+                elif stats["interactions"] >= 3:
+                    engagement_level = "medium"
+                else:
+                    engagement_level = "low"
+                
+                cross_competitor_list.append(CrossCompetitorOverlap(
+                    username=username,
+                    profile_url=profile_url,
+                    competitors=list(stats["competitors"]),
+                    total_interactions=stats["interactions"],
+                    engagement_level=engagement_level
+                ))
+        
+        # Sort cross-competitor list by interaction count and competitor count
+        cross_competitor_list.sort(key=lambda x: (x.total_interactions, len(x.competitors)), reverse=True)
+        
+        return {
+            "top_engagers": top_engagers,
+            "cross_competitor_overlap": cross_competitor_list[:15]  # Top 15
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get enhanced audience data: %s", e)
+        return {"top_engagers": [], "cross_competitor_overlap": []}
+
+
 def _aggregate_audience_intel_rows(rows: List[Any]) -> AudienceIntelResponse:
     if not rows:
         return _empty_audience_intel_response()
@@ -2964,7 +3121,17 @@ async def get_global_audience_intel(
             """),
             {"days": days, "org_id": org_id},
         )
-        return _aggregate_audience_intel_rows(result.fetchall())
+        response = _aggregate_audience_intel_rows(result.fetchall())
+        
+        # Enhance with cross-competitor analysis
+        try:
+            enhanced_data = await _get_enhanced_audience_data(db, org_id, None)  # All competitors
+            response.top_engagers = enhanced_data.get("top_engagers", [])
+            response.cross_competitor_overlap = enhanced_data.get("cross_competitor_overlap", [])
+        except Exception as e:
+            logger.warning("Failed to enhance global audience data: %s", e)
+            
+        return response
     except Exception as e:
         logger.error("Failed to aggregate global audience intelligence: %s", e)
         raise HTTPException(status_code=500, detail="Failed to aggregate audience intelligence")
@@ -3568,7 +3735,17 @@ async def get_aggregated_audience_intel(
             """),
             {"cid": competitor_id, "org_id": org_id},
         )
-        return _aggregate_audience_intel_rows(result.fetchall())
+        response = _aggregate_audience_intel_rows(result.fetchall())
+        
+        # Enhance with cross-competitor analysis if we have commenter data
+        try:
+            enhanced_data = await _get_enhanced_audience_data(db, org_id, competitor_id)
+            response.top_engagers = enhanced_data.get("top_engagers", [])
+            response.cross_competitor_overlap = enhanced_data.get("cross_competitor_overlap", [])
+        except Exception as e:
+            logger.warning("Failed to enhance audience data: %s", e)
+            
+        return response
     
     except Exception as e:
         logger.error("Failed to aggregate audience intel for competitor %s: %s", competitor_id, e)

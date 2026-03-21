@@ -2124,8 +2124,101 @@ export default function CompetitorIntel() {
                               </div>
                             )}
 
-                            {/* Top Commenters */}
-                            {ai.top_commenters?.length > 0 && (
+                            {/* Top Engagers */}
+                            {ai.top_engagers?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🏆 Top Engagers</p>
+                                <div className="space-y-2">
+                                  {ai.top_engagers.slice(0, 10).map((engager: any, i: number) => (
+                                    <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg p-3">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <div className="flex items-center gap-2">
+                                          {engager.profile_url ? (
+                                            <a 
+                                              href={engager.profile_url} 
+                                              target="_blank" 
+                                              rel="noopener noreferrer" 
+                                              className="text-xs font-medium text-warroom-accent hover:underline"
+                                            >
+                                              @{engager.username}
+                                            </a>
+                                          ) : (
+                                            <p className="text-xs font-medium text-warroom-text">@{engager.username}</p>
+                                          )}
+                                          {engager.is_verified && <span className="text-blue-400 text-xs">✓</span>}
+                                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                                            engager.engagement_level === 'high' ? 'bg-green-500/10 text-green-400' :
+                                            engager.engagement_level === 'medium' ? 'bg-yellow-500/10 text-yellow-400' :
+                                            'bg-gray-500/10 text-gray-400'
+                                          }`}>
+                                            {engager.engagement_level}
+                                          </span>
+                                        </div>
+                                        <span className="text-[10px] text-warroom-muted">{engager.interaction_count} interactions</span>
+                                      </div>
+                                      {engager.followers && (
+                                        <p className="text-[10px] text-warroom-muted mb-1">{engager.followers.toLocaleString()} followers</p>
+                                      )}
+                                      {engager.competitors_engaged_with?.length > 0 && (
+                                        <div className="flex flex-wrap gap-1">
+                                          {engager.competitors_engaged_with.map((comp: string, j: number) => (
+                                            <span key={j} className="text-[9px] px-1.5 py-0.5 bg-warroom-accent/10 text-warroom-accent rounded-full">
+                                              @{comp}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Cross-Competitor Overlap */}
+                            {ai.cross_competitor_overlap?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🔄 Cross-Competitor Audience</p>
+                                <div className="space-y-2">
+                                  {ai.cross_competitor_overlap.slice(0, 8).map((overlap: any, i: number) => (
+                                    <div key={i} className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-3">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <div className="flex items-center gap-2">
+                                          {overlap.profile_url ? (
+                                            <a 
+                                              href={overlap.profile_url} 
+                                              target="_blank" 
+                                              rel="noopener noreferrer" 
+                                              className="text-xs font-medium text-purple-400 hover:underline"
+                                            >
+                                              @{overlap.username}
+                                            </a>
+                                          ) : (
+                                            <p className="text-xs font-medium text-purple-400">@{overlap.username}</p>
+                                          )}
+                                          <span className="text-[10px] text-warroom-muted">
+                                            Engages with {overlap.competitors?.length || 0} competitors
+                                          </span>
+                                        </div>
+                                        <span className="text-[10px] text-warroom-muted">{overlap.total_interactions} total</span>
+                                      </div>
+                                      <div className="flex flex-wrap gap-1">
+                                        {overlap.competitors?.map((comp: string, j: number) => (
+                                          <span key={j} className="text-[9px] px-1.5 py-0.5 bg-purple-500/10 text-purple-400 rounded-full">
+                                            @{comp}
+                                          </span>
+                                        ))}
+                                      </div>
+                                      {overlap.profile_summary && (
+                                        <p className="text-[10px] text-warroom-muted mt-1 italic">{overlap.profile_summary}</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Legacy Top Commenters - fallback if enhanced data not available */}
+                            {(!ai.top_engagers || ai.top_engagers.length === 0) && ai.top_commenters?.length > 0 && (
                               <div>
                                 <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">👥 Most Active Commenters</p>
                                 <div className="flex flex-wrap gap-1.5">
@@ -2308,6 +2401,95 @@ export default function CompetitorIntel() {
                                   <div key={i} className="flex items-start gap-2 rounded-lg border border-red-400/10 bg-red-400/5 px-3 py-2">
                                     <Sparkles size={12} className="text-red-400 flex-shrink-0 mt-0.5" />
                                     <p className="text-xs text-warroom-text flex-1">{painPoint.pain}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Enhanced Audience Intelligence */}
+                          {globalAudienceIntel.top_engagers?.length > 0 && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">🏆 Top Engagers Across All Competitors</p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {globalAudienceIntel.top_engagers.slice(0, 8).map((engager: any, i: number) => (
+                                  <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg p-2">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        {engager.profile_url ? (
+                                          <a 
+                                            href={engager.profile_url} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer" 
+                                            className="text-[11px] font-medium text-warroom-accent hover:underline"
+                                          >
+                                            @{engager.username}
+                                          </a>
+                                        ) : (
+                                          <p className="text-[11px] font-medium text-warroom-text">@{engager.username}</p>
+                                        )}
+                                        <span className={`text-[9px] px-1 py-0.5 rounded-full ${
+                                          engager.engagement_level === 'high' ? 'bg-green-500/10 text-green-400' :
+                                          engager.engagement_level === 'medium' ? 'bg-yellow-500/10 text-yellow-400' :
+                                          'bg-gray-500/10 text-gray-400'
+                                        }`}>
+                                          {engager.engagement_level}
+                                        </span>
+                                      </div>
+                                      <span className="text-[9px] text-warroom-muted">{engager.interaction_count}</span>
+                                    </div>
+                                    {engager.competitors_engaged_with?.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1">
+                                        {engager.competitors_engaged_with.slice(0, 3).map((comp: string, j: number) => (
+                                          <span key={j} className="text-[8px] px-1 py-0.5 bg-warroom-accent/10 text-warroom-accent rounded">
+                                            @{comp}
+                                          </span>
+                                        ))}
+                                        {engager.competitors_engaged_with.length > 3 && (
+                                          <span className="text-[8px] text-warroom-muted">
+                                            +{engager.competitors_engaged_with.length - 3}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {globalAudienceIntel.cross_competitor_overlap?.length > 0 && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">🔄 Shared Audience Members</p>
+                              <div className="space-y-2">
+                                {globalAudienceIntel.cross_competitor_overlap.slice(0, 5).map((overlap: any, i: number) => (
+                                  <div key={i} className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-2">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <div className="flex items-center gap-2">
+                                        {overlap.profile_url ? (
+                                          <a 
+                                            href={overlap.profile_url} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer" 
+                                            className="text-[11px] font-medium text-purple-400 hover:underline"
+                                          >
+                                            @{overlap.username}
+                                          </a>
+                                        ) : (
+                                          <p className="text-[11px] font-medium text-purple-400">@{overlap.username}</p>
+                                        )}
+                                        <span className="text-[9px] text-warroom-muted">
+                                          {overlap.competitors?.length} competitors
+                                        </span>
+                                      </div>
+                                      <span className="text-[9px] text-warroom-muted">{overlap.total_interactions} interactions</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {overlap.competitors?.slice(0, 4).map((comp: string, j: number) => (
+                                        <span key={j} className="text-[8px] px-1 py-0.5 bg-purple-500/10 text-purple-400 rounded">
+                                          @{comp}
+                                        </span>
+                                      ))}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
