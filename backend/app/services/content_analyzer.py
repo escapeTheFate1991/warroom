@@ -160,9 +160,23 @@ def analyze_content_structure(segments: List[Dict]) -> Dict:
     else:
         content_format = "long_form"     # Full video/interview
     
+    # Determine if there's a verbal hook
+    has_verbal_hook = bool(hook_text and len(hook_text.strip()) > 5 and not is_text_overlay)
+    
+    # If no verbal hook, adjust hook type and text
+    if not has_verbal_hook:
+        if is_text_overlay:
+            hook_type = "text_overlay"
+            if not hook_text:
+                hook_text = "No verbal hook detected - check visual"
+        else:
+            hook_type = "none"
+            hook_text = hook_text or "No verbal hook detected"
+    
     return {
         "is_clip": is_clip,
         "content_format": content_format,
+        "has_verbal_hook": has_verbal_hook,
         "hook": {
             "text": hook_text,
             "start": 0.0,
@@ -334,6 +348,8 @@ def _score_structure(
 def _empty_result() -> Dict:
     return {
         "is_clip": False,
+        "content_format": "unknown",
+        "has_verbal_hook": False,
         "hook": {"text": "", "start": 0, "end": 0, "type": "none", "strength": 0},
         "value": {"text": "", "start": 0, "end": 0, "key_points": []},
         "cta": {"text": "", "start": 0, "end": 0, "type": "none", "phrase": ""},
@@ -352,7 +368,7 @@ async def analyze_post_content(
     Updates the post's hook field and stores full analysis in content_analysis JSONB.
     """
     result = await db.execute(
-        text("SELECT transcript, shortcode FROM crm.competitor_posts WHERE id = :id"),
+        text("SELECT transcript, shortcode, music_info FROM crm.competitor_posts WHERE id = :id"),
         {"id": post_id},
     )
     row = result.fetchone()
@@ -361,8 +377,13 @@ async def analyze_post_content(
     
     transcript = json.loads(row[0]) if isinstance(row[0], str) else row[0]
     shortcode = row[1]
+    music_info = row[2] if len(row) > 2 else None
     
     analysis = analyze_content_structure(transcript)
+    
+    # Add music info to analysis if available
+    if music_info:
+        analysis["music_info"] = music_info
     
     # Update hook from transcript (first 3s) instead of caption
     hook_text = analysis["hook"]["text"]

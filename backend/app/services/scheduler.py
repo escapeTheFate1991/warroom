@@ -15,18 +15,15 @@ _running_tasks: list[asyncio.Task] = []
 
 async def _competitor_sync_job():
     """Sync all competitors. Called by the scheduler."""
-    from app.db.crm_db import crm_session
     from app.api.content_intel import sync_all_competitors
 
     logger.info("Scheduled competitor sync starting")
     try:
-        async with crm_session() as db:
-            result = await sync_all_competitors(db)
-            logger.info(
-                "Scheduled sync complete: %d synced, %d failed",
-                result.get("synced", 0),
-                result.get("failed", 0),
-            )
+        result = await sync_all_competitors()
+        logger.info(
+            "Scheduled sync complete: %s",
+            result.get("message", "No details available"),
+        )
     except Exception as e:
         logger.error("Scheduled competitor sync failed: %s", e)
 

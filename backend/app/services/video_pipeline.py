@@ -551,56 +551,6 @@ async def create_video_from_competitor_reference(
                 reference_post_id=reference_post_id,
                 assets=assets, status="complete"
             )
-            
-                        # No reference sheet — use text-to-video with Veo 3 directly
-                logger.info("No reference images available. Using Veo 3 text-to-video generation.")
-                
-                # Build a video prompt from the script
-                video_prompt = script[:500] if script else "A person speaking to camera about business and technology"
-                
-                try:
-                    video_operation = await generate_video_from_text(
-                        prompt=video_prompt,
-                        duration_seconds=8,
-                        aspect_ratio="9:16",
-                        model="veo-3.0-fast-generate-001",
-                        db=db
-                    )
-                    
-                    if video_operation.get("status") != "error":
-                        assets.append({
-                            "type": "video_operation",
-                            "url": "",
-                            "metadata": {
-                                "scene_index": 0,
-                                "operation_id": video_operation.get("operation_id", ""),
-                                "status": video_operation.get("status", "pending"),
-                                "prompt": video_prompt[:200]
-                            },
-                            "created_at": datetime.now().isoformat()
-                        })
-                        
-                        return {
-                            "pipeline_id": pipeline_id,
-                            "status": "processing",
-                            "progress": 60,
-                            "current_step": "video_generation",
-                            "generated_assets": assets,
-                            "message": "Veo 3 video generation started"
-                        }
-                    else:
-                        logger.error(f"Veo text-to-video failed: {video_operation.get('error')}")
-                except Exception as veo_err:
-                    logger.error(f"Veo text-to-video exception: {veo_err}")
-                
-                return {
-                    "pipeline_id": pipeline_id,
-                    "status": "complete",
-                    "progress": 100,
-                    "current_step": "complete",
-                    "generated_assets": assets,
-                    "message": "Text-only pipeline completed - video generation attempted"
-                }
         
         for scene_img in scene_images:
             image_bytes = scene_img.get("image_bytes")

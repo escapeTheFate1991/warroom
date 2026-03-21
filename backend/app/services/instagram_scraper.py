@@ -45,6 +45,7 @@ class ScrapedPost:
     is_reel: bool = False
     engagement_score: float = 0.0
     hook: str = ""
+    music_info: Optional[Dict[str, str]] = None  # {track_name, artist, is_original}
 
 
 @dataclass
@@ -87,6 +88,58 @@ def _extract_hook(caption: str) -> str:
 def _calc_engagement(likes: int, comments: int, views: int = 0) -> float:
     """Engagement score. Comments weighted 3x."""
     return likes * 1.0 + comments * 3.0
+
+
+def _extract_music_info(node: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Extract music/audio metadata from Instagram post data."""
+    # Try different possible music metadata fields
+    music_paths = [
+        "clips_music_attribute_info",
+        "music_metadata", 
+        "audio_metadata",
+        "original_audio_subtype",
+        "music_info",
+    ]
+    
+    music_data = None
+    for path in music_paths:
+        if path in node:
+            music_data = node.get(path)
+            break
+    
+    if not music_data or not isinstance(music_data, dict):
+        return None
+    
+    # Extract basic music info
+    track_name = (
+        music_data.get("song_name") or 
+        music_data.get("title") or 
+        music_data.get("display_title") or
+        ""
+    )
+    
+    artist_name = (
+        music_data.get("artist_name") or
+        music_data.get("performer") or
+        music_data.get("display_artist") or
+        ""
+    )
+    
+    # Check if it's original audio (user's own voice vs trending sound)
+    is_original = (
+        music_data.get("is_original", False) or
+        music_data.get("original_audio_subtype") == "original" or
+        "original" in str(music_data.get("audio_type", "")).lower()
+    )
+    
+    if not track_name and not artist_name:
+        return None
+    
+    return {
+        "track_name": track_name.strip() if track_name else "",
+        "artist": artist_name.strip() if artist_name else "",
+        "is_original": str(is_original).lower()
+    }
 
 
 def _parse_user_data(user_data: Dict[str, Any], handle: str) -> ScrapedProfile:
@@ -214,6 +267,9 @@ def _parse_posts_from_edges(edges: List[Dict]) -> List[ScrapedPost]:
                 if not media_url:
                     media_url = image_versions[0].get("url", "")
 
+        # Extract music info if available (Instagram often has music_metadata, audio_metadata, clips_music_attribute_info)
+        music_info = _extract_music_info(node)
+        
         posts.append(ScrapedPost(
             shortcode=shortcode,
             post_url=f"https://www.instagram.com/p/{shortcode}/",
@@ -228,6 +284,7 @@ def _parse_posts_from_edges(edges: List[Dict]) -> List[ScrapedPost]:
             is_reel=is_reel,
             engagement_score=_calc_engagement(likes, comments_count, views),
             hook=_extract_hook(caption),
+            music_info=music_info,
         ))
     return posts
 
@@ -269,6 +326,9 @@ def _parse_media_items(items: List[Dict]) -> List[ScrapedPost]:
         video_versions = item.get("video_versions", [])
         media_url = video_versions[0].get("url", "") if video_versions else thumbnail_url
 
+        # Extract music info if available
+        music_info = _extract_music_info(item)
+        
         posts.append(ScrapedPost(
             shortcode=code,
             post_url=f"https://www.instagram.com/p/{code}/",
@@ -283,6 +343,7 @@ def _parse_media_items(items: List[Dict]) -> List[ScrapedPost]:
             is_reel=is_reel,
             engagement_score=_calc_engagement(likes, comments, views),
             hook=_extract_hook(caption),
+            music_info=music_info,
         ))
     return posts
 

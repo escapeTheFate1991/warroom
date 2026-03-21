@@ -170,18 +170,7 @@ class VeoService:
                 "error": str(e)
             }
 
-    async def generate_video_from_text(
-    prompt: str,
-    duration_seconds: int = 8,
-    aspect_ratio: str = "9:16",
-    model: str = "veo-3.0-fast-generate-001",
-    db=None
-) -> Dict[str, Any]:
-    """Convenience wrapper for VeoService.generate_video_from_text"""
-    return await veo_service.generate_video_from_text(prompt, duration_seconds, aspect_ratio, model, db)
-
-
-async def generate_video_from_image(
+    async def generate_video_from_image(
         self, 
         seed_image: bytes, 
         prompt: str, 
@@ -458,6 +447,17 @@ async def generate_video_from_image(
     return await veo_service.generate_video_from_image(
         seed_image, prompt, duration_seconds, aspect_ratio, db
     )
+
+
+async def generate_video_from_text(
+    prompt: str,
+    duration_seconds: int = 8,
+    aspect_ratio: str = "9:16",
+    model: str = "veo-3.0-fast-generate-001",
+    db=None
+) -> Dict[str, Any]:
+    """Convenience wrapper for VeoService.generate_video_from_text"""
+    return await veo_service.generate_video_from_text(prompt, duration_seconds, aspect_ratio, model, db)
 
 
 async def check_video_status(operation_id: str, db=None) -> Dict[str, Any]:
