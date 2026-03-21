@@ -83,7 +83,105 @@ class VeoService:
         """Convert image bytes to base64 string"""
         return base64.b64encode(image_bytes).decode('utf-8')
     
-    async def generate_video_from_image(
+
+    async def generate_video_from_text(
+        self,
+        prompt: str,
+        duration_seconds: int = 8,
+        aspect_ratio: str = "9:16",
+        model: str = "veo-3.0-fast-generate-001",
+        db=None
+    ) -> Dict[str, Any]:
+        """
+        Generate video from text prompt using Veo 3.
+        
+        Args:
+            prompt: Description/script for the video
+            duration_seconds: Video duration (4-8 seconds)
+            aspect_ratio: Video aspect ratio (9:16, 16:9, 1:1)
+            model: Veo model to use (veo-3.0-fast-generate-001 or veo-3.0-generate-001)
+            db: Database session for API key lookup
+            
+        Returns:
+            Dict with operation_id and status for polling
+        """
+        try:
+            api_key = await self._get_api_key(db)
+            
+            # Clamp duration to valid range
+            duration_seconds = max(4, min(8, duration_seconds))
+            
+            # Construct request payload
+            payload = {
+                "instances": [{
+                    "prompt": prompt
+                }],
+                "parameters": {
+                    "aspectRatio": aspect_ratio,
+                    "durationSeconds": duration_seconds
+                }
+            }
+            
+            # Use key as query parameter (not Bearer token)
+            url = f"{GEMINI_API_BASE}/models/{model}:predictLongRunning?key={api_key}"
+            
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                logger.info(f"Calling Veo API: {url.split('?')[0]}")
+                response = await client.post(url, json=payload)
+                
+                if response.status_code == 429:
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Google AI rate limit reached. Please wait a moment and try again."
+                    )
+                
+                response_text = response.text.lower()
+                if "quota" in response_text or "exceeded" in response_text:
+                    from fastapi import HTTPException
+                    raise HTTPException(
+                        status_code=402,
+                        detail="Google AI billing quota exceeded. Check billing at https://ai.google.dev"
+                    )
+                
+                if response.status_code != 200:
+                    error_detail = response.json().get("error", {}).get("message", response.text[:200])
+                    logger.error(f"Veo API error {response.status_code}: {error_detail}")
+                    return {
+                        "status": "error",
+                        "error": f"Veo API error: {error_detail}"
+                    }
+                
+                result = response.json()
+                operation_id = result.get("name", "")
+                
+                logger.info(f"Veo video generation started. Operation: {operation_id}")
+                
+                return {
+                    "status": "pending",
+                    "operation_id": operation_id,
+                    "model": model
+                }
+                
+        except Exception as e:
+            logger.error(f"Veo generation failed: {e}")
+            return {
+                "status": "error", 
+                "error": str(e)
+            }
+
+    async def generate_video_from_text(
+    prompt: str,
+    duration_seconds: int = 8,
+    aspect_ratio: str = "9:16",
+    model: str = "veo-3.0-fast-generate-001",
+    db=None
+) -> Dict[str, Any]:
+    """Convenience wrapper for VeoService.generate_video_from_text"""
+    return await veo_service.generate_video_from_text(prompt, duration_seconds, aspect_ratio, model, db)
+
+
+async def generate_video_from_image(
         self, 
         seed_image: bytes, 
         prompt: str, 
@@ -229,15 +327,11 @@ class VeoService:
             if operation_id.startswith("mock_veo_"):
                 return await self._mock_operation_status(operation_id)
             
-            # Query Gemini operations endpoint
-            url = f"{GEMINI_API_BASE}/operations/{operation_id}"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
+            # Query Gemini operations endpoint with key param
+            url = f"{GEMINI_API_BASE}/{operation_id}?key={api_key}"
             
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers)
+                response = await client.get(url)
                 response.raise_for_status()
                 result = response.json()
                 
@@ -251,9 +345,15 @@ class VeoService:
                             "error": result["error"].get("message", "Unknown error")
                         }
                     
-                    # Success - extract video URL
+                    # Success - extract video URL from Veo 3 response
                     response_data = result.get("response", {})
-                    video_url = response_data.get("videoUri", response_data.get("video", {}).get("uri"))
+                    # Veo 3 returns generateVideoResponse.generatedSamples[].video.uri
+                    gen_response = response_data.get("generateVideoResponse", response_data)
+                    samples = gen_response.get("generatedSamples", [])
+                    if samples:
+                        video_url = samples[0].get("video", {}).get("uri", "")
+                    else:
+                        video_url = response_data.get("videoUri", response_data.get("video", {}).get("uri"))
                     
                     return {
                         "status": "complete",
