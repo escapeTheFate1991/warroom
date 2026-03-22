@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     INSTAGRAM_USERNAME: str = ""
     INSTAGRAM_PASSWORD: str = ""
 
+    # ── Instagram Webhooks (Meta Graph API) ───────────────────────
+    INSTAGRAM_WEBHOOK_VERIFY_TOKEN: str = ""
+    INSTAGRAM_APP_SECRET: str = ""
+
     # ── Admin seed ───────────────────────────────────────────────────
     ADMIN_PASSWORD: str = ""
 

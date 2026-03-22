@@ -6,8 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate, digital_copies, content_social, org_chart, carousel
+from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate, digital_copies, content_social, org_chart, carousel, auto_reply
 from app.api import entities, goals, approvals, task_checkout, budget, search
+from app.api.webhooks.instagram import router as instagram_webhook_router
 from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine, crm_session
@@ -757,6 +758,8 @@ app.include_router(audit_trail.router, prefix="/api/audit", tags=["audit-trail"]
 app.include_router(vector_memory.router, prefix="/api/memory", tags=["vector-memory"])
 app.include_router(content_scheduler.router, prefix="/api/scheduler", tags=["content-scheduler"])
 app.include_router(carousel.router, prefix="/api/carousel", tags=["carousel"])
+app.include_router(auto_reply.router, prefix="/api/auto-reply", tags=["auto-reply"])
+app.include_router(instagram_webhook_router, tags=["webhooks"])
 app.include_router(video_formats.router, prefix="/api", tags=["video-formats"])
 app.include_router(simulate.router, prefix="/api/simulate", tags=["simulate"])
 

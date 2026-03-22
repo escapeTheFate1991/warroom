@@ -36,6 +36,7 @@ CSRF_EXEMPT_PATHS = [
     "/api/contact-webhook",
     "/api/telnyx/webhook",
     "/api/twilio/webhook",
+    "/api/webhooks/",
     "/health",
 ]
 

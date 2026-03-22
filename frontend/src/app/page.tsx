@@ -9,7 +9,7 @@ import {
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
   CalendarDays, FileSignature, DollarSign, PhoneCall,
-  BarChart2, PieChart, TrendingUp, UserPlus, Sparkles,
+  BarChart2, PieChart, TrendingUp, UserPlus, Sparkles, Zap,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/navigation/Sidebar";
@@ -64,6 +64,7 @@ const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsP
 const CommunicationsConsole = dynamic(() => import("@/components/communications/CommunicationsConsole"), { loading: PanelLoader });
 const ProfilePage = dynamic(() => import("@/components/profile/ProfilePage"), { loading: PanelLoader });
 const AIStudioPanel = dynamic(() => import("@/components/ai-studio/AIStudioPanel"), { loading: PanelLoader });
+const AutoReplyPanel = dynamic(() => import("@/components/auto-reply/AutoReplyPanel"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -138,6 +139,7 @@ const SECTIONS = [
     label: "TOOLS",
     items: [
       { id: "ai-studio", label: "AI Studio", icon: Sparkles },
+      { id: "auto-reply", label: "Auto-Reply", icon: Zap },
       { id: "workflows", label: "Workflows", icon: Bot },
       { id: "library", label: "Library", icon: BookOpen, children: [
         { id: "library-search", label: "Search", icon: Search },
@@ -159,7 +161,7 @@ type TabId =
   | "kanban" | "leadgen"
   | "pipeline-board" | "organizations" | "crm-contacts" | "org-chart"
   | "library-search" | "library-educate"
-  | "ai-studio" | "workflows"
+  | "ai-studio" | "auto-reply" | "workflows"
   | "marketing-campaigns" | "marketing-templates"
   | "invoices" | "contracts"
   | "reports-overview" | "reports-revenue" | "reports-sales"
@@ -318,6 +320,7 @@ function WarRoom() {
           {activeTab === "reports-revenue" && <ComingSoon title="Revenue Reports" />}
           {activeTab === "reports-sales" && <ComingSoon title="Sales Activity" />}
           {activeTab === "ai-studio" && <AIStudioPanel />}
+          {activeTab === "auto-reply" && <AutoReplyPanel />}
           {activeTab === "settings" && <SettingsPanel />}
           {activeTab === "profile" && <ProfilePage />}
         </main>

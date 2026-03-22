@@ -10,8 +10,10 @@
 
 'use client'
 
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { CheckCircle, AlertCircle, Loader2, ExternalLink, RefreshCw } from 'lucide-react'
 import { authFetch } from '@/lib/api'
+import { useToast } from '@/components/ui/Toast'
 
 // Platform configurations matching backend
 const PLATFORM_CONFIGS: Record<string, { name: string; emoji: string; maxChars: number; color: string }> = {
@@ -58,7 +60,27 @@ interface GeneratedPost {
   platform: string
 }
 
+type PostStatus = 'draft' | 'scheduled' | 'publishing' | 'published' | 'failed'
+
+interface ScheduledPostInfo {
+  id: string
+  status: PostStatus
+  error_message?: string
+  post_url?: string
+  platform?: string
+}
+
+const STATUS_CONFIG: Record<PostStatus, { label: string; color: string; bgColor: string }> = {
+  draft: { label: 'Draft', color: 'text-gray-400', bgColor: 'bg-gray-500/10 border-gray-500/30' },
+  scheduled: { label: 'Scheduled', color: 'text-blue-400', bgColor: 'bg-blue-500/10 border-blue-500/30' },
+  publishing: { label: 'Publishing', color: 'text-yellow-400', bgColor: 'bg-yellow-500/10 border-yellow-500/30' },
+  published: { label: 'Published', color: 'text-green-400', bgColor: 'bg-green-500/10 border-green-500/30' },
+  failed: { label: 'Failed', color: 'text-red-400', bgColor: 'bg-red-500/10 border-red-500/30' },
+}
+
 export default function ContentToSocial() {
+  const { toast } = useToast()
+
   // State management
   const [url, setUrl] = useState('')
   const [extracting, setExtracting] = useState(false)
@@ -74,11 +96,83 @@ export default function ContentToSocial() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
+  // Post-schedule status tracking
+  const [scheduledPost, setScheduledPost] = useState<ScheduledPostInfo | null>(null)
+  const [retrying, setRetrying] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
   // Clear messages
   const clearMessages = useCallback(() => {
     setError(null)
     setSuccess(null)
   }, [])
+
+  // Poll for post status after scheduling
+  const startPolling = useCallback((postId: string) => {
+    // Clear any existing poll
+    if (pollRef.current) clearInterval(pollRef.current)
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const response = await authFetch(`/api/scheduler/posts/${postId}`)
+        if (!response.ok) return
+
+        const data = await response.json()
+        const post: ScheduledPostInfo = {
+          id: postId,
+          status: data.status || data.data?.status,
+          error_message: data.error_message || data.data?.error_message,
+          post_url: data.post_url || data.data?.post_url,
+          platform: data.platform || data.data?.platform,
+        }
+        setScheduledPost(post)
+
+        // Stop polling on terminal states
+        if (post.status === 'published') {
+          if (pollRef.current) clearInterval(pollRef.current)
+          toast('success', 'Post published successfully!')
+        } else if (post.status === 'failed') {
+          if (pollRef.current) clearInterval(pollRef.current)
+          toast('error', `Post failed: ${post.error_message || 'Unknown error'}`)
+        }
+      } catch (err) {
+        // Network error — keep polling, don't crash
+        console.error('Status poll failed:', err)
+      }
+    }, 5000)
+  }, [toast])
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  // Retry a failed post
+  const handleRetry = async () => {
+    if (!scheduledPost) return
+    setRetrying(true)
+    try {
+      const response = await authFetch(`/api/scheduler/posts/${scheduledPost.id}/publish`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Retry failed')
+      }
+      // Reset to publishing and resume polling
+      setScheduledPost(prev => prev ? { ...prev, status: 'publishing', error_message: undefined } : null)
+      toast('info', 'Retrying publish...')
+      startPolling(scheduledPost.id)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Retry failed'
+      setError(msg)
+      toast('error', msg)
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   // Extract content from URL
   const handleExtract = async () => {
@@ -219,21 +313,33 @@ export default function ContentToSocial() {
       }
 
       const data = await response.json()
-      setSuccess(
-        requireApproval 
-          ? `Posts submitted for approval (ID: ${data.data.approval_id})`
-          : `Posts scheduled successfully for ${scheduleDateTime.toLocaleString()}`
-      )
-      
-      // Reset form
+      const postId = data.data?.post_id || data.data?.approval_id || data.data?.id
+
+      if (requireApproval) {
+        setSuccess(`Posts submitted for approval (ID: ${postId})`)
+        toast('info', 'Posts submitted for approval')
+      } else {
+        setSuccess(`Posts scheduled for ${scheduleDateTime.toLocaleString()}`)
+        toast('success', 'Posts scheduled successfully')
+      }
+
+      // Track status if we got a post ID
+      if (postId) {
+        setScheduledPost({ id: postId, status: 'scheduled' })
+        startPolling(postId)
+      }
+
+      // Reset the editing form (but keep scheduledPost visible)
       setUrl('')
       setExtractedContent(null)
       setGeneratedPosts({})
       setEditingPosts({})
       setScheduledFor('')
-      
+
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to schedule posts')
+      const msg = err instanceof Error ? err.message : 'Failed to schedule posts'
+      setError(msg)
+      toast('error', msg)
     } finally {
       setScheduling(false)
     }
@@ -518,6 +624,74 @@ export default function ContentToSocial() {
               {scheduling ? 'Scheduling...' : 
                requireApproval ? 'Submit for Approval' : 'Schedule Now'}
             </button>
+          </div>
+        )}
+
+        {/* Post-Schedule Status Tracker */}
+        {scheduledPost && (
+          <div className={`mt-8 p-4 rounded-lg border ${STATUS_CONFIG[scheduledPost.status].bgColor}`}>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-warroom-text">Post Status</h3>
+              <span className={`text-xs font-medium px-2 py-1 rounded ${STATUS_CONFIG[scheduledPost.status].color}`}>
+                {STATUS_CONFIG[scheduledPost.status].label}
+              </span>
+            </div>
+
+            <p className="text-xs text-warroom-muted mb-3">ID: {scheduledPost.id}</p>
+
+            {/* Publishing spinner */}
+            {scheduledPost.status === 'publishing' && (
+              <div className="flex items-center gap-2 text-sm text-yellow-400">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Publishing in progress...</span>
+              </div>
+            )}
+
+            {/* Published — success with link */}
+            {scheduledPost.status === 'published' && (
+              <div className="flex items-center gap-2 text-sm text-green-400">
+                <CheckCircle size={16} />
+                <span>Published successfully</span>
+                {scheduledPost.post_url && (
+                  <a
+                    href={scheduledPost.post_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-auto flex items-center gap-1 text-warroom-accent hover:underline text-xs"
+                  >
+                    View live post <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
+            )}
+
+            {/* Failed — error message + retry */}
+            {scheduledPost.status === 'failed' && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-red-400">
+                  <AlertCircle size={16} />
+                  <span>{scheduledPost.error_message || 'Publish failed'}</span>
+                </div>
+                <button
+                  onClick={handleRetry}
+                  disabled={retrying}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 border border-red-500/30 rounded text-xs text-red-300 hover:bg-red-500/30 disabled:opacity-50 transition"
+                >
+                  {retrying ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  {retrying ? 'Retrying...' : 'Retry Publish'}
+                </button>
+              </div>
+            )}
+
+            {/* Dismiss button for terminal states */}
+            {(scheduledPost.status === 'published' || scheduledPost.status === 'failed') && (
+              <button
+                onClick={() => setScheduledPost(null)}
+                className="mt-3 text-xs text-warroom-muted hover:text-warroom-text transition"
+              >
+                Dismiss
+              </button>
+            )}
           </div>
         )}
       </div>
