@@ -8,6 +8,7 @@ import {
   ExternalLink, Zap, TrendingUp, Save, Settings, BarChart, Grid3X3,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import { getStoredUser } from "@/lib/auth";
 import ScrollTabs from "@/components/ui/ScrollTabs";
 import dynamic from "next/dynamic";
 import FormatPicker from "./FormatPicker";
@@ -190,8 +191,19 @@ export default function AIStudioPanel() {
   const [selectedBlueprint, setSelectedBlueprint] = useState<any | null>(null);
   const [autoFilledData, setAutoFilledData] = useState<any | null>(null);
   const [loadingAutoFill, setLoadingAutoFill] = useState(false);
+  const autoFillInProgress = useRef(false);
   const [brandTopic, setBrandTopic] = useState("");
+  const [brandName, setBrandName] = useState("");
   const [blueprintFormatFilter, setBlueprintFormatFilter] = useState<string | null>(null);
+
+  // Error banner for data-fetching failures (auto-dismiss after 8s)
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const fetchErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showFetchError = useCallback((msg: string) => {
+    setFetchError(msg);
+    if (fetchErrorTimerRef.current) clearTimeout(fetchErrorTimerRef.current);
+    fetchErrorTimerRef.current = setTimeout(() => setFetchError(null), 8000);
+  }, []);
 
   // Character DNA and Reference Sheet for selected character
   const [wizardCharacterDna, setWizardCharacterDna] = useState<any>(null);
@@ -314,6 +326,9 @@ export default function AIStudioPanel() {
     authFetch(`${API}/api/ai-studio/status`)
       .then(r => r.json()).then(d => setConfigured(d.configured))
       .catch(() => setConfigured(false));
+    // Seed brand name from the user's org
+    const user = getStoredUser();
+    if (user?.org?.name) setBrandName(user.org.name);
   }, []);
 
   const fetchCopies = useCallback(async () => {
@@ -321,7 +336,10 @@ export default function AIStudioPanel() {
     try {
       const r = await authFetch(`${API}/api/digital-copies`);
       if (r.ok) { const d = await r.json(); setCopies(Array.isArray(d) ? d : d.digital_copies || d.data || []); }
-    } catch { }
+    } catch (e) {
+      console.error("Failed to fetch digital copies:", e);
+      showFetchError("Failed to load digital copies — check your connection");
+    }
     setLoadingCopies(false);
   }, []);
 
@@ -330,7 +348,10 @@ export default function AIStudioPanel() {
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/templates`);
       if (r.ok) { const d = await r.json(); setTemplates(d.templates || []); }
-    } catch { }
+    } catch (e) {
+      console.error("Failed to fetch templates:", e);
+      showFetchError("Failed to load templates — check your connection");
+    }
     setLoadingTemplates(false);
   }, []);
 
@@ -339,7 +360,10 @@ export default function AIStudioPanel() {
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/projects`);
       if (r.ok) { const d = await r.json(); setProjects(d.projects || []); }
-    } catch { }
+    } catch (e) {
+      console.error("Failed to fetch projects:", e);
+      showFetchError("Failed to load projects — check your connection");
+    }
     setLoadingProjects(false);
   }, []);
 
@@ -350,7 +374,8 @@ export default function AIStudioPanel() {
         const d = await r.json(); 
         setActionTemplates(d.templates || []);
       }
-    } catch { 
+    } catch (e) {
+      console.error("Failed to fetch action templates, using fallback:", e);
       // Fallback action templates
       setActionTemplates([
         { id: "1", slug: "selling", name: "Selling", description: "Direct product pitch", icon: "💰" },
@@ -367,7 +392,10 @@ export default function AIStudioPanel() {
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/competitor-videos?limit=20`);
       if (r.ok) { const d = await r.json(); setCompetitorVideos(d.videos || []); }
-    } catch { }
+    } catch (e) {
+      console.error("Failed to fetch competitor videos:", e);
+      showFetchError("Failed to load competitor videos — check your connection");
+    }
     setLoadingCompetitorVideos(false);
   }, []);
 
@@ -452,7 +480,7 @@ export default function AIStudioPanel() {
         digital_copy_id: wizardCopyId,
         editing_dna_id: selectedEditingDna?.id,
         brand_context: {
-          brand_name: "Stuff N Things",
+          brand_name: brandName || brandTopic || "My Brand",
           product_name: wizardTitle || brandTopic || "Untitled Video",
           script: wizardScript
         }
@@ -505,15 +533,24 @@ export default function AIStudioPanel() {
           const d = await r.json();
           setPipelineStatus(d);
           setPollStatus(d.status);
-          if (d.status === "completed" || d.status === "failed") {
+          if (d.status === "completed") {
             clearInterval(interval);
             fetchProjects();
+          } else if (d.status === "failed") {
+            clearInterval(interval);
+            setGenerationResult({ ok: false, error: d.error || "Pipeline failed — check your settings and try again" });
+            fetchProjects();
           }
+        } else {
+          const err = await r.json().catch(() => ({}));
+          showFetchError(err.detail || err.error || "Failed to check pipeline status");
         }
-      } catch { }
+      } catch (e) {
+        console.error("Pipeline status poll failed:", e);
+      }
     }, 3000); // Poll every 3 seconds as required
     return () => clearInterval(interval);
-  }, [pipelineId, pollStatus, fetchProjects]);
+  }, [pipelineId, pollStatus, fetchProjects, showFetchError]);
 
   // ── Script Generator ─────────────────────────────────────
   const VIDEO_FORMATS = [
@@ -596,7 +633,8 @@ export default function AIStudioPanel() {
         const d = await r.json().catch(() => ({}));
         alert(d.detail || d.error || "Script generation failed");
       }
-    } catch {
+    } catch (e) {
+      console.error("Script generation failed:", e);
       setWizardScript(`[HOOK] "${scriptGenHook || "Wait, you guys are still doing it the old way?"}"\n\n[BODY] ${scriptGenTopic || "Your topic here"}...\n\n[CTA] Link in bio — trust me on this one.\n\n/* Script generation coming soon — write your script above */`);
     } finally { setGeneratingScript(false); }
   };
@@ -613,7 +651,10 @@ export default function AIStudioPanel() {
         setAutoScripts(d.scripts || []);
         setTotalPostsAnalyzed(d.total_competitor_posts_analyzed || 0);
       }
-    } catch {}
+    } catch (e) {
+      console.error("Failed to fetch auto scripts:", e);
+      showFetchError("Failed to generate scripts — try again");
+    }
     setLoadingAutoScripts(false);
   };
 
@@ -628,7 +669,10 @@ export default function AIStudioPanel() {
         const d = await r.json();
         setBlueprints(d.blueprints || []);
       }
-    } catch {}
+    } catch (e) {
+      console.error("Failed to fetch blueprints:", e);
+      showFetchError("Failed to load blueprints — check your connection");
+    }
     setLoadingBlueprints(false);
   }, []);
 
@@ -637,7 +681,8 @@ export default function AIStudioPanel() {
   }, [configured, fetchBlueprints]);
 
   const autoFillBlueprint = async (postId: number) => {
-    if (loadingAutoFill) return; // Prevent double-clicks
+    if (autoFillInProgress.current) return; // Ref-based guard (sync, no race condition)
+    autoFillInProgress.current = true;
     setLoadingAutoFill(true);
     setGenerationResult(null);
     try {
@@ -658,8 +703,10 @@ export default function AIStudioPanel() {
       }
     } catch (e: any) {
       setGenerationResult({ ok: false, error: e.message || "Auto-fill request failed" });
+    } finally {
+      autoFillInProgress.current = false;
+      setLoadingAutoFill(false);
     }
-    setLoadingAutoFill(false);
   };
 
   const insertHookAtCursor = (hook: string) => {
@@ -849,6 +896,15 @@ export default function AIStudioPanel() {
         size="sm"
       />
 
+      {/* Fetch error banner */}
+      {fetchError && (
+        <div className="mx-5 mt-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 flex items-center gap-2">
+          <AlertCircle size={14} className="text-red-400 flex-shrink-0" />
+          <span className="text-xs text-red-300 flex-1">{fetchError}</span>
+          <button onClick={() => setFetchError(null)} className="text-red-400 hover:text-red-300"><X size={14} /></button>
+        </div>
+      )}
+
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === "digital-copies" && <DigitalCopiesPanel />}
@@ -944,6 +1000,14 @@ export default function AIStudioPanel() {
               ) : (
                 <div className="px-3 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-xs text-warroom-muted">Select below ↓</div>
               )}
+            </div>
+
+            {/* Brand name */}
+            <div className="flex-shrink-0 min-w-[140px]">
+              <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Brand</label>
+              <input value={brandName} onChange={e => setBrandName(e.target.value)}
+                placeholder="Your brand name"
+                className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
             </div>
 
             {/* Topic input */}
