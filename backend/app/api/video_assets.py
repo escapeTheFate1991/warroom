@@ -552,7 +552,9 @@ async def generate_voice_sample(
 
 
 @router.get("/digital-copies/voices")
-async def list_available_voices():
+async def list_available_voices(
+    current_user: User = Depends(get_current_user),
+):
     """Get list of available voices for voice cloning."""
     try:
         voices = await avatar_service.get_available_voices("edge-tts")
@@ -660,17 +662,22 @@ async def _generate_assets_background(
 # ── Static File Serving ────────────────────────────────────────────────────
 
 @router.get("/serve/{asset_type}/{filename}")
-async def serve_asset_file(asset_type: str, filename: str):
+async def serve_asset_file(
+    asset_type: str,
+    filename: str,
+    current_user: User = Depends(get_current_user),
+):
     """Serve generated asset files."""
     try:
         file_path = ASSET_DIR / asset_type / filename
-        
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Asset file not found")
-        
-        # Basic security check - ensure file is within assets directory
-        if not str(file_path.resolve()).startswith(str(ASSET_DIR.resolve())):
+
+        # Path traversal guard — resolved path must stay within ASSET_DIR
+        resolved = file_path.resolve()
+        if not resolved.is_relative_to(ASSET_DIR.resolve()):
             raise HTTPException(status_code=403, detail="Access denied")
+
+        if not resolved.exists():
+            raise HTTPException(status_code=404, detail="Asset file not found")
         
         return FileResponse(path=str(file_path))
         

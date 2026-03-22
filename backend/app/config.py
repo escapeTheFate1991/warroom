@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # ── Frontend build args ──────────────────────────────────────────
     NEXT_PUBLIC_WS_URL: str = "ws://192.168.1.94:18789"
 
+    # ── CORS / CSRF origins ─────────────────────────────────────────
+    # Comma-separated allowed origins. Defaults cover production + local dev.
+    ALLOWED_ORIGINS: str = "https://warroom.stuffnthings.io,https://stuffnthings.io,https://www.stuffnthings.io,http://localhost:3300,http://localhost:3000,http://192.168.1.94:3300"
+
     # ── Paths ────────────────────────────────────────────────────────
     MENTAL_LIBRARY_DB: str = "/data/mental-library/mental_library.db"
 
@@ -62,6 +66,11 @@ class Settings(BaseSettings):
     @property
     def CRM_DB_URL(self) -> str:
         return os.getenv("CRM_DB_URL", self.POSTGRES_URL)
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        """Parse ALLOWED_ORIGINS CSV into a list of origin strings."""
+        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

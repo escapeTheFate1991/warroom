@@ -198,6 +198,40 @@ export async function getCurrentUser(): Promise<User> {
 }
 
 /**
+ * Attempt to refresh the JWT using the current token.
+ * Calls POST /api/auth/refresh with the existing JWT in the Authorization header.
+ * On success, stores the new token and returns it.
+ * On failure, returns null (caller should clear auth and redirect).
+ */
+export async function refreshToken(): Promise<string | null> {
+  const token = getAuthToken();
+  if (!token) return null;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) return null;
+
+    const data: { access_token: string; token_type: string } = await response.json();
+    if (!data.access_token) return null;
+
+    // Store the new token
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('warroom_token', data.access_token);
+    }
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Redirect to login if not authenticated
  */
 export function requireAuth(): void {

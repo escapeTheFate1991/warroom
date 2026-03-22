@@ -684,16 +684,11 @@ app.add_middleware(TenantGuardMiddleware)
 from app.middleware.auth_guard import AuthGuardMiddleware
 app.add_middleware(AuthGuardMiddleware)
 
+from app.config import settings as app_settings
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://warroom.stuffnthings.io",
-        "https://stuffnthings.io",
-        "https://www.stuffnthings.io",
-        "http://localhost:3300",
-        "http://localhost:3000",
-        "http://192.168.1.94:3300",
-    ],
+    allow_origins=app_settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
