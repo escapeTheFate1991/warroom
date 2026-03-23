@@ -8,6 +8,7 @@ import {
   ExternalLink, Zap, TrendingUp, Save, Settings, BarChart, Grid3X3,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import { getStoredUser } from "@/lib/auth";
 import ScrollTabs from "@/components/ui/ScrollTabs";
 import dynamic from "next/dynamic";
 import FormatPicker from "./FormatPicker";
@@ -190,25 +191,23 @@ export default function AIStudioPanel() {
   const [selectedBlueprint, setSelectedBlueprint] = useState<any | null>(null);
   const [autoFilledData, setAutoFilledData] = useState<any | null>(null);
   const [loadingAutoFill, setLoadingAutoFill] = useState(false);
+  const autoFillInProgress = useRef(false);
   const [brandTopic, setBrandTopic] = useState("");
+  const [brandName, setBrandName] = useState("");
   const [blueprintFormatFilter, setBlueprintFormatFilter] = useState<string | null>(null);
+
+  // Error banner for data-fetching failures (auto-dismiss after 8s)
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const fetchErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showFetchError = useCallback((msg: string) => {
+    setFetchError(msg);
+    if (fetchErrorTimerRef.current) clearTimeout(fetchErrorTimerRef.current);
+    fetchErrorTimerRef.current = setTimeout(() => setFetchError(null), 8000);
+  }, []);
 
   // Character DNA and Reference Sheet for selected character
   const [wizardCharacterDna, setWizardCharacterDna] = useState<any>(null);
   const [wizardReferenceSheet, setWizardReferenceSheet] = useState<string | null>(null);
-
-  // CDN Migration Status Tracking
-  const [migrationStatus, setMigrationStatus] = useState<{
-    status: "idle" | "running" | "complete" | "error";
-    progress: number;
-    total: number;
-    success_count: number;
-    error_count: number;
-    started_at?: string;
-    completed_at?: string;
-    last_error?: string;
-  } | null>(null);
-  const [migrationPolling, setMigrationPolling] = useState(false);
 
   // Character and action selection
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
@@ -327,20 +326,19 @@ export default function AIStudioPanel() {
     authFetch(`${API}/api/ai-studio/status`)
       .then(r => r.json()).then(d => setConfigured(d.configured))
       .catch(() => setConfigured(false));
+    // Seed brand name from the user's org
+    const user = getStoredUser();
+    if (user?.org?.name) setBrandName(user.org.name);
   }, []);
 
   const fetchCopies = useCallback(async () => {
     setLoadingCopies(true);
     try {
       const r = await authFetch(`${API}/api/digital-copies`);
-      if (r.ok) { 
-        const d = await r.json(); 
-        setCopies(Array.isArray(d) ? d : d.digital_copies || d.data || []); 
-      } else {
-        setCopies([]); // Set empty array on API failure
-      }
-    } catch { 
-      setCopies([]); // Set empty array on error
+      if (r.ok) { const d = await r.json(); setCopies(Array.isArray(d) ? d : d.digital_copies || d.data || []); }
+    } catch (e) {
+      console.error("Failed to fetch digital copies:", e);
+      showFetchError("Failed to load digital copies — check your connection");
     }
     setLoadingCopies(false);
   }, []);
@@ -349,14 +347,10 @@ export default function AIStudioPanel() {
     setLoadingTemplates(true);
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/templates`);
-      if (r.ok) { 
-        const d = await r.json(); 
-        setTemplates(d.templates || []); 
-      } else {
-        setTemplates([]); // Set empty array on API failure
-      }
-    } catch { 
-      setTemplates([]); // Set empty array on error
+      if (r.ok) { const d = await r.json(); setTemplates(d.templates || []); }
+    } catch (e) {
+      console.error("Failed to fetch templates:", e);
+      showFetchError("Failed to load templates — check your connection");
     }
     setLoadingTemplates(false);
   }, []);
@@ -365,14 +359,10 @@ export default function AIStudioPanel() {
     setLoadingProjects(true);
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/projects`);
-      if (r.ok) { 
-        const d = await r.json(); 
-        setProjects(d.projects || []); 
-      } else {
-        setProjects([]); // Set empty array on API failure
-      }
-    } catch { 
-      setProjects([]); // Set empty array on error
+      if (r.ok) { const d = await r.json(); setProjects(d.projects || []); }
+    } catch (e) {
+      console.error("Failed to fetch projects:", e);
+      showFetchError("Failed to load projects — check your connection");
     }
     setLoadingProjects(false);
   }, []);
@@ -384,7 +374,8 @@ export default function AIStudioPanel() {
         const d = await r.json(); 
         setActionTemplates(d.templates || []);
       }
-    } catch { 
+    } catch (e) {
+      console.error("Failed to fetch action templates, using fallback:", e);
       // Fallback action templates
       setActionTemplates([
         { id: "1", slug: "selling", name: "Selling", description: "Direct product pitch", icon: "💰" },
@@ -400,14 +391,10 @@ export default function AIStudioPanel() {
     setLoadingCompetitorVideos(true);
     try {
       const r = await authFetch(`${API}/api/ai-studio/ugc/competitor-videos?limit=20`);
-      if (r.ok) { 
-        const d = await r.json(); 
-        setCompetitorVideos(d.videos || []); 
-      } else {
-        setCompetitorVideos([]); // Set empty array on API failure
-      }
-    } catch { 
-      setCompetitorVideos([]); // Set empty array on error
+      if (r.ok) { const d = await r.json(); setCompetitorVideos(d.videos || []); }
+    } catch (e) {
+      console.error("Failed to fetch competitor videos:", e);
+      showFetchError("Failed to load competitor videos — check your connection");
     }
     setLoadingCompetitorVideos(false);
   }, []);
@@ -474,83 +461,6 @@ export default function AIStudioPanel() {
     finally { setTemplatizingCompetitor(null); }
   };
 
-  // ── CDN Migration Functions ─────────────────────────────
-  const fetchMigrationStatus = useCallback(async () => {
-    try {
-      const res = await authFetch(`${API}/api/jobs/cdn-migration/status`);
-      if (res.ok) {
-        const status = await res.json();
-        setMigrationStatus(status);
-        
-        // If migration just completed, show notification and refresh blueprints
-        if (status.status === "complete" && migrationStatus?.status === "running") {
-          try {
-            await authFetch(`${API}/api/notifications`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                type: "success",
-                title: "Video Links Updated",
-                message: `Successfully updated ${status.success_count} video links. AI Studio videos should now load properly.`,
-                data: { link: "/ai-studio" }
-              })
-            });
-          } catch (e) {
-            console.error("Failed to create notification:", e);
-          }
-          
-          // Refresh blueprints to get updated URLs - call directly since we can't depend on it
-          try {
-            const r = await authFetch(`${API}/api/ai-studio/winning-blueprints`);
-            if (r.ok) {
-              const d = await r.json();
-              setBlueprints(d.blueprints || []);
-            }
-          } catch (e) {
-            console.error("Failed to refresh blueprints:", e);
-          }
-        }
-        
-        return status;
-      }
-    } catch (error) {
-      console.error("Failed to fetch migration status:", error);
-    }
-    return null;
-  }, [migrationStatus?.status]);
-
-  const startMigrationPolling = useCallback(() => {
-    if (migrationPolling) return;
-    
-    setMigrationPolling(true);
-    const pollInterval = setInterval(async () => {
-      const status = await fetchMigrationStatus();
-      
-      // Stop polling when migration is complete or errored
-      if (status && (status.status === "complete" || status.status === "error")) {
-        setMigrationPolling(false);
-        clearInterval(pollInterval);
-      }
-    }, 3000); // Poll every 3 seconds
-
-    // Auto-stop polling after 10 minutes
-    setTimeout(() => {
-      setMigrationPolling(false);
-      clearInterval(pollInterval);
-    }, 10 * 60 * 1000);
-  }, [fetchMigrationStatus, migrationPolling]);
-
-  // Check migration status on component mount
-  useEffect(() => {
-    if (configured && activeTab === "create-video") {
-      fetchMigrationStatus().then(status => {
-        if (status?.status === "running") {
-          startMigrationPolling();
-        }
-      });
-    }
-  }, [configured, activeTab, fetchMigrationStatus, startMigrationPolling]);
-
   // ── Video Project Create & Generate ───────────────────────
   const createAndGenerate = async () => {
     setGenerating(true);
@@ -570,7 +480,7 @@ export default function AIStudioPanel() {
         digital_copy_id: wizardCopyId,
         editing_dna_id: selectedEditingDna?.id,
         brand_context: {
-          brand_name: "Stuff N Things",
+          brand_name: brandName || brandTopic || "My Brand",
           product_name: wizardTitle || brandTopic || "Untitled Video",
           script: wizardScript
         }
@@ -623,15 +533,24 @@ export default function AIStudioPanel() {
           const d = await r.json();
           setPipelineStatus(d);
           setPollStatus(d.status);
-          if (d.status === "completed" || d.status === "complete" || d.status === "failed") {
+          if (d.status === "completed") {
             clearInterval(interval);
             fetchProjects();
+          } else if (d.status === "failed") {
+            clearInterval(interval);
+            setGenerationResult({ ok: false, error: d.error || "Pipeline failed — check your settings and try again" });
+            fetchProjects();
           }
+        } else {
+          const err = await r.json().catch(() => ({}));
+          showFetchError(err.detail || err.error || "Failed to check pipeline status");
         }
-      } catch { }
+      } catch (e) {
+        console.error("Pipeline status poll failed:", e);
+      }
     }, 3000); // Poll every 3 seconds as required
     return () => clearInterval(interval);
-  }, [pipelineId, pollStatus, fetchProjects]);
+  }, [pipelineId, pollStatus, fetchProjects, showFetchError]);
 
   // ── Script Generator ─────────────────────────────────────
   const VIDEO_FORMATS = [
@@ -714,7 +633,8 @@ export default function AIStudioPanel() {
         const d = await r.json().catch(() => ({}));
         alert(d.detail || d.error || "Script generation failed");
       }
-    } catch {
+    } catch (e) {
+      console.error("Script generation failed:", e);
       setWizardScript(`[HOOK] "${scriptGenHook || "Wait, you guys are still doing it the old way?"}"\n\n[BODY] ${scriptGenTopic || "Your topic here"}...\n\n[CTA] Link in bio — trust me on this one.\n\n/* Script generation coming soon — write your script above */`);
     } finally { setGeneratingScript(false); }
   };
@@ -731,7 +651,10 @@ export default function AIStudioPanel() {
         setAutoScripts(d.scripts || []);
         setTotalPostsAnalyzed(d.total_competitor_posts_analyzed || 0);
       }
-    } catch {}
+    } catch (e) {
+      console.error("Failed to fetch auto scripts:", e);
+      showFetchError("Failed to generate scripts — try again");
+    }
     setLoadingAutoScripts(false);
   };
 
@@ -745,11 +668,10 @@ export default function AIStudioPanel() {
       if (r.ok) {
         const d = await r.json();
         setBlueprints(d.blueprints || []);
-      } else {
-        setBlueprints([]); // Set empty array on API failure
       }
-    } catch {
-      setBlueprints([]); // Set empty array on error
+    } catch (e) {
+      console.error("Failed to fetch blueprints:", e);
+      showFetchError("Failed to load blueprints — check your connection");
     }
     setLoadingBlueprints(false);
   }, []);
@@ -759,7 +681,8 @@ export default function AIStudioPanel() {
   }, [configured, fetchBlueprints]);
 
   const autoFillBlueprint = async (postId: number) => {
-    if (loadingAutoFill) return; // Prevent double-clicks
+    if (autoFillInProgress.current) return; // Ref-based guard (sync, no race condition)
+    autoFillInProgress.current = true;
     setLoadingAutoFill(true);
     setGenerationResult(null);
     try {
@@ -780,8 +703,10 @@ export default function AIStudioPanel() {
       }
     } catch (e: any) {
       setGenerationResult({ ok: false, error: e.message || "Auto-fill request failed" });
+    } finally {
+      autoFillInProgress.current = false;
+      setLoadingAutoFill(false);
     }
-    setLoadingAutoFill(false);
   };
 
   const insertHookAtCursor = (hook: string) => {
@@ -971,6 +896,15 @@ export default function AIStudioPanel() {
         size="sm"
       />
 
+      {/* Fetch error banner */}
+      {fetchError && (
+        <div className="mx-5 mt-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 flex items-center gap-2">
+          <AlertCircle size={14} className="text-red-400 flex-shrink-0" />
+          <span className="text-xs text-red-300 flex-1">{fetchError}</span>
+          <button onClick={() => setFetchError(null)} className="text-red-400 hover:text-red-300"><X size={14} /></button>
+        </div>
+      )}
+
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === "digital-copies" && <DigitalCopiesPanel />}
@@ -1030,26 +964,6 @@ export default function AIStudioPanel() {
           </div>
         )}
 
-        {/* CDN Migration Status Banner */}
-        {migrationStatus && migrationStatus.status === "running" && (
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3">
-            <div className="flex items-center gap-2">
-              <Loader2 size={16} className="text-blue-400 flex-shrink-0 animate-spin" />
-              <div className="flex-1">
-                <p className="text-sm text-blue-300">
-                  Updating video links... ({migrationStatus.progress}/{migrationStatus.total})
-                </p>
-                <div className="w-full bg-blue-500/20 rounded-full h-1.5 mt-1">
-                  <div 
-                    className="bg-blue-400 h-1.5 rounded-full transition-all" 
-                    style={{ width: `${migrationStatus.total > 0 ? (migrationStatus.progress / migrationStatus.total) * 100 : 0}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ── SECTION A: Production Bar ──────────────────── */}
         <div className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
           <div className="flex items-center gap-4 flex-wrap">
@@ -1061,7 +975,7 @@ export default function AIStudioPanel() {
                   className={`w-11 h-11 rounded-lg border flex items-center justify-center transition ${!selectedCharacterId ? "border-warroom-accent bg-warroom-accent/10" : "border-warroom-border bg-warroom-bg"}`}>
                   <Sparkles size={14} className="text-warroom-accent" />
                 </button>
-                {Array.isArray(copies) && copies.slice(0, 4).map(copy => (
+                {copies.slice(0, 4).map(copy => (
                   <button key={copy.id}
                     onClick={() => { setSelectedCharacterId(Number(copy.id)); setWizardCopyId(copy.id); }}
                     className={`w-11 h-11 rounded-lg border overflow-hidden transition ${selectedCharacterId === Number(copy.id) ? "border-warroom-accent ring-1 ring-warroom-accent" : "border-warroom-border"}`}>
@@ -1088,11 +1002,11 @@ export default function AIStudioPanel() {
               )}
             </div>
 
-            {/* Project name */}
-            <div className="flex-shrink-0 min-w-[160px]">
-              <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Project Name</label>
-              <input value={wizardTitle} onChange={e => setWizardTitle(e.target.value)}
-                placeholder="My Video Project"
+            {/* Brand name */}
+            <div className="flex-shrink-0 min-w-[140px]">
+              <label className="text-[10px] uppercase tracking-wider text-warroom-muted block mb-1">Brand</label>
+              <input value={brandName} onChange={e => setBrandName(e.target.value)}
+                placeholder="Your brand name"
                 className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent" />
             </div>
 
@@ -1147,7 +1061,7 @@ export default function AIStudioPanel() {
 
             {/* Storyboard scenes */}
             <div className="space-y-2">
-              {Array.isArray(autoFilledData.storyboard) && autoFilledData.storyboard.map((scene: any, i: number) => (
+              {(autoFilledData.storyboard || []).map((scene: any, i: number) => (
                 <div key={i} className="flex items-start gap-3 p-3 bg-warroom-bg rounded-lg">
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-warroom-accent/20 text-warroom-accent flex items-center justify-center text-xs font-bold">{i + 1}</div>
                   <div className="flex-1">
@@ -1166,14 +1080,7 @@ export default function AIStudioPanel() {
               <div className={`rounded-xl p-4 border ${generationResult.ok ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30"}`}>
                 <div className="flex items-center gap-2">
                   {generationResult.ok ? <CheckCircle size={16} className="text-emerald-400" /> : <AlertCircle size={16} className="text-red-400" />}
-                  <span className="text-xs text-warroom-text">
-                    {generationResult.ok 
-                      ? "Pipeline started" 
-                      : typeof generationResult.error === 'string' 
-                        ? generationResult.error 
-                        : (generationResult.error as any)?.msg || (generationResult.error as any)?.detail || 'Generation failed'
-                    }
-                  </span>
+                  <span className="text-xs text-warroom-text">{generationResult.ok ? "Pipeline started" : generationResult.error}</span>
                 </div>
                 {generationResult.ok && pipelineStatus && (
                   <div className="mt-2">
@@ -1219,7 +1126,7 @@ export default function AIStudioPanel() {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-              {Array.isArray(blueprints) && blueprints.map(bp => (
+              {blueprints.map(bp => (
                 <div key={bp.post_id}
                   className={`group relative bg-warroom-surface border rounded-xl overflow-hidden transition cursor-pointer ${
                     selectedBlueprint?.post_id === bp.post_id ? "border-warroom-accent ring-2 ring-warroom-accent/30" : "border-warroom-border hover:border-warroom-accent/50"
@@ -1273,11 +1180,7 @@ export default function AIStudioPanel() {
                     className="absolute inset-0 bg-warroom-bg items-center justify-center flex-col gap-2"
                   >
                     <Film size={32} className="text-warroom-muted/30" />
-                    {bp.media_url ? (
-                      <span className="text-[10px] text-warroom-muted">Media expired</span>
-                    ) : (
-                      <span className="text-[10px] text-warroom-muted">{bp.handle ? `@${bp.handle}` : 'No preview'}</span>
-                    )}
+                    {bp.handle && <span className="text-[10px] text-warroom-muted">@{bp.handle}</span>}
                   </div>
 
                   {/* Gradient overlay at bottom — shown on hover */}
@@ -1397,7 +1300,7 @@ export default function AIStudioPanel() {
             <div>
               <h4 className="text-xs font-semibold text-warroom-text mb-2">Scenes ({templatizeResult.analysis.scenes?.length || 0})</h4>
               <div className="space-y-2">
-                {Array.isArray(templatizeResult.analysis.scenes) && templatizeResult.analysis.scenes.map((s: any, i: number) => (
+                {(templatizeResult.analysis.scenes || []).map((s: any, i: number) => (
                   <div key={i} className="bg-warroom-bg rounded-lg p-3 border border-warroom-border">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="w-5 h-5 rounded-full bg-warroom-accent/20 text-warroom-accent flex items-center justify-center text-[10px] font-bold">{s.scene}</span>
@@ -1438,7 +1341,7 @@ export default function AIStudioPanel() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {Array.isArray(competitorVideos) && competitorVideos.map(v => (
+              {competitorVideos.map(v => (
                 <div key={v.post_id} className="bg-warroom-surface border border-warroom-border rounded-xl p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-full bg-warroom-bg flex items-center justify-center text-warroom-muted text-[10px] font-bold">
@@ -1601,7 +1504,7 @@ export default function AIStudioPanel() {
           </div>
         ) : (
           <div className="space-y-3">
-            {Array.isArray(projects) && projects.map(p => (
+            {projects.map(p => (
               <div key={p.id} className="bg-warroom-surface border border-warroom-border rounded-xl p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">

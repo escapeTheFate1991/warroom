@@ -24,6 +24,7 @@ from .social import SocialAccount, SocialAnalytics
 from .competitor import Competitor
 from .content_script import ContentScript
 from .organization import Tenant
+from .auto_reply import AutoReplyRule, AutoReplyLog
 
 __all__ = [
     "CrmBase",
@@ -44,4 +45,5 @@ __all__ = [
     "Competitor",
     "ContentScript",
     "Tenant",
+    "AutoReplyRule", "AutoReplyLog",
 ]

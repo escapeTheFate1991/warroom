@@ -9,8 +9,7 @@ import {
   Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
   ClipboardList, FileBarChart, Bot, Facebook, Twitter,
   CalendarDays, FileSignature, DollarSign, PhoneCall,
-  BarChart2, PieChart, TrendingUp, UserPlus, Sparkles, Brain,
-  Package,
+  BarChart2, PieChart, TrendingUp, UserPlus, Sparkles, Zap,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/navigation/Sidebar";
@@ -62,12 +61,10 @@ const ReportsOverview = dynamic(() => import("@/components/reports/ReportsOvervi
 const ProspectsPanel = dynamic(() => import("@/components/prospects/ProspectsPanel"), { loading: PanelLoader });
 const UnifiedPipeline = dynamic(() => import("@/components/crm/UnifiedPipeline"), { loading: PanelLoader });
 const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsPanel"), { loading: PanelLoader });
-const ProductsPanel = dynamic(() => import("@/components/crm/ProductsPanel"), { loading: PanelLoader });
 const CommunicationsConsole = dynamic(() => import("@/components/communications/CommunicationsConsole"), { loading: PanelLoader });
 const ProfilePage = dynamic(() => import("@/components/profile/ProfilePage"), { loading: PanelLoader });
 const AIStudioPanel = dynamic(() => import("@/components/ai-studio/AIStudioPanel"), { loading: PanelLoader });
-const MiroFishPanel = dynamic(() => import("@/components/mirofish/MiroFishPanel"), { loading: PanelLoader });
-const PricingPage = dynamic(() => import("@/components/pricing/PricingPage"), { loading: PanelLoader });
+const AutoReplyPanel = dynamic(() => import("@/components/auto-reply/AutoReplyPanel"), { loading: PanelLoader });
 
 function ComingSoon({ title }: { title: string }) {
   return (
@@ -98,7 +95,6 @@ const SECTIONS = [
     items: [
       { id: "social", label: "Analytics", icon: Share2 },
       { id: "intelligence", label: "Competitor Intel", icon: FileBarChart },
-      { id: "mirofish", label: "MiroFish", icon: Brain },
     ],
   },
   {
@@ -122,8 +118,6 @@ const SECTIONS = [
       { id: "prospects", label: "Prospects", icon: UserPlus },
       { id: "organizations", label: "Organizations", icon: Building2 },
       { id: "crm-contacts", label: "Contacts", icon: Users },
-      { id: "crm-products", label: "Products", icon: Package },
-      { id: "pricing", label: "Pricing", icon: DollarSign },
       { id: "org-chart", label: "Org Chart", icon: Building2 },
     ],
   },
@@ -145,6 +139,7 @@ const SECTIONS = [
     label: "TOOLS",
     items: [
       { id: "ai-studio", label: "AI Studio", icon: Sparkles },
+      { id: "auto-reply", label: "Auto-Reply", icon: Zap },
       { id: "workflows", label: "Workflows", icon: Bot },
       { id: "library", label: "Library", icon: BookOpen, children: [
         { id: "library-search", label: "Search", icon: Search },
@@ -159,14 +154,14 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "content-social" | "intelligence" | "mirofish" | "prospects"
+  | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "content-social" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
   | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
   | "scheduler" | "recycle"
   | "kanban" | "leadgen"
-  | "pipeline-board" | "organizations" | "crm-contacts" | "crm-products" | "pricing" | "org-chart"
+  | "pipeline-board" | "organizations" | "crm-contacts" | "org-chart"
   | "library-search" | "library-educate"
-  | "ai-studio" | "workflows"
+  | "ai-studio" | "auto-reply" | "workflows"
   | "marketing-campaigns" | "marketing-templates"
   | "invoices" | "contracts"
   | "reports-overview" | "reports-revenue" | "reports-sales"
@@ -303,7 +298,6 @@ function WarRoom() {
           {activeTab === "scheduler" && <SchedulerCalendar />}
           {activeTab === "recycle" && <RecyclePanel />}
           {activeTab === "intelligence" && <CompetitorIntel />}
-          {activeTab === "mirofish" && <MiroFishPanel />}
           {activeTab === "kanban" && <KanbanPanel />}
           {activeTab === "leadgen" && <LeadgenPanel />}
           {activeTab === "communications" && <CommunicationsConsole />}
@@ -311,8 +305,6 @@ function WarRoom() {
           {activeTab === "pipeline-board" && <UnifiedPipeline />}
           {activeTab === "organizations" && <OrganizationsPanel />}
           {activeTab === "crm-contacts" && <ContactsManager />}
-          {activeTab === "crm-products" && <ProductsPanel />}
-          {activeTab === "pricing" && <PricingPage />}
           {activeTab === "org-chart" && <OrgChartPanel />}
           {activeTab === "library-search" && <LibraryPanel />}
           {activeTab === "library-educate" && <EducatePanel />}
@@ -328,6 +320,7 @@ function WarRoom() {
           {activeTab === "reports-revenue" && <ComingSoon title="Revenue Reports" />}
           {activeTab === "reports-sales" && <ComingSoon title="Sales Activity" />}
           {activeTab === "ai-studio" && <AIStudioPanel />}
+          {activeTab === "auto-reply" && <AutoReplyPanel />}
           {activeTab === "settings" && <SettingsPanel />}
           {activeTab === "profile" && <ProfilePage />}
         </main>
