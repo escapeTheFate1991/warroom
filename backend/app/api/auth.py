@@ -253,7 +253,7 @@ async def get_optional_user(
     if not credentials:
         return None
     try:
-        return await get_current_user(credentials, db)
+        return await get_current_user(request, credentials, db)
     except HTTPException:
         return None
 

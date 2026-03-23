@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.crm_db import get_tenant_db
+from app.api.auth import get_current_user
+from app.models.crm.user import User
 from app.services.tenant import get_org_id
 
 logger = logging.getLogger(__name__)
@@ -265,7 +267,8 @@ async def get_format_examples(
 async def create_video_format(
     request: Request,
     format_data: VideoFormatCreate,
-    db: AsyncSession = Depends(get_tenant_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a custom video format for this organization."""
     org_id = get_org_id(request)
@@ -343,7 +346,8 @@ async def update_video_format(
     request: Request,
     format_slug: str,
     format_data: VideoFormatCreate,
-    db: AsyncSession = Depends(get_tenant_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Update a custom video format (system formats cannot be modified)."""
     org_id = get_org_id(request)
@@ -403,7 +407,8 @@ async def update_video_format(
 async def delete_video_format(
     request: Request,
     format_slug: str,
-    db: AsyncSession = Depends(get_tenant_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """Delete a custom video format (system formats cannot be deleted)."""
     org_id = get_org_id(request)

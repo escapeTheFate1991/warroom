@@ -1,11 +1,13 @@
 """Content Scheduler Service — Full lifecycle content management.
 
 Manages create → schedule → post → track for social media content.
-Provides MVP mock implementation with future platform API integration.
+Dispatches to per-platform publishers (Instagram, TikTok, YouTube, Facebook, X).
+Set MOCK_PUBLISHING=true to use the mock publisher for development.
 """
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -22,7 +24,7 @@ class ScheduledPost:
     id: int
     org_id: int
     user_id: int
-    platform: str  # "instagram", "tiktok", "youtube-shorts", "facebook"
+    platform: str  # "instagram", "tiktok", "youtube-shorts", "facebook", "x", "twitter"
     content_type: str  # "video", "image", "carousel"
     media_path: str
     caption: str
@@ -121,7 +123,7 @@ async def schedule_post(
         hashtags = []
     
     # Validate platform
-    valid_platforms = ["instagram", "tiktok", "youtube-shorts", "facebook"]
+    valid_platforms = ["instagram", "tiktok", "youtube-shorts", "facebook", "x", "twitter"]
     if platform not in valid_platforms:
         raise ValueError(f"Invalid platform: {platform}. Must be one of {valid_platforms}")
     
@@ -316,45 +318,47 @@ async def update_post(
 async def publish_post(db: AsyncSession, org_id: int, post_id: int) -> Dict[str, any]:
     """
     Publish a scheduled post immediately.
-    
-    For MVP: marks as "published" and logs
-    Future: uses platform APIs (Instagram Graph API, TikTok API) to actually post
-    
+
+    Dispatches to real platform publishers unless MOCK_PUBLISHING=true.
+
     Args:
         db: Database session
         org_id: Organization ID
         post_id: Post ID to publish
-        
+
     Returns:
         Publication result with status and details
     """
     logger.info(f"Publishing post {post_id}")
-    
+
     # Get the post
     post = await get_post_by_id(db, org_id, post_id)
     if not post:
         return {"success": False, "error": "Post not found"}
-    
+
     if post.status == "published":
         return {"success": False, "error": "Post already published"}
-    
+
     if post.status == "publishing":
         return {"success": False, "error": "Post is currently being published"}
-    
+
     try:
         # Mark as publishing
         await update_post(db, org_id, post_id, status="publishing")
-        
-        # MVP: Mock publication
-        success, result = await _mock_publish_to_platform(post)
-        
+
+        # Use mock publisher if MOCK_PUBLISHING=true, otherwise real publishers
+        if os.getenv("MOCK_PUBLISHING", "").lower() in ("true", "1", "yes"):
+            success, result = await _mock_publish_to_platform(post)
+        else:
+            success, result = await _publish_to_platform(db, post)
+
         if success:
             # Update as published
-            await update_post(db, org_id, post_id, 
+            await update_post(db, org_id, post_id,
                             status="published",
                             published_at=datetime.now(timezone.utc),
                             published_url=result.get("url", ""))
-            
+
             logger.info(f"Post {post_id} published successfully to {post.platform}")
             return {
                 "success": True,
@@ -364,19 +368,19 @@ async def publish_post(db: AsyncSession, org_id: int, post_id: int) -> Dict[str,
             }
         else:
             # Mark as failed
-            await update_post(db, org_id, post_id, 
+            await update_post(db, org_id, post_id,
                             status="failed",
                             error_message=result.get("error", "Unknown error"))
-            
+
             logger.error(f"Post {post_id} publication failed: {result.get('error')}")
             return {
                 "success": False,
                 "error": result.get("error", "Publication failed")
             }
-    
+
     except Exception as e:
         logger.error(f"Post {post_id} publication error: {e}")
-        await update_post(db, org_id, post_id, 
+        await update_post(db, org_id, post_id,
                         status="failed",
                         error_message=str(e))
         return {"success": False, "error": str(e)}
@@ -523,6 +527,48 @@ async def get_calendar_view(
     return calendar
 
 
+async def _publish_to_platform(db: AsyncSession, post: ScheduledPost) -> tuple[bool, dict]:
+    """Dispatch to the correct per-platform publisher.
+
+    Each publisher handles its own token refresh on 401.
+    Media URL is resolved from cloud_url (preferred) or media_path.
+    """
+    from app.services.platform_publishers.instagram import InstagramPublisher
+    from app.services.platform_publishers.facebook import FacebookPublisher
+    from app.services.platform_publishers.tiktok import TikTokPublisher
+    from app.services.platform_publishers.youtube import YouTubePublisher
+    from app.services.platform_publishers.twitter import TwitterPublisher
+
+    # Resolve the media URL — prefer cloud_url, fall back to media_path
+    media_url = post.cloud_url or post.media_path
+    if not media_url:
+        return False, {"error": "No media URL available for publishing"}
+
+    platform = post.platform
+    publishers = {
+        "instagram": InstagramPublisher(),
+        "facebook": FacebookPublisher(),
+        "tiktok": TikTokPublisher(),
+        "youtube-shorts": YouTubePublisher(),
+        "x": TwitterPublisher(),
+        "twitter": TwitterPublisher(),
+    }
+
+    publisher = publishers.get(platform)
+    if not publisher:
+        return False, {"error": f"No publisher available for platform: {platform}"}
+
+    logger.info(f"Publishing post {post.id} to {platform} via real API")
+    return await publisher.publish(
+        db=db,
+        org_id=post.org_id,
+        media_url=media_url,
+        caption=post.caption,
+        content_type=post.content_type,
+        hashtags=post.hashtags,
+    )
+
+
 async def _mock_publish_to_platform(post: ScheduledPost) -> tuple[bool, dict]:
     """
     Mock platform publication for MVP.
@@ -543,9 +589,15 @@ async def _mock_publish_to_platform(post: ScheduledPost) -> tuple[bool, dict]:
     elif post.platform == "youtube-shorts":
         success_rate = 0.85
         mock_url = f"https://youtube.com/shorts/mock_{post.id}"
-    else:  # facebook
+    elif post.platform == "facebook":
         success_rate = 0.92
         mock_url = f"https://facebook.com/video.php?v={post.id}"
+    elif post.platform in ("x", "twitter"):
+        success_rate = 0.90
+        mock_url = f"https://x.com/i/status/mock_{post.id}"
+    else:
+        success_rate = 0.85
+        mock_url = f"https://example.com/post/{post.id}"
     
     import random
     if random.random() < success_rate:

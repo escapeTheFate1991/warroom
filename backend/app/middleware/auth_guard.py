@@ -57,6 +57,7 @@ PUBLIC_PREFIXES = [
     "/api/social/oauth/google/callback",
     "/api/calendar/google/callback",
     "/api/email/accounts/gmail/callback",
+    "/api/webhooks/",  # External webhook endpoints (Meta, etc.) — authenticated via signature
 ]
 
 # Regex patterns for dynamic public paths

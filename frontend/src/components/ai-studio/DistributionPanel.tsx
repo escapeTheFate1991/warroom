@@ -7,6 +7,7 @@ import {
   Target, BarChart, Calendar, RefreshCw
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
+import { useToast } from "@/components/ui/Toast";
 
 /* ── Types ─────────────────────────────────────────────── */
 interface SocialAccount {
@@ -106,6 +107,8 @@ export default function DistributionPanel({
   caption, 
   onDistribute 
 }: DistributionPanelProps) {
+  const { toast } = useToast();
+
   // State
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -307,25 +310,63 @@ export default function DistributionPanel({
       }
     } catch (error) {
       console.error("Distribution failed:", error);
-      alert("Failed to launch distribution. Please try again.");
+      toast("error", "Failed to launch distribution. Please try again.");
     }
     setLaunching(false);
+  };
+
+  // Retry a single failed account
+  const handleRetryAccount = async (accountId: number) => {
+    if (!distributionStatus) return;
+    try {
+      const response = await authFetch(`${API}/api/scheduler/distributions/${distributionStatus.id}/retry`, {
+        method: "POST",
+        body: JSON.stringify({ account_id: accountId }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Retry failed");
+      }
+      // Optimistically set account back to uploading
+      setDistributionStatus(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          accounts: prev.accounts.map(acc =>
+            acc.accountId === accountId
+              ? { ...acc, status: "uploading", error: undefined }
+              : acc
+          ),
+        };
+      });
+      toast("info", `Retrying @${distributionStatus.accounts.find(a => a.accountId === accountId)?.handle}...`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Retry failed";
+      toast("error", msg);
+    }
   };
 
   // Poll for status updates
   useEffect(() => {
     if (!distributionStatus || !launched) return;
-    
+
     const interval = setInterval(async () => {
       try {
         const response = await authFetch(`${API}/api/scheduler/distributions/${distributionStatus.id}`);
         if (response.ok) {
           const data = await response.json();
           setDistributionStatus(data);
-          
-          // Stop polling if all done
+
+          // Stop polling if all done and show summary toast
           if (data.accounts?.every((acc: any) => acc.status === "active" || acc.status === "failed")) {
             clearInterval(interval);
+            const published = data.accounts.filter((a: any) => a.status === "active").length;
+            const failed = data.accounts.filter((a: any) => a.status === "failed").length;
+            if (failed === 0) {
+              toast("success", `Distribution complete! ${published}/${data.accounts.length} published`);
+            } else {
+              toast("error", `Distribution done: ${published} published, ${failed} failed`);
+            }
           }
         }
       } catch (error) {
@@ -333,13 +374,13 @@ export default function DistributionPanel({
         setDistributionStatus(prev => {
           if (!prev) return null;
           const updated = { ...prev };
-          updated.accounts = updated.accounts.map((acc, i) => {
+          updated.accounts = updated.accounts.map((acc) => {
             if (acc.status === "queued" && Math.random() < 0.3) {
               return { ...acc, status: "uploading" };
             }
             if (acc.status === "uploading" && Math.random() < 0.5) {
-              return { 
-                ...acc, 
+              return {
+                ...acc,
                 status: "active",
                 postUrl: `https://${acc.platform}.com/post/${acc.accountId}_${Date.now()}`
               };
@@ -350,9 +391,9 @@ export default function DistributionPanel({
         });
       }
     }, 5000);
-    
+
     return () => clearInterval(interval);
-  }, [distributionStatus, launched]);
+  }, [distributionStatus, launched, toast]);
 
   // Effects
   useEffect(() => {
@@ -750,25 +791,50 @@ export default function DistributionPanel({
                 </button>
               </div>
 
+              {/* Overall Progress */}
+              {distributionStatus && (() => {
+                const total = distributionStatus.accounts.length;
+                const published = distributionStatus.accounts.filter(a => a.status === "active").length;
+                const failed = distributionStatus.accounts.filter(a => a.status === "failed").length;
+                const done = published + failed;
+                const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                return (
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between text-xs text-warroom-muted mb-1">
+                      <span>{published}/{total} published</span>
+                      {failed > 0 && <span className="text-red-400">{failed} failed</span>}
+                    </div>
+                    <div className="w-full h-1.5 bg-warroom-border rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500 rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+
               {distributionStatus && (
                 <div className="grid grid-cols-2 gap-3">
                   {distributionStatus.accounts.map((account, index) => (
-                    <div 
+                    <div
                       key={index}
-                      className="p-3 border rounded-lg bg-warroom-bg"
+                      className={`p-3 border rounded-lg bg-warroom-bg ${
+                        account.status === "failed" ? "border-red-500/30" : "border-warroom-border"
+                      }`}
                     >
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-xs font-medium text-warroom-text">
                           @{account.handle}
                         </span>
-                        <span 
+                        <span
                           className="text-[9px] px-1 py-0.5 rounded text-white font-bold"
                           style={{ backgroundColor: PLATFORM_COLORS[account.platform] }}
                         >
                           {PLATFORM_BADGES[account.platform]}
                         </span>
                       </div>
-                      
+
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1 text-xs">
                           {account.status === "queued" && (
@@ -779,34 +845,46 @@ export default function DistributionPanel({
                           )}
                           {account.status === "uploading" && (
                             <>
-                              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                              <Loader2 size={10} className="animate-spin text-blue-400" />
                               <span className="text-blue-400">Uploading</span>
                             </>
                           )}
                           {account.status === "active" && (
                             <>
-                              <div className="w-2 h-2 rounded-full bg-green-400" />
-                              <span className="text-green-400">Active</span>
+                              <CheckCircle size={10} className="text-green-400" />
+                              <span className="text-green-400">Published</span>
                             </>
                           )}
                           {account.status === "failed" && (
                             <>
-                              <div className="w-2 h-2 rounded-full bg-red-400" />
+                              <AlertCircle size={10} className="text-red-400" />
                               <span className="text-red-400">Failed</span>
                             </>
                           )}
                         </div>
-                        
-                        {account.postUrl && (
-                          <a
-                            href={account.postUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-warroom-accent hover:text-warroom-accent/80"
-                          >
-                            <ExternalLink size={12} />
-                          </a>
-                        )}
+
+                        <div className="flex items-center gap-1">
+                          {account.postUrl && (
+                            <a
+                              href={account.postUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-warroom-accent hover:text-warroom-accent/80"
+                            >
+                              <ExternalLink size={12} />
+                            </a>
+                          )}
+                          {account.status === "failed" && (
+                            <button
+                              onClick={() => handleRetryAccount(account.accountId)}
+                              className="flex items-center gap-0.5 px-1.5 py-0.5 bg-red-500/20 border border-red-500/30 rounded text-[10px] text-red-300 hover:bg-red-500/30 transition"
+                              title="Retry this account"
+                            >
+                              <RefreshCw size={8} />
+                              Retry
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {account.error && (

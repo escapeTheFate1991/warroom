@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthGate } from "@/components/AuthGate";
 import ThemeProvider from "@/components/ui/ThemeProvider";
+import { ToastProvider } from "@/components/ui/Toast";
 
 export const metadata: Metadata = {
   title: "WAR ROOM",
@@ -16,7 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className="min-h-screen bg-warroom-bg">
         <ThemeProvider>
-          <AuthGate>{children}</AuthGate>
+          <ToastProvider>
+            <AuthGate>{children}</AuthGate>
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>
