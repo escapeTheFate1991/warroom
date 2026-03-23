@@ -93,6 +93,22 @@ interface PublishedContentItem {
   comments?: number;
 }
 
+interface CompetitorPost {
+  id: string;
+  handle: string;
+  caption: string;
+  likes: number;
+  comments: number;
+  engagement: number;
+  platform: string;
+  url?: string;
+}
+
+interface HashtagData {
+  hashtag: string;
+  count: number;
+}
+
 type Granularity = "hourly" | "daily" | "weekly" | "monthly";
 
 interface PlatformConfig {
@@ -281,6 +297,28 @@ function summarizeAssignedAgents(assignments: AgentAssignmentSummary[] = []) {
     .join(" · ");
 }
 
+function extractHashtags(text: string): string[] {
+  const matches = text.match(/#[\w\u00C0-\u024F]+/g) || [];
+  return matches.map(tag => tag.toLowerCase());
+}
+
+function aggregateHashtags(content: PublishedContentItem[]): HashtagData[] {
+  const hashtagCounts: Record<string, number> = {};
+  
+  content.forEach(item => {
+    const text = [item.title, item.description, item.notes].filter(Boolean).join(" ");
+    const hashtags = extractHashtags(text);
+    hashtags.forEach(tag => {
+      hashtagCounts[tag] = (hashtagCounts[tag] || 0) + 1;
+    });
+  });
+
+  return Object.entries(hashtagCounts)
+    .map(([hashtag, count]) => ({ hashtag, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+}
+
 function PlatformIcon({ platform, size = 20 }: { platform: string; size?: number }) {
   const item = PLATFORMS.find((entry) => entry.id === platform);
   const Icon = item?.icon;
@@ -308,8 +346,12 @@ export default function SocialDashboard() {
   const [selectedPlatform, setSelectedPlatform] = useState<string>("all");
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [loading, setLoading] = useState(true);
+  const [chartLoading, setChartLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [velocityData, setVelocityData] = useState<any[]>([]);
+  const [competitorPosts, setCompetitorPosts] = useState<CompetitorPost[]>([]);
+  const [yourHashtags, setYourHashtags] = useState<HashtagData[]>([]);
+  const [competitorHashtags, setCompetitorHashtags] = useState<HashtagData[]>([]);
   const [showManualModal, setShowManualModal] = useState(false);
   const [connectPlatform, setConnectPlatform] = useState("");
   const [connectForm, setConnectForm] = useState<ConnectAccountData>({
@@ -338,6 +380,33 @@ export default function SocialDashboard() {
     });
   }, []);
 
+  // Separate timeseries fetch that doesn't reload everything
+  const fetchTimeSeries = useCallback(async () => {
+    if (granularity === "hourly") {
+      setTimeSeries([]);
+      return;
+    }
+    
+    setChartLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedPlatform !== "all") params.set("platform", selectedPlatform);
+      params.set("granularity", granularity);
+      
+      const resp = await authFetch(`${API}/api/social/analytics/timeseries?${params.toString()}`);
+      if (resp?.ok) {
+        setTimeSeries(await resp.json());
+      } else {
+        setTimeSeries([]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch timeseries data:", error);
+      setTimeSeries([]);
+    } finally {
+      setChartLoading(false);
+    }
+  }, [granularity, selectedPlatform]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
 
@@ -347,28 +416,18 @@ export default function SocialDashboard() {
         summaryParams.set("platform", selectedPlatform);
       }
 
-      const timeSeriesParams = new URLSearchParams();
-      if (selectedPlatform !== "all") {
-        timeSeriesParams.set("platform", selectedPlatform);
-      }
-      if (granularity !== "hourly") {
-        timeSeriesParams.set("granularity", granularity);
-      }
-
       const recentPostsParams = new URLSearchParams();
       if (selectedPlatform !== "all") {
         recentPostsParams.set("platform", selectedPlatform);
       }
 
-      const [accResp, sumResp, sparkResp, seriesResp, velocityResp, recentPostsResp] = await Promise.all([
+      const [accResp, sumResp, sparkResp, velocityResp, recentPostsResp, competitorResp] = await Promise.all([
         authFetch(`${API}/api/social/accounts`).catch(() => null),
         authFetch(`${API}/api/social/analytics${summaryParams.toString() ? `?${summaryParams.toString()}` : ""}`).catch(() => null),
         authFetch(`${API}/api/social/analytics/sparkline`).catch(() => null),
-        granularity === "hourly"
-          ? Promise.resolve(null)
-          : authFetch(`${API}/api/social/analytics/timeseries?${timeSeriesParams.toString()}`).catch(() => null),
         authFetch(`${API}/api/social/analytics/engagement-velocity`).catch(() => null),
         authFetch(`${API}/api/social/recent-posts${recentPostsParams.toString() ? `?${recentPostsParams.toString()}` : ""}`).catch(() => null),
+        authFetch(`${API}/api/content-intel/competitors/top-content`).catch(() => null),
       ]);
 
       if (accResp?.ok) {
@@ -385,14 +444,6 @@ export default function SocialDashboard() {
         setSparklineData(await sparkResp.json());
       } else {
         setSparklineData({});
-      }
-
-      if (granularity === "hourly") {
-        setTimeSeries([]);
-      } else if (seriesResp?.ok) {
-        setTimeSeries(await seriesResp.json());
-      } else {
-        setTimeSeries([]);
       }
 
       if (velocityResp?.ok) {
@@ -425,18 +476,57 @@ export default function SocialDashboard() {
           });
         }
       }
+
+      // Fetch competitor content
+      if (competitorResp?.ok) {
+        const competitorData = await competitorResp.json();
+        if (competitorData.posts && Array.isArray(competitorData.posts)) {
+          const posts: CompetitorPost[] = competitorData.posts.map((post: any) => ({
+            id: post.id || `${post.handle}-${post.likes}`,
+            handle: post.handle || "unknown",
+            caption: post.caption || "",
+            likes: post.likes || 0,
+            comments: post.comments || 0,
+            engagement: (post.likes || 0) + (post.comments || 0),
+            platform: post.platform || "unknown",
+            url: post.url,
+          }));
+          setCompetitorPosts(posts);
+
+          // Extract hashtags from competitor posts
+          const competitorHashtags = posts.reduce<Record<string, number>>((acc, post) => {
+            const hashtags = extractHashtags(post.caption);
+            hashtags.forEach(tag => {
+              acc[tag] = (acc[tag] || 0) + 1;
+            });
+            return acc;
+          }, {});
+
+          setCompetitorHashtags(
+            Object.entries(competitorHashtags)
+              .map(([hashtag, count]) => ({ hashtag, count }))
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 10)
+          );
+        }
+      }
     } catch (error) {
       console.error("Failed to fetch social dashboard data:", error);
       setSummary(EMPTY_SUMMARY);
-      setTimeSeries([]);
     } finally {
       setLoading(false);
     }
-  }, [granularity, selectedPlatform]);
+  }, [selectedPlatform]); // Note: granularity removed from dependencies
 
+  // Initial full load
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+  }, [selectedPlatform]); // NOT granularity
+
+  // Granularity change = only chart refresh  
+  useEffect(() => {
+    fetchTimeSeries();
+  }, [fetchTimeSeries]);
 
   useEffect(() => {
     loadLocalContent();
@@ -618,10 +708,27 @@ export default function SocialDashboard() {
     : accounts.filter((account) => account.platform === selectedPlatform);
 
   const filteredPublishedContent = useMemo(() => {
+    const filtered = publishedContent
+      .filter((item) => selectedPlatform === "all" || item.platforms.includes(selectedPlatform));
+    
+    // Update your hashtags when content changes
+    setYourHashtags(aggregateHashtags(filtered));
+    
+    return filtered.slice(0, 8);
+  }, [publishedContent, selectedPlatform]);
+
+  const topYourContent = useMemo(() => {
     return publishedContent
       .filter((item) => selectedPlatform === "all" || item.platforms.includes(selectedPlatform))
-      .slice(0, 8);
+      .sort((a, b) => ((b.likes || 0) + (b.comments || 0)) - ((a.likes || 0) + (a.comments || 0)))
+      .slice(0, 5);
   }, [publishedContent, selectedPlatform]);
+
+  const topCompetitorContent = useMemo(() => {
+    return competitorPosts
+      .sort((a, b) => b.engagement - a.engagement)
+      .slice(0, 5);
+  }, [competitorPosts]);
 
   const savesAndShares = summary.total_saves + summary.total_shares;
   const avgWatchSec = summary.avg_watch_time_ms > 0 ? (summary.avg_watch_time_ms / 1000).toFixed(1) + "s" : "—";
@@ -739,7 +846,12 @@ export default function SocialDashboard() {
               </div>
             </div>
 
-            {granularity === "hourly" ? (
+            {chartLoading ? (
+              <div className="rounded-xl border border-dashed border-warroom-border bg-warroom-bg/50 px-5 py-10 text-center">
+                <Loader2 size={28} className="mx-auto mb-3 text-warroom-muted animate-spin" />
+                <p className="text-sm font-medium">Loading chart data...</p>
+              </div>
+            ) : granularity === "hourly" ? (
               <div className="rounded-xl border border-dashed border-warroom-border bg-warroom-bg/50 px-5 py-10 text-center">
                 <BarChart3 size={28} className="mx-auto mb-3 text-warroom-muted" />
                 <p className="text-sm font-medium">Hourly analytics are not available yet</p>
@@ -968,12 +1080,203 @@ export default function SocialDashboard() {
             </div>
           </div>
 
+          {/* Top Content Section */}
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-sm font-semibold">Top Content Performance</h3>
+                <p className="text-xs text-warroom-muted mt-1">
+                  Compare your best performing content with competitor highlights
+                </p>
+              </div>
+              <span className="text-xs text-warroom-muted">{selectedPlatformLabel}</span>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Left: Your Top 5 */}
+              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                  <TrendingUp size={16} className="text-green-400" />
+                  Your Top Content
+                </h3>
+                {topYourContent.length === 0 ? (
+                  <div className="text-center py-8 text-warroom-muted">
+                    <Film size={24} className="mx-auto mb-3 opacity-40" />
+                    <p className="text-sm">No content with engagement data yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {topYourContent.map((item, index) => {
+                      const engagement = (item.likes || 0) + (item.comments || 0);
+                      const engagementRate = item.views ? ((engagement / item.views) * 100).toFixed(1) : null;
+
+                      return (
+                        <div key={`top-${item.id}`} className="flex items-start gap-3 p-3 rounded-lg bg-warroom-bg/60 border border-warroom-border/50">
+                          <div className="w-8 h-8 rounded-lg bg-warroom-surface border border-warroom-border flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-bold text-warroom-accent">#{index + 1}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="text-sm font-medium truncate">{item.title}</p>
+                              {item.platforms.map((platform) => (
+                                <PlatformIcon key={platform} platform={platform} size={12} />
+                              ))}
+                            </div>
+                            {(item.description || item.notes) && (
+                              <p className="text-xs text-warroom-muted line-clamp-1 mb-2">
+                                {item.description || item.notes}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-3 text-xs text-warroom-muted">
+                              <span className="inline-flex items-center gap-1">
+                                <Heart size={10} /> {formatNum(item.likes || 0)}
+                              </span>
+                              <span className="inline-flex items-center gap-1">
+                                <MessageSquare size={10} /> {formatNum(item.comments || 0)}
+                              </span>
+                              {engagementRate && (
+                                <span className="text-green-400">{engagementRate}% rate</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Right: Competitor Top 5 */}
+              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                  <Users size={16} className="text-orange-400" />
+                  Competitor Top Content
+                </h3>
+                {topCompetitorContent.length === 0 ? (
+                  <div className="text-center py-8 text-warroom-muted">
+                    <Users size={24} className="mx-auto mb-3 opacity-40" />
+                    <p className="text-sm">No competitor data available</p>
+                    <p className="text-xs mt-1">Connect to content intelligence to see competitor insights</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {topCompetitorContent.map((post, index) => (
+                      <div key={`comp-${post.id}`} className="flex items-start gap-3 p-3 rounded-lg bg-warroom-bg/60 border border-warroom-border/50">
+                        <div className="w-8 h-8 rounded-lg bg-warroom-surface border border-warroom-border flex items-center justify-center flex-shrink-0">
+                          <span className="text-xs font-bold text-orange-400">#{index + 1}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-sm font-medium">@{post.handle}</p>
+                            <PlatformIcon platform={post.platform} size={12} />
+                          </div>
+                          <p className="text-xs text-warroom-muted line-clamp-2 mb-2">
+                            {post.caption.slice(0, 100)}
+                            {post.caption.length > 100 ? "..." : ""}
+                          </p>
+                          <div className="flex items-center gap-3 text-xs text-warroom-muted">
+                            <span className="inline-flex items-center gap-1">
+                              <Heart size={10} /> {formatNum(post.likes)}
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                              <MessageSquare size={10} /> {formatNum(post.comments)}
+                            </span>
+                            <span className="text-orange-400">{formatNum(post.engagement)} total</span>
+                          </div>
+                        </div>
+                        {post.url && (
+                          <a
+                            href={post.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-warroom-accent hover:text-warroom-accent/80 flex-shrink-0"
+                          >
+                            <ExternalLink size={14} />
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Trending Hashtags Section */}
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-sm font-semibold">Trending Hashtags</h3>
+                <p className="text-xs text-warroom-muted mt-1">
+                  Popular hashtags from your content vs competitor content
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                  <span className="text-purple-400">#</span>
+                  Your Hashtags
+                </h3>
+                {yourHashtags.length === 0 ? (
+                  <div className="text-center py-8 text-warroom-muted">
+                    <span className="text-2xl opacity-40">#</span>
+                    <p className="text-sm mt-2">No hashtags found in your content</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {yourHashtags.map((item, index) => (
+                      <span
+                        key={item.hashtag}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium bg-purple-500/10 border border-purple-500/20 text-purple-400"
+                      >
+                        {item.hashtag}
+                        <span className="text-xs bg-purple-500/20 rounded-full px-1.5 py-0.5 ml-1">
+                          {item.count}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+                  <span className="text-blue-400">#</span>
+                  Competitor Hashtags
+                </h3>
+                {competitorHashtags.length === 0 ? (
+                  <div className="text-center py-8 text-warroom-muted">
+                    <span className="text-2xl opacity-40">#</span>
+                    <p className="text-sm mt-2">No competitor hashtag data</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {competitorHashtags.map((item, index) => (
+                      <span
+                        key={item.hashtag}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium bg-blue-500/10 border border-blue-500/20 text-blue-400"
+                      >
+                        {item.hashtag}
+                        <span className="text-xs bg-blue-500/20 rounded-full px-1.5 py-0.5 ml-1">
+                          {item.count}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Published Content (kept for reference but moved to bottom) */}
           <div>
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
                 <h3 className="text-sm font-semibold">Recent published content</h3>
                 <p className="text-xs text-warroom-muted mt-1">
-                  Sourced from current local content records. Metrics appear only when those records actually store them.
+                  Complete list of your published content with available metrics
                 </p>
               </div>
               <span className="text-xs text-warroom-muted">{selectedPlatformLabel}</span>
