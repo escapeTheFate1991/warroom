@@ -8,9 +8,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
-import ActiveAssignmentsList from "@/components/agents/ActiveAssignmentsList";
-import AskAIButton from "@/components/agents/AskAIButton";
-import type { GroundedAIContext } from "@/components/agents/SharedAIChatPanel";
+// Agent imports removed - agent features cut
 import SalesDashboard from "@/components/dashboard/SalesDashboard";
 
 type DashboardFocus = "sales" | "social" | "ai";
@@ -351,46 +349,7 @@ export default function CommandCenter() {
   ];
 
   const greeting = currentTime.getHours() < 12 ? "Good morning" : currentTime.getHours() < 18 ? "Good afternoon" : "Good evening";
-  const chatContext: GroundedAIContext = focus === "sales"
-    ? {
-        surface: "sales",
-        entityType: "dashboard_view",
-        entityId: "command-center:sales",
-        entityName: "Command Center sales view",
-        title: "Command Center sales view",
-        summary: `${metrics.activeContracts || 0} active contracts and ${formatNum(metrics.pipelineValue || 0)} in open pipeline value.`,
-        facts: [
-          { label: "Revenue this month", value: metrics.revenueThisMonth || 0 },
-          { label: "MRR", value: metrics.mrr || 0 },
-          { label: "New leads", value: metrics.newLeads || 0 },
-        ],
-      }
-    : focus === "social"
-      ? {
-          surface: "social",
-          entityType: "dashboard_view",
-          entityId: "command-center:social",
-          entityName: "Command Center social view",
-          title: "Command Center social view",
-          summary: `${accounts.length} connected account(s) with ${formatNum(summary?.total_engagement || 0)} engagements tracked.`,
-          facts: [
-            { label: "Followers", value: summary?.total_followers || 0 },
-            { label: "Reach", value: summary?.total_reach || 0 },
-            { label: "Pipeline content", value: pipelineStats.total },
-          ],
-        }
-      : {
-          surface: "agents",
-          entityType: "dashboard_view",
-          entityId: "command-center:agents",
-          entityName: "Command Center AI Agents",
-          title: "Command Center AI Agents",
-          summary: `${(dbAgents.length || FALLBACK_AGENTS.length)} agents configured, ${displayEvents.length} recent events.`,
-          facts: [
-            { label: "Active agents", value: dbAgents.length || FALLBACK_AGENTS.length },
-            { label: "Recent events", value: displayEvents.length },
-          ],
-        };
+  // chatContext removed - agent features cut
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -428,13 +387,7 @@ export default function CommandCenter() {
         )}
       </div>
 
-      <AskAIButton
-        context={chatContext}
-        buttonLabel={`Ask AI about ${focus === "ai" ? "Agents" : focus === "sales" ? "Sales" : "Social"}`}
-        emptyHint="Ask for a diagnosis, next action, or summary of this dashboard view..."
-        className="fixed bottom-6 right-6 z-40"
-        buttonClassName="h-12 rounded-full px-5 shadow-lg"
-      />
+      {/* AskAIButton removed - agent features cut */}
     </div>
   );
 }
@@ -600,7 +553,7 @@ function AIFocus({ agents, events }: {
         })}
       </div>
 
-      <ActiveAssignmentsList />
+      {/* ActiveAssignmentsList removed - agent features cut */}
 
       {/* Event Feed Timeline */}
       <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">

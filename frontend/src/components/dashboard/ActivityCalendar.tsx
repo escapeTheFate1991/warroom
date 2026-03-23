@@ -7,7 +7,7 @@ import {
   MoreHorizontal, MapPin, Users, Bell, Type, CheckSquare, BellRing, Bot,
   Repeat, Globe, Briefcase
 } from "lucide-react";
-import EntityAssignmentControl from "@/components/agents/EntityAssignmentControl";
+// EntityAssignmentControl removed - agent features cut
 import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
 
@@ -379,15 +379,7 @@ function EventDetailPopover({
             </div>
           )}
 
-          <EntityAssignmentControl
-            entityType="calendar_event"
-            entityId={event.id}
-            title={event.title}
-            initialAssignments={event.agent_assignments}
-            onAssignmentsChange={(assignments) => onAssignmentsChange(event.id, assignments)}
-            emptyLabel="No AI agents assigned to this event yet."
-            className="mt-3"
-          />
+          {/* EntityAssignmentControl removed - agent features cut */}
         </div>
 
         {/* Action buttons */}

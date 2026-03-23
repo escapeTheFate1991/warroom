@@ -253,27 +253,7 @@ export default function InstagramPage() {
               </div>
             </div>
 
-            {/* Quick Actions */}
-            <div className="flex gap-3">
-              <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-pink-500 text-white font-medium hover:bg-pink-600 transition">
-                <Plus size={16} />
-                Schedule Post
-              </button>
-              <button 
-                onClick={() => setActiveTab("recycle")}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-warroom-surface border border-warroom-border text-warroom-text hover:border-pink-400/30 transition"
-              >
-                <RefreshCw size={16} />
-                Recycle Top Content
-              </button>
-              <button 
-                onClick={() => setActiveTab("auto-reply")}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-warroom-surface border border-warroom-border text-warroom-text hover:border-pink-400/30 transition"
-              >
-                <Bot size={16} />
-                Auto-Reply Settings
-              </button>
-            </div>
+            {/* Quick Actions removed - functionality available through main nav (Scheduler, Auto-Reply) */}
           </div>
         )}
 

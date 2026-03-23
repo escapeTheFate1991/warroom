@@ -18,7 +18,49 @@ import {
   Users,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
-import type { Activity, Deal, Pipeline, PipelineStage } from "@/components/crm/types";
+// CRM types removed - minimal stubs for compatibility
+interface Deal {
+  id: number;
+  name: string;
+  value: number;
+  deal_value?: number; // legacy field
+  stage_id: number;
+  probability: number;
+  created_at: string;
+  updated_at?: string;
+  status?: string;
+  pipeline_id?: number;
+  title?: string;
+  organization_name?: string;
+  person_name?: string;
+}
+
+interface Activity {
+  id: number;
+  type: string;
+  subject: string;
+  title?: string;
+  due_date: string | null;
+  completed_at: string | null;
+  deal_id: number | null;
+  deal_name?: string | null; // Made optional to match usage
+  schedule_from?: string;
+  created_at?: string;
+}
+
+interface Pipeline {
+  id: number;
+  name: string;
+  is_default?: boolean;
+}
+
+interface PipelineStage {
+  id: number;
+  name: string;
+  pipeline_id: number;
+  position: number;
+  sort_order?: number;
+}
 
 interface SalesDeal extends Deal {
   closed_at?: string | null;
@@ -29,7 +71,6 @@ interface SalesDeal extends Deal {
 
 interface SalesActivity extends Activity {
   deal?: { title?: string | null } | null;
-  deal_name?: string | null;
   deal_title?: string | null;
 }
 
@@ -278,7 +319,7 @@ export default function SalesDashboard() {
         );
         setStages(
           extractList<PipelineStage>(stagesPayload, ["stages", "items"]).sort(
-            (left, right) => left.sort_order - right.sort_order,
+            (left, right) => (left.sort_order || left.position) - (right.sort_order || right.position),
           ),
         );
       } finally {
@@ -301,9 +342,9 @@ export default function SalesDashboard() {
 
   const stageMap = useMemo(() => new Map(stages.map((stage) => [stage.id, stage.name])), [stages]);
 
-  const openDeals = useMemo(() => deals.filter((deal) => deal.status === null), [deals]);
-  const wonDeals = useMemo(() => deals.filter((deal) => deal.status === true), [deals]);
-  const lostDeals = useMemo(() => deals.filter((deal) => deal.status === false), [deals]);
+  const openDeals = useMemo(() => deals.filter((deal) => deal.status === "open" || !deal.status), [deals]);
+  const wonDeals = useMemo(() => deals.filter((deal) => deal.status === "won"), [deals]);
+  const lostDeals = useMemo(() => deals.filter((deal) => deal.status === "lost"), [deals]);
   const valuedDeals = useMemo(() => deals.filter((deal) => getDealValue(deal) > 0), [deals]);
 
   const revenueThisMonth = useMemo(

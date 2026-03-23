@@ -20,8 +20,7 @@ import {
   Youtube,
   Zap,
 } from "lucide-react";
-import AskAIButton from "@/components/agents/AskAIButton";
-import EntityAssignmentControl from "@/components/agents/EntityAssignmentControl";
+// Removed agent imports - these components were cut
 import { API, authFetch } from "@/lib/api";
 import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import LoadingState from "@/components/ui/LoadingState";
@@ -691,24 +690,7 @@ export default function SocialDashboard() {
               {syncing ? "Syncing..." : "Sync now"}
             </button>
 
-            <AskAIButton
-              context={{
-                surface: "social",
-                entityType: "dashboard_view",
-                entityId: `social-dashboard:${selectedPlatform}`,
-                entityName: `${selectedPlatformLabel} social dashboard`,
-                title: `${selectedPlatformLabel} social coverage`,
-                summary: `${scopedAccounts.length} connected account(s) in view with ${formatNum(summary.total_engagement)} engagements tracked.`,
-                facts: [
-                  { label: "Accounts in view", value: scopedAccounts.length },
-                  { label: "Followers", value: summary.total_followers },
-                  { label: "Engagement rate", value: formatPercent(summary.engagement_rate) },
-                  { label: "Reach", value: summary.total_reach },
-                ],
-              }}
-              buttonLabel="Ask AI about social"
-              emptyHint="Ask for a channel diagnosis, content angle, or next experiment..."
-            />
+            {/* AskAIButton removed - agent features cut */}
           </div>
         </div>
       </div>
@@ -971,14 +953,7 @@ export default function SocialDashboard() {
                           </button>
                         </div>
 
-                        <EntityAssignmentControl
-                          className="mt-4 border-0 bg-transparent p-0"
-                          entityType="social_account"
-                          entityId={account.id}
-                          title={`Own ${platform.name} account: @${account.username || platform.name}`}
-                          initialAssignments={account.agent_assignments || []}
-                          emptyLabel={`No AI agents assigned to this ${platform.name} account yet.`}
-                        />
+                        {/* EntityAssignmentControl removed - agent features cut */}
                       </>
                     ) : (
                       <div className="rounded-xl border border-dashed border-warroom-border bg-warroom-bg/40 px-4 py-6 text-center">

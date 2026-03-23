@@ -4,12 +4,10 @@ import { useState, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
-  MessageSquare, Share2, Film, Search,
-  Users, BookOpen, GraduationCap, Building2,
-  Mail, FileText, LayoutDashboard, Instagram, Youtube, BarChart3,
-  ClipboardList, FileBarChart, Bot, Facebook, Twitter,
-  CalendarDays, FileSignature, DollarSign, PhoneCall,
-  BarChart2, PieChart, TrendingUp, UserPlus, Sparkles, Zap,
+  MessageSquare, Share2, Film,
+  LayoutDashboard, Instagram, Youtube, BarChart3,
+  FileBarChart, Bot, Facebook,
+  CalendarDays, Sparkles, Zap, Video, Settings,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/navigation/Sidebar";
@@ -24,25 +22,12 @@ const PanelLoader = () => (
 );
 
 const ChatPanel = dynamic(() => import("@/components/chat/ChatPanel"), { loading: PanelLoader });
-const KanbanPanel = dynamic(() => import("@/components/kanban/KanbanPanel"), { loading: PanelLoader });
-const LibraryPanel = dynamic(() => import("@/components/library/LibraryPanel"), { loading: PanelLoader });
-const EducatePanel = dynamic(() => import("@/components/library/MentalLibraryPanel"), { loading: PanelLoader });
-const LeadgenPanel = dynamic(() => import("@/components/leadgen/LeadgenPanel"), { loading: PanelLoader });
 const SettingsPanel = dynamic(() => import("@/components/settings/SettingsPanel"), { loading: PanelLoader });
-const WorkflowsPanel = dynamic(() => import("@/components/workflows/WorkflowsPanel"), { loading: PanelLoader });
-const ContactsManager = dynamic(() => import("@/components/crm/ContactsManager"), { loading: PanelLoader });
-const OrgChartPanel = dynamic(() => import("@/components/org-chart/OrgChartPanel"), { loading: PanelLoader });
 const SocialDashboard = dynamic(() => import("@/components/social/SocialDashboard"), { loading: PanelLoader });
-const CampaignsPanel = dynamic(() => import("@/components/marketing/CampaignsPanel"), { loading: PanelLoader });
-const EmailTemplatesPanel = dynamic(() => import("@/components/marketing/EmailTemplatesPanel"), { loading: PanelLoader });
-const AgentFeaturePage = dynamic(() => import("@/components/agents/AgentFeaturePage"), { loading: PanelLoader });
-const AgentEditPage = dynamic(() => import("@/components/agents/AgentEditPage"), { loading: PanelLoader });
 const ContentPipeline = dynamic(() => import("@/components/content/ContentPipeline"), { loading: PanelLoader });
 const CompetitorIntel = dynamic(() => import("@/components/intelligence/CompetitorIntel"), { loading: PanelLoader });
 const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter"), { loading: PanelLoader });
 const ActivityCalendar = dynamic(() => import("@/components/dashboard/ActivityCalendar"), { loading: PanelLoader });
-const PlatformContent = dynamic(() => import("@/components/content/PlatformContent"), { loading: PanelLoader });
-const ContentTracker = dynamic(() => import("@/components/content/ContentTracker"), { loading: PanelLoader });
 const ContentToSocial = dynamic(() => import("@/components/content/ContentToSocial"), { loading: PanelLoader });
 
 // New Platform-Specific Pages
@@ -53,16 +38,6 @@ const FacebookPage = dynamic(() => import("@/components/social/platforms/Faceboo
 
 // Scheduler Components
 const SchedulerCalendar = dynamic(() => import("@/components/scheduler/SchedulerCalendar"), { loading: PanelLoader });
-const RecyclePanel = dynamic(() => import("@/components/scheduler/RecyclePanel"), { loading: PanelLoader });
-const ContractsPanel = dynamic(() => import("@/components/contracts/ContractsPanel"), { loading: PanelLoader });
-const InvoicingPanel = dynamic(() => import("@/components/invoicing/InvoicingPanel"), { loading: PanelLoader });
-const EmailInbox = dynamic(() => import("@/components/email/EmailInbox"), { loading: PanelLoader });
-const ReportsOverview = dynamic(() => import("@/components/reports/ReportsOverview"), { loading: PanelLoader });
-const ProspectsPanel = dynamic(() => import("@/components/prospects/ProspectsPanel"), { loading: PanelLoader });
-const UnifiedPipeline = dynamic(() => import("@/components/crm/UnifiedPipeline"), { loading: PanelLoader });
-const OrganizationsPanel = dynamic(() => import("@/components/crm/OrganizationsPanel"), { loading: PanelLoader });
-const CommunicationsConsole = dynamic(() => import("@/components/communications/CommunicationsConsole"), { loading: PanelLoader });
-const ProfilePage = dynamic(() => import("@/components/profile/ProfilePage"), { loading: PanelLoader });
 const AIStudioPanel = dynamic(() => import("@/components/ai-studio/AIStudioPanel"), { loading: PanelLoader });
 const AutoReplyPanel = dynamic(() => import("@/components/auto-reply/AutoReplyPanel"), { loading: PanelLoader });
 
@@ -76,118 +51,79 @@ function ComingSoon({ title }: { title: string }) {
   );
 }
 
-// Sidebar section structure (inspired by RAWGROWTH War Room)
+// Sidebar section structure (socialRecycle focused)
 const SECTIONS = [
   {
     label: "COMMAND",
     items: [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
       { id: "chat", label: "Chat", icon: MessageSquare },
-      { id: "agents", label: "Agents", icon: Bot },
       { id: "calendar", label: "Calendar", icon: CalendarDays },
-      { id: "communications", label: "Comms", icon: PhoneCall },
-      { id: "email", label: "Email", icon: Mail },
-      { id: "kanban", label: "Tasks", icon: ClipboardList },
-    ],
-  },
-  {
-    label: "SOCIALS",
-    items: [
-      { id: "social", label: "Analytics", icon: Share2 },
-      { id: "intelligence", label: "Competitor Intel", icon: FileBarChart },
     ],
   },
   {
     label: "CONTENT",
     items: [
-      { id: "pipeline", label: "Pipeline", icon: Film },
+      { id: "ai-studio", label: "AI Studio", icon: Sparkles },
+      { id: "pipeline", label: "Content Pipeline", icon: Film },
       { id: "content-social", label: "URL → Social", icon: Share2 },
       { id: "scheduler", label: "Scheduler", icon: CalendarDays },
+    ],
+  },
+  {
+    label: "PLATFORMS",
+    items: [
       { id: "social-instagram", label: "Instagram", icon: Instagram },
-      { id: "social-tiktok", label: "TikTok", icon: Twitter },
+      { id: "social-tiktok", label: "TikTok", icon: Video },
       { id: "social-youtube", label: "YouTube Shorts", icon: Youtube },
       { id: "social-facebook", label: "Facebook", icon: Facebook },
     ],
   },
   {
-    label: "OPERATIONS",
+    label: "INTELLIGENCE",
     items: [
-      { id: "leadgen", label: "Leads", icon: Search },
-      { id: "pipeline-board", label: "Sales Pipeline", icon: ClipboardList },
-      { id: "prospects", label: "Prospects", icon: UserPlus },
-      { id: "organizations", label: "Organizations", icon: Building2 },
-      { id: "crm-contacts", label: "Contacts", icon: Users },
-      { id: "org-chart", label: "Org Chart", icon: Building2 },
+      { id: "intelligence", label: "Competitor Intel", icon: FileBarChart },
+      { id: "social", label: "Analytics", icon: BarChart3 },
+      { id: "mirofish", label: "Mirofish", icon: Zap },
     ],
   },
   {
-    label: "FINANCE",
+    label: "AUTOMATION",
     items: [
-      { id: "finance", label: "Finance", icon: DollarSign, children: [
-        { id: "invoices", label: "Invoices", icon: FileText },
-        { id: "contracts", label: "Contracts", icon: FileSignature },
-      ]},
-      { id: "reports", label: "Reports", icon: BarChart2, children: [
-        { id: "reports-overview", label: "Overview", icon: PieChart },
-        { id: "reports-revenue", label: "Revenue", icon: DollarSign },
-        { id: "reports-sales", label: "Sales Activity", icon: TrendingUp },
-      ]},
+      { id: "auto-reply", label: "Auto-Reply", icon: Bot },
     ],
   },
   {
-    label: "TOOLS",
+    label: "SETTINGS",
     items: [
-      { id: "ai-studio", label: "AI Studio", icon: Sparkles },
-      { id: "auto-reply", label: "Auto-Reply", icon: Zap },
-      { id: "workflows", label: "Workflows", icon: Bot },
-      { id: "library", label: "Library", icon: BookOpen, children: [
-        { id: "library-search", label: "Search", icon: Search },
-        { id: "library-educate", label: "Educate", icon: GraduationCap },
-      ]},
-      { id: "marketing", label: "Marketing", icon: Mail, children: [
-        { id: "marketing-campaigns", label: "Campaigns", icon: Mail },
-        { id: "marketing-templates", label: "Templates", icon: FileText },
-      ]},
+      { id: "settings", label: "Settings", icon: Settings },
     ],
   },
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "content-social" | "intelligence" | "prospects"
-  | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
+  | "dashboard" | "chat" | "calendar" | "social" | "pipeline" | "content-social" | "intelligence" 
   | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
   | "scheduler"
-  | "kanban" | "leadgen"
-  | "pipeline-board" | "organizations" | "crm-contacts" | "org-chart"
-  | "library-search" | "library-educate"
-  | "ai-studio" | "auto-reply" | "workflows"
-  | "marketing-campaigns" | "marketing-templates"
-  | "invoices" | "contracts"
-  | "reports-overview" | "reports-revenue" | "reports-sales"
-  | "settings" | "profile";
+  | "ai-studio" | "auto-reply" | "mirofish"
+  | "settings";
 
 function normalizeTab(tab: string | null): TabId {
   if (!tab) return "dashboard";
   if (tab === "content-tracker") return "social";
-  if (tab === "automation") return "workflows";
-  // Legacy redirects — skills and soul now live inside agents
-  if (tab === "skills" || tab === "soul") return "agents";
+  if (tab === "automation") return "auto-reply";
+  // Legacy redirects for removed features
+  if (tab === "agents" || tab === "skills" || tab === "soul") return "dashboard";
+  if (tab === "workflows" || tab === "kanban" || tab === "leadgen") return "dashboard";
+  if (tab === "organizations" || tab === "crm-contacts" || tab === "prospects") return "dashboard";
   return tab as TabId;
 }
 
-// Map parent IDs to their children active check
-const PARENT_CHILDREN: Record<string, string[]> = {
-  library: ["library-search", "library-educate"],
-  marketing: ["marketing-campaigns", "marketing-templates"],
-  finance: ["invoices", "contracts"],
-  reports: ["reports-overview", "reports-revenue", "reports-sales"],
-};
+// Map parent IDs to their children active check (none for simplified social nav)
+const PARENT_CHILDREN: Record<string, string[]> = {};
 
-// Tabs that should highlight a specific sidebar item
-const TAB_ALIASES: Record<string, string> = {
-  "agent-create": "agents",
-  "agent-edit": "agents",
-};
+// Tabs that should highlight a specific sidebar item (none for simplified social nav)
+const TAB_ALIASES: Record<string, string> = {};
 
 export default function Page() {
   return (
@@ -219,7 +155,7 @@ function WarRoom() {
       setActiveTab(nextTab);
     }
 
-    if (rawTab === "content-tracker" || rawTab === "automation" || rawTab === "skills" || rawTab === "soul") {
+    if (rawTab && rawTab !== nextTab) {
       router.replace(`/?tab=${nextTab}`, { scroll: false });
     }
   }, [activeTab, router, searchParams]);
@@ -254,40 +190,12 @@ function WarRoom() {
           <div className={activeTab === "chat" ? "contents" : "hidden"}>
             <ChatPanel />
           </div>
-          {activeTab === "agents" && (
-            <AgentFeaturePage onNavigate={(tab, params) => {
-              const nextTab = normalizeTab(tab);
-              setActiveTab(nextTab);
-              if (params?.id) {
-                router.push(`/?tab=${tab}&id=${params.id}`, { scroll: false });
-              } else {
-                router.push(`/?tab=${tab}`, { scroll: false });
-              }
-            }} />
-          )}
-          {activeTab === "agent-create" && (
-            <AgentEditPage
-              mode="create"
-              onNavigate={(tab) => handleTabChange(tab)}
-            />
-          )}
-          {activeTab === "agent-edit" && (
-            <AgentEditPage
-              mode="edit"
-              agentId={searchParams.get("id") || undefined}
-              onNavigate={(tab) => handleTabChange(tab)}
-            />
-          )}
 
           {activeTab === "social" && <SocialDashboard />}
-          {activeTab === "content-instagram" && <PlatformContent platform="instagram" />}
-          {activeTab === "content-youtube" && <PlatformContent platform="youtube" />}
-          {activeTab === "content-facebook" && <PlatformContent platform="facebook" />}
-          {activeTab === "content-x" && <PlatformContent platform="x" />}
           {activeTab === "pipeline" && <ContentPipeline />}
           {activeTab === "content-social" && <ContentToSocial />}
           
-          {/* New Platform-Specific Pages */}
+          {/* Platform-Specific Pages */}
           {activeTab === "social-instagram" && <InstagramPage />}
           {activeTab === "social-tiktok" && <TikTokPage />}
           {activeTab === "social-youtube" && <YouTubeShortsPage />}
@@ -297,31 +205,11 @@ function WarRoom() {
           {activeTab === "scheduler" && <SchedulerCalendar />}
 
           {activeTab === "intelligence" && <CompetitorIntel />}
-          {activeTab === "kanban" && <KanbanPanel />}
-          {activeTab === "leadgen" && <LeadgenPanel />}
-          {activeTab === "communications" && <CommunicationsConsole />}
-          {activeTab === "prospects" && <ProspectsPanel />}
-          {activeTab === "pipeline-board" && <UnifiedPipeline />}
-          {activeTab === "organizations" && <OrganizationsPanel />}
-          {activeTab === "crm-contacts" && <ContactsManager />}
-          {activeTab === "org-chart" && <OrgChartPanel />}
-          {activeTab === "library-search" && <LibraryPanel />}
-          {activeTab === "library-educate" && <EducatePanel />}
-          {activeTab === "workflows" && <WorkflowsPanel />}
-          {activeTab === "marketing-campaigns" && <CampaignsPanel />}
-          {activeTab === "marketing-templates" && <EmailTemplatesPanel />}
-          {activeTab === "email" && <EmailInbox />}
           {activeTab === "calendar" && <ActivityCalendar />}
-
-          {activeTab === "invoices" && <InvoicingPanel />}
-          {activeTab === "contracts" && <ContractsPanel />}
-          {activeTab === "reports-overview" && <ReportsOverview />}
-          {activeTab === "reports-revenue" && <ComingSoon title="Revenue Reports" />}
-          {activeTab === "reports-sales" && <ComingSoon title="Sales Activity" />}
           {activeTab === "ai-studio" && <AIStudioPanel />}
           {activeTab === "auto-reply" && <AutoReplyPanel />}
+          {activeTab === "mirofish" && <ComingSoon title="Mirofish" />}
           {activeTab === "settings" && <SettingsPanel />}
-          {activeTab === "profile" && <ProfilePage />}
         </main>
       </div>
     </div>
