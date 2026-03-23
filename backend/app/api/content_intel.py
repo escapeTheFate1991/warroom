@@ -30,7 +30,8 @@ from app.api.scraper import (
     calculate_competitor_engagement_score,
 )
 from app.services.instagram_scraper import scrape_profile, ScrapedProfile
-from app.api.contracts import _get_business_settings
+# _get_business_settings moved here from contracts.py to avoid cross-dependency
+from app.db.leadgen_db import leadgen_session
 
 # Import NLP libraries for better text processing
 try:
@@ -61,6 +62,49 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _competitor_sync_locks: Dict[int, asyncio.Lock] = {}
+
+
+async def _get_business_settings() -> dict:
+    """Load business settings from the DB.
+
+    Queries both ``business_*`` keys and legacy ``company_*`` / ``your_*`` keys,
+    then normalises everything under the ``business_`` prefix so callers can
+    always use ``business_name``, ``business_phone``, etc.
+    """
+    async with leadgen_session() as db:
+        result = await db.execute(
+            text(
+                "SELECT key, value FROM public.settings "
+                "WHERE key LIKE 'business_%' OR key LIKE 'company_%' "
+                "OR key IN ('your_phone', 'your_name')"
+            )
+        )
+        raw = {r[0]: r[1] for r in result.fetchall()}
+
+    # Normalise: prefer business_* but fall back to company_* / your_*
+    out: dict[str, str] = {}
+    for biz_key, fallbacks in [
+        ("business_name", ["company_name"]),
+        ("business_website", ["company_website"]),
+        ("business_email", ["company_email"]),
+        ("business_address", ["company_address"]),
+        ("business_phone", ["company_phone", "your_phone"]),
+        ("business_tagline", []),
+    ]:
+        val = raw.get(biz_key, "")
+        if not val:
+            for fb in fallbacks:
+                val = raw.get(fb, "")
+                if val:
+                    break
+        out[biz_key] = val
+
+    # Also pass through any other business_* keys verbatim
+    for k, v in raw.items():
+        if k.startswith("business_") and k not in out:
+            out[k] = v
+
+    return out
 
 
 def _get_competitor_sync_lock(competitor_id: int) -> asyncio.Lock:
