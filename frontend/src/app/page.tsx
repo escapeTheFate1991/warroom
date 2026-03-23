@@ -23,7 +23,7 @@ const PanelLoader = () => (
 
 const ChatPanel = dynamic(() => import("@/components/chat/ChatPanel"), { loading: PanelLoader });
 const SettingsPanel = dynamic(() => import("@/components/settings/SettingsPanel"), { loading: PanelLoader });
-const SocialDashboard = dynamic(() => import("@/components/dashboard/SocialDashboard"), { loading: PanelLoader });
+const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter"), { loading: PanelLoader });
 const ContentPipeline = dynamic(() => import("@/components/content/ContentPipeline"), { loading: PanelLoader });
 const CompetitorIntel = dynamic(() => import("@/components/intelligence/CompetitorIntel"), { loading: PanelLoader });
 const ActivityCalendar = dynamic(() => import("@/components/dashboard/ActivityCalendar"), { loading: PanelLoader });
@@ -82,7 +82,6 @@ const SECTIONS = [
     label: "INTELLIGENCE",
     items: [
       { id: "intelligence", label: "Competitor Intel", icon: FileBarChart },
-      { id: "social", label: "Analytics", icon: BarChart3 },
       { id: "mirofish", label: "Mirofish", icon: Zap },
     ],
   },
@@ -184,13 +183,13 @@ function WarRoom() {
         />
         <OutreachTimingBar />
         <main className="flex-1 overflow-hidden relative">
-          {activeTab === "dashboard" && <SocialDashboard />}
+          {activeTab === "dashboard" && <CommandCenter />}
           {/* ChatPanel stays mounted (preserves WS + generating state across tab switches) */}
           <div className={activeTab === "chat" ? "contents" : "hidden"}>
             <ChatPanel />
           </div>
 
-          {activeTab === "social" && <SocialDashboard />}
+          {activeTab === "social" && <CommandCenter />}
           {activeTab === "pipeline" && <ContentPipeline />}
           {activeTab === "content-social" && <ContentToSocial />}
           

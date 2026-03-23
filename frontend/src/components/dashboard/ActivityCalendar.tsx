@@ -7,7 +7,7 @@ import {
   MoreHorizontal, MapPin, Users, Bell, Type, CheckSquare, BellRing, Bot,
   Repeat, Globe, Briefcase
 } from "lucide-react";
-// EntityAssignmentControl removed - agent features cut
+// Agent assignment control removed — socialRecycle
 import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
 import { API, authFetch } from "@/lib/api";
 
@@ -379,7 +379,7 @@ function EventDetailPopover({
             </div>
           )}
 
-          {/* EntityAssignmentControl removed - agent features cut */}
+          {/* Agent assignment control removed — socialRecycle */}
         </div>
 
         {/* Action buttons */}

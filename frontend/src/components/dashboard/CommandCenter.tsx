@@ -8,7 +8,6 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
-// Agent imports removed - agent features cut
 import SalesDashboard from "@/components/dashboard/SalesDashboard";
 
 type DashboardFocus = "sales" | "social" | "ai";
@@ -349,8 +348,6 @@ export default function CommandCenter() {
   ];
 
   const greeting = currentTime.getHours() < 12 ? "Good morning" : currentTime.getHours() < 18 ? "Good afternoon" : "Good evening";
-  // chatContext removed - agent features cut
-
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header with greeting + focus tabs */}
@@ -387,7 +384,7 @@ export default function CommandCenter() {
         )}
       </div>
 
-      {/* AskAIButton removed - agent features cut */}
+      {/* AI assistant button removed — agents system cut for socialRecycle */}
     </div>
   );
 }
@@ -553,7 +550,7 @@ function AIFocus({ agents, events }: {
         })}
       </div>
 
-      {/* ActiveAssignmentsList removed - agent features cut */}
+      {/* Agent assignments removed — socialRecycle */}
 
       {/* Event Feed Timeline */}
       <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
