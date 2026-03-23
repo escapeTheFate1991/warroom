@@ -23,8 +23,8 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Reuse knowledge DB connection (same as leadgen_db.py pattern)
-CRM_DB_URL = settings.CRM_DB_URL
+# Use main database connection
+CRM_DB_URL = settings.POSTGRES_URL
 
 crm_engine = create_async_engine(CRM_DB_URL, echo=False, pool_size=5, max_overflow=10)
 crm_session = async_sessionmaker(crm_engine, class_=AsyncSession, expire_on_commit=False)

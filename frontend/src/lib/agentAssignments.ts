@@ -1,10 +1,4 @@
 export const ASSIGNABLE_ENTITY_TYPES = [
-  "kanban_task",
-  "leadgen_lead",
-  "crm_contact",
-  "crm_deal",
-  "prospect_workflow",
-  "crm_email",
   "email_message",
   "calendar_event",
   "marketing_campaign",

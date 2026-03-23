@@ -13,15 +13,14 @@ class Settings(BaseSettings):
     """socialRecycle application settings.
 
     Required variables (no defaults — app crashes if missing):
-        JWT_SECRET, POSTGRES_URL, LEADGEN_DB_URL
+        JWT_SECRET, POSTGRES_URL
 
     Optional variables have sensible defaults for local development.
     """
 
     # ── Secrets (REQUIRED — no fallback) ─────────────────────────────
     JWT_SECRET: str
-    POSTGRES_URL: str  # CRM DB (also used as CRM_DB_URL)
-    LEADGEN_DB_URL: str  # LeadGen / knowledge DB
+    POSTGRES_URL: str  # Main database
 
     # ── OpenClaw credentials (REQUIRED) ──────────────────────────────
     OPENCLAW_AUTH_TOKEN: str = ""
@@ -32,12 +31,10 @@ class Settings(BaseSettings):
     # ── Service URLs ─────────────────────────────────────────────────
     OPENCLAW_WS_URL: str = "ws://10.0.0.1:18789"
     OPENCLAW_API_URL: str = "http://10.0.0.1:18789"
-    KANBAN_API_URL: str = "http://10.0.0.11:18794"
     TEAM_DASHBOARD_URL: str = "http://10.0.0.11:18795"
     QDRANT_URL: str = "http://10.0.0.11:6333"
     FASTEMBED_URL: str = "http://10.0.0.11:11435"
     MENTAL_LIBRARY_API_URL: str = "http://10.0.0.1:8100"
-    LEADGEN_BACKEND_URL: str = "http://10.0.0.1:8200"
     BACKEND_URL: str = "https://warroom.stuffnthings.io"
     FRONTEND_URL: str = "http://localhost:3300"
 
@@ -67,10 +64,7 @@ class Settings(BaseSettings):
     # ── Admin seed ───────────────────────────────────────────────────
     ADMIN_PASSWORD: str = ""
 
-    # Alias: CRM_DB_URL falls back to POSTGRES_URL
-    @property
-    def CRM_DB_URL(self) -> str:
-        return os.getenv("CRM_DB_URL", self.POSTGRES_URL)
+
 
     @property
     def allowed_origins_list(self) -> list[str]:
