@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
-  MessageSquare, Share2, Film,
+  MessageSquare, Share2, Film, Mail,
   LayoutDashboard, Instagram, Youtube, BarChart3,
   FileBarChart, Bot, Facebook,
   CalendarDays, Sparkles, Zap, Video, Settings,
@@ -24,6 +24,7 @@ const PanelLoader = () => (
 const ChatPanel = dynamic(() => import("@/components/chat/ChatPanel"), { loading: PanelLoader });
 const SettingsPanel = dynamic(() => import("@/components/settings/SettingsPanel"), { loading: PanelLoader });
 const CommandCenter = dynamic(() => import("@/components/dashboard/CommandCenter"), { loading: PanelLoader });
+const EmailInbox = dynamic(() => import("@/components/email/EmailInbox"), { loading: PanelLoader });
 const ContentPipeline = dynamic(() => import("@/components/content/ContentPipeline"), { loading: PanelLoader });
 const CompetitorIntel = dynamic(() => import("@/components/intelligence/CompetitorIntel"), { loading: PanelLoader });
 const ActivityCalendar = dynamic(() => import("@/components/dashboard/ActivityCalendar"), { loading: PanelLoader });
@@ -57,6 +58,7 @@ const SECTIONS = [
     items: [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
       { id: "chat", label: "Chat", icon: MessageSquare },
+      { id: "email", label: "Email", icon: Mail },
       { id: "calendar", label: "Calendar", icon: CalendarDays },
     ],
   },
@@ -100,7 +102,7 @@ const SECTIONS = [
 ] as const;
 
 type TabId =
-  | "dashboard" | "chat" | "calendar" | "social" | "pipeline" | "content-social" | "intelligence" 
+  | "dashboard" | "chat" | "email" | "calendar" | "social" | "pipeline" | "content-social" | "intelligence" 
   | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
   | "scheduler"
   | "ai-studio" | "auto-reply" | "mirofish"
@@ -189,6 +191,7 @@ function WarRoom() {
             <ChatPanel />
           </div>
 
+          {activeTab === "email" && <EmailInbox />}
           {activeTab === "social" && <CommandCenter />}
           {activeTab === "pipeline" && <ContentPipeline />}
           {activeTab === "content-social" && <ContentToSocial />}
