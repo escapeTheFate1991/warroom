@@ -398,6 +398,7 @@ async def _login_to_instagram(context) -> bool:
     
     # Get credentials from the account manager (handles env vars, social accounts, and legacy settings)
     username, password, totp_secret, account_id = await get_instagram_credentials_for_scraping()
+    logger.warning("SCRAPER_LOGIN: Credentials loaded, username=@%s, has_totp=%s, source=%s", username, bool(totp_secret), "db" if account_id else "env")
     
     if not username or not password:
         logger.warning("No Instagram credentials configured — scraping without login")
@@ -407,6 +408,7 @@ async def _login_to_instagram(context) -> bool:
     try:
         logger.info("Logging in to Instagram as @%s", username)
         await page.goto("https://www.instagram.com/accounts/login/", wait_until="domcontentloaded", timeout=20000)
+        logger.warning("SCRAPER_LOGIN: Login page loaded")
         await asyncio.sleep(3)
         
         # Dismiss cookie consent / GDPR dialogs (Instagram shows these before login form)
@@ -442,35 +444,47 @@ async def _login_to_instagram(context) -> bool:
             'input[name="username"], input[name="email"]', timeout=15000
         )
         await username_input.fill(username)
+        logger.warning("SCRAPER_LOGIN: Username entered")
         
         password_input = await page.wait_for_selector(
             'input[name="password"], input[name="pass"]', timeout=5000
         )
         await password_input.fill(password)
+        await asyncio.sleep(1)  # Let Instagram enable the submit button
         
-        # Submit login — just press Enter on the password field
-        await password_input.press("Enter")
+        # Submit login — try clicking the Log In button first, fall back to Enter
+        login_button = await page.query_selector('button[type="submit"], button:has-text("Log in"), button:has-text("Log In")')
+        if login_button:
+            await login_button.click()
+            logger.warning("SCRAPER_LOGIN: Login form submitted via button click")
+        else:
+            await password_input.press("Enter")
+            logger.warning("SCRAPER_LOGIN: Login form submitted via Enter key")
         
         # Wait for navigation away from login page
         await asyncio.sleep(5)
         
         # Check for common post-login states
         current_url = page.url
+        logger.warning("SCRAPER_LOGIN: Post-submit URL: %s", current_url)
         
         # Check for 2FA / verification code page
         two_fa_input = await page.query_selector('input[name="verificationCode"], input[name="security_code"], input[aria-label="Security Code"], input[aria-label="Verification Code"]')
         if two_fa_input or "two_factor" in current_url or "challenge" in current_url:
+            logger.warning("SCRAPER_LOGIN: 2FA challenge detected")
             logger.info("Instagram 2FA challenge detected — attempting TOTP")
             # totp_secret already loaded from env or DB above
             if not totp_secret:
+                logger.error("SCRAPER_LOGIN: Failed — 2FA required but no TOTP secret configured")
                 logger.error("Instagram 2FA required but INSTAGRAM_TOTP_SECRET not configured")
                 await page.close()
                 return False
             
             try:
                 import pyotp
-                totp = pyotp.TOTP(totp_secret)
+                totp = pyotp.TOTP(totp_secret.strip().replace(' ', '').replace('-', '').upper())
                 code = totp.now()
+                logger.warning("SCRAPER_LOGIN: TOTP code generated")
                 logger.info("Generated TOTP code: %s***", code[:3])
                 
                 # Wait for the 2FA input to appear if not already found
@@ -489,28 +503,35 @@ async def _login_to_instagram(context) -> bool:
                 else:
                     await two_fa_input.press("Enter")
                 
+                logger.warning("SCRAPER_LOGIN: 2FA submitted, waiting for result")
                 await asyncio.sleep(5)
                 
                 # Check if we passed 2FA
                 current_url = page.url
                 if "two_factor" in current_url or "challenge" in current_url:
+                    logger.warning("SCRAPER_LOGIN: 2FA result: %s", "failed")
+                    logger.error("SCRAPER_LOGIN: Failed — 2FA verification failed")
                     logger.error("2FA verification failed — code may be expired")
                     await page.close()
                     return False
                 
+                logger.warning("SCRAPER_LOGIN: 2FA result: %s", "passed")
                 logger.info("2FA verification successful")
                 
             except ImportError:
+                logger.error("SCRAPER_LOGIN: Failed — pyotp not installed")
                 logger.error("pyotp not installed — run: pip install pyotp")
                 await page.close()
                 return False
             except Exception as e:
+                logger.error("SCRAPER_LOGIN: Failed — 2FA handling exception: %s", str(e))
                 logger.error("2FA handling failed: %s", e)
                 await page.close()
                 return False
         
         # Check for suspicious login challenge (different from 2FA)
         if "suspicious" in current_url.lower():
+            logger.error("SCRAPER_LOGIN: Failed — suspicious login challenge detected")
             logger.error("Instagram suspicious login challenge — manual intervention needed")
             await page.close()
             return False
@@ -518,6 +539,7 @@ async def _login_to_instagram(context) -> bool:
         # Check for incorrect password
         error_msg = await page.query_selector('[data-testid="login-error-message"], #slfErrorAlert')
         if error_msg:
+            logger.error("SCRAPER_LOGIN: Failed — incorrect credentials")
             logger.error("Instagram login failed — check credentials")
             await page.close()
             return False
@@ -536,6 +558,7 @@ async def _login_to_instagram(context) -> bool:
         await asyncio.sleep(2)
         login_check = await page.query_selector('input[name="username"], input[name="email"]')
         if login_check:
+            logger.error("SCRAPER_LOGIN: Failed — still on login page after submit")
             logger.error("Still on login page after submit — login likely failed")
             await page.close()
             return False
@@ -543,6 +566,7 @@ async def _login_to_instagram(context) -> bool:
         # Save cookies
         cookies = await context.cookies()
         await _save_cookies(cookies)
+        logger.warning("SCRAPER_LOGIN: Success, %d cookies saved", len(cookies))
         logger.info("Successfully logged in to Instagram as @%s", username)
         
         # Mark account as used in the social accounts system
@@ -554,9 +578,10 @@ async def _login_to_instagram(context) -> bool:
     except Exception as e:
         logger.error("Instagram login error: %s", e)
         
-        # Mark account as having an error in the social accounts system
-        from app.services.instagram_account_manager import mark_instagram_account_error
-        await mark_instagram_account_error(account_id, f"Login error: {str(e)}")
+        # Log the error but do NOT mark account as error status — 
+        # temporary failures (shadow bans, network issues) would permanently
+        # disable the account and break all future sync attempts
+        logger.error("SCRAPER_LOGIN: Login exception for account_id=%s: %s", account_id, e)
         
         try:
             await page.close()
@@ -586,15 +611,20 @@ async def _get_authenticated_context(browser):
     
     # Try loading saved cookies
     saved_cookies = await _load_cookies()
+    logger.warning("SCRAPER_AUTH: Cookie file exists=%s at %s", COOKIE_PATH.exists(), COOKIE_PATH)
     if saved_cookies:
         await context.add_cookies(saved_cookies)
         if await _has_valid_session(context):
+            logger.warning("SCRAPER_AUTH: Saved cookies valid, reusing session")
             return context
         # Cookies expired — clear and re-login
+        logger.warning("SCRAPER_AUTH: Saved cookies expired, clearing")
         await context.clear_cookies()
     
     # Login fresh
+    logger.warning("SCRAPER_AUTH: Starting fresh login")
     logged_in = await _login_to_instagram(context)
+    logger.warning("SCRAPER_AUTH: Login result=%s", logged_in)
     if not logged_in:
         logger.warning("Proceeding without authentication — login-walled profiles will fail")
     
@@ -608,6 +638,7 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
     the GraphQL/API responses that Instagram makes internally to load profile data.
     """
     handle = handle.strip().lstrip("@").lower()
+    logger.warning("SCRAPER_PROFILE: Starting scrape for @%s", handle)
     profile = ScrapedProfile(handle=handle, scraped_at=datetime.now())
 
     try:
@@ -680,9 +711,11 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
                     "--disable-gpu",
                 ],
             )
+            logger.warning("SCRAPER_PROFILE: Browser launched")
 
             # Use authenticated context (loads cookies or logs in)
             context = await _get_authenticated_context(browser)
+            logger.warning("SCRAPER_PROFILE: Auth context ready")
 
             page = await context.new_page()
             page.on("response", intercept_response)
@@ -692,6 +725,7 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
             logger.info("Navigating to %s", url)
 
             resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            logger.warning("SCRAPER_PROFILE: Profile page loaded, status=%s", resp.status if resp else "none")
 
             if resp and resp.status == 404:
                 profile.error = "Profile not found (404)"
@@ -710,6 +744,7 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
 
             # Give extra time for API calls to complete
             await asyncio.sleep(3)
+            logger.warning("SCRAPER_PROFILE: Data captured: %s", list(captured_data.keys()))
 
             # If network interception didn't capture data, try extracting from DOM
             if "user" not in captured_data and "user_v1" not in captured_data:

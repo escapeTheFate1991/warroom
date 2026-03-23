@@ -1,0 +1,387 @@
+#!/usr/bin/env python3
+"""
+Friday Ask - Natural Language Interface for War Room Context
+Ask questions about the codebase in natural language
+"""
+
+import os
+import sys
+import re
+import argparse
+import subprocess
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+
+# Add project root to path
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+class NaturalLanguageProcessor:
+    """Process natural language queries and map to context searches"""
+    
+    def __init__(self):
+        self.query_patterns = self._build_query_patterns()
+        self.context_mapping = self._build_context_mapping()
+    
+    def _build_query_patterns(self) -> Dict[str, List[str]]:
+        """Build patterns for common query types"""
+        return {
+            'authentication': [
+                r'how.*auth.*work',
+                r'jwt.*token',
+                r'login.*process',
+                r'authentication.*flow',
+                r'user.*login',
+                r'auth.*middleware'
+            ],
+            'database': [
+                r'database.*schema',
+                r'models.*structure',
+                r'table.*relationship',
+                r'sql.*query',
+                r'database.*connection',
+                r'migration.*pattern'
+            ],
+            'api': [
+                r'api.*endpoint',
+                r'rest.*api',
+                r'route.*pattern',
+                r'http.*method',
+                r'api.*response',
+                r'endpoint.*documentation'
+            ],
+            'frontend': [
+                r'react.*component',
+                r'next.*js.*structure',
+                r'frontend.*architecture',
+                r'ui.*component',
+                r'tailwind.*css',
+                r'component.*pattern'
+            ],
+            'docker': [
+                r'docker.*compose',
+                r'container.*setup',
+                r'deployment.*process',
+                r'build.*process',
+                r'docker.*issue',
+                r'container.*debug'
+            ],
+            'troubleshooting': [
+                r'error.*fix',
+                r'debug.*issue',
+                r'troubleshoot.*problem',
+                r'common.*problem',
+                r'fix.*bug',
+                r'solve.*issue'
+            ]
+        }
+    
+    def _build_context_mapping(self) -> Dict[str, Dict[str, Any]]:
+        """Map query categories to context files and search terms"""
+        return {
+            'authentication': {
+                'files': ['.context/patterns.md', '.context/architecture.md'],
+                'search_terms': ['JWT', 'authentication', 'login', 'token', 'AuthGuardMiddleware'],
+                'description': 'Authentication flow and JWT implementation'
+            },
+            'database': {
+                'files': ['.context/patterns.md', '.context/architecture.md'],
+                'search_terms': ['database', 'PostgreSQL', 'schema', 'models', 'SQLAlchemy'],
+                'description': 'Database structure and patterns'
+            },
+            'api': {
+                'files': ['.context/apis.md', '.context/patterns.md'],
+                'search_terms': ['API', 'endpoint', 'FastAPI', 'route', 'REST'],
+                'description': 'API endpoints and patterns'
+            },
+            'frontend': {
+                'files': ['.context/frontend.md', '.context/patterns.md'],
+                'search_terms': ['Next.js', 'React', 'component', 'Tailwind', 'frontend'],
+                'description': 'Frontend architecture and components'
+            },
+            'docker': {
+                'files': ['.context/development.md', '.context/troubleshooting.md'],
+                'search_terms': ['Docker', 'container', 'compose', 'build', 'deployment'],
+                'description': 'Docker setup and deployment'
+            },
+            'troubleshooting': {
+                'files': ['.context/troubleshooting.md', '.context/development.md'],
+                'search_terms': ['error', 'debug', 'issue', 'problem', 'fix'],
+                'description': 'Common issues and solutions'
+            }
+        }
+    
+    def analyze_query(self, query: str) -> Dict[str, Any]:
+        """Analyze natural language query and extract intent"""
+        query_lower = query.lower()
+        
+        # Determine query category
+        categories = []
+        for category, patterns in self.query_patterns.items():
+            for pattern in patterns:
+                if re.search(pattern, query_lower):
+                    categories.append(category)
+                    break
+        
+        # Extract key terms
+        key_terms = self._extract_key_terms(query)
+        
+        # Determine question type
+        question_type = self._classify_question_type(query)
+        
+        return {
+            'categories': categories,
+            'key_terms': key_terms,
+            'question_type': question_type,
+            'original_query': query
+        }
+    
+    def _extract_key_terms(self, query: str) -> List[str]:
+        """Extract important technical terms from query"""
+        # Common technical terms in War Room
+        technical_terms = [
+            'JWT', 'FastAPI', 'Next.js', 'React', 'Docker', 'PostgreSQL',
+            'Tailwind', 'authentication', 'database', 'API', 'container',
+            'component', 'middleware', 'route', 'endpoint', 'schema',
+            'migration', 'deployment', 'build', 'CSRF', 'CORS'
+        ]
+        
+        found_terms = []
+        query_lower = query.lower()
+        
+        for term in technical_terms:
+            if term.lower() in query_lower:
+                found_terms.append(term)
+        
+        # Also extract quoted terms
+        quoted_terms = re.findall(r'"([^"]*)"', query)
+        found_terms.extend(quoted_terms)
+        
+        return list(set(found_terms))
+    
+    def _classify_question_type(self, query: str) -> str:
+        """Classify the type of question being asked"""
+        query_lower = query.lower()
+        
+        if any(word in query_lower for word in ['how', 'how to', 'process', 'work']):
+            return 'how'
+        elif any(word in query_lower for word in ['what', 'what is', 'define']):
+            return 'what'
+        elif any(word in query_lower for word in ['where', 'location', 'file']):
+            return 'where'
+        elif any(word in query_lower for word in ['why', 'reason', 'purpose']):
+            return 'why'
+        elif any(word in query_lower for word in ['error', 'issue', 'problem', 'fix', 'debug']):
+            return 'troubleshooting'
+        else:
+            return 'general'
+
+class FridayAsk:
+    """Main Friday Ask interface"""
+    
+    def __init__(self):
+        self.project_root = Path.cwd()
+        while not (self.project_root / ".context").exists() and self.project_root != self.project_root.parent:
+            self.project_root = self.project_root.parent
+        
+        self.nlp = NaturalLanguageProcessor()
+        self.friday_ctx = self.project_root / "bin" / "friday-ctx"
+        self.friday_ctx_enhanced = self.project_root / "bin" / "friday-ctx-enhanced"
+    
+    def ask(self, question: str, verbose: bool = False) -> None:
+        """Process natural language question and provide answer"""
+        print(f"🤔 You asked: {question}")
+        print("-" * 60)
+        
+        # Analyze the question
+        analysis = self.nlp.analyze_query(question)
+        
+        if verbose:
+            print("🔍 Query Analysis:")
+            print(f"   Categories: {', '.join(analysis['categories']) if analysis['categories'] else 'general'}")
+            print(f"   Key terms: {', '.join(analysis['key_terms']) if analysis['key_terms'] else 'none detected'}")
+            print(f"   Question type: {analysis['question_type']}")
+            print()
+        
+        # Build search strategy
+        search_terms = self._build_search_terms(analysis)
+        
+        if verbose:
+            print(f"🎯 Search strategy: {', '.join(search_terms)}")
+            print()
+        
+        # Perform search
+        self._perform_search(search_terms, analysis)
+        
+        # Provide contextual guidance
+        self._provide_guidance(analysis)
+    
+    def _build_search_terms(self, analysis: Dict[str, Any]) -> List[str]:
+        """Build search terms based on query analysis"""
+        search_terms = []
+        
+        # Add key terms from query
+        search_terms.extend(analysis['key_terms'])
+        
+        # Add category-specific terms
+        for category in analysis['categories']:
+            if category in self.nlp.context_mapping:
+                mapping = self.nlp.context_mapping[category]
+                search_terms.extend(mapping['search_terms'][:2])  # Top 2 terms
+        
+        # If no specific terms found, use the original query
+        if not search_terms:
+            search_terms = [analysis['original_query']]
+        
+        return search_terms[:5]  # Limit to top 5 terms
+    
+    def _perform_search(self, search_terms: List[str], analysis: Dict[str, Any]) -> None:
+        """Perform context search using available tools"""
+        friday_ctx = None
+        
+        # Prefer basic version for reliability, enhanced for semantic search
+        friday_ctx = None
+        
+        # Test if enhanced version works (has dependencies)
+        enhanced_works = False
+        if self.friday_ctx_enhanced.exists():
+            try:
+                test_result = subprocess.run([
+                    str(self.friday_ctx_enhanced), "status"
+                ], capture_output=True, text=True, timeout=5)
+                enhanced_works = test_result.returncode == 0
+            except:
+                enhanced_works = False
+        
+        if enhanced_works:
+            friday_ctx = self.friday_ctx_enhanced
+        elif self.friday_ctx.exists() and os.access(self.friday_ctx, os.X_OK):
+            friday_ctx = self.friday_ctx
+        else:
+            print("❌ Friday Context CLI not found")
+            print("Run: ./scripts/context-git-hooks.sh to set up the system")
+            return
+        
+        # Search for each term
+        for i, term in enumerate(search_terms[:3]):  # Limit to 3 searches
+            print(f"📚 Searching for: {term}")
+            
+            try:
+                import subprocess
+                # Set up environment for CLI
+                env = os.environ.copy()
+                env['PATH'] = f"{self.project_root}/bin:{env.get('PATH', '')}"
+                
+                result = subprocess.run([
+                    str(friday_ctx), "find", term, "-l", "2"
+                ], capture_output=True, text=True, cwd=self.project_root, env=env)
+                
+                if result.returncode == 0:
+                    if result.stdout.strip():
+                        print(result.stdout)
+                    else:
+                        print(f"   No results found for '{term}'")
+                    
+                    if result.stderr.strip():
+                        print(f"   Warning: {result.stderr.strip()}")
+                else:
+                    print(f"   Search failed for '{term}': {result.stderr}")
+                    print(f"   Return code: {result.returncode}")
+                
+            except Exception as e:
+                print(f"   Error searching for '{term}': {e}")
+            
+            if i < len(search_terms) - 1:  # Don't print separator after last search
+                print()
+    
+    def _provide_guidance(self, analysis: Dict[str, Any]) -> None:
+        """Provide contextual guidance based on query"""
+        print("💡 Relevant Context:")
+        print("-" * 30)
+        
+        # Provide category-specific guidance
+        for category in analysis['categories']:
+            if category in self.nlp.context_mapping:
+                mapping = self.nlp.context_mapping[category]
+                print(f"📁 {mapping['description']}:")
+                for file in mapping['files'][:2]:  # Show top 2 files
+                    print(f"   • {file}")
+        
+        # Provide question-type specific guidance
+        if analysis['question_type'] == 'how':
+            print("\n🔧 For step-by-step guides, check:")
+            print("   • .context/development.md - Development workflows")
+            print("   • .context/troubleshooting.md - Problem-solving guides")
+        elif analysis['question_type'] == 'where':
+            print("\n📍 For file locations, try:")
+            print("   friday-ctx explore")
+            print("   friday-ctx find 'filename'")
+        elif analysis['question_type'] == 'troubleshooting':
+            print("\n🚨 For troubleshooting, check:")
+            print("   • .context/troubleshooting.md - Common issues")
+            print("   • .context/development.md - Debug commands")
+        
+        print("\n🔍 Further exploration:")
+        print("   friday-ctx explore           # Browse all context")
+        print("   friday-ctx find 'term'       # Search for specific term")
+        print("   friday-ctx related 'file'    # Find related files")
+
+def main():
+    """Main entry point"""
+    parser = argparse.ArgumentParser(
+        description="Ask questions about War Room in natural language",
+        prog="friday-ask"
+    )
+    
+    parser.add_argument('question', nargs='*', help='Question to ask (or use -i for interactive)')
+    parser.add_argument('-i', '--interactive', action='store_true', help='Interactive mode')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output with analysis')
+    
+    args = parser.parse_args()
+    
+    friday_ask = FridayAsk()
+    
+    if args.interactive:
+        print("🤖 Friday Ask - Interactive Mode")
+        print("Type your questions about War Room. Type 'quit' to exit.")
+        print("=" * 60)
+        
+        while True:
+            try:
+                question = input("\n❓ Ask: ").strip()
+                
+                if question.lower() in ['quit', 'exit', 'q']:
+                    print("👋 Goodbye!")
+                    break
+                
+                if not question:
+                    continue
+                
+                print()
+                friday_ask.ask(question, args.verbose)
+                print("=" * 60)
+                
+            except KeyboardInterrupt:
+                print("\n👋 Goodbye!")
+                break
+            except EOFError:
+                break
+    
+    elif args.question:
+        question = ' '.join(args.question)
+        friday_ask.ask(question, args.verbose)
+    
+    else:
+        print("🤖 Friday Ask - Natural Language Context Search")
+        print()
+        print("Examples:")
+        print("  friday-ask 'How does authentication work?'")
+        print("  friday-ask 'What is the database schema?'")
+        print("  friday-ask 'Where are the API endpoints defined?'")
+        print("  friday-ask 'How to debug Docker issues?'")
+        print()
+        print("Interactive mode:")
+        print("  friday-ask -i")
+
+if __name__ == "__main__":
+    main()

@@ -538,9 +538,75 @@ export default function SocialDashboard() {
       const res = await authFetch(`${API}/api/social/sync`, { method: "POST" });
       if (res.ok) {
         await fetchData();
+        
+        // Auto-trigger CDN migration after successful social sync
+        try {
+          const migrationRes = await authFetch(`${API}/api/jobs/migrate-cdn-urls`, { method: "POST" });
+          if (migrationRes.ok) {
+            // Create success notification for social sync + CDN migration
+            await authFetch(`${API}/api/notifications`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                type: "success",
+                title: "Social Sync Complete",
+                message: "Social media data synced successfully. Video links are being updated to prevent expiry.",
+                data: { link: "/ai-studio" }
+              })
+            });
+          } else {
+            // CDN migration failed, but social sync was successful
+            await authFetch(`${API}/api/notifications`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                type: "warning", 
+                title: "Social Sync Complete",
+                message: "Social data synced successfully, but video link update failed. Some videos may show as expired.",
+                data: { link: "/ai-studio" }
+              })
+            });
+          }
+        } catch (migrationError) {
+          console.error("CDN migration trigger failed:", migrationError);
+          // Still show success for social sync
+          await authFetch(`${API}/api/notifications`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: "success",
+              title: "Social Sync Complete", 
+              message: "Social media data synced successfully.",
+              data: { link: "/analytics" }
+            })
+          });
+        }
+      } else {
+        // Social sync failed
+        await authFetch(`${API}/api/notifications`, {
+          method: "POST", 
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "alert",
+            title: "Social Sync Failed",
+            message: "Failed to sync social media data. Please check your account connections.",
+            data: { link: "/settings?tab=social-accounts" }
+          })
+        });
       }
     } catch (error) {
       console.error("Failed to sync:", error);
+      // Network or other error
+      await authFetch(`${API}/api/notifications`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "alert", 
+          title: "Sync Error",
+          message: "Network error during social sync. Please try again.",
+          data: {}
+        })
+      });
     } finally {
       setSyncing(false);
     }

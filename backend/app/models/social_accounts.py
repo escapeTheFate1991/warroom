@@ -20,7 +20,7 @@ class SocialAccount(SocialAccountsBase):
     )
 
     id = Column(Integer, primary_key=True)
-    org_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    org_id = Column(Integer, nullable=False, index=True)
     platform = Column(String(50), nullable=False)  # 'instagram', 'tiktok', etc.
     account_type = Column(String(20), nullable=False)  # 'scraping', 'posting', 'primary'
     username = Column(String(255), nullable=False)

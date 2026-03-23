@@ -1,0 +1,108 @@
+name: "War Room"
+version: "1.0.0"
+type: "fullstack-crm"
+description: "AI-powered CRM with agent orchestration and content management"
+
+# Context Configuration
+config:
+  auto_load: true
+  semantic_search: true
+  session_tracking: true
+  ai_generation: true
+  
+  # Context refresh triggers
+  refresh_on:
+    - "file_change"
+    - "error_pattern"
+    - "dependency_update"
+    - "schema_migration"
+  
+  # Integration settings
+  integrations:
+    openclaw_skills: true
+    vector_memory: true
+    agent_communication: true
+    ide_extensions: true
+
+# Technology Stack
+stack:
+  frontend:
+    framework: "Next.js 14"
+    styling: "Tailwind CSS"
+    components: "Lucide Icons, @xyflow/react"
+    state: "Zustand"
+    
+  backend:
+    framework: "FastAPI"
+    database: "PostgreSQL"
+    auth: "JWT with user_id claim"
+    async: "SQLAlchemy async"
+    
+  infrastructure:
+    containers: "Docker Compose"
+    vector_db: "Qdrant"
+    embeddings: "nomic-embed-text"
+    ports:
+      frontend: "3300->3000"
+      backend: "8300"
+      qdrant: "6334"
+
+# Context Sources
+sources:
+  static:
+    - "architecture.md"
+    - "patterns.md"
+    - "apis.md" 
+    - "frontend.md"
+    - "development.md"
+    
+  dynamic:
+    - "backend/**/*.py"
+    - "frontend/**/*.{ts,tsx}"
+    - "docker-compose.yml"
+    - "backend/app/db/*.sql"
+    
+  session:
+    - "sessions/current.json"
+    - "sessions/history/*.json"
+
+# AI Generation Rules
+ai_generation:
+  code_analysis:
+    enabled: true
+    patterns:
+      - "API endpoint documentation"
+      - "Component usage patterns" 
+      - "Database schema relationships"
+      - "Error handling patterns"
+      
+  auto_update:
+    enabled: true
+    triggers:
+      - "new_file_added"
+      - "schema_changed"
+      - "api_endpoint_added"
+      
+  quality_gates:
+    min_confidence: 0.8
+    require_human_review: true
+    max_auto_changes: 5
+
+# Performance Monitoring
+monitoring:
+  context_quality:
+    coverage_target: 0.9
+    freshness_hours: 24
+    usage_tracking: true
+    
+  ai_metrics:
+    generation_accuracy: 0.85
+    context_relevance: 0.9
+    error_reduction: 0.7
+
+metadata:
+  created: "2026-03-22"
+  last_updated: "2026-03-22"
+  maintainer: "AI Context System"
+  version_history:
+    - "1.0.0": "Initial context system implementation"

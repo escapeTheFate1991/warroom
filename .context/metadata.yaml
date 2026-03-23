@@ -1,0 +1,25 @@
+# War Room Context Management System
+# This directory contains semantic context for the War Room codebase
+
+version: "1.0"
+created: "2026-03-22"
+description: "Hybrid context management system for War Room development"
+
+structure:
+  architecture: "System architecture and service organization"
+  patterns: "Code patterns, auth flows, and standards"
+  apis: "Endpoint documentation and API patterns"
+  frontend: "Next.js structure and component organization"
+  development: "Development workflows and troubleshooting"
+  components: "Component-level context and relationships"
+  
+indexing:
+  embedding_model: "all-MiniLM-L6-v2"
+  chunk_size: 512
+  overlap: 50
+  last_updated: null
+  
+git_hooks:
+  on_commit: true
+  on_branch_switch: true
+  auto_update: true

@@ -197,6 +197,19 @@ export default function AIStudioPanel() {
   const [wizardCharacterDna, setWizardCharacterDna] = useState<any>(null);
   const [wizardReferenceSheet, setWizardReferenceSheet] = useState<string | null>(null);
 
+  // CDN Migration Status Tracking
+  const [migrationStatus, setMigrationStatus] = useState<{
+    status: "idle" | "running" | "complete" | "error";
+    progress: number;
+    total: number;
+    success_count: number;
+    error_count: number;
+    started_at?: string;
+    completed_at?: string;
+    last_error?: string;
+  } | null>(null);
+  const [migrationPolling, setMigrationPolling] = useState(false);
+
   // Character and action selection
   const [selectedCharacterId, setSelectedCharacterId] = useState<number | null>(null);
   const [selectedActionSlug, setSelectedActionSlug] = useState<string | null>(null);
@@ -460,6 +473,83 @@ export default function AIStudioPanel() {
     } catch (e: any) { alert(e.message); }
     finally { setTemplatizingCompetitor(null); }
   };
+
+  // ── CDN Migration Functions ─────────────────────────────
+  const fetchMigrationStatus = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API}/api/jobs/cdn-migration/status`);
+      if (res.ok) {
+        const status = await res.json();
+        setMigrationStatus(status);
+        
+        // If migration just completed, show notification and refresh blueprints
+        if (status.status === "complete" && migrationStatus?.status === "running") {
+          try {
+            await authFetch(`${API}/api/notifications`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                type: "success",
+                title: "Video Links Updated",
+                message: `Successfully updated ${status.success_count} video links. AI Studio videos should now load properly.`,
+                data: { link: "/ai-studio" }
+              })
+            });
+          } catch (e) {
+            console.error("Failed to create notification:", e);
+          }
+          
+          // Refresh blueprints to get updated URLs - call directly since we can't depend on it
+          try {
+            const r = await authFetch(`${API}/api/ai-studio/winning-blueprints`);
+            if (r.ok) {
+              const d = await r.json();
+              setBlueprints(d.blueprints || []);
+            }
+          } catch (e) {
+            console.error("Failed to refresh blueprints:", e);
+          }
+        }
+        
+        return status;
+      }
+    } catch (error) {
+      console.error("Failed to fetch migration status:", error);
+    }
+    return null;
+  }, [migrationStatus?.status]);
+
+  const startMigrationPolling = useCallback(() => {
+    if (migrationPolling) return;
+    
+    setMigrationPolling(true);
+    const pollInterval = setInterval(async () => {
+      const status = await fetchMigrationStatus();
+      
+      // Stop polling when migration is complete or errored
+      if (status && (status.status === "complete" || status.status === "error")) {
+        setMigrationPolling(false);
+        clearInterval(pollInterval);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    // Auto-stop polling after 10 minutes
+    setTimeout(() => {
+      setMigrationPolling(false);
+      clearInterval(pollInterval);
+    }, 10 * 60 * 1000);
+  }, [fetchMigrationStatus, migrationPolling]);
+
+  // Check migration status on component mount
+  useEffect(() => {
+    if (configured && activeTab === "create-video") {
+      fetchMigrationStatus().then(status => {
+        if (status?.status === "running") {
+          startMigrationPolling();
+        }
+      });
+    }
+  }, [configured, activeTab, fetchMigrationStatus, startMigrationPolling]);
 
   // ── Video Project Create & Generate ───────────────────────
   const createAndGenerate = async () => {
@@ -936,6 +1026,26 @@ export default function AIStudioPanel() {
             <div className="flex items-center gap-2">
               <AlertCircle size={16} className="text-yellow-400 flex-shrink-0" />
               <p className="text-sm text-yellow-300">{apiKeyWarning}</p>
+            </div>
+          </div>
+        )}
+
+        {/* CDN Migration Status Banner */}
+        {migrationStatus && migrationStatus.status === "running" && (
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3">
+            <div className="flex items-center gap-2">
+              <Loader2 size={16} className="text-blue-400 flex-shrink-0 animate-spin" />
+              <div className="flex-1">
+                <p className="text-sm text-blue-300">
+                  Updating video links... ({migrationStatus.progress}/{migrationStatus.total})
+                </p>
+                <div className="w-full bg-blue-500/20 rounded-full h-1.5 mt-1">
+                  <div 
+                    className="bg-blue-400 h-1.5 rounded-full transition-all" 
+                    style={{ width: `${migrationStatus.total > 0 ? (migrationStatus.progress / migrationStatus.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         )}

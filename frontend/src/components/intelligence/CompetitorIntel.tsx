@@ -1171,8 +1171,17 @@ export default function CompetitorIntel() {
 
         const status: ScrapeStatusResponse = await response.json();
         if (!status.sync_running) {
+          const sr = (status as any).sync_result;
+          if (sr?.status === "error") {
+            setError(`Instagram sync failed: ${sr.error}`);
+          } else if (sr?.status === "complete") {
+            setNotice(
+              `Instagram sync complete: ${sr.success}/${sr.total} competitors scraped, ${sr.posts_saved} posts cached`
+            );
+          } else {
+            setNotice("Instagram scrape finished.");
+          }
           await refreshIntelligenceViews();
-          setNotice("Instagram scrape finished. Competitor intelligence updated.");
           return true;
         }
       } catch (error) {

@@ -1,0 +1,10 @@
+{
+  "auto_load_enabled": true,
+  "drift_detection_enabled": true,
+  "cache_enabled": true,
+  "session_tracking_enabled": true,
+  "max_contexts_per_load": 5,
+  "cache_ttl_seconds": 3600,
+  "drift_scan_interval_hours": 6,
+  "performance_mode": "balanced"
+}

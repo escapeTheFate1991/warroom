@@ -1,0 +1,667 @@
+#!/usr/bin/env python3
+"""
+Friday Context Management CLI - Enhanced with semantic embeddings
+Advanced semantic navigation and discovery for War Room context system
+"""
+
+import os
+import sys
+import json
+import yaml
+import argparse
+import subprocess
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
+import sqlite3
+import hashlib
+from datetime import datetime
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import requests
+
+# Add project root to path for imports
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+class SemanticContextIndex:
+    """Manages semantic indexing with embeddings"""
+    
+    def __init__(self, project_root: Path):
+        self.project_root = project_root
+        self.context_dir = project_root / ".context"
+        self.index_db = self.context_dir / "semantic_index.db"
+        self.model = None
+        
+    def _get_model(self):
+        """Lazy load sentence transformer model"""
+        if self.model is None:
+            try:
+                self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            except Exception as e:
+                print(f"Warning: Could not load sentence transformer model: {e}")
+                print("Falling back to basic text search...")
+                return None
+        return self.model
+    
+    def init_db(self):
+        """Initialize SQLite database for semantic index"""
+        conn = sqlite3.connect(self.index_db)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS semantic_files (
+                id INTEGER PRIMARY KEY,
+                path TEXT UNIQUE,
+                content_hash TEXT,
+                last_updated TIMESTAMP,
+                metadata TEXT,
+                full_text TEXT
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS semantic_chunks (
+                id INTEGER PRIMARY KEY,
+                file_id INTEGER,
+                chunk_index INTEGER,
+                content TEXT,
+                embedding BLOB,
+                FOREIGN KEY (file_id) REFERENCES semantic_files (id)
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS relationships (
+                id INTEGER PRIMARY KEY,
+                from_file TEXT,
+                to_file TEXT,
+                relationship_type TEXT,
+                confidence REAL,
+                keywords TEXT
+            )
+        """)
+        
+        # Add indexes for performance
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON semantic_files(path)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunk_file ON semantic_chunks(file_id)")
+        
+        conn.commit()
+        conn.close()
+    
+    def scan_context_files(self) -> List[Path]:
+        """Find all context files in the project"""
+        context_files = []
+        
+        # Scan .context directory
+        if self.context_dir.exists():
+            context_files.extend(self.context_dir.glob("**/*.md"))
+            context_files.extend(self.context_dir.glob("**/*.yaml"))
+            context_files.extend(self.context_dir.glob("**/*.yml"))
+        
+        # Scan for .context directories throughout project
+        for root, dirs, files in os.walk(self.project_root):
+            if '.context' in dirs and 'node_modules' not in root and '.git' not in root:
+                context_path = Path(root) / '.context'
+                context_files.extend(context_path.glob("**/*.md"))
+                context_files.extend(context_path.glob("**/*.yaml"))
+                context_files.extend(context_path.glob("**/*.yml"))
+        
+        return context_files
+    
+    def extract_embeddings(self, texts: List[str]) -> np.ndarray:
+        """Create embeddings for text chunks"""
+        model = self._get_model()
+        if model is None:
+            # Return dummy embeddings if model not available
+            return np.random.random((len(texts), 384))
+        
+        return model.encode(texts)
+    
+    def chunk_content(self, content: str, chunk_size: int = 300, overlap: int = 50) -> List[str]:
+        """Split content into overlapping chunks for better semantic search"""
+        sentences = content.split('. ')
+        chunks = []
+        
+        current_chunk = []
+        current_length = 0
+        
+        for sentence in sentences:
+            sentence_length = len(sentence.split())
+            
+            if current_length + sentence_length > chunk_size and current_chunk:
+                chunks.append('. '.join(current_chunk))
+                
+                # Keep last few sentences for overlap
+                overlap_sentences = current_chunk[-2:] if len(current_chunk) > 2 else current_chunk
+                current_chunk = overlap_sentences
+                current_length = sum(len(s.split()) for s in overlap_sentences)
+            
+            current_chunk.append(sentence)
+            current_length += sentence_length
+        
+        if current_chunk:
+            chunks.append('. '.join(current_chunk))
+        
+        return chunks
+    
+    def index_file(self, file_path: Path) -> bool:
+        """Index a single context file with semantic embeddings"""
+        try:
+            content = file_path.read_text(encoding='utf-8')
+            content_hash = hashlib.md5(content.encode()).hexdigest()
+            
+            conn = sqlite3.connect(self.index_db)
+            cursor = conn.cursor()
+            
+            # Check if file is already indexed and unchanged
+            cursor.execute(
+                "SELECT content_hash FROM semantic_files WHERE path = ?", 
+                (str(file_path.relative_to(self.project_root)),)
+            )
+            result = cursor.fetchone()
+            
+            if result and result[0] == content_hash:
+                conn.close()
+                return False  # No changes
+            
+            # Extract metadata if YAML frontmatter exists
+            metadata = {}
+            clean_content = content
+            
+            if content.startswith('---'):
+                try:
+                    parts = content.split('---', 2)
+                    if len(parts) >= 3:
+                        metadata = yaml.safe_load(parts[1])
+                        clean_content = parts[2].strip()
+                except yaml.YAMLError:
+                    pass
+            
+            # Insert or update file record
+            cursor.execute("""
+                INSERT OR REPLACE INTO semantic_files 
+                (path, content_hash, last_updated, metadata, full_text)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                str(file_path.relative_to(self.project_root)),
+                content_hash,
+                datetime.now().isoformat(),
+                json.dumps(metadata),
+                clean_content
+            ))
+            
+            file_id = cursor.lastrowid
+            
+            # Delete existing chunks for this file
+            cursor.execute("DELETE FROM semantic_chunks WHERE file_id = ?", (file_id,))
+            
+            # Create semantic chunks
+            chunks = self.chunk_content(clean_content)
+            
+            if chunks:
+                embeddings = self.extract_embeddings(chunks)
+                
+                for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                    cursor.execute("""
+                        INSERT INTO semantic_chunks 
+                        (file_id, chunk_index, content, embedding)
+                        VALUES (?, ?, ?, ?)
+                    """, (
+                        file_id, 
+                        i, 
+                        chunk, 
+                        embedding.tobytes()
+                    ))
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            print(f"Error indexing {file_path}: {e}")
+            return False
+    
+    def semantic_search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Perform semantic search using embeddings"""
+        model = self._get_model()
+        
+        if model is None:
+            return self._fallback_text_search(query, limit)
+        
+        try:
+            # Create query embedding
+            query_embedding = model.encode([query])[0]
+            
+            conn = sqlite3.connect(self.index_db)
+            cursor = conn.cursor()
+            
+            # Get all chunks with embeddings
+            cursor.execute("""
+                SELECT f.path, f.metadata, c.content, c.embedding,
+                       f.full_text
+                FROM semantic_files f
+                JOIN semantic_chunks c ON f.id = c.file_id
+            """)
+            
+            results = []
+            for row in cursor.fetchall():
+                path, metadata_json, content, embedding_bytes, full_text = row
+                
+                # Calculate cosine similarity
+                try:
+                    chunk_embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
+                    similarity = np.dot(query_embedding, chunk_embedding) / (
+                        np.linalg.norm(query_embedding) * np.linalg.norm(chunk_embedding)
+                    )
+                    
+                    metadata = json.loads(metadata_json) if metadata_json else {}
+                    
+                    results.append({
+                        'path': path,
+                        'metadata': metadata,
+                        'content_preview': content[:300] + "..." if len(content) > 300 else content,
+                        'similarity': float(similarity),
+                        'full_text': full_text
+                    })
+                except Exception as e:
+                    continue
+            
+            # Sort by similarity and return top results
+            results.sort(key=lambda x: x['similarity'], reverse=True)
+            conn.close()
+            
+            return results[:limit]
+            
+        except Exception as e:
+            print(f"Error in semantic search: {e}")
+            return self._fallback_text_search(query, limit)
+    
+    def _fallback_text_search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Fallback text search when embeddings are not available"""
+        conn = sqlite3.connect(self.index_db)
+        cursor = conn.cursor()
+        
+        # Simple text search across content
+        query_lower = query.lower()
+        
+        cursor.execute("""
+            SELECT f.path, f.metadata, 
+                   CASE 
+                       WHEN LOWER(f.full_text) LIKE ? THEN 
+                           SUBSTR(f.full_text, 
+                                  MAX(1, INSTR(LOWER(f.full_text), ?) - 100), 
+                                  300)
+                       ELSE SUBSTR(f.full_text, 1, 300)
+                   END as content_preview,
+                   CASE 
+                       WHEN LOWER(f.full_text) LIKE ? THEN 3
+                       WHEN LOWER(f.full_text) LIKE ? THEN 2
+                       WHEN LOWER(f.full_text) LIKE ? THEN 1
+                       ELSE 0
+                   END as relevance
+            FROM semantic_files f
+            WHERE LOWER(f.full_text) LIKE ?
+            ORDER BY relevance DESC, f.last_updated DESC
+            LIMIT ?
+        """, (
+            f"%{query_lower}%",  # For content extraction
+            query_lower,         # For position finding
+            f"%{query_lower}%",  # Exact phrase match (highest relevance)
+            f"%{query.split()[0].lower() if query.split() else query_lower}%",  # First word
+            f"%{' '.join(query.split()[:2]).lower() if len(query.split()) > 1 else query_lower}%",  # First two words
+            f"%{query_lower}%",  # Any match
+            limit
+        ))
+        
+        results = []
+        for row in cursor.fetchall():
+            path, metadata_json, content_preview, relevance = row
+            metadata = json.loads(metadata_json) if metadata_json else {}
+            
+            results.append({
+                'path': path,
+                'metadata': metadata,
+                'content_preview': content_preview + "..." if len(content_preview) == 300 else content_preview,
+                'similarity': relevance / 3.0  # Normalize to 0-1 range like semantic similarity
+            })
+        
+        conn.close()
+        return results
+    
+    def find_related_files(self, file_path: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Find semantically related files"""
+        target_file = Path(file_path)
+        
+        if not target_file.exists():
+            return []
+        
+        try:
+            content = target_file.read_text(encoding='utf-8')
+            
+            # Use semantic search with file content as query
+            related = self.semantic_search(content[:1000], limit * 2)  # Get more results to filter
+            
+            # Filter out the original file and return top matches
+            filtered = [r for r in related if r['path'] != str(target_file.relative_to(self.project_root))]
+            
+            return filtered[:limit]
+            
+        except Exception as e:
+            print(f"Error finding related files: {e}")
+            return []
+    
+    def build_index(self):
+        """Build or rebuild the complete semantic context index"""
+        self.init_db()
+        
+        files = self.scan_context_files()
+        print(f"Found {len(files)} context files to index...")
+        
+        updated = 0
+        for file_path in files:
+            if self.index_file(file_path):
+                updated += 1
+                print(f"Indexed: {file_path.relative_to(self.project_root)}")
+        
+        print(f"Semantic index complete. {updated} files updated.")
+        
+        # Build relationships
+        self._build_relationships()
+    
+    def _build_relationships(self):
+        """Build relationship mappings between context files"""
+        print("Building relationship mappings...")
+        
+        conn = sqlite3.connect(self.index_db)
+        cursor = conn.cursor()
+        
+        # Clear existing relationships
+        cursor.execute("DELETE FROM relationships")
+        
+        # Get all files
+        cursor.execute("SELECT path, full_text FROM semantic_files")
+        files = cursor.fetchall()
+        
+        relationship_count = 0
+        
+        for i, (file_a, content_a) in enumerate(files):
+            for j, (file_b, content_b) in enumerate(files[i+1:], i+1):
+                # Find common keywords/concepts
+                words_a = set(content_a.lower().split())
+                words_b = set(content_b.lower().split())
+                
+                common_words = words_a.intersection(words_b)
+                
+                # Filter out common stop words
+                stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those'}
+                significant_words = common_words - stop_words
+                
+                if len(significant_words) > 5:  # Threshold for relatedness
+                    confidence = len(significant_words) / len(words_a.union(words_b))
+                    
+                    cursor.execute("""
+                        INSERT INTO relationships 
+                        (from_file, to_file, relationship_type, confidence, keywords)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        file_a,
+                        file_b,
+                        'semantic_similarity',
+                        confidence,
+                        json.dumps(list(significant_words)[:10])
+                    ))
+                    
+                    relationship_count += 1
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"Built {relationship_count} relationships.")
+
+class EnhancedContextCLI:
+    """Enhanced Friday Context Management CLI Interface"""
+    
+    def __init__(self):
+        self.project_root = Path.cwd()
+        while not (self.project_root / ".context").exists() and self.project_root != self.project_root.parent:
+            self.project_root = self.project_root.parent
+        
+        self.index = SemanticContextIndex(self.project_root)
+    
+    def find(self, query: str, limit: int = 5, semantic: bool = True):
+        """Find context by natural language query"""
+        print(f"🔍 Searching for: {query}")
+        print(f"Search mode: {'semantic' if semantic else 'text'}")
+        print("-" * 50)
+        
+        if semantic:
+            results = self.index.semantic_search(query, limit)
+        else:
+            results = self.index._fallback_text_search(query, limit)
+        
+        if not results:
+            print("No results found.")
+            return
+        
+        for i, result in enumerate(results, 1):
+            similarity_score = result.get('similarity', 0)
+            print(f"{i}. {result['path']} (similarity: {similarity_score:.3f})")
+            print(f"   {result['content_preview']}")
+            if result['metadata']:
+                print(f"   📋 {result['metadata'].get('description', 'No description')}")
+            print()
+    
+    def related(self, file_path: str, limit: int = 5):
+        """Find semantically related context files"""
+        print(f"🔗 Finding files related to: {file_path}")
+        print("-" * 50)
+        
+        related = self.index.find_related_files(file_path, limit)
+        
+        if not related:
+            print("No related files found.")
+            return
+        
+        for result in related:
+            similarity_score = result.get('similarity', 0)
+            print(f"📄 {result['path']} (similarity: {similarity_score:.3f})")
+            print(f"   {result['content_preview'][:100]}...")
+            print()
+    
+    def explore(self, path: str = None):
+        """Explore context hierarchy with metadata"""
+        if path:
+            target = Path(path)
+        else:
+            target = self.project_root / ".context"
+        
+        print(f"📁 Exploring: {target}")
+        print("-" * 50)
+        
+        if not target.exists():
+            print(f"Path does not exist: {target}")
+            return
+        
+        # List context files with enhanced metadata
+        for item in sorted(target.rglob("*")):
+            if item.is_file() and item.suffix in ['.md', '.yaml', '.yml']:
+                rel_path = item.relative_to(self.project_root)
+                print(f"📄 {rel_path}")
+                
+                try:
+                    content = item.read_text(encoding='utf-8')
+                    
+                    if content.startswith('---'):
+                        parts = content.split('---', 2)
+                        if len(parts) >= 3:
+                            metadata = yaml.safe_load(parts[1])
+                            if metadata:
+                                if 'description' in metadata:
+                                    print(f"   📝 {metadata['description']}")
+                                if 'module-name' in metadata:
+                                    print(f"   🏷️  {metadata['module-name']}")
+                    
+                    # Show file size and word count
+                    word_count = len(content.split())
+                    file_size = item.stat().st_size
+                    print(f"   📊 {word_count} words, {file_size} bytes")
+                    
+                except Exception as e:
+                    print(f"   ⚠️ Error reading file: {e}")
+                
+                print()
+    
+    def status(self):
+        """Show semantic context index status"""
+        print("📊 Semantic Context Index Status")
+        print("-" * 50)
+        
+        if not self.index.index_db.exists():
+            print("❌ Index not built. Run 'friday-ctx-enhanced index' first.")
+            return
+        
+        conn = sqlite3.connect(self.index.index_db)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("SELECT COUNT(*) FROM semantic_files")
+            file_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM semantic_chunks")
+            chunk_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM relationships")
+            relationship_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT MAX(last_updated) FROM semantic_files")
+            last_updated = cursor.fetchone()[0]
+            
+            # Check if embeddings model is available
+            model_status = "✅ Available" if self.index._get_model() else "⚠️ Fallback to text search"
+            
+        except sqlite3.OperationalError:
+            print("❌ Database structure outdated. Run 'friday-ctx-enhanced index' to rebuild.")
+            return
+        finally:
+            conn.close()
+        
+        print(f"📄 Indexed files: {file_count}")
+        print(f"📦 Content chunks: {chunk_count}")
+        print(f"🔗 Relationships: {relationship_count}")
+        print(f"🧠 Embeddings model: {model_status}")
+        print(f"🕒 Last updated: {last_updated or 'Never'}")
+        
+        context_files = self.index.scan_context_files()
+        print(f"📁 Available files: {len(context_files)}")
+    
+    def index_rebuild(self):
+        """Rebuild the semantic context index"""
+        print("🔄 Building semantic context index...")
+        self.index.build_index()
+    
+    def query_relationships(self, file_path: str = None):
+        """Query relationship database"""
+        print("🔗 Context Relationship Analysis")
+        print("-" * 50)
+        
+        conn = sqlite3.connect(self.index.index_db)
+        cursor = conn.cursor()
+        
+        if file_path:
+            # Show relationships for specific file
+            cursor.execute("""
+                SELECT to_file, confidence, keywords 
+                FROM relationships 
+                WHERE from_file = ?
+                ORDER BY confidence DESC
+            """, (file_path,))
+            
+            print(f"Files related to {file_path}:")
+            for row in cursor.fetchall():
+                to_file, confidence, keywords_json = row
+                keywords = json.loads(keywords_json) if keywords_json else []
+                print(f"  📄 {to_file} (confidence: {confidence:.3f})")
+                print(f"     Common keywords: {', '.join(keywords[:5])}")
+        else:
+            # Show top relationships
+            cursor.execute("""
+                SELECT from_file, to_file, confidence, keywords 
+                FROM relationships 
+                ORDER BY confidence DESC 
+                LIMIT 10
+            """)
+            
+            print("Top relationships:")
+            for row in cursor.fetchall():
+                from_file, to_file, confidence, keywords_json = row
+                keywords = json.loads(keywords_json) if keywords_json else []
+                print(f"  {from_file} ↔ {to_file}")
+                print(f"  Confidence: {confidence:.3f}, Keywords: {', '.join(keywords[:3])}")
+                print()
+        
+        conn.close()
+
+def main():
+    """Main CLI entry point"""
+    parser = argparse.ArgumentParser(
+        description="Enhanced Friday Context Management CLI with Semantic Search",
+        prog="friday-ctx-enhanced"
+    )
+    
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Find command
+    find_parser = subparsers.add_parser('find', help='Find context by semantic query')
+    find_parser.add_argument('query', help='Search query')
+    find_parser.add_argument('-l', '--limit', type=int, default=5, help='Maximum results')
+    find_parser.add_argument('--text-only', action='store_true', help='Use text search instead of semantic')
+    
+    # Explore command
+    explore_parser = subparsers.add_parser('explore', help='Explore context hierarchy')
+    explore_parser.add_argument('path', nargs='?', help='Path to explore (default: .context)')
+    
+    # Related command
+    related_parser = subparsers.add_parser('related', help='Find semantically related files')
+    related_parser.add_argument('file', help='File to find relations for')
+    related_parser.add_argument('-l', '--limit', type=int, default=5, help='Maximum results')
+    
+    # Relationships command
+    rel_parser = subparsers.add_parser('relationships', help='Query relationship database')
+    rel_parser.add_argument('file', nargs='?', help='File to show relationships for (default: all)')
+    
+    # Status command
+    status_parser = subparsers.add_parser('status', help='Show semantic index status')
+    
+    # Index command
+    index_parser = subparsers.add_parser('index', help='Build/rebuild semantic context index')
+    
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        return
+    
+    cli = EnhancedContextCLI()
+    
+    try:
+        if args.command == 'find':
+            cli.find(args.query, args.limit, not args.text_only)
+        elif args.command == 'explore':
+            cli.explore(args.path)
+        elif args.command == 'related':
+            cli.related(args.file, args.limit)
+        elif args.command == 'relationships':
+            cli.query_relationships(args.file)
+        elif args.command == 'status':
+            cli.status()
+        elif args.command == 'index':
+            cli.index_rebuild()
+    except KeyboardInterrupt:
+        print("\nOperation cancelled.")
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    main()

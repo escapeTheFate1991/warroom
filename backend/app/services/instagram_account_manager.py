@@ -3,7 +3,7 @@ import logging
 import pyotp
 from datetime import datetime
 from typing import Optional, Tuple, List
-from sqlalchemy import select, update
+from sqlalchemy import select, update, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.social_accounts import SocialAccount
@@ -113,7 +113,7 @@ class InstagramAccountManager:
             return None
         
         try:
-            totp = pyotp.TOTP(secret)
+            totp = pyotp.TOTP(secret.strip().replace(' ', '').replace('-', '').upper())
             return totp.now()
         except Exception as e:
             logger.error(f"Failed to generate TOTP code: {e}")
@@ -166,65 +166,28 @@ async def get_instagram_credentials_for_scraping() -> Tuple[Optional[str], Optio
     
     This is the main integration point with the existing instagram_scraper.py.
     """
-    from app.db.crm_db import get_tenant_session
+    from app.db.crm_db import crm_session
     from app.config import settings
     
-    # First try environment variables (for backward compatibility)
-    username = getattr(settings, 'INSTAGRAM_USERNAME', None)
-    password = getattr(settings, 'INSTAGRAM_PASSWORD', None)
-    totp_secret = getattr(settings, 'INSTAGRAM_TOTP_SECRET', None)
+
     
-    if username and password:
-        logger.info("Using Instagram credentials from environment variables")
-        return username, password, totp_secret, None
+    logger.warning("SCRAPER_CRED: Looking up Instagram scraping account from social_accounts table")
     
-    # Try new social accounts system
     try:
-        async with get_tenant_session() as db:
+        async with crm_session() as db:
+            await db.execute(text("SET search_path TO crm, public"))
             manager = InstagramAccountManager(db)
             account = await manager.get_active_account("scraping")
             
             if account and account["password"]:
-                logger.info(f"Using Instagram account @{account['username']} from social accounts")
+                logger.warning("SCRAPER_CRED: Found account @%s (id=%d) with password=%s, totp=%s", 
+                           account["username"], account["id"], bool(account["password"]), bool(account["totp_secret"]))
                 return account["username"], account["password"], account["totp_secret"], account["id"]
     
     except Exception as e:
-        logger.warning(f"Failed to get Instagram account from social accounts: {e}")
+        logger.error("SCRAPER_CRED: Database error looking up Instagram account: %s", e)
     
-    # Fall back to old settings table (for backward compatibility)
-    try:
-        from sqlalchemy import text as sa_text
-        from sqlalchemy.ext.asyncio import create_async_engine
-        
-        engine = create_async_engine(settings.CRM_DB_URL, echo=False)
-        async with engine.connect() as conn:
-            for key, attr in [
-                ("instagram_scraper_username", "username"), 
-                ("instagram_scraper_password", "password"), 
-                ("instagram_totp_secret", "totp")
-            ]:
-                r = await conn.execute(
-                    sa_text(f"SELECT value FROM public.settings WHERE key = :k AND value != ''"), 
-                    {"k": key}
-                )
-                row = r.first()
-                if row:
-                    if attr == "username":
-                        username = row[0]
-                    elif attr == "password":
-                        password = row[0]
-                    elif attr == "totp":
-                        totp_secret = row[0]
-        
-        await engine.dispose()
-        
-        if username and password:
-            logger.info("Using Instagram credentials from legacy settings table")
-            return username, password, totp_secret, None
-    
-    except Exception as e:
-        logger.warning(f"Failed to get Instagram credentials from settings: {e}")
-    
+    logger.error("SCRAPER_CRED: No active Instagram scraping account found in social_accounts table. Add one in Settings > Social Accounts.")
     return None, None, None, None
 
 
@@ -234,9 +197,10 @@ async def mark_instagram_account_used(account_id: Optional[int]):
         return
     
     try:
-        from app.db.crm_db import get_tenant_session
+        from app.db.crm_db import crm_session
         
-        async with get_tenant_session() as db:
+        async with crm_session() as db:
+            await db.execute(text("SET search_path TO crm, public"))
             manager = InstagramAccountManager(db)
             await manager.mark_account_used(account_id)
     
@@ -250,9 +214,10 @@ async def mark_instagram_account_error(account_id: Optional[int], error_msg: Opt
         return
     
     try:
-        from app.db.crm_db import get_tenant_session
+        from app.db.crm_db import crm_session
         
-        async with get_tenant_session() as db:
+        async with crm_session() as db:
+            await db.execute(text("SET search_path TO crm, public"))
             manager = InstagramAccountManager(db)
             await manager.mark_account_error(account_id, error_msg)
     
@@ -269,9 +234,10 @@ async def rotate_instagram_account(current_account_id: Optional[int]) -> Tuple[O
         return None, None, None, None
     
     try:
-        from app.db.crm_db import get_tenant_session
+        from app.db.crm_db import crm_session
         
-        async with get_tenant_session() as db:
+        async with crm_session() as db:
+            await db.execute(text("SET search_path TO crm, public"))
             manager = InstagramAccountManager(db)
             account = await manager.rotate_to_next_account(current_account_id, "scraping")
             

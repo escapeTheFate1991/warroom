@@ -462,11 +462,12 @@ async def start_render(
     project_id = f"vp-{uuid.uuid4().hex[:12]}"
     await db.execute(text("""
         INSERT INTO public.ugc_video_projects
-        (id, user_id, title, status, storyboard)
-        VALUES (:id, :uid, :title, 'queued', '[]'::jsonb)
+        (id, user_id, org_id, title, status, storyboard)
+        VALUES (:id, :uid, :org_id, :title, 'queued', '[]'::jsonb)
     """), {
         "id": project_id,
         "uid": user.id,
+        "org_id": org_id,
         "title": body.title,
     })
     await db.commit()

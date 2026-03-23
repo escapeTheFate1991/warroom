@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _instagram_sync_task: Optional[asyncio.Task] = None
+_instagram_sync_result: Optional[Dict[str, Any]] = None
 
 
 # ── Response Models ──────────────────────────────────────────────
@@ -93,6 +94,7 @@ class ScrapeStatusResponse(BaseModel):
     last_scrape: Optional[datetime] = None
     competitors: List[Dict[str, Any]] = []
     sync_running: bool = False
+    sync_result: Optional[Dict[str, Any]] = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────
@@ -561,11 +563,21 @@ async def _execute_instagram_sync(db: AsyncSession, org_id: int) -> BulkScrapeRe
 
 async def _run_instagram_sync_in_background() -> None:
     """Run the Instagram sync in a detached task so long scrapes survive proxy limits."""
+    global _instagram_sync_result
+    _instagram_sync_result = {"status": "running", "started_at": datetime.now().isoformat()}
     try:
         async with crm_session() as db:
             await db.execute(text("SET search_path TO crm, public"))
             result = await _execute_instagram_sync(db, org_id=1)
             await db.commit()
+            _instagram_sync_result = {
+                "status": "complete",
+                "success": result.success,
+                "failed": result.failed,
+                "total": result.total,
+                "posts_saved": result.posts_saved,
+                "completed_at": datetime.now().isoformat(),
+            }
             logger.info(
                 "Background Instagram sync finished: %s/%s succeeded, %s posts cached",
                 result.success,
@@ -573,8 +585,10 @@ async def _run_instagram_sync_in_background() -> None:
                 result.posts_saved,
             )
     except HTTPException as exc:
+        _instagram_sync_result = {"status": "error", "error": exc.detail, "completed_at": datetime.now().isoformat()}
         logger.warning("Background Instagram sync skipped: %s", exc.detail)
     except Exception as exc:
+        _instagram_sync_result = {"status": "error", "error": str(exc), "completed_at": datetime.now().isoformat()}
         logger.exception("Background Instagram sync failed: %s", exc)
 
 
@@ -705,6 +719,7 @@ async def get_scrape_status(request: Request, db: AsyncSession = Depends(get_ten
             last_scrape=None,
             competitors=[_empty_competitor_status(c) for c in competitors],
             sync_running=_instagram_sync_running(),
+            sync_result=_instagram_sync_result,
         )
 
     total_posts = 0
@@ -754,6 +769,7 @@ async def get_scrape_status(request: Request, db: AsyncSession = Depends(get_ten
         last_scrape=last_scrape,
         competitors=comp_status,
         sync_running=_instagram_sync_running(),
+        sync_result=_instagram_sync_result,
     )
 
 

@@ -1,7 +1,7 @@
 """API endpoints for Instagram CDN → Garage S3 migration job."""
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List, Union
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
@@ -26,10 +26,10 @@ class MigrationStatusResponse(BaseModel):
     total: int
     success_count: int
     error_count: int
-    started_at: str = None
-    completed_at: str = None
-    errors: list = []
-    last_error: str = None
+    started_at: Union[str, None] = None
+    completed_at: Union[str, None] = None
+    errors: List[str] = []
+    last_error: Union[str, None] = None
 
 
 @router.post("/migrate-cdn-urls", response_model=MigrationResponse)
@@ -109,7 +109,7 @@ async def test_cdn_migration(
         )
 
 
-@router.get("/cdn-migration/status", response_model=MigrationStatusResponse)
+@router.get("/cdn-migration/status")
 async def get_cdn_migration_status(
     current_user: User = Depends(get_current_user)
 ):
@@ -117,17 +117,17 @@ async def get_cdn_migration_status(
     try:
         status = get_migration_status()
         
-        return MigrationStatusResponse(
-            status=status["status"],
-            progress=status["progress"],
-            total=status["total"],
-            success_count=status["success_count"],
-            error_count=status["error_count"],
-            started_at=status["started_at"],
-            completed_at=status["completed_at"],
-            errors=status["errors"][-10:],  # Only return last 10 errors
-            last_error=status["last_error"]
-        )
+        return {
+            "status": status["status"],
+            "progress": status["progress"],
+            "total": status["total"],
+            "success_count": status["success_count"],
+            "error_count": status["error_count"],
+            "started_at": status.get("started_at"),
+            "completed_at": status.get("completed_at"),
+            "errors": status.get("errors", [])[-10:],  # Only return last 10 errors
+            "last_error": status.get("last_error")
+        }
         
     except Exception as e:
         logger.error(f"Failed to get migration status: {e}")
