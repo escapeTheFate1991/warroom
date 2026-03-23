@@ -767,7 +767,6 @@ app.include_router(mirofish.router, tags=["mirofish"])
 
 # Background Jobs
 app.include_router(cdn_migration.router, tags=["background-jobs"])
-app.include_router(thumbnails.router, prefix="/api/thumbnails", tags=["thumbnails"])
 
 # Paperclip Architecture Routes
 app.include_router(entities.router, prefix="/api/entities", tags=["entities"])
