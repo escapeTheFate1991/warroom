@@ -109,7 +109,35 @@ interface HashtagData {
   count: number;
 }
 
+interface TrendingTopic {
+  topic: string;
+  count: number;
+  sources: string[]; // competitor handles using this topic
+}
+
 type Granularity = "hourly" | "daily" | "weekly" | "monthly";
+
+const STOP_WORDS = new Set([
+  "this", "that", "what", "who", "which", "where", "when", "how", "why",
+  "is", "are", "was", "were", "be", "been", "being",
+  "have", "has", "had", "do", "does", "did",
+  "a", "an", "the", "and", "or", "but", "if", "so", "as",
+  "at", "by", "for", "in", "of", "on", "to", "up", "out",
+  "it", "its", "my", "your", "our", "their", "his", "her",
+  "i", "me", "we", "you", "he", "she", "they", "them",
+  "not", "no", "just", "very", "really", "also", "too",
+  "can", "will", "would", "could", "should", "may", "might",
+  "all", "each", "every", "some", "any", "many", "much",
+  "more", "most", "other", "new", "get", "got", "like",
+  "one", "two", "first", "last", "now", "here", "there",
+  "than", "then", "only", "even", "still", "back", "well",
+  "about", "after", "before", "between", "through", "during",
+  "into", "over", "under", "again", "further", "once",
+  "with", "from", "make", "made", "going", "come", "want",
+  "need", "know", "think", "see", "look", "take", "give",
+  "good", "great", "best", "big", "little", "long", "way",
+  "day", "time", "year", "people", "thing", "things",
+]);
 
 interface PlatformConfig {
   id: string;
@@ -319,6 +347,56 @@ function aggregateHashtags(content: PublishedContentItem[]): HashtagData[] {
     .slice(0, 10);
 }
 
+function extractTrendingTopics(posts: CompetitorPost[]): TrendingTopic[] {
+  const topicCounts: Record<string, { count: number; sources: Set<string> }> = {};
+  
+  posts.forEach(post => {
+    const caption = post.caption.toLowerCase();
+    // Remove hashtags and mentions first
+    const cleanCaption = caption.replace(/#\w+/g, '').replace(/@\w+/g, '');
+    
+    // Split into words and clean them
+    const words = cleanCaption
+      .replace(/[^\w\s]/g, ' ') // Replace punctuation with spaces
+      .split(/\s+/)
+      .map(word => word.trim())
+      .filter(word => word.length > 2 && !STOP_WORDS.has(word));
+    
+    // Extract single meaningful words
+    words.forEach(word => {
+      if (word.length >= 3) { // Only words 3+ chars
+        if (!topicCounts[word]) {
+          topicCounts[word] = { count: 0, sources: new Set() };
+        }
+        topicCounts[word].count++;
+        topicCounts[word].sources.add(post.handle);
+      }
+    });
+    
+    // Extract 2-word phrases
+    for (let i = 0; i < words.length - 1; i++) {
+      const phrase = `${words[i]} ${words[i + 1]}`;
+      if (phrase.length >= 6) { // Only meaningful phrases
+        if (!topicCounts[phrase]) {
+          topicCounts[phrase] = { count: 0, sources: new Set() };
+        }
+        topicCounts[phrase].count++;
+        topicCounts[phrase].sources.add(post.handle);
+      }
+    }
+  });
+
+  return Object.entries(topicCounts)
+    .map(([topic, data]) => ({
+      topic,
+      count: data.count,
+      sources: Array.from(data.sources)
+    }))
+    .filter(item => item.count >= 2) // Must appear at least twice
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+}
+
 function PlatformIcon({ platform, size = 20 }: { platform: string; size?: number }) {
   const item = PLATFORMS.find((entry) => entry.id === platform);
   const Icon = item?.icon;
@@ -352,6 +430,7 @@ export default function SocialDashboard() {
   const [competitorPosts, setCompetitorPosts] = useState<CompetitorPost[]>([]);
   const [yourHashtags, setYourHashtags] = useState<HashtagData[]>([]);
   const [competitorHashtags, setCompetitorHashtags] = useState<HashtagData[]>([]);
+  const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>([]);
   const [showManualModal, setShowManualModal] = useState(false);
   const [connectPlatform, setConnectPlatform] = useState("");
   const [connectForm, setConnectForm] = useState<ConnectAccountData>({
@@ -482,9 +561,9 @@ export default function SocialDashboard() {
         const competitorData = await competitorResp.json();
         if (competitorData.posts && Array.isArray(competitorData.posts)) {
           const posts: CompetitorPost[] = competitorData.posts.map((post: any) => ({
-            id: post.id || `${post.handle}-${post.likes}`,
-            handle: post.handle || "unknown",
-            caption: post.caption || "",
+            id: post.id || `${post.competitor_handle}-${post.likes}`,
+            handle: post.competitor_handle || post.handle || "unknown",
+            caption: post.text || post.caption || "",
             likes: post.likes || 0,
             comments: post.comments || 0,
             engagement: (post.likes || 0) + (post.comments || 0),
@@ -508,6 +587,10 @@ export default function SocialDashboard() {
               .sort((a, b) => b.count - a.count)
               .slice(0, 10)
           );
+
+          // Extract trending topics from competitor posts
+          const topics = extractTrendingTopics(posts);
+          setTrendingTopics(topics);
         }
       }
     } catch (error) {
@@ -742,11 +825,25 @@ export default function SocialDashboard() {
   }, null);
   const chartTotal = timeSeries.reduce((sum, point) => sum + point.engagement, 0);
 
+  // Calculate additional metrics
+  const totalPosts = publishedContent.length;
+  const totalComments = publishedContent.reduce((sum, item) => sum + (item.comments || 0), 0);
+  const commentRate = totalPosts > 0 ? (totalComments / totalPosts).toFixed(1) : "0.0";
+  
+  // Skip rate calculation (if we have views vs impressions data)
+  const totalViews = summary.total_views || summary.total_video_views;
+  const totalImpressions = summary.total_impressions;
+  const skipRate = totalImpressions > 0 && totalViews > 0 
+    ? Math.max(0, ((totalImpressions - totalViews) / totalImpressions * 100)).toFixed(1) + "%" 
+    : "—";
+
   const metricCards = [
     { label: "Followers", value: formatNum(summary.total_followers), icon: Users, tone: "text-blue-400" },
     { label: "Views", value: formatNum(summary.total_views || summary.total_video_views), icon: Eye, tone: "text-purple-400" },
     { label: "Reach", value: formatNum(summary.total_reach), icon: BarChart3, tone: "text-indigo-400" },
     { label: "Interactions", value: formatNum(summary.total_interactions || summary.total_engagement), icon: Zap, tone: "text-green-400" },
+    { label: "Comment Rate", value: commentRate, icon: MessageSquare, tone: "text-cyan-400" },
+    { label: "Avg Skip Rate", value: skipRate, icon: Film, tone: "text-yellow-400" },
     { label: "Avg Watch Time", value: avgWatchSec, icon: Film, tone: "text-rose-400" },
     { label: "Total Watch Time", value: totalWatchMin, icon: Film, tone: "text-pink-400" },
     { label: "Saves + Shares", value: formatNum(savesAndShares), icon: Share2, tone: "text-orange-400" },
@@ -1128,6 +1225,11 @@ export default function SocialDashboard() {
                               </p>
                             )}
                             <div className="flex items-center gap-3 text-xs text-warroom-muted">
+                              {item.views && (
+                                <span className="inline-flex items-center gap-1">
+                                  <Eye size={10} /> {formatNum(item.views)}
+                                </span>
+                              )}
                               <span className="inline-flex items-center gap-1">
                                 <Heart size={10} /> {formatNum(item.likes || 0)}
                               </span>
@@ -1267,6 +1369,58 @@ export default function SocialDashboard() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Trending Video Topics Section */}
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-sm font-semibold">Trending Video Topics</h3>
+                <p className="text-xs text-warroom-muted mt-1">
+                  Popular themes and topics from competitor content analysis
+                </p>
+              </div>
+              <span className="text-xs text-warroom-muted">From competitor intel</span>
+            </div>
+
+            <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+              {trendingTopics.length === 0 ? (
+                <div className="text-center py-8 text-warroom-muted">
+                  <TrendingUp size={24} className="mx-auto mb-3 opacity-40" />
+                  <p className="text-sm">No trending topics available yet</p>
+                  <p className="text-xs mt-1">Connect to content intelligence to discover trending themes</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {trendingTopics.map((topic, index) => (
+                    <div key={topic.topic} className="p-4 rounded-lg bg-warroom-bg border border-warroom-border/50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-warroom-text truncate">{topic.topic}</p>
+                          <p className="text-xs text-warroom-muted mt-0.5">
+                            {topic.count} mention{topic.count !== 1 ? 's' : ''} 
+                            {topic.sources.length > 1 && ` • ${topic.sources.length} competitors`}
+                          </p>
+                        </div>
+                        <span className="text-xs font-bold text-purple-400 bg-purple-500/10 rounded-full px-2 py-1 ml-2">
+                          #{index + 1}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {topic.sources.slice(0, 3).map(handle => (
+                          <span key={handle} className="text-xs bg-warroom-surface border border-warroom-border rounded px-1.5 py-0.5 text-warroom-muted">
+                            @{handle}
+                          </span>
+                        ))}
+                        {topic.sources.length > 3 && (
+                          <span className="text-xs text-warroom-muted">+{topic.sources.length - 3} more</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
