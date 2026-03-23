@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    """War Room application settings.
+    """socialRecycle application settings.
 
     Required variables (no defaults — app crashes if missing):
         JWT_SECRET, POSTGRES_URL, LEADGEN_DB_URL

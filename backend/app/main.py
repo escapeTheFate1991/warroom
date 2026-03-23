@@ -1,4 +1,4 @@
-"""WAR ROOM — Unified API Gateway"""
+"""socialRecycle — Social Media Management API"""
 import logging
 from contextlib import asynccontextmanager
 
@@ -226,7 +226,7 @@ async def verify_crm_schema():
         return False
 
 
-app = FastAPI(title="WAR ROOM", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="socialRecycle", version="0.1.0", lifespan=lifespan)
 
 # Request size limits (10MB default) - add early in middleware stack
 from fastapi.middleware.trustedhost import TrustedHostMiddleware

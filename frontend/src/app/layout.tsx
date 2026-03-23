@@ -5,8 +5,8 @@ import ThemeProvider from "@/components/ui/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 
 export const metadata: Metadata = {
-  title: "WAR ROOM",
-  description: "Mission Control — stuffnthings",
+  title: "socialRecycle",
+  description: "Social Media Management for Growing Businesses",
   icons: {
     icon: "/favicon.svg",
   },

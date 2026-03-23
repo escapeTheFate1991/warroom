@@ -12,7 +12,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-APP_NAME = os.getenv("APP_NAME", "War Room")
+APP_NAME = os.getenv("APP_NAME", "socialRecycle")
 FROM_EMAIL = "Stuff N Things <hello@stuffnthings.io>"
 
 # Cache the API key after first load
