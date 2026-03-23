@@ -110,34 +110,16 @@ interface HashtagData {
 }
 
 interface TrendingTopic {
-  topic: string;
-  count: number;
-  sources: string[]; // competitor handles using this topic
+  topic: string;          // "social media marketing" 
+  frequency: number;      // how many posts mention it
+  avg_engagement: number; // average engagement score
+  keywords: string[];     // related keywords
+  related_topics: string[]; // related topic clusters
 }
 
 type Granularity = "hourly" | "daily" | "weekly" | "monthly";
 
-const STOP_WORDS = new Set([
-  "this", "that", "what", "who", "which", "where", "when", "how", "why",
-  "is", "are", "was", "were", "be", "been", "being",
-  "have", "has", "had", "do", "does", "did",
-  "a", "an", "the", "and", "or", "but", "if", "so", "as",
-  "at", "by", "for", "in", "of", "on", "to", "up", "out",
-  "it", "its", "my", "your", "our", "their", "his", "her",
-  "i", "me", "we", "you", "he", "she", "they", "them",
-  "not", "no", "just", "very", "really", "also", "too",
-  "can", "will", "would", "could", "should", "may", "might",
-  "all", "each", "every", "some", "any", "many", "much",
-  "more", "most", "other", "new", "get", "got", "like",
-  "one", "two", "first", "last", "now", "here", "there",
-  "than", "then", "only", "even", "still", "back", "well",
-  "about", "after", "before", "between", "through", "during",
-  "into", "over", "under", "again", "further", "once",
-  "with", "from", "make", "made", "going", "come", "want",
-  "need", "know", "think", "see", "look", "take", "give",
-  "good", "great", "best", "big", "little", "long", "way",
-  "day", "time", "year", "people", "thing", "things",
-]);
+
 
 interface PlatformConfig {
   id: string;
@@ -347,55 +329,7 @@ function aggregateHashtags(content: PublishedContentItem[]): HashtagData[] {
     .slice(0, 10);
 }
 
-function extractTrendingTopics(posts: CompetitorPost[]): TrendingTopic[] {
-  const topicCounts: Record<string, { count: number; sources: Set<string> }> = {};
-  
-  posts.forEach(post => {
-    const caption = post.caption.toLowerCase();
-    // Remove hashtags and mentions first
-    const cleanCaption = caption.replace(/#\w+/g, '').replace(/@\w+/g, '');
-    
-    // Split into words and clean them
-    const words = cleanCaption
-      .replace(/[^\w\s]/g, ' ') // Replace punctuation with spaces
-      .split(/\s+/)
-      .map(word => word.trim())
-      .filter(word => word.length > 2 && !STOP_WORDS.has(word));
-    
-    // Extract single meaningful words
-    words.forEach(word => {
-      if (word.length >= 3) { // Only words 3+ chars
-        if (!topicCounts[word]) {
-          topicCounts[word] = { count: 0, sources: new Set() };
-        }
-        topicCounts[word].count++;
-        topicCounts[word].sources.add(post.handle);
-      }
-    });
-    
-    // Extract 2-word phrases
-    for (let i = 0; i < words.length - 1; i++) {
-      const phrase = `${words[i]} ${words[i + 1]}`;
-      if (phrase.length >= 6) { // Only meaningful phrases
-        if (!topicCounts[phrase]) {
-          topicCounts[phrase] = { count: 0, sources: new Set() };
-        }
-        topicCounts[phrase].count++;
-        topicCounts[phrase].sources.add(post.handle);
-      }
-    }
-  });
 
-  return Object.entries(topicCounts)
-    .map(([topic, data]) => ({
-      topic,
-      count: data.count,
-      sources: Array.from(data.sources)
-    }))
-    .filter(item => item.count >= 2) // Must appear at least twice
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
-}
 
 function PlatformIcon({ platform, size = 20 }: { platform: string; size?: number }) {
   const item = PLATFORMS.find((entry) => entry.id === platform);
@@ -500,13 +434,14 @@ export default function SocialDashboard() {
         recentPostsParams.set("platform", selectedPlatform);
       }
 
-      const [accResp, sumResp, sparkResp, velocityResp, recentPostsResp, competitorResp] = await Promise.all([
+      const [accResp, sumResp, sparkResp, velocityResp, recentPostsResp, competitorResp, trendingResp] = await Promise.all([
         authFetch(`${API}/api/social/accounts`).catch(() => null),
         authFetch(`${API}/api/social/analytics${summaryParams.toString() ? `?${summaryParams.toString()}` : ""}`).catch(() => null),
         authFetch(`${API}/api/social/analytics/sparkline`).catch(() => null),
         authFetch(`${API}/api/social/analytics/engagement-velocity`).catch(() => null),
         authFetch(`${API}/api/social/recent-posts${recentPostsParams.toString() ? `?${recentPostsParams.toString()}` : ""}`).catch(() => null),
         authFetch(`${API}/api/content-intel/competitors/top-content`).catch(() => null),
+        authFetch(`${API}/api/content-intel/competitors/trending-topics?days=30`).catch(() => null),
       ]);
 
       if (accResp?.ok) {
@@ -588,10 +523,16 @@ export default function SocialDashboard() {
               .slice(0, 10)
           );
 
-          // Extract trending topics from competitor posts
-          const topics = extractTrendingTopics(posts);
-          setTrendingTopics(topics);
+
         }
+      }
+
+      // Fetch trending topics from content intel API
+      if (trendingResp?.ok) {
+        const trendingData = await trendingResp.json();
+        setTrendingTopics(trendingData.topics || []);
+      } else {
+        setTrendingTopics([]);
       }
     } catch (error) {
       console.error("Failed to fetch social dashboard data:", error);
@@ -1393,30 +1334,38 @@ export default function SocialDashboard() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {trendingTopics.map((topic, index) => (
+                  {trendingTopics.slice(0, 10).map((topic, index) => (
                     <div key={topic.topic} className="p-4 rounded-lg bg-warroom-bg border border-warroom-border/50">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-warroom-text truncate">{topic.topic}</p>
                           <p className="text-xs text-warroom-muted mt-0.5">
-                            {topic.count} mention{topic.count !== 1 ? 's' : ''} 
-                            {topic.sources.length > 1 && ` • ${topic.sources.length} competitors`}
+                            {topic.frequency} post{topic.frequency !== 1 ? 's' : ''} 
+                            {topic.avg_engagement > 0 && ` • ${formatNum(topic.avg_engagement)} avg engagement`}
                           </p>
                         </div>
                         <span className="text-xs font-bold text-purple-400 bg-purple-500/10 rounded-full px-2 py-1 ml-2">
                           #{index + 1}
                         </span>
                       </div>
-                      <div className="flex flex-wrap gap-1">
-                        {topic.sources.slice(0, 3).map(handle => (
-                          <span key={handle} className="text-xs bg-warroom-surface border border-warroom-border rounded px-1.5 py-0.5 text-warroom-muted">
-                            @{handle}
-                          </span>
-                        ))}
-                        {topic.sources.length > 3 && (
-                          <span className="text-xs text-warroom-muted">+{topic.sources.length - 3} more</span>
-                        )}
-                      </div>
+                      {topic.keywords && topic.keywords.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {topic.keywords.slice(0, 4).map(keyword => (
+                            <span key={keyword} className="text-xs bg-warroom-surface border border-warroom-border rounded px-1.5 py-0.5 text-warroom-muted">
+                              {keyword}
+                            </span>
+                          ))}
+                          {topic.keywords.length > 4 && (
+                            <span className="text-xs text-warroom-muted">+{topic.keywords.length - 4} more</span>
+                          )}
+                        </div>
+                      )}
+                      {topic.related_topics && topic.related_topics.length > 0 && (
+                        <div className="text-xs text-warroom-muted">
+                          Related: {topic.related_topics.slice(0, 2).join(", ")}
+                          {topic.related_topics.length > 2 && "..."}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
