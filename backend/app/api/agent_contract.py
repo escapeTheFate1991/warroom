@@ -132,27 +132,5 @@ async def load_agent_assignment_map(db, *, entity_type: AssignableEntityType, en
     if not normalized_ids:
         return {}
 
-    from app.api.agents import ensure_tables
-
-    await ensure_tables(db)
-    query = text("""
-        SELECT aa.*, a.name AS agent_name, a.emoji AS agent_emoji, a.role AS agent_role
-        FROM agent_assignments aa
-        JOIN agents a ON a.id = aa.agent_id
-        WHERE aa.entity_type = :entity_type AND aa.entity_id IN :entity_ids
-        ORDER BY aa.priority DESC, aa.assigned_at ASC
-    """).bindparams(bindparam("entity_ids", expanding=True))
-
-    result = await db.execute(query, {
-        "entity_type": entity_type,
-        "entity_ids": normalized_ids,
-    })
-
-    assignments_by_entity: dict[str, list[dict[str, Any]]] = {entity_id: [] for entity_id in normalized_ids}
-    for row in result.mappings().all():
-        assignment = dict(row)
-        assignment["metadata"] = _decode_assignment_json(assignment.get("metadata"), {})
-        assignment["result"] = _decode_assignment_json(assignment.get("result"), {})
-        assignments_by_entity.setdefault(str(assignment["entity_id"]), []).append(assignment)
-
-    return assignments_by_entity
+    # Agent system removed in socialRecycle — return empty assignments
+    return {entity_id: [] for entity_id in normalized_ids}
