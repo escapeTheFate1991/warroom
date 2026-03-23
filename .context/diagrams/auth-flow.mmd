@@ -1,0 +1,30 @@
+graph TB
+    Client[Client Request] --> Middleware{AuthGuardMiddleware}
+    
+    Middleware --> CheckHeader[Check Authorization Header]
+    CheckHeader --> HasToken{Has Bearer Token?}
+    
+    HasToken -->|No| Return401[Return 401 Unauthorized]
+    HasToken -->|Yes| ValidateJWT[Validate JWT Token]
+    
+    ValidateJWT --> JWTValid{JWT Valid?}
+    JWTValid -->|No| Return401
+    JWTValid -->|Yes| ExtractClaims[Extract user_id from Claims]
+    
+    ExtractClaims --> SetContext[Set request.state.user_id]
+    SetContext --> CheckCSRF{POST/PUT/DELETE?}
+    
+    CheckCSRF -->|No| AllowRequest[Allow Request]
+    CheckCSRF -->|Yes| ValidateOrigin[Validate Origin Header]
+    
+    ValidateOrigin --> OriginValid{Origin Valid?}
+    OriginValid -->|No| Return403[Return 403 Forbidden - CSRF]
+    OriginValid -->|Yes| AllowRequest
+    
+    AllowRequest --> Handler[Route Handler]
+    Handler --> Database[(Database Query<br/>WHERE user_id = ?)]
+    
+    style Middleware fill:#e1f5fe
+    style ValidateJWT fill:#fff3e0
+    style CheckCSRF fill:#fce4ec
+    style Database fill:#e8f5e8

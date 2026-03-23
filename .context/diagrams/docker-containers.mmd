@@ -1,0 +1,39 @@
+graph LR
+    subgraph "Docker Compose Services"
+        Backend[warroom-backend-1<br/>📦 FastAPI Backend<br/>Port: 8300]
+        Frontend[warroom-frontend-1<br/>📦 Next.js Frontend<br/>Port: 3300→3000]
+        DB[PostgreSQL<br/>📦 Database<br/>Port: 5435→5432]
+    end
+    
+    subgraph "Volumes"
+        BackendVol[./backend → /app]
+        FrontendVol[./frontend → /app]
+        DBVol[warroom_postgres_data]
+    end
+    
+    subgraph "Build Context"
+        BackendBuild[./backend/Dockerfile]
+        FrontendBuild[./frontend/Dockerfile]
+        DBImage[postgres:15]
+    end
+    
+    Backend -.-> BackendVol
+    Frontend -.-> FrontendVol
+    DB -.-> DBVol
+    
+    Backend -.-> BackendBuild
+    Frontend -.-> FrontendBuild
+    DB -.-> DBImage
+    
+    subgraph "Rebuild Commands"
+        FullRebuild[docker compose up -d --build --remove-orphans]
+        BackendOnly[docker compose up -d --build backend --remove-orphans]
+        FrontendOnly[docker compose up -d --build frontend --remove-orphans]
+        NoCache[docker compose up -d --build --no-cache --remove-orphans]
+    end
+    
+    style Backend fill:#009688
+    style Frontend fill:#61dafb
+    style DB fill:#336791
+    style FullRebuild fill:#ff9800
+    style NoCache fill:#f44336
