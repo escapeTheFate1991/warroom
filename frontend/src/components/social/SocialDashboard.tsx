@@ -782,7 +782,7 @@ export default function SocialDashboard() {
                       <div key={`${point.bucket}-${point.label}`} className="min-w-[44px] flex-1 h-full flex flex-col items-center justify-end gap-2">
                         <div className="text-[10px] text-warroom-muted">{formatNum(point.engagement)}</div>
                         <div
-                          className="w-full rounded-t-lg bg-gradient-to-t from-warroom-accent/30 to-warroom-accent"
+                          className="w-full rounded-t-lg bg-gradient-to-t from-purple-600/60 to-purple-400"
                           style={{ height: `${height}%` }}
                           title={`${point.label}: ${point.engagement} engagement`}
                         />
