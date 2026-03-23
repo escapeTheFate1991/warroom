@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""
+War Room Context CLI - Integration Script
+
+Provides easy access to the context management system from anywhere in the project.
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Get War Room project root
+project_root = Path(__file__).parent.absolute()
+context_dir = project_root / ".context"
+
+# Add context modules to path
+sys.path.insert(0, str(context_dir))
+
+# Import and run the main CLI
+from warroom_context import main
+
+if __name__ == "__main__":
+    # Change to context directory for relative path handling
+    os.chdir(context_dir)
+    main()

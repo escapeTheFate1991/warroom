@@ -1,0 +1,127 @@
+{
+  "name": "war-room-context",
+  "displayName": "War Room Context Manager",
+  "description": "Intelligent context loading and suggestions for War Room development",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/.context/context.yaml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "warRoomContext.loadContext",
+        "title": "Load Context",
+        "category": "War Room"
+      },
+      {
+        "command": "warRoomContext.searchCode",
+        "title": "Search Code Semantically",
+        "category": "War Room"
+      },
+      {
+        "command": "warRoomContext.startSession",
+        "title": "Start Development Session",
+        "category": "War Room"
+      },
+      {
+        "command": "warRoomContext.showSession",
+        "title": "Show Current Session",
+        "category": "War Room"
+      },
+      {
+        "command": "warRoomContext.trackError",
+        "title": "Track Error",
+        "category": "War Room"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "warRoomContext.loadContext",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c"
+      },
+      {
+        "command": "warRoomContext.searchCode",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "warRoomContext.loadContext",
+          "group": "warroom@1"
+        },
+        {
+          "command": "warRoomContext.trackError",
+          "group": "warroom@2"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "warRoomContext",
+          "name": "War Room Context",
+          "when": "workspaceContains:**/.context/context.yaml"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "warRoomContextContainer",
+          "title": "War Room Context",
+          "icon": "$(search-view-icon)"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "War Room Context",
+      "properties": {
+        "warRoomContext.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable War Room context management"
+        },
+        "warRoomContext.autoLoadContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically load context on file open/error"
+        },
+        "warRoomContext.projectRoot": {
+          "type": "string",
+          "default": "",
+          "description": "War Room project root path (auto-detected if empty)"
+        },
+        "warRoomContext.orgId": {
+          "type": "string",
+          "default": "1",
+          "description": "Organization ID for context storage"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/node": "16.x",
+    "typescript": "^4.9.4"
+  },
+  "dependencies": {
+    "child_process": "^1.0.2",
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7"
+  }
+}
