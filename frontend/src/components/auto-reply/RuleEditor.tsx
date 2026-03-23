@@ -215,7 +215,7 @@ export default function RuleEditor({ rule, onSave, onClose }: RuleEditorProps) {
                     setDeliveryChannels(["dm"]);
                     setKeywords([]);
                   } else if (e.target.value === "comment") {
-                    setDeliveryChannels(["comment"]);
+                    setDeliveryChannels(["comment"]); // Default to comment, but DM can be added
                   } else if (e.target.value === "dm") {
                     setDeliveryChannels(["dm"]);
                   }
@@ -256,12 +256,12 @@ export default function RuleEditor({ rule, onSave, onClose }: RuleEditorProps) {
               <button
                 type="button"
                 onClick={() => toggleDeliveryChannel("dm")}
-                disabled={ruleType === "comment"}
+                disabled={false}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                   deliveryChannels.includes("dm")
                     ? "bg-warroom-accent text-white"
                     : "bg-warroom-bg border border-warroom-border text-warroom-muted hover:text-warroom-text"
-                } ${ruleType === "comment" ? "opacity-50 cursor-not-allowed" : ""}`}
+                }`}
               >
                 Direct Message
               </button>
@@ -270,7 +270,7 @@ export default function RuleEditor({ rule, onSave, onClose }: RuleEditorProps) {
               {ruleType === "follow" 
                 ? "Follow triggers can only send DMs"
                 : ruleType === "comment"
-                ? "Comment triggers can reply publicly or send DMs"
+                ? "Comment triggers can reply publicly and/or send DMs"
                 : ruleType === "dm"
                 ? "DM triggers can only send DMs"
                 : "Select where to send the auto-reply"
