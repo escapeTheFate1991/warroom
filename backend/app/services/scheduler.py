@@ -51,6 +51,24 @@ async def _audience_refresh_job():
     # TODO: Wire to audience intelligence re-analysis endpoint
 
 
+async def _follower_polling_job():
+    """Poll all Instagram accounts for new followers."""
+    from app.services.follower_polling import poll_all_accounts
+
+    logger.info("Scheduled Instagram follower polling starting")
+    try:
+        result = await poll_all_accounts()
+        new_followers = result.get("total_new_followers", 0)
+        accounts_polled = result.get("accounts_polled", 0)
+        logger.info(
+            "Follower polling complete: %d accounts polled, %d new followers detected",
+            accounts_polled,
+            new_followers,
+        )
+    except Exception as e:
+        logger.error("Scheduled follower polling failed: %s", e)
+
+
 def _random_time_in_window(start_hour: int, end_hour: int) -> time:
     """Generate a random time within the given hour window."""
     hour = random.randint(start_hour, end_hour - 1)
@@ -89,6 +107,17 @@ async def _daily_loop(job_name: str, job_fn, start_hour: int, end_hour: int):
         await asyncio.sleep(20 * 3600)
 
 
+async def _hourly_loop(job_name: str, job_fn, interval_seconds: int = 3600):
+    """Run a job at regular intervals (default: every hour)."""
+    while True:
+        logger.info("Scheduler: %s starting (next run in %d minutes)", job_name, interval_seconds // 60)
+        try:
+            await job_fn()
+        except Exception as e:
+            logger.error("Scheduler %s error: %s", job_name, e)
+        await asyncio.sleep(interval_seconds)
+
+
 async def start_scheduler():
     """Start all scheduled background tasks."""
     logger.info("Starting background scheduler")
@@ -107,10 +136,15 @@ async def start_scheduler():
     social_afternoon = asyncio.create_task(
         _daily_loop("social-sync-pm", _social_sync_job, 13, 17)
     )
+    
+    # Follower polling: every hour
+    follower_polling = asyncio.create_task(
+        _hourly_loop("instagram-follower-polling", _follower_polling_job, 3600)
+    )
 
-    _running_tasks.extend([morning, afternoon, social_morning, social_afternoon])
+    _running_tasks.extend([morning, afternoon, social_morning, social_afternoon, follower_polling])
     logger.info(
-        "Scheduler started: competitor sync jobs (AM 6-10, PM 4-8 EST) and social sync jobs (AM 8-12, PM 1-5 EST)"
+        "Scheduler started: competitor sync (AM 6-10, PM 4-8 EST), social sync (AM 8-12, PM 1-5 EST), and Instagram follower polling (hourly)"
     )
 
 

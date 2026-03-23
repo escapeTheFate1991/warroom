@@ -149,9 +149,10 @@ async def process_comment(
     """Process an incoming Instagram comment.
 
     1. Check for duplicate
-    2. Find matching auto-reply rule
-    3. If match: send reply via Graph API, log result
-    4. If no match: log as skipped
+    2. Capture commenter as potential follower
+    3. Find matching auto-reply rule
+    4. If match: send reply via Graph API, log result
+    5. If no match: log as skipped
     """
     try:
         # Get account info first (needed for org_id in dedup and logging)
@@ -163,6 +164,16 @@ async def process_comment(
         org_id = account["org_id"]
         social_account_id = account["id"]
         platform = "instagram"
+        
+        # Capture commenter as potential follower (don't trigger auto-reply here)
+        if commenter_ig_id and commenter_name:
+            from app.services.follower_polling import capture_follower_from_interaction
+            await capture_follower_from_interaction(
+                social_account_id=social_account_id,
+                user_ig_id=commenter_ig_id,
+                username=commenter_name,
+                trigger_auto_reply=False  # Handle auto-reply separately for comments
+            )
 
         # Deduplication
         if await _is_duplicate(org_id, comment_id):
@@ -238,9 +249,10 @@ async def process_dm(
     """Process an incoming Instagram DM.
 
     1. Check for duplicate
-    2. Find matching auto-reply rule (dm type)
-    3. If match: send DM reply via Graph API, log result
-    4. If no match: log as skipped
+    2. Capture sender as potential follower
+    3. Find matching auto-reply rule (dm type)
+    4. If match: send DM reply via Graph API, log result
+    5. If no match: log as skipped
     """
     try:
         # Get account info first (needed for org_id in dedup and logging)
@@ -252,6 +264,16 @@ async def process_dm(
         org_id = account["org_id"]
         social_account_id = account["id"]
         platform = "instagram"
+        
+        # Capture sender as potential follower (don't trigger auto-reply here)
+        if sender_ig_id:
+            from app.services.follower_polling import capture_follower_from_interaction
+            await capture_follower_from_interaction(
+                social_account_id=social_account_id,
+                user_ig_id=sender_ig_id,
+                username=sender_ig_id,  # Username not available in DM events
+                trigger_auto_reply=False  # Handle auto-reply separately for DMs
+            )
 
         # Deduplication
         if await _is_duplicate(org_id, message_id):
@@ -326,9 +348,10 @@ async def process_follow(
 ):
     """Process an incoming Instagram follow event.
 
-    1. Find matching follow auto-reply rules
-    2. For each match: send DM welcome message, log result
-    3. No deduplication needed — follows should trigger every time
+    1. Capture follower in database
+    2. Find matching follow auto-reply rules
+    3. For each match: send DM welcome message, log result
+    4. Includes deduplication to prevent spam
     """
     try:
         # Get account info first (needed for org_id and tokens)
@@ -340,8 +363,21 @@ async def process_follow(
         org_id = account["org_id"]
         social_account_id = account["id"]
         platform = "instagram"
+        
+        # Capture follower in database (with auto-reply trigger)
+        from app.services.follower_polling import capture_follower_from_interaction
+        is_new_follower = await capture_follower_from_interaction(
+            social_account_id=social_account_id,
+            user_ig_id=user_id,
+            username=username,
+            trigger_auto_reply=False  # We'll handle auto-reply below
+        )
+        
+        if not is_new_follower:
+            logger.debug("Follow event from known follower %s - skipping auto-reply", username)
+            return
 
-        # Use user_id as external_id for follow events
+        # Use user_id as external_id for follow events (for deduplication)
         external_id = f"follow:{user_id}"
 
         # Deduplication for follow events (don't spam new followers)
