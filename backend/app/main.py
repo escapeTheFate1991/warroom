@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import kanban, team, library, leadgen, chat, health, mental_library, library_ingest, voice, settings, auth, admin, social, social_oauth, social_content, social_sync, files, competitors, content_intel, scraper, skills_manager, usage, soul, calendar as cal_api, google_calendar, ai_planning, task_deps, task_execution, blackboard, agents, contact_webhook, notifications, cold_email, lead_enrichment, email_inbox, contracts, invoicing, prospects, content_tracker, content_ai, telnyx, twilio, twilio_voice, comms, stripe_settings, google_ai_studio, ugc_studio, video_editor, audit_trail, token_metering, vector_memory, content_scheduler, agent_onboarding, video_copycat, video_assets, agent_chat, agent_comms, knowledge_pool, anchor_agent, video_formats, simulate, digital_copies, content_social, org_chart, carousel, auto_reply, cdn_migration, social_accounts
-from app.api import entities, goals, approvals, task_checkout, budget, search, mirofish
+from app.api import chat, health, settings, auth, social, social_oauth, social_content, social_sync, files, competitors, content_intel, calendar as cal_api, google_calendar, notifications, stripe_settings, google_ai_studio, ugc_studio, video_editor, content_scheduler, video_copycat, video_assets, video_formats, content_social, carousel, auto_reply, social_accounts, mirofish
+
 from app.api.webhooks.instagram import router as instagram_webhook_router
-from app.api.crm import deals, contacts, activities, pipelines, products, emails, marketing, attributes, acl, data, audit, pipeline_board, workflows, workflow_executions
+
 from app.db.leadgen_db import leadgen_engine
 from app.db.crm_db import crm_engine, crm_session
 from app.models.lead import Base
@@ -67,250 +67,12 @@ async def _init_carousel_tables(engine):
         return False
 
 
-async def _init_agent_chat_tables(engine):
-    """Initialize agent chat tables from migration file."""
-    try:
-        from pathlib import Path
-        
-        migration_path = Path(__file__).parent / "db" / "agent_chat_migration.sql"
-        if not migration_path.exists():
-            logger.error(f"Agent chat migration file not found: {migration_path}")
-            return False
-            
-        with open(migration_path, 'r') as f:
-            migration_sql = f.read()
-        
-        async with engine.begin() as conn:
-            raw = await conn.get_raw_connection()
-            await raw.driver_connection.execute(migration_sql)
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Agent chat table initialization failed: {e}")
-        return False
 
 
-async def _run_mental_library_migration():
-    """Initialize Mental Library tables from migration file."""
-    try:
-        from pathlib import Path
-        
-        migration_path = Path(__file__).parent / "db" / "mental_library_migration.sql"
-        if not migration_path.exists():
-            logger.error(f"Mental Library migration file not found: {migration_path}")
-            return False
-            
-        with open(migration_path, 'r') as f:
-            migration_sql = f.read()
-        
-        async with crm_engine.begin() as conn:
-            raw = await conn.get_raw_connection()
-            await raw.driver_connection.execute(migration_sql)
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Mental Library migration failed: {e}")
-        return False
 
 
-async def _run_paperclip_migration():
-    """Run Paperclip Architecture migration (entities, goals, approvals, budget, checkout)."""
-    try:
-        from pathlib import Path
-
-        migration_path = Path(__file__).parent / "db" / "paperclip_migration.sql"
-        if not migration_path.exists():
-            logger.error(f"Paperclip migration file not found: {migration_path}")
-            return False
-
-        with open(migration_path, 'r') as f:
-            migration_sql = f.read()
-
-        async with crm_engine.begin() as conn:
-            raw = await conn.get_raw_connection()
-            await raw.driver_connection.execute(migration_sql)
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Paperclip migration failed: {e}")
-        return False
 
 
-async def _run_content_engine_migration():
-    """Run Content Engine migration (video formats, format detection, performance tracking)."""
-    try:
-        from pathlib import Path
-        import re
-
-        migration_path = Path(__file__).parent / "db" / "content_engine_migration.sql"
-        if not migration_path.exists():
-            logger.error(f"Content Engine migration file not found: {migration_path}")
-            return False
-
-        with open(migration_path, 'r') as f:
-            migration_sql = f.read()
-
-        # Strip SQL comments (-- to end of line) then split on semicolons
-        cleaned = re.sub(r'--[^\n]*', '', migration_sql)
-        statements = [s.strip() for s in cleaned.split(';') if s.strip()]
-
-        async with crm_engine.begin() as conn:
-            raw = await conn.get_raw_connection()
-            for stmt in statements:
-                await raw.driver_connection.execute(stmt)
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Content Engine migration failed: {e}")
-        return False
-
-
-async def _run_content_distribution_migration():
-    """Run Content Distribution migration (smart multi-account distribution system)."""
-    try:
-        from pathlib import Path
-        import re
-
-        migration_path = Path(__file__).parent / "db" / "content_distribution_migration.sql"
-        if not migration_path.exists():
-            logger.error(f"Content Distribution migration file not found: {migration_path}")
-            return False
-
-        with open(migration_path, 'r') as f:
-            migration_sql = f.read()
-
-        # Strip SQL comments (-- to end of line) then split on semicolons
-        cleaned = re.sub(r'--[^\n]*', '', migration_sql)
-        statements = [s.strip() for s in cleaned.split(';') if s.strip()]
-
-        async with crm_engine.begin() as conn:
-            raw = await conn.get_raw_connection()
-            for stmt in statements:
-                await raw.driver_connection.execute(stmt)
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Content Distribution migration failed: {e}")
-        return False
-
-
-async def _run_swarm_personas_migration():
-    """Run Swarm Personas migration (Mirofish Predictive Sandbox system)."""
-    try:
-        from pathlib import Path
-        import re
-
-        migration_path = Path(__file__).parent / "db" / "swarm_personas_migration.sql"
-        if not migration_path.exists():
-            logger.error(f"Swarm Personas migration file not found: {migration_path}")
-            return False
-
-        with open(migration_path, 'r') as f:
-            migration_sql = f.read()
-
-        # Strip SQL comments (-- to end of line) then split on semicolons
-        cleaned = re.sub(r'--[^\n]*', '', migration_sql)
-        statements = [s.strip() for s in cleaned.split(';') if s.strip()]
-
-        async with crm_engine.begin() as conn:
-            raw = await conn.get_raw_connection()
-            for stmt in statements:
-                await raw.driver_connection.execute(stmt)
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Swarm Personas migration failed: {e}")
-        return False
-
-
-async def _run_content_social_migration():
-    """Run Content Social migration (content_drafts table for URL → social posts pipeline)."""
-    try:
-        from pathlib import Path
-        import re
-
-        migration_path = Path(__file__).parent / "db" / "content_social_migration.sql"
-        if not migration_path.exists():
-            logger.error(f"Content Social migration file not found: {migration_path}")
-            return False
-
-        with open(migration_path, 'r') as f:
-            migration_sql = f.read()
-
-        # Strip SQL comments (-- to end of line) then split on semicolons
-        cleaned = re.sub(r'--[^\n]*', '', migration_sql)
-        statements = [s.strip() for s in cleaned.split(';') if s.strip()]
-
-        async with crm_engine.begin() as conn:
-            raw = await conn.get_raw_connection()
-            for stmt in statements:
-                await raw.driver_connection.execute(stmt)
-
-        return True
-
-    except Exception as e:
-        logger.error(f"Content Social migration failed: {e}")
-        return False
-
-
-async def _run_org_chart_migration():
-    """Run Org Chart & Goal Ancestry migration."""
-    try:
-        from pathlib import Path
-        
-        migration_path = Path(__file__).parent / "db" / "org_chart_migration.sql"
-        if not migration_path.exists():
-            logger.error(f"Org Chart migration file not found: {migration_path}")
-            return False
-        
-        with open(migration_path, 'r') as f:
-            migration_sql = f.read()
-        
-        # Use raw asyncpg connection for multi-statement execution
-        async with crm_engine.begin() as conn:
-            raw = await conn.get_raw_connection()
-            await raw.driver_connection.execute(migration_sql)
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Org Chart migration failed: {e}")
-        return False
-
-
-async def _init_network_ai_blackboard():
-    """Initialize Network-AI blackboard (ensure blackboard file exists)."""
-    try:
-        from pathlib import Path
-        import subprocess
-        
-        network_ai_dir = Path.home() / ".openclaw/workspace/skills/network-ai"
-        blackboard_script = network_ai_dir / "scripts" / "blackboard.py"
-        
-        if not blackboard_script.exists():
-            logger.error(f"Network-AI blackboard script not found: {blackboard_script}")
-            return False
-        
-        # Initialize blackboard by calling it with a simple command (this creates the file)
-        result = subprocess.run([
-            "python3", str(blackboard_script), "list"
-        ], capture_output=True, text=True, timeout=10, cwd=str(network_ai_dir))
-        
-        if result.returncode != 0:
-            logger.warning(f"Network-AI blackboard init warning: {result.stderr}")
-            # Don't fail startup for this - blackboard will be created on first write
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Network-AI blackboard initialization failed: {e}")
-        return False
 
 
 def _validate_jwt_secret():
@@ -376,106 +138,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning("Failed to ensure CRM metadata/contact columns: %s", e)
 
-        if crm_schema_ok:
-            await telnyx.init_telnyx_tables()
-            logger.info("Telnyx CRM tables initialized")
-        
-        # Agents tables (crm schema — must exist before any feature queries agent_assignments)
-        from app.api.agents import ensure_tables as ensure_agent_tables
-        async with crm_session() as db:
-            await db.execute(sa_text("SET search_path TO crm, public"))
-            await ensure_agent_tables(db)
-        from app.api import agents as _agents_mod
-        _agents_mod._tables_ready = True
-        logger.info("Agent tables initialized (crm schema)")
-        
-        # Agent Provisioning tables (crm schema — Anchor Agent templates and instances)
-        if crm_schema_ok:
-            try:
-                from app.api.agent_onboarding import ensure_tables as ensure_onboarding_tables, seed_skill_templates
-                async with crm_session() as db:
-                    await ensure_onboarding_tables(db)
-                    await seed_skill_templates(db, org_id=1)  # Seed skill templates for org 1
-                logger.info("Agent provisioning tables initialized with skill templates")
-            except Exception as e:
-                logger.error("Failed to initialize agent provisioning tables: %s", e)
-                
-        # Agent Multi-Instance migration (crm schema + public knowledge pool)
-        try:
-            from app.db.crm_db import run_agent_multi_instance_migration
-            multi_ok = await run_agent_multi_instance_migration()
-            if multi_ok:
-                logger.info("Agent multi-instance migration applied")
-            else:
-                logger.warning("Agent multi-instance migration skipped or failed")
-        except Exception as e:
-            logger.error("Agent multi-instance migration error: %s", e)
-        
-        # Contact submissions table (public schema)
-        await contact_webhook.init_contact_table()
-        logger.info("Contact submissions table initialized")
 
-        # Outbound emails table (public schema — comms hub tracking)
-        await comms.init_outbound_emails_table()
-        logger.info("Outbound emails table initialized")
-        
-        # Cold email tables (public schema)
-        await cold_email.init_cold_email_tables()
-        logger.info("Cold email tables initialized")
-        
-        # Lead enrichments table (public schema)
-        await lead_enrichment.init_enrichments_table()
-        logger.info("Lead enrichments table initialized")
-        
-        # Email inbox tables (public schema)
-        await email_inbox.init_email_tables()
-        logger.info("Email inbox tables initialized")
-
-        # Warm Resend API key cache (so sync _send_email works immediately)
-        from app.services.email import _get_resend_key
-        resend_key = await _get_resend_key()
-        logger.info("Resend API key %s", "loaded" if resend_key else "NOT configured")
-        
-        # Contract tables (public schema)
-        await contracts.init_contracts_tables()
-        logger.info("Contract tables initialized")
-        
-        # Invoicing tables (public schema)
-        await invoicing.init_invoicing_tables()
-        logger.info("Invoicing tables initialized")
-        
-        # Prospects meta table (public schema)
-        await prospects.init_prospects_table()
-        logger.info("Prospects meta table initialized")
-        
-        # Stripe products table (public schema) + seed defaults
-        await stripe_settings.init_products_table(leadgen_engine)
-        logger.info("Stripe products table initialized")
-        
-        # AI Call intakes table (public schema)
-        await twilio_voice._ensure_table()
-        logger.info("Call intakes table initialized")
-        
-        # Token metering system (public schema)
-        from app.services.token_metering import init_token_metering_tables
-        await init_token_metering_tables(leadgen_engine)
-        logger.info("Token metering system initialized")
-        
-        # Agent chat tables (public schema) — user-agent conversations and tasks
-        await _init_agent_chat_tables(leadgen_engine)
-        logger.info("Agent chat tables initialized")
-        
-        # Network-AI blackboard initialization (ensure blackboard file exists)
-        await _init_network_ai_blackboard()
-        logger.info("Network-AI blackboard initialized")
-        
-        # Audit Trail table (public schema) — immutable activity logging
-        from app.services.audit_trail import init_audit_trail_table
-        audit_ok = await init_audit_trail_table(leadgen_engine)
-        if audit_ok:
-            logger.info("Audit trail table initialized")
-        else:
-            logger.warning("Audit trail table initialization failed")
         
         # Video Copycat tables — must run before content scheduler (compositions FK → storyboards)
         try:
@@ -518,84 +181,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to initialize Video Assets tables: %s", e)
 
-    # Multi-tenant migration (own try/except — must not be blocked by other init failures)
-    try:
-        from app.db.crm_db import run_multi_tenant_migration
-        mt_ok = await run_multi_tenant_migration()
-        if mt_ok:
-            logger.info("Multi-tenant migration applied")
-        else:
-            logger.warning("Multi-tenant migration skipped or failed")
-    except Exception as e:
-        logger.error("Multi-tenant migration error: %s", e)
 
-    # OAuth scoping migration (adds visibility_type to social_accounts)
-    try:
-        from app.db.crm_db import run_oauth_scoping_migration
-        oauth_ok = await run_oauth_scoping_migration()
-        if oauth_ok:
-            logger.info("OAuth scoping migration applied")
-        else:
-            logger.warning("OAuth scoping migration skipped or failed")
-    except Exception as e:
-        logger.error("OAuth scoping migration error: %s", e)
-
-    # Mental Library migration (creates crm.ml_videos + crm.ml_chunks)
-    try:
-        await _run_mental_library_migration()
-        logger.info("Mental Library migration applied")
-    except Exception as e:
-        logger.error("Mental Library migration error: %s", e)
-
-    # Paperclip Architecture migration (entities, goals, approvals, budget, task checkout)
-    try:
-        await _run_paperclip_migration()
-        logger.info("Paperclip architecture migration applied")
-    except Exception as e:
-        logger.error("Paperclip architecture migration error: %s", e)
-
-    # Content Engine migration (video formats, format detection, performance tracking)
-    try:
-        await _run_content_engine_migration()
-        logger.info("Content Engine migration applied")
-    except Exception as e:
-        logger.error("Content Engine migration error: %s", e)
-
-    # Content Distribution migration (smart multi-account distribution system)
-    try:
-        await _run_content_distribution_migration()
-        logger.info("Content Distribution migration applied")
-    except Exception as e:
-        logger.error("Content Distribution migration error: %s", e)
-
-    # Swarm Personas migration (Mirofish Predictive Sandbox system)
-    try:
-        await _run_swarm_personas_migration()
-        logger.info("Swarm Personas migration applied")
-    except Exception as e:
-        logger.error("Swarm Personas migration error: %s", e)
-
-    # Digital Copies migration (Soul ID system)
-    try:
-        from app.db.crm_db import run_digital_copies_migration
-        await run_digital_copies_migration()
-        logger.info("Digital Copies migration applied")
-    except Exception as e:
-        logger.error("Digital Copies migration error: %s", e)
-
-    # Content Social migration (URL → Social Posts pipeline)
-    try:
-        await _run_content_social_migration()
-        logger.info("Content Social migration applied")
-    except Exception as e:
-        logger.error("Content Social migration error: %s", e)
-
-    # Org Chart & Goal Ancestry migration (organizational structure)
-    try:
-        await _run_org_chart_migration()
-        logger.info("Org Chart migration applied")
-    except Exception as e:
-        logger.error("Org Chart migration error: %s", e)
 
     # Start background scheduler (competitor syncs, etc.)
     from app.services.scheduler import start_scheduler, stop_scheduler
@@ -697,100 +283,33 @@ app.add_middleware(
 
 app.include_router(health.router, tags=["health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
-app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
-app.include_router(search.router, prefix="/api", tags=["search"])
-app.include_router(kanban.router, prefix="/api/kanban", tags=["kanban"])
-app.include_router(team.router, prefix="/api/team", tags=["team"])
-app.include_router(agent_onboarding.router, tags=["agent-onboarding"])
-app.include_router(agents.router, prefix="/api", tags=["agents"])
-app.include_router(agent_chat.router, prefix="/api", tags=["agent-chat"])
-app.include_router(agent_comms.router, prefix="/api", tags=["agent-comms"])
-app.include_router(anchor_agent.router, tags=["anchor-agent"])
-app.include_router(knowledge_pool.router, prefix="/api/knowledge", tags=["knowledge-pool"])
-app.include_router(library.router, prefix="/api/library", tags=["library"])
-app.include_router(leadgen.router, prefix="/api/leadgen", tags=["leadgen"])
-app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
-app.include_router(mental_library.router, prefix="/api/ml", tags=["mental-library"])
-app.include_router(library_ingest.router, prefix="/api/library", tags=["library-ingest"])
-app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
-app.include_router(social_accounts.router, prefix="/api/settings/social-accounts", tags=["social-accounts"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
-app.include_router(usage.router, prefix="/api/usage", tags=["usage"])
+app.include_router(stripe_settings.router, prefix="/api", tags=["stripe"])
+app.include_router(files.router, prefix="/api/files", tags=["files"])
+app.include_router(cal_api.router, prefix="/api", tags=["calendar"])
+app.include_router(google_calendar.router, prefix="/api", tags=["google-calendar"])
 app.include_router(social.router, prefix="/api/social", tags=["social"])
 app.include_router(social_oauth.router, prefix="/api/social", tags=["social-oauth"])
 app.include_router(social_content.router, prefix="/api/social", tags=["social-content"])
 app.include_router(social_sync.router, prefix="/api/social", tags=["social-sync"])
+app.include_router(social_accounts.router, prefix="/api/settings/social-accounts", tags=["social-accounts"])
 app.include_router(content_social.router, prefix="/api/content-social", tags=["content-social"])
 app.include_router(competitors.router, prefix="/api", tags=["competitors"])
 app.include_router(content_intel.router, prefix="/api/content-intel", tags=["content-intelligence"])
-app.include_router(files.router, prefix="/api/files", tags=["files"])
-app.include_router(scraper.router, prefix="/api", tags=["scraper"])
-app.include_router(skills_manager.router, prefix="/api", tags=["skills"])
-app.include_router(soul.router, prefix="/api", tags=["soul"])
-app.include_router(cal_api.router, prefix="/api", tags=["calendar"])
-app.include_router(google_calendar.router, prefix="/api", tags=["google-calendar"])
-app.include_router(ai_planning.router, prefix="/api", tags=["ai-planning"])
-app.include_router(task_deps.router, prefix="/api", tags=["task-dependencies"])
-app.include_router(task_execution.router, prefix="/api", tags=["task-execution"])
-app.include_router(blackboard.router, prefix="/api", tags=["blackboard"])
-app.include_router(contact_webhook.router, prefix="/api", tags=["contact-webhook"])
-app.include_router(notifications.router, prefix="/api", tags=["notifications"])
-app.include_router(cold_email.router, prefix="/api", tags=["cold-email"])
-app.include_router(lead_enrichment.router, prefix="/api", tags=["lead-enrichment"])
-app.include_router(email_inbox.router, prefix="/api", tags=["email-inbox"])
-app.include_router(invoicing.router, prefix="/api", tags=["invoicing"])
-app.include_router(contracts.router, prefix="/api", tags=["contracts"])
-app.include_router(prospects.router, prefix="/api", tags=["prospects"])
-app.include_router(content_tracker.router, prefix="/api", tags=["content-tracker"])
-app.include_router(content_ai.router, prefix="/api/content", tags=["content-ai"])
-app.include_router(telnyx.router, prefix="/api", tags=["telnyx"])
-app.include_router(twilio.router, prefix="/api", tags=["twilio"])
-app.include_router(twilio_voice.router, prefix="/api/twilio", tags=["twilio-voice"])
-app.include_router(comms.router, prefix="/api/comms", tags=["communications"])
-app.include_router(stripe_settings.router, prefix="/api", tags=["stripe"])
-app.include_router(google_ai_studio.router, prefix="/api/ai-studio", tags=["google-ai-studio"])
-app.include_router(ugc_studio.router, prefix="/api/ai-studio/ugc", tags=["ugc-studio"])
-app.include_router(digital_copies.router, prefix="/api", tags=["digital-copies"])
-app.include_router(video_copycat.router, prefix="/api/video-copycat", tags=["video-copycat"])
-app.include_router(video_assets.router, prefix="/api/video-copycat", tags=["video-assets"])
-app.include_router(video_editor.router, prefix="/api/video", tags=["video-editor", "video-copycat"])
-app.include_router(token_metering.router, prefix="/api/tokens", tags=["token-metering"])
-app.include_router(audit_trail.router, prefix="/api/audit", tags=["audit-trail"])
-app.include_router(vector_memory.router, prefix="/api/memory", tags=["vector-memory"])
 app.include_router(content_scheduler.router, prefix="/api/scheduler", tags=["content-scheduler"])
 app.include_router(carousel.router, prefix="/api/carousel", tags=["carousel"])
 app.include_router(auto_reply.router, prefix="/api/auto-reply", tags=["auto-reply"])
-app.include_router(instagram_webhook_router, tags=["webhooks"])
-app.include_router(video_formats.router, prefix="/api", tags=["video-formats"])
-app.include_router(simulate.router, prefix="/api/simulate", tags=["simulate"])
 app.include_router(mirofish.router, tags=["mirofish"])
+app.include_router(google_ai_studio.router, prefix="/api/ai-studio", tags=["google-ai-studio"])
+app.include_router(ugc_studio.router, prefix="/api/ai-studio/ugc", tags=["ugc-studio"])
+app.include_router(video_editor.router, prefix="/api/video", tags=["video-editor", "video-copycat"])
+app.include_router(video_copycat.router, prefix="/api/video-copycat", tags=["video-copycat"])
+app.include_router(video_assets.router, prefix="/api/video-copycat", tags=["video-assets"])
+app.include_router(video_formats.router, prefix="/api", tags=["video-formats"])
+app.include_router(instagram_webhook_router, tags=["webhooks"])
+app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(notifications.router, prefix="/api", tags=["notifications"])
 
-# Background Jobs
-app.include_router(cdn_migration.router, tags=["background-jobs"])
-
-# Paperclip Architecture Routes
-app.include_router(entities.router, prefix="/api/entities", tags=["entities"])
-app.include_router(goals.router, prefix="/api/goals", tags=["goals"])
-app.include_router(approvals.router, prefix="/api/approvals", tags=["approvals"])
-app.include_router(org_chart.router, tags=["org-chart"])
-app.include_router(task_checkout.router, prefix="/api/tasks", tags=["task-checkout"])
-app.include_router(budget.router, prefix="/api/agents", tags=["agent-budget"])
-
-# CRM Routes
-app.include_router(deals.router, prefix="/api/crm", tags=["crm-deals"])
-app.include_router(contacts.router, prefix="/api/crm", tags=["crm-contacts"])
-app.include_router(activities.router, prefix="/api/crm", tags=["crm-activities"])
-app.include_router(pipelines.router, prefix="/api/crm", tags=["crm-pipelines"])
-app.include_router(products.router, prefix="/api/crm", tags=["crm-products"])
-app.include_router(emails.router, prefix="/api/crm", tags=["crm-emails"])
-app.include_router(marketing.router, prefix="/api/crm", tags=["crm-marketing"])
-app.include_router(attributes.router, prefix="/api/crm", tags=["crm-attributes"])
-app.include_router(acl.router, prefix="/api/crm", tags=["crm-acl"])
-app.include_router(data.router, prefix="/api/crm", tags=["crm-data"])
-app.include_router(audit.router, prefix="/api/crm", tags=["crm-audit"])
-app.include_router(pipeline_board.router, prefix="/api/crm", tags=["crm-pipeline-board"])
-app.include_router(workflows.router, prefix="/api/crm", tags=["crm-workflows"])
-app.include_router(workflow_executions.router, prefix="/api/crm", tags=["crm-workflow-executions"])
 
 # Static file serving for uploads
 import os
