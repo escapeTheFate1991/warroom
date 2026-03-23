@@ -109,17 +109,19 @@ def _verify_signature(request: Request, body: bytes) -> bool:
 # ── Entry Processing ─────────────────────────────────────────────────
 
 async def _process_entry(entry: dict):
-    """Process a single webhook entry (may contain comments or messages)."""
+    """Process a single webhook entry (may contain comments, messages, or follows)."""
     page_id = entry.get("id")
 
     try:
-        # Handle comment events (field-based changes)
+        # Handle field-based changes (comments, follows, etc.)
         for change in entry.get("changes", []):
             field = change.get("field")
             value = change.get("value", {})
 
             if field == "comments":
                 await _handle_comment_event(page_id, value)
+            elif field == "followers":
+                await _handle_follow_event(page_id, value)
             else:
                 logger.debug("Ignoring webhook field: %s", field)
 
@@ -162,6 +164,36 @@ async def _handle_comment_event(page_id: str, value: dict):
         )
     except Exception as exc:
         logger.error("Failed to process comment %s: %s", comment_id, exc, exc_info=True)
+
+
+async def _handle_follow_event(page_id: str, value: dict):
+    """Process an incoming Instagram follow event."""
+    user_id = value.get("user_id")
+    username = value.get("username", "")
+    action = value.get("action", "")  # 'follow' or 'unfollow'
+
+    if action != "follow":
+        logger.debug("Ignoring non-follow action: %s", action)
+        return
+
+    if not user_id:
+        logger.warning("Follow event missing user_id, skipping")
+        return
+
+    logger.info(
+        "Received follow event on page %s: user_id=%s, username=%s",
+        page_id, user_id, username,
+    )
+
+    try:
+        from app.services.social_inbox_processor import process_follow
+        await process_follow(
+            page_id=page_id,
+            user_id=user_id,
+            username=username,
+        )
+    except Exception as exc:
+        logger.error("Failed to process follow %s: %s", user_id, exc, exc_info=True)
 
 
 async def _handle_message_event(page_id: str, messaging: dict):

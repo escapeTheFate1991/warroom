@@ -98,12 +98,15 @@ async def _log_reply(
     org_id: int,
     platform: str,
     rule_type: str,
+    trigger_type: str,
     external_id: str,
     original_text: str,
+    delivery_channel: str,
     social_account_id: int | None = None,
     rule_id: int | None = None,
     matched_keyword: str | None = None,
     reply_text: str | None = None,
+    username: str | None = None,
     error: str | None = None,
 ):
     """Log the auto-reply result (matched or skipped) for analytics."""
@@ -117,11 +120,14 @@ async def _log_reply(
                 org_id=org_id,
                 platform=platform,
                 rule_type=rule_type,
+                trigger_type=trigger_type,
                 original_text=original_text,
                 matched_keyword=matched_keyword,
                 reply_sent=reply_text,
+                delivery_channel=delivery_channel,
                 social_account_id=social_account_id,
                 external_id=external_id,
+                username=username,
                 status=status,
                 error_message=error,
             )
@@ -168,7 +174,7 @@ async def process_comment(
         # Rate limiting
         if _is_rate_limited(account_key):
             logger.warning("Rate limited — skipping comment reply for account %s", social_account_id)
-            await _log_reply(org_id, platform, "comment", comment_id, comment_text,
+            await _log_reply(org_id, platform, "comment", "keyword", comment_id, comment_text, "comment",
                              social_account_id=social_account_id, error="rate_limited")
             return
 
@@ -185,7 +191,7 @@ async def process_comment(
 
         if not match:
             logger.info("No matching rule for comment %s — skipping", comment_id)
-            await _log_reply(org_id, platform, "comment", comment_id, comment_text,
+            await _log_reply(org_id, platform, "comment", "keyword", comment_id, comment_text, "comment",
                              social_account_id=social_account_id)
             return
 
@@ -193,7 +199,7 @@ async def process_comment(
 
         if not reply_text:
             logger.warning("Rule %s has empty reply_text — skipping", rule.id)
-            await _log_reply(org_id, platform, "comment", comment_id, comment_text,
+            await _log_reply(org_id, platform, "comment", "keyword", comment_id, comment_text, "comment",
                              social_account_id=social_account_id, rule_id=rule.id,
                              matched_keyword=matched_keyword, error="empty_reply")
             return
@@ -208,12 +214,12 @@ async def process_comment(
         if result.get("success"):
             _record_reply(account_key)
             logger.info("Replied to comment %s with rule %s", comment_id, rule.id)
-            await _log_reply(org_id, platform, "comment", comment_id, comment_text,
+            await _log_reply(org_id, platform, "comment", "keyword", comment_id, comment_text, "comment",
                              social_account_id=social_account_id, rule_id=rule.id,
                              matched_keyword=matched_keyword, reply_text=reply_text)
         else:
             logger.error("Failed to reply to comment %s: %s", comment_id, result.get("error"))
-            await _log_reply(org_id, platform, "comment", comment_id, comment_text,
+            await _log_reply(org_id, platform, "comment", "keyword", comment_id, comment_text, "comment",
                              social_account_id=social_account_id, rule_id=rule.id,
                              matched_keyword=matched_keyword, error=result.get("error"))
 
@@ -257,7 +263,7 @@ async def process_dm(
         # Rate limiting
         if _is_rate_limited(account_key):
             logger.warning("Rate limited — skipping DM reply for account %s", social_account_id)
-            await _log_reply(org_id, platform, "dm", message_id, message_text,
+            await _log_reply(org_id, platform, "dm", "keyword", message_id, message_text, "dm",
                              social_account_id=social_account_id, error="rate_limited")
             return
 
@@ -274,7 +280,7 @@ async def process_dm(
 
         if not match:
             logger.info("No matching rule for DM %s — skipping", message_id)
-            await _log_reply(org_id, platform, "dm", message_id, message_text,
+            await _log_reply(org_id, platform, "dm", "keyword", message_id, message_text, "dm",
                              social_account_id=social_account_id)
             return
 
@@ -282,7 +288,7 @@ async def process_dm(
 
         if not reply_text:
             logger.warning("Rule %s has empty reply_text — skipping", rule.id)
-            await _log_reply(org_id, platform, "dm", message_id, message_text,
+            await _log_reply(org_id, platform, "dm", "keyword", message_id, message_text, "dm",
                              social_account_id=social_account_id, rule_id=rule.id,
                              matched_keyword=matched_keyword, error="empty_reply")
             return
@@ -298,17 +304,118 @@ async def process_dm(
         if result.get("success"):
             _record_reply(account_key)
             logger.info("Replied to DM %s with rule %s", message_id, rule.id)
-            await _log_reply(org_id, platform, "dm", message_id, message_text,
+            await _log_reply(org_id, platform, "dm", "keyword", message_id, message_text, "dm",
                              social_account_id=social_account_id, rule_id=rule.id,
                              matched_keyword=matched_keyword, reply_text=reply_text)
         else:
             logger.error("Failed to reply to DM %s: %s", message_id, result.get("error"))
-            await _log_reply(org_id, platform, "dm", message_id, message_text,
+            await _log_reply(org_id, platform, "dm", "keyword", message_id, message_text, "dm",
                              social_account_id=social_account_id, rule_id=rule.id,
                              matched_keyword=matched_keyword, error=result.get("error"))
 
     except Exception as exc:
         logger.error("Unexpected error processing DM %s: %s", message_id, exc, exc_info=True)
+
+
+# ── Follow Processing ────────────────────────────────────────────────
+
+async def process_follow(
+    page_id: str,
+    user_id: str,
+    username: str,
+):
+    """Process an incoming Instagram follow event.
+
+    1. Find matching follow auto-reply rules
+    2. For each match: send DM welcome message, log result
+    3. No deduplication needed — follows should trigger every time
+    """
+    try:
+        # Get account info first (needed for org_id and tokens)
+        account = await _get_social_account_for_page(page_id)
+        if not account:
+            logger.warning("No connected Instagram account for page %s", page_id)
+            return
+
+        org_id = account["org_id"]
+        social_account_id = account["id"]
+        platform = "instagram"
+
+        # Use user_id as external_id for follow events
+        external_id = f"follow:{user_id}"
+
+        # Deduplication for follow events (don't spam new followers)
+        if await _is_duplicate(org_id, external_id):
+            logger.info("Duplicate follow %s — skipping", user_id)
+            return
+
+        account_key = f"follow:{social_account_id}"
+
+        # Rate limiting
+        if _is_rate_limited(account_key):
+            logger.warning("Rate limited — skipping follow reply for account %s", social_account_id)
+            await _log_reply(
+                org_id, platform, "follow", "follow", external_id, "", "dm",
+                social_account_id=social_account_id, username=username, error="rate_limited"
+            )
+            return
+
+        # Find all matching follow rules
+        matches = []
+        try:
+            async with crm_session() as db:
+                await db.execute(text("SET search_path TO crm, public"))
+                matches = await AutoReplyEngine.find_follow_rules(
+                    db, org_id, platform, username
+                )
+        except Exception as exc:
+            logger.error("Rule matching failed for follow %s: %s", user_id, exc)
+
+        if not matches:
+            logger.info("No matching follow rules for user %s — skipping", username)
+            await _log_reply(
+                org_id, platform, "follow", "follow", external_id, "", "dm",
+                social_account_id=social_account_id, username=username
+            )
+            return
+
+        # Send welcome DMs for all matching rules
+        for rule, matched_keyword, reply_text in matches:
+            if not reply_text:
+                logger.warning("Follow rule %s has empty reply_text — skipping", rule.id)
+                await _log_reply(
+                    org_id, platform, "follow", "follow", external_id, "", "dm",
+                    social_account_id=social_account_id, rule_id=rule.id,
+                    matched_keyword=matched_keyword, username=username, error="empty_reply"
+                )
+                continue
+
+            # Send welcome DM
+            result = await _send_dm(
+                token=account["access_token"],
+                recipient_id=user_id,
+                message=reply_text,
+                page_id=page_id,
+            )
+
+            if result.get("success"):
+                _record_reply(account_key)
+                logger.info("Sent welcome DM to new follower %s with rule %s", username, rule.id)
+                await _log_reply(
+                    org_id, platform, "follow", "follow", external_id, "", "dm",
+                    social_account_id=social_account_id, rule_id=rule.id,
+                    matched_keyword=matched_keyword, reply_text=reply_text, username=username
+                )
+            else:
+                logger.error("Failed to send welcome DM to %s: %s", username, result.get("error"))
+                await _log_reply(
+                    org_id, platform, "follow", "follow", external_id, "", "dm",
+                    social_account_id=social_account_id, rule_id=rule.id,
+                    matched_keyword=matched_keyword, username=username, error=result.get("error")
+                )
+
+    except Exception as exc:
+        logger.error("Unexpected error processing follow %s: %s", user_id, exc, exc_info=True)
 
 
 # ── Instagram Graph API Calls ────────────────────────────────────────

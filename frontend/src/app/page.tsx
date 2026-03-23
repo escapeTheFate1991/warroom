@@ -103,7 +103,6 @@ const SECTIONS = [
       { id: "pipeline", label: "Pipeline", icon: Film },
       { id: "content-social", label: "URL → Social", icon: Share2 },
       { id: "scheduler", label: "Scheduler", icon: CalendarDays },
-      { id: "recycle", label: "Recycle", icon: BarChart3 },
       { id: "social-instagram", label: "Instagram", icon: Instagram },
       { id: "social-tiktok", label: "TikTok", icon: Twitter },
       { id: "social-youtube", label: "YouTube Shorts", icon: Youtube },
@@ -157,7 +156,7 @@ type TabId =
   | "dashboard" | "chat" | "agents" | "agent-create" | "agent-edit" | "calendar" | "communications" | "email" | "social" | "pipeline" | "content-social" | "intelligence" | "prospects"
   | "content-instagram" | "content-youtube" | "content-facebook" | "content-x"
   | "social-instagram" | "social-tiktok" | "social-youtube" | "social-facebook"
-  | "scheduler" | "recycle"
+  | "scheduler"
   | "kanban" | "leadgen"
   | "pipeline-board" | "organizations" | "crm-contacts" | "org-chart"
   | "library-search" | "library-educate"
@@ -296,7 +295,7 @@ function WarRoom() {
           
           {/* Scheduler Components */}
           {activeTab === "scheduler" && <SchedulerCalendar />}
-          {activeTab === "recycle" && <RecyclePanel />}
+
           {activeTab === "intelligence" && <CompetitorIntel />}
           {activeTab === "kanban" && <KanbanPanel />}
           {activeTab === "leadgen" && <LeadgenPanel />}

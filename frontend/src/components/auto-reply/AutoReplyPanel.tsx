@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Plus, Power, Pencil, Trash2, MessageSquare, Zap,
-  BarChart3, Clock, TrendingUp, Loader2,
+  BarChart3, Clock, TrendingUp, Loader2, Instagram,
+  AlertCircle, ExternalLink,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
@@ -12,6 +13,7 @@ import LoadingState from "@/components/ui/LoadingState";
 import EmptyState from "@/components/ui/EmptyState";
 import RuleEditor from "./RuleEditor";
 import ReplyLog from "./ReplyLog";
+import { useSocialAccounts, PLATFORM_CONFIGS } from "@/hooks/useSocialAccounts";
 
 /* ── Types ── */
 
@@ -24,6 +26,7 @@ interface Rule {
   replies: string[];
   match_mode: string;
   is_active: boolean;
+  delivery_channels: string[];
   created_at: string;
 }
 
@@ -51,13 +54,14 @@ const PLATFORM_COLORS: Record<string, string> = {
 const TYPE_COLORS: Record<string, string> = {
   comment: "bg-emerald-500/15 text-emerald-400",
   dm: "bg-violet-500/15 text-violet-400",
-  both: "bg-amber-500/15 text-amber-400",
+  follow: "bg-blue-500/15 text-blue-400",
 };
 
 /* ── Component ── */
 
 export default function AutoReplyPanel() {
   const { toast } = useToast();
+  const socialAccounts = useSocialAccounts();
   const [subTab, setSubTab] = useState("rules");
   const [rules, setRules] = useState<Rule[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -144,6 +148,60 @@ export default function AutoReplyPanel() {
   const onEditorSave = () => { setEditorOpen(false); setEditingRule(null); fetchRules(); };
   const onEditorClose = () => { setEditorOpen(false); setEditingRule(null); };
 
+  /* ── Render connection status ── */
+  const renderConnectionStatus = () => {
+    const connectedPlatforms = Object.keys(socialAccounts.connected);
+    const supportedPlatforms = ['instagram']; // Auto-reply currently supports Instagram
+    const missingConnections = supportedPlatforms.filter(p => !socialAccounts.isConnected(p));
+
+    if (socialAccounts.loading) {
+      return (
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 mb-4">
+          <div className="flex items-center gap-2 text-blue-400 text-sm">
+            <Loader2 size={14} className="animate-spin" />
+            Checking social media connections...
+          </div>
+        </div>
+      );
+    }
+
+    if (missingConnections.length > 0) {
+      return (
+        <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3 mb-4">
+          <div className="flex items-center gap-2 text-orange-400 text-sm mb-2">
+            <AlertCircle size={14} />
+            Connect your social accounts to use auto-reply
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {missingConnections.map(platform => {
+              const config = PLATFORM_CONFIGS[platform as keyof typeof PLATFORM_CONFIGS];
+              return (
+                <button
+                  key={platform}
+                  onClick={() => socialAccounts.connect(platform)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500/20 hover:bg-orange-500/30 rounded-lg text-xs text-orange-300 transition"
+                >
+                  <Instagram size={12} />
+                  Connect {config.name}
+                  <ExternalLink size={10} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 mb-4">
+        <div className="flex items-center gap-2 text-emerald-400 text-sm">
+          <MessageSquare size={14} />
+          Connected to {connectedPlatforms.map(p => PLATFORM_CONFIGS[p as keyof typeof PLATFORM_CONFIGS]?.name || p).join(', ')}
+        </div>
+      </div>
+    );
+  };
+
   /* ── Render rules list ── */
   const renderRules = () => {
     if (loading) return <LoadingState message="Loading rules..." />;
@@ -167,32 +225,58 @@ export default function AutoReplyPanel() {
             <div className="flex items-start justify-between gap-3">
               {/* Left */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <span className="text-sm font-semibold text-warroom-text">{rule.name}</span>
                   <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${PLATFORM_COLORS[rule.platform] || PLATFORM_COLORS.all}`}>
                     {rule.platform}
                   </span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${TYPE_COLORS[rule.rule_type] || TYPE_COLORS.both}`}>
-                    {rule.rule_type}
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${TYPE_COLORS[rule.rule_type] || TYPE_COLORS.comment}`}>
+                    {rule.rule_type === "follow" ? "Follow" : rule.rule_type.toUpperCase()}
                   </span>
+                  {/* Delivery channels */}
+                  <div className="flex items-center gap-1">
+                    {(rule.delivery_channels || ["dm"]).map(channel => (
+                      <span 
+                        key={channel}
+                        className="px-1.5 py-0.5 bg-warroom-accent/10 text-warroom-accent rounded text-[9px] font-medium"
+                      >
+                        {channel === "dm" ? "DM" : "Comment"}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                {/* Keywords */}
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {rule.keywords.slice(0, 5).map((kw, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-warroom-bg rounded text-[10px] text-warroom-muted font-medium">
-                      {kw}
+                
+                {/* Keywords - only show for non-follow rules */}
+                {rule.rule_type !== "follow" && rule.keywords && rule.keywords.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {rule.keywords.slice(0, 5).map((kw, i) => (
+                      <span key={i} className="px-2 py-0.5 bg-warroom-bg rounded text-[10px] text-warroom-muted font-medium">
+                        {kw}
+                      </span>
+                    ))}
+                    {rule.keywords.length > 5 && (
+                      <span className="px-2 py-0.5 text-[10px] text-warroom-muted">+{rule.keywords.length - 5} more</span>
+                    )}
+                  </div>
+                )}
+                
+                {/* Follow rule description */}
+                {rule.rule_type === "follow" && (
+                  <div className="mb-2">
+                    <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded text-[10px] font-medium">
+                      Triggers on new followers
                     </span>
-                  ))}
-                  {rule.keywords.length > 5 && (
-                    <span className="px-2 py-0.5 text-[10px] text-warroom-muted">+{rule.keywords.length - 5} more</span>
-                  )}
-                </div>
+                  </div>
+                )}
+                
                 <div className="flex items-center gap-3 text-xs text-warroom-muted">
                   <span className="flex items-center gap-1">
                     <MessageSquare size={12} />
                     {rule.replies.length} {rule.replies.length === 1 ? "reply" : "replies"}
                   </span>
-                  <span className="capitalize">{rule.match_mode.replace(/_/g, " ")}</span>
+                  {rule.rule_type !== "follow" && rule.match_mode && (
+                    <span className="capitalize">{rule.match_mode.replace(/_/g, " ")}</span>
+                  )}
                 </div>
               </div>
               {/* Right – actions */}
@@ -329,7 +413,7 @@ export default function AutoReplyPanel() {
             <option value="all">All Types</option>
             <option value="comment">Comment</option>
             <option value="dm">DM</option>
-            <option value="both">Both</option>
+            <option value="follow">Follow</option>
           </select>
           <select
             value={filterActive}
@@ -345,7 +429,12 @@ export default function AutoReplyPanel() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-5 space-y-5">
-        {subTab === "rules" && renderRules()}
+        {subTab === "rules" && (
+          <>
+            {renderConnectionStatus()}
+            {renderRules()}
+          </>
+        )}
         {subTab === "log" && <ReplyLog />}
         {subTab === "stats" && renderStats()}
       </div>

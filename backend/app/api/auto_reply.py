@@ -23,20 +23,14 @@ router = APIRouter()
 
 class RuleCreate(BaseModel):
     platform: str = "instagram"
-    rule_type: str  # 'comment' or 'dm'
+    rule_type: str  # 'comment', 'dm', or 'follow'
     name: str
-    keywords: List[str]
+    keywords: List[str] = []  # Optional for follow triggers
     replies: List[str]
-    match_mode: str = "any"
+    match_mode: Optional[str] = "any"
     case_sensitive: bool = False
     is_active: bool = True
-
-    @field_validator("keywords")
-    @classmethod
-    def keywords_not_empty(cls, v):
-        if not v:
-            raise ValueError("keywords must be a non-empty array")
-        return v
+    delivery_channels: List[str] = ["dm"]  # comment, dm, or both
 
     @field_validator("replies")
     @classmethod
@@ -48,16 +42,42 @@ class RuleCreate(BaseModel):
     @field_validator("rule_type")
     @classmethod
     def valid_rule_type(cls, v):
-        if v not in ("comment", "dm", "both"):
-            raise ValueError("rule_type must be 'comment', 'dm', or 'both'")
+        if v not in ("comment", "dm", "follow"):
+            raise ValueError("rule_type must be 'comment', 'dm', or 'follow'")
         return v
 
     @field_validator("match_mode")
     @classmethod
     def valid_match_mode(cls, v):
-        if v not in ("any", "all", "exact"):
+        if v and v not in ("any", "all", "exact"):
             raise ValueError("match_mode must be 'any', 'all', or 'exact'")
         return v
+
+    @field_validator("delivery_channels")
+    @classmethod
+    def valid_delivery_channels(cls, v):
+        if not v:
+            raise ValueError("delivery_channels must not be empty")
+        for channel in v:
+            if channel not in ("comment", "dm"):
+                raise ValueError("delivery_channels must contain only 'comment' or 'dm'")
+        return v
+
+    @classmethod
+    def model_validate(cls, obj):
+        """Cross-field validation."""
+        result = super().model_validate(obj)
+        # Follow rules must have no keywords and DM delivery only
+        if result.rule_type == "follow":
+            if result.keywords:
+                raise ValueError("follow rules cannot have keywords")
+            if "dm" not in result.delivery_channels:
+                raise ValueError("follow rules must include 'dm' in delivery_channels")
+        else:
+            # Comment/DM rules must have keywords
+            if not result.keywords:
+                raise ValueError("comment/dm rules must have keywords")
+        return result
 
 
 class RuleUpdate(BaseModel):
@@ -69,13 +89,7 @@ class RuleUpdate(BaseModel):
     match_mode: Optional[str] = None
     case_sensitive: Optional[bool] = None
     is_active: Optional[bool] = None
-
-    @field_validator("keywords")
-    @classmethod
-    def keywords_not_empty(cls, v):
-        if v is not None and not v:
-            raise ValueError("keywords must be a non-empty array")
-        return v
+    delivery_channels: Optional[List[str]] = None
 
     @field_validator("replies")
     @classmethod
@@ -87,8 +101,8 @@ class RuleUpdate(BaseModel):
     @field_validator("rule_type")
     @classmethod
     def valid_rule_type(cls, v):
-        if v is not None and v not in ("comment", "dm", "both"):
-            raise ValueError("rule_type must be 'comment', 'dm', or 'both'")
+        if v is not None and v not in ("comment", "dm", "follow"):
+            raise ValueError("rule_type must be 'comment', 'dm', or 'follow'")
         return v
 
     @field_validator("match_mode")
@@ -96,6 +110,17 @@ class RuleUpdate(BaseModel):
     def valid_match_mode(cls, v):
         if v is not None and v not in ("any", "all", "exact"):
             raise ValueError("match_mode must be 'any', 'all', or 'exact'")
+        return v
+
+    @field_validator("delivery_channels")
+    @classmethod
+    def valid_delivery_channels(cls, v):
+        if v is not None:
+            if not v:
+                raise ValueError("delivery_channels must not be empty")
+            for channel in v:
+                if channel not in ("comment", "dm"):
+                    raise ValueError("delivery_channels must contain only 'comment' or 'dm'")
         return v
 
 
@@ -113,6 +138,7 @@ def _serialize_rule(rule: AutoReplyRule) -> dict:
         "match_mode": rule.match_mode,
         "case_sensitive": rule.case_sensitive,
         "is_active": rule.is_active,
+        "delivery_channels": rule.delivery_channels or ["dm"],
         "created_at": rule.created_at.isoformat() if rule.created_at else None,
         "updated_at": rule.updated_at.isoformat() if rule.updated_at else None,
     }
@@ -125,11 +151,14 @@ def _serialize_log(entry: AutoReplyLog) -> dict:
         "org_id": entry.org_id,
         "platform": entry.platform,
         "rule_type": entry.rule_type,
-        "original_text": entry.original_text,
+        "trigger_type": entry.trigger_type or "keyword",
+        "original_text": entry.original_text or "",
         "matched_keyword": entry.matched_keyword,
         "reply_sent": entry.reply_sent,
+        "delivery_channel": entry.delivery_channel,
         "social_account_id": entry.social_account_id,
         "external_id": entry.external_id,
+        "username": entry.username,
         "status": entry.status,
         "error_message": entry.error_message,
         "created_at": entry.created_at.isoformat() if entry.created_at else None,
@@ -159,16 +188,28 @@ async def create_rule(
     db: AsyncSession = Depends(get_tenant_db),
 ):
     org_id = get_org_id(request)
+    
+    # Validate follow rule constraints
+    if data.rule_type == "follow":
+        if data.keywords:
+            raise HTTPException(status_code=422, detail="Follow rules cannot have keywords")
+        if "dm" not in data.delivery_channels:
+            raise HTTPException(status_code=422, detail="Follow rules must include 'dm' in delivery_channels")
+    else:
+        if not data.keywords:
+            raise HTTPException(status_code=422, detail="Comment/DM rules must have keywords")
+    
     rule = AutoReplyRule(
         org_id=org_id,
         platform=data.platform,
         rule_type=data.rule_type,
         name=data.name,
-        keywords=data.keywords,
+        keywords=data.keywords if data.rule_type != "follow" else [],
         replies=data.replies,
-        match_mode=data.match_mode,
+        match_mode=data.match_mode if data.rule_type != "follow" else None,
         case_sensitive=data.case_sensitive,
         is_active=data.is_active,
+        delivery_channels=data.delivery_channels,
     )
     db.add(rule)
     await db.commit()
@@ -221,8 +262,22 @@ async def update_rule(
     org_id = get_org_id(request)
     rule = await _get_rule(db, rule_id, org_id)
     update_data = data.model_dump(exclude_unset=True)
+    
+    # Apply updates, but validate constraints
     for field, value in update_data.items():
         setattr(rule, field, value)
+    
+    # Validate follow rule constraints after update
+    if rule.rule_type == "follow":
+        if rule.keywords:
+            rule.keywords = []  # Clear keywords for follow rules
+        if "dm" not in rule.delivery_channels:
+            raise HTTPException(status_code=422, detail="Follow rules must include 'dm' in delivery_channels")
+        rule.match_mode = None  # Clear match_mode for follow rules
+    else:
+        if not rule.keywords:
+            raise HTTPException(status_code=422, detail="Comment/DM rules must have keywords")
+    
     await db.commit()
     await db.refresh(rule)
     return _serialize_rule(rule)
