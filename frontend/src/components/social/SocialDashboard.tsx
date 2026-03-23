@@ -20,9 +20,9 @@ import {
   Youtube,
   Zap,
 } from "lucide-react";
-// Removed agent imports - these components were cut
 import { API, authFetch } from "@/lib/api";
-import type { AgentAssignmentSummary } from "@/lib/agentAssignments";
+// Agent types stubbed — socialRecycle
+type AgentAssignmentSummary = { agent_id?: string; agent_name?: string; agent_emoji?: string };
 import LoadingState from "@/components/ui/LoadingState";
 
 interface SocialAccount {
@@ -690,7 +690,7 @@ export default function SocialDashboard() {
               {syncing ? "Syncing..." : "Sync now"}
             </button>
 
-            {/* AskAIButton removed - agent features cut */}
+            {/* AI button removed — socialRecycle */}
           </div>
         </div>
       </div>
@@ -929,7 +929,7 @@ export default function SocialDashboard() {
                           </p>
                         )}
 
-                        <p className="mb-3 text-xs text-warroom-muted">{summarizeAssignedAgents(account.agent_assignments)}</p>
+                        {/* Agent assignments removed — socialRecycle */}
 
                         <div className="flex items-center justify-between pt-3 border-t border-warroom-border/50">
                           {account.profile_url ? (
@@ -953,7 +953,7 @@ export default function SocialDashboard() {
                           </button>
                         </div>
 
-                        {/* EntityAssignmentControl removed - agent features cut */}
+                        {/* Agent assignment control removed — socialRecycle */}
                       </>
                     ) : (
                       <div className="rounded-xl border border-dashed border-warroom-border bg-warroom-bg/40 px-4 py-6 text-center">
