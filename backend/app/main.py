@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import chat, health, settings, auth, social, social_oauth, social_content, social_sync, files, competitors, content_intel, calendar as cal_api, google_calendar, notifications, stripe_settings, google_ai_studio, ugc_studio, video_editor, content_scheduler, video_copycat, video_assets, video_formats, content_social, carousel, auto_reply, social_accounts, mirofish, email_inbox
+from app.api import chat, health, settings, auth, social, social_oauth, social_content, social_sync, files, competitors, content_intel, calendar as cal_api, google_calendar, notifications, stripe_settings, google_ai_studio, ugc_studio, video_editor, content_scheduler, video_copycat, video_assets, video_formats, content_social, carousel, auto_reply, social_accounts, mirofish, email_inbox, usage
 
 from app.api.webhooks.instagram import router as instagram_webhook_router
 
@@ -305,6 +305,7 @@ app.include_router(carousel.router, prefix="/api/carousel", tags=["carousel"])
 app.include_router(auto_reply.router, prefix="/api/auto-reply", tags=["auto-reply"])
 app.include_router(mirofish.router, tags=["mirofish"])
 app.include_router(email_inbox.router, prefix="/api", tags=["email-inbox"])
+app.include_router(usage.router, prefix="/api/usage", tags=["usage"])
 app.include_router(google_ai_studio.router, prefix="/api/ai-studio", tags=["google-ai-studio"])
 app.include_router(ugc_studio.router, prefix="/api/ai-studio/ugc", tags=["ugc-studio"])
 app.include_router(video_editor.router, prefix="/api/video", tags=["video-editor", "video-copycat"])
