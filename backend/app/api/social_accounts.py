@@ -68,7 +68,7 @@ class TestConnectionRequest(BaseModel):
 async def list_social_accounts(
     request: Request,
     platform: Optional[str] = None,
-    user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin()),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """List all social accounts for the organization."""
@@ -104,7 +104,7 @@ async def list_social_accounts(
 async def create_social_account(
     request: Request,
     account_data: SocialAccountCreate,
-    user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin()),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """Create a new social account."""
@@ -168,7 +168,7 @@ async def create_social_account(
 async def get_social_account(
     request: Request,
     account_id: int,
-    user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin()),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get a specific social account."""
@@ -203,7 +203,7 @@ async def update_social_account(
     request: Request,
     account_id: int,
     account_data: SocialAccountUpdate,
-    user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin()),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """Update a social account."""
@@ -264,7 +264,7 @@ async def update_social_account(
 async def delete_social_account(
     request: Request,
     account_id: int,
-    user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin()),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """Delete a social account."""
@@ -295,7 +295,7 @@ async def delete_social_account(
 async def test_social_account_connection(
     request: Request,
     account_id: int,
-    user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin()),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """Test connection to a social account."""
@@ -361,7 +361,7 @@ async def test_social_account_connection(
 @router.post("/test-connection")
 async def test_connection_with_credentials(
     test_data: TestConnectionRequest,
-    user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin()),
 ):
     """Test connection with provided credentials (without saving)."""
     if test_data.account_id:
@@ -443,7 +443,7 @@ async def _test_instagram_connection(
 async def get_account_credentials(
     request: Request,
     account_id: int,
-    user: User = Depends(require_superadmin),
+    user: User = Depends(require_superadmin()),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """Get decrypted credentials for an account (admin only)."""
