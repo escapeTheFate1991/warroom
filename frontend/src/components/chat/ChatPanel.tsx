@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Send, Bot, User, Loader2, Mic, MicOff, ChevronDown,
   Plus, Sparkles, X, StopCircle, ArrowDown,
-  PanelRightOpen, Copy, Check,
+  PanelRightOpen, Copy, Check, Volume2,
   Brain, Wrench, FileText, Search, Terminal, Globe, CheckCircle2, AlertCircle, ChevronRight,
 } from "lucide-react";
 import SafeMarkdown from "../SafeMarkdown";
@@ -422,6 +422,7 @@ export default function ChatPanel() {
   // Voice states
   const [isRecording, setIsRecording] = useState(false);
   const [isConversationMode, setIsConversationMode] = useState(false);
+  const [isTTSEnabled, setIsTTSEnabled] = useState(false);
   const [hasVoiceActivity, setHasVoiceActivity] = useState(false);
   const [isTTSPlaying, setIsTTSPlaying] = useState(false);
   const [spokenText, setSpokenText] = useState<string | undefined>();
@@ -915,7 +916,7 @@ export default function ChatPanel() {
               setIsLoading(false);
 
               // Streaming TTS: extract complete sentences and speak them as they arrive
-              if (conversationActiveRef.current) {
+              if (conversationActiveRef.current || isTTSEnabled) {
                 const unspoken = text.slice(spokenLengthRef.current);
                 // Match sentences ending with . ! ? followed by space, newline, or another sentence
                 const sentenceEnd = unspoken.search(/[.!?][\s\n]/);
@@ -968,8 +969,8 @@ export default function ChatPanel() {
               activeToolsRef.current = [];
             }
 
-            // If in conversation mode, speak any remaining unspoken text
-            if (text && conversationActiveRef.current) {
+            // If in conversation mode or TTS enabled, speak any remaining unspoken text
+            if (text && (conversationActiveRef.current || isTTSEnabled)) {
               const remaining = text.slice(spokenLengthRef.current).trim();
               console.log("[voice] Final handler - remaining:", remaining.length, "chars, spokenSoFar:", spokenLengthRef.current);
               if (remaining.length > 3) {
@@ -1158,13 +1159,13 @@ export default function ChatPanel() {
     setIsTTSPlaying(false);
     setSpokenText(undefined);
     // Play next in queue if any
-    if (conversationActiveRef.current && audioQueueRef.current.length > 0) {
+    if ((conversationActiveRef.current || isTTSEnabled) && audioQueueRef.current.length > 0) {
       processAudioQueue();
     }
   };
 
   const speakText = async (text: string) => {
-    if (!conversationActiveRef.current) return;
+    if (!conversationActiveRef.current && !isTTSEnabled) return;
     // Skip TTS for code-heavy responses
     const codeBlockCount = (text.match(/```/g) || []).length / 2;
     const codeRatio = text.replace(/```[\s\S]*?```/g, '').length / text.length;
@@ -1184,12 +1185,12 @@ export default function ChatPanel() {
     const estimatedMs = wordCount * 150;
 
     const playTask = async () => {
-      if (!conversationActiveRef.current) return;
+      if (!conversationActiveRef.current && !isTTSEnabled) return;
       try {
         const resp = await authFetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(spokenSlice)}`, {
           method: "POST",
         });
-        if (resp.ok && conversationActiveRef.current) {
+        if (resp.ok && (conversationActiveRef.current || isTTSEnabled)) {
           const blob = await resp.blob();
           const audio = new Audio(URL.createObjectURL(blob));
           currentAudioRef.current = audio;
@@ -1984,10 +1985,18 @@ export default function ChatPanel() {
                   {isRecording ? <MicOff size={18} /> : <Mic size={18} />}
                 </button>
                 <button
+                  onClick={() => setIsTTSEnabled(!isTTSEnabled)}
+                  disabled={isConversationMode}
+                  className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isTTSEnabled ? "text-warroom-accent bg-warroom-accent/15" : "text-warroom-muted hover:text-warroom-text"} disabled:opacity-30`}
+                  title="Text to speech"
+                >
+                  <Volume2 size={18} />
+                </button>
+                <button
                   onClick={toggleConversationMode}
                   disabled={isRecording}
                   className={`p-1.5 rounded-full hover:bg-warroom-border/50 transition ${isConversationMode ? "text-warroom-accent bg-warroom-accent/15" : "text-warroom-muted hover:text-warroom-text"} disabled:opacity-30`}
-                  title="Voice conversation"
+                  title="Voice conversation (TTS + STT)"
                 >
                   <EnhancedWaveformIcon 
                     size={18} 
