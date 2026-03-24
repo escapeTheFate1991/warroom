@@ -130,4 +130,25 @@ class AuthGuardMiddleware(BaseHTTPMiddleware):
         request.state.org_id = payload.get("org_id")
         request.state.is_superadmin = payload.get("is_superadmin", False)
 
+        # If JWT is missing org_id or is_superadmin, do a quick DB lookup
+        # This handles stale tokens created before org assignment or role changes
+        if not request.state.org_id or not request.state.is_superadmin:
+            try:
+                from app.db.crm_db import crm_session
+                from sqlalchemy import text as sa_text
+                async with crm_session() as session:
+                    await session.execute(sa_text("SET search_path TO crm, public"))
+                    row = await session.execute(
+                        sa_text("SELECT org_id, is_superadmin FROM users WHERE id = :uid AND status = true"),
+                        {"uid": payload["user_id"]}
+                    )
+                    user_row = row.first()
+                    if user_row:
+                        if not request.state.org_id and user_row[0]:
+                            request.state.org_id = user_row[0]
+                        if not request.state.is_superadmin and user_row[1]:
+                            request.state.is_superadmin = user_row[1]
+            except Exception as e:
+                logger.warning("Auth guard DB fallback failed: %s", e)
+
         return await call_next(request)
