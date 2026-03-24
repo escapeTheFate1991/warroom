@@ -763,11 +763,11 @@ async def scrape_profile(handle: str) -> ScrapedProfile:
     # Parse captured data into profile
     result = _build_profile_from_captured(handle, captured_data)
     
-    # If we got "requires login" error, invalidate cookies and note it
+    # If we got "requires login" error, log it but DON'T invalidate cookies.
+    # A single private/restricted profile shouldn't kill the session for all profiles.
+    # Cookies only get invalidated when _has_valid_session() fails (session actually expired).
     if result.error and "login" in result.error.lower():
-        logger.warning("Login wall detected for @%s — invalidating saved cookies", handle)
-        if COOKIE_PATH.exists():
-            COOKIE_PATH.unlink()
+        logger.warning("Login wall detected for @%s — profile may be private or restricted (cookies preserved)", handle)
     
     return result
 
@@ -1008,3 +1008,93 @@ async def force_relogin() -> bool:
         is_valid = await _has_valid_session(context)
         await browser.close()
         return is_valid
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  AUTO-FOLLOW — Follow competitor accounts from authenticated session
+# ═══════════════════════════════════════════════════════════════════════
+
+async def follow_instagram_user(handle: str) -> Dict[str, Any]:
+    """Follow an Instagram user using the authenticated scraper session.
+    
+    Returns: {"success": bool, "message": str, "user_id": str|None}
+    """
+    from playwright.async_api import async_playwright
+    
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
+        context = await _get_authenticated_context(browser)
+        page = await context.new_page()
+        
+        try:
+            # Navigate to the profile
+            clean_handle = handle.lstrip("@")
+            await page.goto(f"https://www.instagram.com/{clean_handle}/", wait_until="domcontentloaded", timeout=15000)
+            await asyncio.sleep(3)
+            
+            # Check if already following
+            follow_btn = await page.query_selector('button:has-text("Follow")')
+            following_btn = await page.query_selector('button:has-text("Following")')
+            requested_btn = await page.query_selector('button:has-text("Requested")')
+            
+            if following_btn:
+                logger.info("Already following @%s", clean_handle)
+                return {"success": True, "message": f"Already following @{clean_handle}", "already_following": True}
+            
+            if requested_btn:
+                logger.info("Follow request already pending for @%s", clean_handle)
+                return {"success": True, "message": f"Follow request pending for @{clean_handle}", "already_following": True}
+            
+            if not follow_btn:
+                logger.warning("No follow button found for @%s", clean_handle)
+                return {"success": False, "message": f"Could not find follow button for @{clean_handle}"}
+            
+            # Click follow
+            await follow_btn.click()
+            await asyncio.sleep(2)
+            
+            # Verify follow worked
+            following_after = await page.query_selector('button:has-text("Following")')
+            requested_after = await page.query_selector('button:has-text("Requested")')
+            
+            if following_after:
+                logger.info("Successfully followed @%s", clean_handle)
+                # Save cookies to preserve session
+                cookies = await context.cookies(["https://www.instagram.com"])
+                await _save_cookies(cookies)
+                return {"success": True, "message": f"Now following @{clean_handle}"}
+            elif requested_after:
+                logger.info("Follow request sent to @%s (private account)", clean_handle)
+                cookies = await context.cookies(["https://www.instagram.com"])
+                await _save_cookies(cookies)
+                return {"success": True, "message": f"Follow request sent to @{clean_handle} (private account)"}
+            else:
+                return {"success": False, "message": f"Follow click didn't register for @{clean_handle}"}
+                
+        except Exception as e:
+            logger.error("Failed to follow @%s: %s", handle, e)
+            return {"success": False, "message": f"Error following @{handle}: {str(e)[:100]}"}
+        finally:
+            await browser.close()
+
+
+async def follow_multiple_users(handles: List[str], delay_between: float = 5.0) -> List[Dict[str, Any]]:
+    """Follow multiple Instagram users with delays to avoid rate limiting.
+    
+    Args:
+        handles: List of Instagram handles to follow
+        delay_between: Seconds between follow actions (Instagram rate limits aggressively)
+    
+    Returns: List of results per handle
+    """
+    results = []
+    for handle in handles:
+        result = await follow_instagram_user(handle)
+        results.append({"handle": handle, **result})
+        if not result.get("already_following"):
+            # Only delay if we actually performed an action
+            await asyncio.sleep(delay_between)
+    return results

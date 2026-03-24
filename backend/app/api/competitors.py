@@ -381,6 +381,11 @@ async def create_competitor(
             org_id
         )
         
+        # Auto-follow new Instagram competitors
+        if platform == "instagram":
+            from app.services.instagram_scraper import follow_instagram_user
+            background_tasks.add_task(follow_instagram_user, handle)
+        
         return CompetitorResponse.model_validate(new_competitor)
         
     except HTTPException:
@@ -834,3 +839,56 @@ async def get_video_frame_chunks(
     except Exception as e:
         logger.error(f"Get video chunks failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve video chunks")
+
+# ═══════════════════════════════════════════════════════════════════════
+#  AUTO-FOLLOW — Follow competitor accounts on Instagram
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.post("/competitors/{competitor_id}/follow")
+async def follow_competitor(
+    competitor_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Follow a competitor on Instagram using the scraper account."""
+    org_id = get_org_id(request)
+    
+    result = await db.execute(text("""
+        SELECT handle, platform FROM crm.competitors WHERE id = :id AND org_id = :org_id
+    """), {"id": competitor_id, "org_id": org_id})
+    comp = result.first()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    
+    if comp[1] != "instagram":
+        raise HTTPException(status_code=400, detail="Auto-follow only supported for Instagram")
+    
+    from app.services.instagram_scraper import follow_instagram_user
+    follow_result = await follow_instagram_user(comp[0])
+    
+    return follow_result
+
+
+@router.post("/competitors/follow-all")
+async def follow_all_competitors(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Follow all Instagram competitors. Runs in background with rate limiting."""
+    org_id = get_org_id(request)
+    
+    result = await db.execute(text("""
+        SELECT handle FROM crm.competitors WHERE platform = 'instagram' AND org_id = :org_id
+    """), {"org_id": org_id})
+    handles = [row[0] for row in result.fetchall()]
+    
+    if not handles:
+        return {"message": "No Instagram competitors to follow", "count": 0}
+    
+    from app.services.instagram_scraper import follow_multiple_users
+    background_tasks.add_task(follow_multiple_users, handles, 5.0)
+    
+    return {"message": f"Following {len(handles)} competitors in background", "count": len(handles)}
