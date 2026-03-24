@@ -4,14 +4,19 @@ import subprocess
 import tempfile
 import os
 import json
-from fastapi import APIRouter, HTTPException, UploadFile, File, Request, Response
+from fastapi import APIRouter, HTTPException, UploadFile, File, Request, Response, Depends
 from fastapi.responses import StreamingResponse
 from pathlib import Path
+from app.api.auth import get_current_user
+from app.models.crm.user import User
 
 router = APIRouter()
 
 @router.post("/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user)
+):
     """Transcribe audio file using local Whisper."""
     try:
         # Save uploaded file temporarily
@@ -56,7 +61,10 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 
 @router.post("/tts")
-async def text_to_speech(request: Request):
+async def text_to_speech(
+    request: Request,
+    user: User = Depends(get_current_user)
+):
     """Convert text to speech using edge-tts (same as OpenClaw config)."""
     try:
         data = await request.json()
