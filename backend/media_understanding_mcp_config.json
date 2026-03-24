@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "media-understanding": {
+      "command": "npx",
+      "args": ["@dymoo/media-understanding"],
+      "env": {},
+      "disabled": false
+    }
+  }
+}

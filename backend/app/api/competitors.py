@@ -17,6 +17,7 @@ from app.models.crm.competitor import Competitor
 from app.models.crm.social import SocialAccount
 from app.api.scraper import sync_instagram_competitor, sync_instagram_competitor_batch
 from app.db.crm_db import crm_session
+from app.services.video_analysis_service import video_analysis_service
 
 logger = logging.getLogger(__name__)
 
@@ -682,3 +683,154 @@ async def sync_single_competitor(
         await db.rollback()
         logger.error("Failed to sync competitor: %s", e)
         raise HTTPException(status_code=500, detail="Failed to sync competitor")
+
+
+# Video Analysis Endpoints
+
+@router.post("/analyze-video/{post_id}")
+async def analyze_competitor_video(
+    post_id: int,
+    force_reanalysis: bool = False,
+    request: Request = None,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Analyze a competitor video for frame-by-frame breakdown and VEO prompts.
+    Wave 1: Competitor Intel Enhancement
+    """
+    org_id = get_org_id(request)
+    
+    try:
+        # Get the video post
+        result = await db.execute(
+            text("""
+                SELECT cp.media_url, cp.analysis_status 
+                FROM crm.competitor_posts cp 
+                WHERE cp.id = :post_id AND cp.org_id = :org_id AND cp.media_type = 'video'
+            """),
+            {"post_id": post_id, "org_id": org_id}
+        )
+        post_data = result.first()
+        
+        if not post_data:
+            raise HTTPException(
+                status_code=404, 
+                detail="Video post not found or not a video"
+            )
+        
+        video_url = post_data[0]
+        if not video_url:
+            raise HTTPException(
+                status_code=400,
+                detail="No video URL available for analysis"
+            )
+        
+        # Run analysis
+        analysis_result = await video_analysis_service.analyze_competitor_video(
+            db=db,
+            post_id=post_id,
+            video_url=video_url,
+            force_reanalysis=force_reanalysis
+        )
+        
+        if analysis_result["success"]:
+            return {
+                "message": "Video analysis completed successfully",
+                "post_id": post_id,
+                "chunks_created": analysis_result.get("chunks_created", 0),
+                "status": "completed"
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Video analysis failed: {analysis_result.get('error', 'Unknown error')}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Video analysis endpoint failed: {e}")
+        raise HTTPException(status_code=500, detail="Video analysis failed")
+
+
+@router.get("/analyzed-videos")
+async def get_analyzed_videos(
+    limit: int = 50,
+    request: Request = None,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Get list of analyzed competitor videos with frame chunks.
+    Used by Create Video page to show available source material.
+    """
+    org_id = get_org_id(request)
+    
+    try:
+        videos = await video_analysis_service.get_analyzed_videos(
+            db=db,
+            org_id=org_id,
+            limit=limit
+        )
+        
+        return {
+            "videos": videos,
+            "total": len(videos)
+        }
+        
+    except Exception as e:
+        logger.error(f"Get analyzed videos failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve analyzed videos")
+
+
+@router.get("/video-chunks/{post_id}")
+async def get_video_frame_chunks(
+    post_id: int,
+    request: Request = None,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Get detailed frame chunks for a specific analyzed video.
+    Returns VEO prompts and visual analysis for blueprint generation.
+    """
+    org_id = get_org_id(request)
+    
+    try:
+        result = await db.execute(
+            text("""
+                SELECT cp.frame_chunks, cp.video_analysis, cp.analyzed_at,
+                       c.handle, c.platform
+                FROM crm.competitor_posts cp
+                JOIN crm.competitors c ON cp.competitor_id = c.id
+                WHERE cp.id = :post_id 
+                  AND cp.org_id = :org_id 
+                  AND cp.analysis_status = 'completed'
+            """),
+            {"post_id": post_id, "org_id": org_id}
+        )
+        
+        video_data = result.first()
+        if not video_data:
+            raise HTTPException(
+                status_code=404,
+                detail="Analyzed video not found"
+            )
+        
+        import json
+        frame_chunks = json.loads(video_data[0]) if video_data[0] else []
+        video_analysis = json.loads(video_data[1]) if video_data[1] else {}
+        
+        return {
+            "post_id": post_id,
+            "competitor_handle": video_data[3],
+            "platform": video_data[4],
+            "analyzed_at": video_data[2],
+            "frame_chunks": frame_chunks,
+            "video_analysis": video_analysis,
+            "total_chunks": len(frame_chunks)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get video chunks failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve video chunks")

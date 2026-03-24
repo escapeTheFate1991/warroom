@@ -617,6 +617,7 @@ class GenerateVideoRequest(BaseModel):
 
 @router.post("/generate")
 async def generate_video(
+    request: Request,
     body: GenerateVideoRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
@@ -664,28 +665,26 @@ async def generate_video(
     """), {"id": body.project_id})
     await db.commit()
 
-    # Call Veo 3.1 via Gemini API
-    veo_model = "veo-3.1-generate-preview"
-    url = f"{GEMINI_API_BASE}/models/{veo_model}:predictLongRunning"
-
-    # Build request parts
-    parts = []
-    for img in reference_images:
-        parts.append(img)
-    parts.append({"text": prompt})
-
+    # Call Veo 3 via Gemini API (use working model)
+    veo_model = "veo-3.0-fast-generate-001"
+    
+    # Build correct payload structure
     request_body = {
-        "instances": [{"prompt": prompt}],
+        "instances": [{
+            "prompt": prompt
+        }],
         "parameters": {
             "aspectRatio": "9:16",
-            "personGeneration": "allow_all",
-            "numberOfVideos": 1,
-        },
+            "durationSeconds": 8
+        }
     }
+    
+    # Use key as query parameter, not Bearer token
+    url = f"{GEMINI_API_BASE}/models/{veo_model}:predictLongRunning?key={api_key}"
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(url, params={"key": api_key}, json=request_body)
+            resp = await client.post(url, json=request_body)
 
             if resp.status_code == 200:
                 data = resp.json()
@@ -719,6 +718,7 @@ async def generate_video(
 
 @router.get("/generate/{project_id}/status")
 async def check_generation_status(
+    request: Request,
     project_id: str,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
@@ -785,6 +785,7 @@ async def check_generation_status(
 
 @router.post("/generate/preview-prompt")
 async def preview_prompt(
+    request: Request,
     body: dict,
     user: User = Depends(get_current_user),
 ):
@@ -954,6 +955,7 @@ class TemplatizeRequest(BaseModel):
 
 @router.post("/templatize")
 async def templatize_video(
+    request: Request,
     body: TemplatizeRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
@@ -1078,6 +1080,7 @@ class TemplatizeCompetitorRequest(BaseModel):
 
 @router.post("/templatize-competitor")
 async def templatize_competitor_post(
+    request: Request,
     body: TemplatizeCompetitorRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),

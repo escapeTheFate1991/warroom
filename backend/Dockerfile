@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt edge-tts \
+RUN pip install --no-cache-dir -r requirements.txt edge-tts openai-whisper \
     && playwright install chromium --with-deps 2>/dev/null || playwright install chromium
 
 COPY app/ app/

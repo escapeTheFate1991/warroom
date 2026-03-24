@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import chat, health, settings, auth, social, social_oauth, social_content, social_sync, files, competitors, content_intel, calendar as cal_api, google_calendar, notifications, stripe_settings, google_ai_studio, ugc_studio, video_editor, content_scheduler, video_copycat, video_assets, video_formats, content_social, carousel, auto_reply, social_accounts, mirofish, email_inbox, usage
+from app.api import chat, health, settings, auth, social, social_oauth, social_content, social_sync, files, competitors, content_intel, calendar as cal_api, google_calendar, notifications, stripe_settings, google_ai_studio, ugc_studio, video_editor, content_scheduler, video_copycat, video_assets, video_formats, content_social, carousel, auto_reply, social_accounts, mirofish, email_inbox, usage, voice
 
 from app.api.webhooks.instagram import router as instagram_webhook_router
 
@@ -314,6 +314,7 @@ app.include_router(video_assets.router, prefix="/api/video-copycat", tags=["vide
 app.include_router(video_formats.router, prefix="/api", tags=["video-formats"])
 app.include_router(instagram_webhook_router, tags=["webhooks"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
 
 

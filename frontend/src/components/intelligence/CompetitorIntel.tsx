@@ -42,6 +42,10 @@ interface CompetitorPost {
   has_transcript?: boolean;
   has_comments?: boolean;
   detected_format?: string;
+  analysis_status?: "completed" | "processing" | "failed" | null;
+  frame_chunks?: FrameChunk[];
+  video_analysis?: VideoAnalysis | null;
+  analyzed_at?: string;
 }
 
 interface TopContentPost {
@@ -60,6 +64,10 @@ interface TopContentPost {
   start_time?: number; // Video start time in seconds
   end_time?: number;   // Video end time in seconds
   detected_format?: string;
+  analysis_status?: "completed" | "processing" | "failed" | null;
+  frame_chunks?: FrameChunk[];
+  video_analysis?: VideoAnalysis | null;
+  analyzed_at?: string;
 }
 
 interface Hook {
@@ -128,6 +136,10 @@ interface TopVideoItem {
   has_comments?: boolean;
   analysis?: TopVideoAnalysis | null;
   detected_format?: string;
+  analysis_status?: "completed" | "processing" | "failed" | null;
+  frame_chunks?: FrameChunk[];
+  video_analysis?: VideoAnalysis | null;
+  analyzed_at?: string;
 }
 
 interface TopVideoSection {
@@ -169,6 +181,26 @@ interface TopVideoAnalysis {
   cta_window?: TopVideoSection;
   storyboard: TopVideoStoryboardScene[];
   production_spec: TopVideoProductionSpec;
+}
+
+interface FrameChunk {
+  start_time: number;
+  end_time: number;
+  duration: number;
+  description: string;
+  veo_prompt: string;
+  visual_elements: string[];
+  action_type: string;
+  pacing: string;
+}
+
+interface VideoAnalysis {
+  summary?: string;
+  total_duration?: number;
+  key_insights?: string[];
+  dominant_themes?: string[];
+  production_quality?: string;
+  content_style?: string;
 }
 
 interface InstagramAdviceItem {
@@ -1698,14 +1730,31 @@ export default function CompetitorIntel() {
                             className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer relative"
                             onClick={() => vid.id && setSelectedPostId(vid.id)}
                           >
-                            {/* Format Badge */}
-                            {vid.detected_format && (
-                              <div className="absolute top-3 right-3">
+                            {/* Format Badge & Analysis Status */}
+                            <div className="absolute top-3 right-3 flex items-center gap-2">
+                              {vid.detected_format && (
                                 <FormatBadge format={vid.detected_format} post={vid} allPosts={focusedTopVideos} />
-                              </div>
-                            )}
+                              )}
+                              {/* Video Analysis Status Indicator */}
+                              {(vid.media_type === 'video' || vid.media_type === 'reel' || vid.media_type === 'clip') && (
+                                <div>
+                                  {vid.analysis_status === 'completed' && (
+                                    <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-medium" title="Frame analysis completed">
+                                      <Film size={10} />
+                                      Analyzed
+                                    </span>
+                                  )}
+                                  {vid.analysis_status === 'processing' && (
+                                    <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded-full text-[10px] font-medium" title="Frame analysis in progress">
+                                      <Loader2 size={10} className="animate-spin" />
+                                      Processing
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                             
-                            <div className="flex items-center gap-2 mb-2 pr-16">
+                            <div className="flex items-center gap-2 mb-2 pr-20">
                               <p className="text-sm text-warroom-text font-medium line-clamp-2 flex-1">{vid.title || "Untitled"}</p>
                               {vid.media_type && (vid.media_type === "reel" || vid.media_type === "video") && (
                                 <Film size={12} className="text-pink-400 flex-shrink-0" />
@@ -1841,14 +1890,31 @@ export default function CompetitorIntel() {
                                 }
                               }}
                             >
-                              {/* Format Badge */}
-                              {post.detected_format && (
-                                <div className="absolute top-3 right-3">
+                              {/* Format Badge & Analysis Status */}
+                              <div className="absolute top-3 right-3 flex items-center gap-2">
+                                {post.detected_format && (
                                   <FormatBadge format={post.detected_format} post={post} allPosts={competitorPosts} />
-                                </div>
-                              )}
+                                )}
+                                {/* Video Analysis Status Indicator */}
+                                {(post.media_type === 'video' || post.media_type === 'reel' || post.media_type === 'clip') && (
+                                  <div className="flex items-center gap-1">
+                                    {post.analysis_status === 'completed' && (
+                                      <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-medium" title="Frame analysis completed">
+                                        <Film size={10} />
+                                        Analyzed
+                                      </span>
+                                    )}
+                                    {post.analysis_status === 'processing' && (
+                                      <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded-full text-[10px] font-medium" title="Frame analysis in progress">
+                                        <Loader2 size={10} className="animate-spin" />
+                                        Processing
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                               
-                              <div className="flex items-start gap-3 pr-16">
+                              <div className="flex items-start gap-3 pr-20">
                                 <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold ${
                                   idx === 0 ? "bg-yellow-500/20 text-yellow-400" :
                                   idx === 1 ? "bg-gray-400/20 text-gray-300" :
@@ -2642,14 +2708,31 @@ export default function CompetitorIntel() {
                       className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer relative"
                       onClick={() => vid.id && setSelectedPostId(vid.id)}
                     >
-                      {/* Format Badge - top right */}
-                      {vid.detected_format && (
-                        <div className="absolute top-3 right-3">
+                      {/* Format Badge & Analysis Status - top right */}
+                      <div className="absolute top-3 right-3 flex items-center gap-2">
+                        {vid.detected_format && (
                           <FormatBadge format={vid.detected_format} post={vid} allPosts={aggregateTopVideos} />
-                        </div>
-                      )}
+                        )}
+                        {/* Video Analysis Status Indicator */}
+                        {(vid.media_type === 'video' || vid.media_type === 'reel' || vid.media_type === 'clip') && (
+                          <div>
+                            {vid.analysis_status === 'completed' && (
+                              <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-medium" title="Frame analysis completed">
+                                <Film size={10} />
+                                Analyzed
+                              </span>
+                            )}
+                            {vid.analysis_status === 'processing' && (
+                              <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded-full text-[10px] font-medium" title="Frame analysis in progress">
+                                <Loader2 size={10} className="animate-spin" />
+                                Processing
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       
-                      <div className="flex items-start justify-between gap-3 mb-2 pr-20">
+                      <div className="flex items-start justify-between gap-3 mb-2 pr-28">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-[10px] uppercase tracking-wider text-warroom-muted">{vid.competitor_handle ? `@${vid.competitor_handle}` : "Competitor"}</span>

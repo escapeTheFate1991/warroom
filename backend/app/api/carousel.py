@@ -60,6 +60,7 @@ class UpdateCarouselRequest(BaseModel):
 @router.post("/generate")
 async def generate_carousel(
     request: GenerateCarouselRequest,
+    http_request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db)
 ):
@@ -111,6 +112,7 @@ async def generate_carousel(
 @router.post("/generate-images")
 async def generate_carousel_images(
     request: GenerateImagesRequest,
+    http_request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db)
 ):
@@ -209,6 +211,7 @@ async def preview_carousel(
 async def update_carousel(
     carousel_id: int,
     request: UpdateCarouselRequest,
+    http_request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db)
 ):
@@ -277,7 +280,7 @@ async def publish_carousel(
     Returns: {"media_id": str, "permalink": str, "published_at": str}
     """
     try:
-        org_id = get_org_id(http_request)
+        org_id = get_org_id(req)
         
         # Get carousel data
         query = text("""
