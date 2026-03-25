@@ -145,7 +145,8 @@ const AudiencePsychologyAnalysis: React.FC<AudiencePsychologyAnalysisProps> = ({
     setError(null);
     
     try {
-      const response = await fetch('/api/audience-intel/psychology-analysis', {
+      const { API, authFetch } = await import('@/lib/api');
+      const response = await authFetch(`${API}/api/audience-intel/psychology-analysis`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -220,12 +221,12 @@ const AudiencePsychologyAnalysis: React.FC<AudiencePsychologyAnalysisProps> = ({
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4">
+        <div className="bg-warroom-bg border border-warroom-border rounded-lg p-8 max-w-md w-full mx-4">
           <div className="flex items-center space-x-3">
-            <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+            <Loader2 className="h-6 w-6 animate-spin text-purple-400" />
             <div>
-              <h3 className="text-lg font-medium">Analyzing Audience Psychology</h3>
-              <p className="text-gray-500 text-sm">This may take a few minutes...</p>
+              <h3 className="text-lg font-medium text-warroom-text">Analyzing Audience Psychology</h3>
+              <p className="text-warroom-muted text-sm">This may take a few minutes...</p>
             </div>
           </div>
         </div>
@@ -236,23 +237,23 @@ const AudiencePsychologyAnalysis: React.FC<AudiencePsychologyAnalysisProps> = ({
   if (error) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4">
+        <div className="bg-warroom-bg border border-warroom-border rounded-lg p-8 max-w-md w-full mx-4">
           <div className="flex items-center space-x-3 mb-4">
-            <AlertCircle className="h-6 w-6 text-red-600" />
-            <h3 className="text-lg font-medium text-red-800">Analysis Failed</h3>
+            <AlertCircle className="h-6 w-6 text-red-400" />
+            <h3 className="text-lg font-medium text-red-400">Analysis Failed</h3>
           </div>
-          <p className="text-gray-600 mb-4">{error}</p>
+          <p className="text-warroom-muted mb-4">{error}</p>
           <div className="flex space-x-3">
             <button
               onClick={runAnalysis}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="flex items-center space-x-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600"
             >
               <RefreshCw className="h-4 w-4" />
               <span>Retry</span>
             </button>
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+              className="px-4 py-2 bg-warroom-surface border border-warroom-border text-warroom-text rounded-lg hover:bg-warroom-border"
             >
               Close
             </button>
@@ -266,30 +267,30 @@ const AudiencePsychologyAnalysis: React.FC<AudiencePsychologyAnalysisProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-7xl w-full h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-warroom-bg border border-warroom-border rounded-lg max-w-7xl w-full h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+        <div className="flex items-center justify-between p-6 border-b border-warroom-border">
           <div className="flex items-center space-x-3">
-            <Brain className="h-6 w-6 text-purple-600" />
+            <Brain className="h-6 w-6 text-purple-400" />
             <div>
-              <h2 className="text-xl font-bold text-gray-900">
+              <h2 className="text-xl font-bold text-warroom-text">
                 Audience Psychology Analysis
               </h2>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-warroom-muted">
                 @{competitorHandle} • {analysisData.analysis_metadata.total_comments_analyzed} comments analyzed
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-warroom-surface border border-warroom-border rounded-lg transition-colors"
           >
-            <X className="h-5 w-5" />
+            <X className="h-5 w-5 text-warroom-muted" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200">
+        <div className="border-b border-warroom-border">
           <nav className="flex space-x-8 px-6">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -299,8 +300,8 @@ const AudiencePsychologyAnalysis: React.FC<AudiencePsychologyAnalysisProps> = ({
                   onClick={() => setSelectedTab(tab.id)}
                   className={`flex items-center space-x-2 py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
                     selectedTab === tab.id
-                      ? 'border-purple-500 text-purple-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      ? 'border-purple-400 text-purple-400'
+                      : 'border-transparent text-warroom-muted hover:text-warroom-text hover:border-warroom-accent/30'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -312,7 +313,7 @@ const AudiencePsychologyAnalysis: React.FC<AudiencePsychologyAnalysisProps> = ({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 bg-warroom-bg">
           {selectedTab === 'overview' && (
             <div className="space-y-6">
               {/* Key Metrics */}
