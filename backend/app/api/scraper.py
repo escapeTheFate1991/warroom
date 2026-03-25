@@ -13,6 +13,8 @@ Endpoints:
 import asyncio
 import logging
 import re
+import os
+import httpx
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
@@ -25,16 +27,83 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.crm_db import get_tenant_db, crm_session
 from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.competitor import Competitor
-from app.services.instagram_scraper import (
-    scrape_profile,
-    scrape_multiple,
-    ScrapedProfile,
-    ScrapedPost,
-)
+# Removed direct scraper imports - now using HTTP calls to scraper service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Service URLs configuration
+SCRAPER_SERVICE_URL = os.getenv("SCRAPER_SERVICE_URL", "http://localhost:18797")
+
+# Pydantic models for scraper service responses
+class ScrapedPost(BaseModel):
+    shortcode: str
+    post_url: str
+    caption: str = ""
+    likes: int = 0
+    comments: int = 0
+    views: int = 0
+    media_type: str = "image"
+    posted_at: Optional[datetime] = None
+    is_reel: bool = False
+    engagement_score: float = 0.0
+    hook: str = ""
+    media_url: str = ""
+    thumbnail_url: str = ""
+
+class ScrapedProfile(BaseModel):
+    handle: str
+    full_name: str = ""
+    bio: str = ""
+    followers: int = 0
+    following: int = 0
+    post_count: int = 0
+    profile_pic_url: str = ""
+    is_private: bool = False
+    is_verified: bool = False
+    category: str = ""
+    posts: List[ScrapedPost] = []
+    scraped_at: Optional[datetime] = None
+    error: Optional[str] = None
+    bio_links: List[Dict[str, str]] = []
+    threads_handle: str = ""
+    external_url: str = ""
+
+async def scrape_profile(handle: str) -> ScrapedProfile:
+    """Call scraper service to scrape a single profile."""
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{SCRAPER_SERVICE_URL}/scrape-profile",
+                json={"handle": handle}
+            )
+            if response.status_code == 200:
+                return ScrapedProfile(**response.json())
+            else:
+                logger.error(f"Scraper service error for {handle}: {response.status_code} - {response.text}")
+                return ScrapedProfile(handle=handle, error=f"HTTP {response.status_code}: {response.text}")
+    except Exception as e:
+        logger.error(f"Failed to call scraper service for {handle}: {e}")
+        return ScrapedProfile(handle=handle, error=f"Service unavailable: {str(e)}")
+
+async def scrape_multiple(handles: List[str], delay_range: tuple = (3, 7)) -> List[ScrapedProfile]:
+    """Call scraper service to scrape multiple profiles."""
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(
+                f"{SCRAPER_SERVICE_URL}/scrape-multiple",
+                json={"handles": handles, "delay_range": delay_range}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return [ScrapedProfile(**profile_data) for profile_data in data.get("profiles", [])]
+            else:
+                logger.error(f"Scraper service error for multiple profiles: {response.status_code} - {response.text}")
+                return [ScrapedProfile(handle=handle, error=f"HTTP {response.status_code}") for handle in handles]
+    except Exception as e:
+        logger.error(f"Failed to call scraper service for multiple profiles: {e}")
+        return [ScrapedProfile(handle=handle, error=f"Service unavailable: {str(e)}") for handle in handles]
 
 _instagram_sync_task: Optional[asyncio.Task] = None
 _instagram_sync_result: Optional[Dict[str, Any]] = None

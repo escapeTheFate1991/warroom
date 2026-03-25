@@ -8,18 +8,15 @@ import asyncio
 import json
 import logging
 import os
-import httpx
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+# Database imports removed - scraper service doesn't access DB directly
 
 logger = logging.getLogger(__name__)
 
 COOKIE_PATH = Path(os.getenv("INSTAGRAM_COOKIE_PATH", "/data/instagram_cookies.json"))
-ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://localhost:18798")
 
 
 async def scrape_post_comments(
@@ -444,100 +441,5 @@ def _analyze_comments(comments: List[Dict], post_caption: str = "") -> Dict:
     }
 
 
-async def scrape_competitor_comments(
-    db: AsyncSession,
-    competitor_id: int,
-    top_n: int = 10,
-    comments_per_post: int = 50,
-) -> Dict:
-    """Scrape comments for top N posts, analyze them, store ONLY the analysis.
-    
-    Raw comment text is never persisted — only audience intelligence and sentiment.
-    Returns: {processed: int, analyzed: int, errors: [str]}
-    """
-    result = await db.execute(
-        text("""
-            SELECT id, shortcode, post_text
-            FROM crm.competitor_posts
-            WHERE competitor_id = :cid
-              AND comments_data IS NULL
-              AND shortcode IS NOT NULL
-              AND comments > 5
-            ORDER BY engagement_score DESC
-            LIMIT :lim
-        """),
-        {"cid": competitor_id, "lim": top_n},
-    )
-    posts = result.fetchall()
-    
-    if not posts:
-        return {"processed": 0, "analyzed": 0, "errors": []}
-    
-    stats = {"processed": 0, "analyzed": 0, "errors": []}
-    
-    for post_id, shortcode, post_caption in posts:
-        stats["processed"] += 1
-        logger.info("Scraping + analyzing comments for %s...", shortcode)
-        
-        try:
-            # Scrape raw comments (held in memory only)
-            raw_comments = await scrape_post_comments(shortcode, limit=comments_per_post)
-            
-            # Analyze using ML pipeline service (FastEmbed + clustering), fallback to regex
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.post(
-                        f"{ML_SERVICE_URL}/analyze-comments",
-                        json={"comments": raw_comments, "post_caption": post_caption or ""}
-                    )
-                    if response.status_code == 200:
-                        analysis = response.json()
-                    else:
-                        logger.warning("ML service failed with HTTP %s, falling back to regex", response.status_code)
-                        analysis = _analyze_comments(raw_comments, post_caption or "")
-            except Exception as e:
-                logger.warning("ML service unavailable, falling back to regex: %s", e)
-                analysis = _analyze_comments(raw_comments, post_caption or "")
-            
-            # Store ONLY the analysis, not raw comments
-            await db.execute(
-                text("UPDATE crm.competitor_posts SET comments_data = :c WHERE id = :id"),
-                {"c": json.dumps(analysis), "id": post_id},
-            )
-            await db.commit()
-            stats["analyzed"] += 1
-            logger.info("✅ %s: analyzed %d comments → %s sentiment, %d questions, %d pain points",
-                        shortcode, analysis["analyzed"], analysis["sentiment"],
-                        len(analysis["questions"]), len(analysis["pain_points"]))
-            
-        except Exception as e:
-            stats["errors"].append(f"{shortcode}: {str(e)[:100]}")
-            logger.error("Comment analysis failed for %s: %s", shortcode, e)
-        
-        # Random delay between posts to avoid rate limiting
-        import random
-        await asyncio.sleep(random.uniform(2, 5))
-    
-    return stats
-
-
-async def analyze_competitor_comments_batch(
-    db: AsyncSession,
-    competitor_ids: List[int],
-    top_n_per_competitor: int = 5,
-) -> Dict:
-    """Batch comment analysis across multiple competitors.
-    
-    Returns: {analyzed: int, processed: int}
-    """
-    totals = {"analyzed": 0, "processed": 0}
-    
-    for cid in competitor_ids:
-        try:
-            result = await scrape_competitor_comments(db, cid, top_n=top_n_per_competitor)
-            totals["analyzed"] += result.get("analyzed", 0)
-            totals["processed"] += result.get("processed", 0)
-        except Exception as e:
-            logger.warning("Comment analysis batch failed for competitor %s: %s", cid, e)
-    
-    return totals
+# Database-dependent functions removed - scraper service doesn't access DB directly
+# The backend will call this service via HTTP API and handle analysis separately

@@ -1,180 +1,186 @@
 # socialRecycle — Master Wave Plan
 
-## Status
-- **Wave 1:** ✅ COMPLETE — Frame-by-frame MCP integration
-- **Wave 2:** ✅ COMPLETE — AI Studio + Competitor Intel bug fixes
-- **Wave 3:** 🔄 NEXT — Scraper hardening + worker fix + Veo/Nano Banana verification
-- **Wave 4:** ⏳ PLANNED — ML comment analysis + content gap detection
-- **Wave 5:** ⏳ PLANNED — Video cloning pipeline (analyze → VEO chunks → stitch)
-- **Wave 6:** ⏳ PLANNED — Deployment to DigitalOcean/Linode
-
-## Completed Work (Waves 1-2)
-- 5 ugc_studio.py endpoints fixed (missing request: Request)
-- 4 carousel.py endpoints fixed (http_request param naming)
-- video_analysis_service.py MCP integration (stdio subprocess)
-- Frame analysis badges + tab in CompetitorIntel/PostDetailModal
-- Social accounts settings page (router order + auth guard DB fallback)
-- Instagram scraper login working (Meta unified form handled)
-- Cookie invalidation bug fixed (private profiles no longer nuke session)
-- Auto-follow competitors feature (on add + bulk follow-all endpoint)
+## Completed
+- **Wave 1:** ✅ Frame-by-frame MCP integration
+- **Wave 2:** ✅ AI Studio + Competitor Intel bug fixes
+- **Wave 3:** ✅ Scraper login + worker fix + Veo/Nano Banana API fixes
+- **Wave 4:** ✅ ML comment analysis + content gaps + video topics
+- **Wave 5:** ✅ Standalone media-understanding service + video analysis pipeline working
 
 ---
 
-## Wave 3: Scraper Hardening + Worker Fix + API Verification
+## Wave 6: Backend Decomposition — Monolith → Microservices (CURRENT)
 
 ### Goal
-Make the scraper reliably handle both Meta unified login and classic Instagram forms. Fix the crashed worker. Verify Veo and Nano Banana API calls work end-to-end.
+Break the 8.1GB backend monolith into focused microservices. Each service: small image, fast build, independent failure.
 
-### Research Needed
-- [ ] Read `instagram_scraper.py` login flow fully — map both Meta form (name="email", name="pass") and classic form (name="username", name="password")
-- [ ] Read worker config — find `workflow_queue` import that crashes it
-- [ ] Read `nano_banana.py` — verify Gemini image gen payload (responseModalities)
-- [ ] Read Veo generate endpoint — verify `predictLongRunning` API structure
-- [ ] Check Arq worker entry point and what tasks it runs
+### Research Summary
+
+**Current backend = 8.1GB:**
+- nvidia/CUDA + torch + triton: 4.5GB (openai-whisper pulls all GPU libs)
+- Playwright + Chromium: 883MB (two copies of playwright)
+- scikit-learn + scipy: 158MB
+- Core FastAPI + everything else: ~400MB
+
+**Key finding:** The heavy services (scraper, ML, whisper) have ZERO internal app imports. They're already self-contained — just need HTTP wrappers.
+
+### Target Architecture
+
+| Service | Image | Size Est | Port | Contains |
+|---------|-------|----------|------|----------|
+| **backend** | python:3.12-slim | ~400MB | 8300 | FastAPI core, auth, DB, all API routes |
+| **scraper** | mcr.microsoft.com/playwright/python | ~800MB | 18797 | instagram_scraper, comment_scraper, scrapling |
+| **ml-pipeline** | python:3.12-slim + scikit-learn | ~300MB | 18798 | comment_analyzer + FastEmbed client |
+| **media-understanding** | node:22-slim + ffmpeg | ~500MB | 18796 | Video frame analysis (DONE) |
+| **frontend** | node:20-alpine | ~200MB | 3300 | Next.js (unchanged) |
+| **worker** | python:3.12-slim | ~200MB | — | Arq tasks (unchanged) |
+
+**Total: ~2.4GB across 6 containers vs 8.1GB in one.**
 
 ### Tasks
 
-@@@task
-# Task 1: Fix scraper login to handle both Instagram form variants
-**Agent:** Sonnet | **Est:** ~15 min
+#### Wave 6A: Create scraper service (2 agents parallel)
 
-Update `_login_to_instagram()` in `instagram_scraper.py` to detect which login form is shown (Meta unified vs classic Instagram) and use the correct selectors.
+@@@task
+# Task 1: Create scraper HTTP service
+**Agent:** Sonnet | **Est:** ~30 min
+
+Build `services/scraper/` as a standalone FastAPI service wrapping instagram_scraper.py, comment_scraper.py, and scraping.py.
 
 ## Scope
-- ONLY: `backend/app/services/instagram_scraper.py` — `_login_to_instagram()` function
-- Meta form: `input[name="email"]` + `input[name="pass"]`
-- Classic form: `input[name="username"]` + `input[name="password"]` OR `input[aria-label="Phone number, username, or email"]` + `input[aria-label="Password"]`
-- Try Meta form first, fall back to classic if not found
-- Don't change cookie loading/saving logic
+- CREATE: `services/scraper/Dockerfile` (use mcr.microsoft.com/playwright/python:v1.49.0-jammy)
+- CREATE: `services/scraper/requirements.txt` (playwright, scrapling, httpx, fastapi, uvicorn)
+- CREATE: `services/scraper/main.py` — FastAPI app with endpoints:
+  - `POST /scrape-profile` — scrape an Instagram profile
+  - `POST /scrape-comments` — scrape comments from a post
+  - `POST /follow` — follow an Instagram user
+  - `GET /health`
+- COPY: `instagram_scraper.py`, `comment_scraper.py`, `scraping.py` into services/scraper/
+- Add to docker-compose.yml as `scraper` service on port 18797
+- Mount instagram-cookies volume at /data
+
+## Definition of Done
+- Service starts and /health returns 200
+- Dockerfile builds in < 2 minutes
+- No Playwright imports in backend requirements.txt
 
 ## Verification
 ```bash
-python3 -c "import ast; ast.parse(open('backend/app/services/instagram_scraper.py').read()); print('OK')"
-grep -c 'name="email"\|name="pass"\|name="username"\|name="password"' backend/app/services/instagram_scraper.py  # Should be > 0
+docker compose build scraper && docker compose up -d scraper
+curl -s http://localhost:18797/health
 ```
 @@@
 
 @@@task
-# Task 2: Fix worker crash — remove workflow_queue import
-**Agent:** Haiku | **Est:** ~5 min
-
-Worker crashes on startup: `ModuleNotFoundError: No module named 'app.services.workflow_queue'`. This was removed during socialRecycle cleanup. Fix the worker entry point.
-
-## Scope  
-- Find the Arq worker config that imports `workflow_queue`
-- Remove or stub the import
-- Check `docker-compose.yml` worker command for the entry point file
-
-## Verification
-```bash
-grep -r "workflow_queue" backend/app/ --include="*.py" -l  # Should be 0 files or only stubs
-python3 -c "import ast; ast.parse(open('<worker_file>').read()); print('OK')"
-```
-@@@
-
-@@@task
-# Task 3: Verify and fix Nano Banana image generation API
+# Task 2: Create ML pipeline service
 **Agent:** Sonnet | **Est:** ~20 min
 
-`nano_banana.py` calls Gemini for image generation. Verify the API payload structure is correct for current Gemini models. The `responseModalities: ["TEXT", "IMAGE"]` parameter may be needed for image gen to work.
+Build `services/ml-pipeline/` as a standalone FastAPI service wrapping comment_analyzer.py.
 
 ## Scope
-- ONLY: `backend/app/services/nano_banana.py`
-- Read the `call_gemini_api()` function and `generate_*` functions
-- Verify model names are current (gemini-2.0-flash-exp, imagen-3.0-generate-002)
-- Add `responseModalities` if missing for image generation calls
-- Test by checking the API docs: https://ai.google.dev/gemini-api/docs/image-generation
+- CREATE: `services/ml-pipeline/Dockerfile` (python:3.12-slim + scikit-learn)
+- CREATE: `services/ml-pipeline/requirements.txt` (scikit-learn, numpy, httpx, fastapi, uvicorn)
+- CREATE: `services/ml-pipeline/main.py` — FastAPI app with endpoints:
+  - `POST /analyze-comments` — run ML comment analysis
+  - `GET /health`
+- COPY: `comment_analyzer.py` into services/ml-pipeline/
+- Add to docker-compose.yml as `ml-pipeline` service on port 18798
+- The service calls FastEmbed at http://10.0.0.11:11435/api/embed (same as now)
+
+## Definition of Done
+- Service starts and /health returns 200
+- comment_analyzer.py works when called via HTTP
+- No scikit-learn in backend requirements.txt
 
 ## Verification
 ```bash
-python3 -c "import ast; ast.parse(open('backend/app/services/nano_banana.py').read()); print('OK')"
+docker compose build ml-pipeline && docker compose up -d ml-pipeline
+curl -s http://localhost:18798/health
 ```
 @@@
 
-@@@task  
-# Task 4: Verify Veo video generation endpoint
+#### Wave 6B: Rewire backend to call services via HTTP (1 agent)
+
+@@@task
+# Task 3: Update backend to call scraper + ML services via HTTP
+**Agent:** Sonnet | **Est:** ~30 min
+
+Replace direct imports of instagram_scraper, comment_scraper, comment_analyzer in the backend API routes with HTTP calls to the new services.
+
+## Scope
+- MODIFY: `backend/app/api/scraper.py` — call scraper service at localhost:18797
+- MODIFY: `backend/app/api/competitors.py` — call scraper service for follow/sync
+- MODIFY: `backend/app/api/content_intel.py` — call ML service at localhost:18798
+- MODIFY: `backend/app/services/comment_scraper.py` — call ML service instead of direct import
+- MODIFY: `backend/requirements.txt` — remove playwright, scrapling, scikit-learn
+- DO NOT modify the service files themselves (they're copied to new services)
+
+## Definition of Done
+- Backend starts without importing playwright or scikit-learn
+- API routes call services via httpx
+- Fallback: if service is down, return error (don't crash)
+
+## Verification
+```bash
+python3 -c "import ast; ast.parse(open('backend/app/api/scraper.py').read()); print('OK')"
+python3 -c "import ast; ast.parse(open('backend/app/api/competitors.py').read()); print('OK')"
+grep -c "playwright\|scrapling\|scikit" backend/requirements.txt  # Should be 0
+```
+@@@
+
+#### Wave 6C: Strip Whisper from backend (1 agent)
+
+@@@task
+# Task 4: Remove Whisper/torch from backend
 **Agent:** Sonnet | **Est:** ~15 min
 
-The Veo endpoint uses `veo-3.0-fast-generate-001` via `predictLongRunning`. Verify the API URL structure, payload format, and polling mechanism are correct per Google's current docs.
+Remove openai-whisper (and its 4.5GB of nvidia/torch/triton deps) from the backend Dockerfile. The video_transcriber already calls Whisper via TCP to an external service. voice.py edge-tts can stay (lightweight).
 
 ## Scope
-- ONLY: `backend/app/api/ugc_studio.py` — `generate_video()` and `check_generation_status()`
-- Verify the URL pattern: `{GEMINI_API_BASE}/models/{model}:predictLongRunning`
-- Verify payload: `instances[].prompt` + `parameters.aspectRatio/durationSeconds`
-- Verify polling: GET to `{GEMINI_API_BASE}/{generation_id}` with API key
-- Check: https://ai.google.dev/gemini-api/docs/video
+- MODIFY: `backend/Dockerfile` — remove `openai-whisper` from pip install line
+- MODIFY: `backend/app/api/voice.py` — remove any direct whisper import, use external service
+- VERIFY: video_transcriber.py calls Whisper via TCP (already does, no changes needed)
+
+## Definition of Done
+- Backend builds without torch/nvidia (image should be ~1GB not 8GB)
+- voice.py doesn't import whisper directly
+- video_transcriber.py unchanged (already uses TCP)
 
 ## Verification
 ```bash
-python3 -c "import ast; ast.parse(open('backend/app/api/ugc_studio.py').read()); print('OK')"
+docker compose build backend
+docker images warroom-backend --format "{{.Size}}"  # Should be < 2GB
 ```
 @@@
 
-### Wave 3 Verification
-Dedicated verifier agent after all 4 tasks complete:
-- AST check all modified files
-- Trace login flow end-to-end
-- Rebuild backend + worker containers
-- Test worker starts without crash
-- Commit all changes
+#### Wave 6D: Verify + rebuild all (1 agent)
+
+@@@task
+# Task 5: Full verification + deploy
+**Agent:** Sonnet | **Est:** ~15 min
+
+Verify all services start, communicate, and the app works end-to-end.
+
+## Verification checklist
+- [ ] `docker compose up -d` — all services start
+- [ ] Backend image < 2GB
+- [ ] `curl localhost:8300/docs` — API docs load
+- [ ] `curl localhost:18796/health` — media-understanding
+- [ ] `curl localhost:18797/health` — scraper
+- [ ] `curl localhost:18798/health` — ml-pipeline
+- [ ] `curl localhost:3300` — frontend loads
+- [ ] Backend logs show no import errors
+- [ ] tsc --noEmit passes
+- [ ] AST check all modified Python files
+- [ ] Git commit all changes
+@@@
 
 ---
 
-## Wave 4: ML Comment Analysis + Content Gap Detection
+## Wave 7: Production Deployment (DigitalOcean/Linode)
+*After Wave 6 — deploy the microservices architecture*
 
-### Goal
-Replace regex-based comment analysis with a local ML pipeline. Build "unanswered questions" detection and content gap analysis. No external API tokens — all local.
-
-### Research Needed
-- [ ] Evaluate ML options that run on CPU (no GPU): spaCy NER + topic modeling, sentence-transformers for clustering
-- [ ] Design comment analysis pipeline: raw comments → topic clusters → question extraction → gap detection
-- [ ] Check FastEmbed on Brain 2 — can it handle comment embeddings at scale?
-- [ ] Design DB schema for storing ML analysis results
-
-### Tasks (TBD after research)
-- Rewrite `_analyze_comments()` in `comment_scraper.py`
-- Add topic clustering using sentence-transformers + HDBSCAN
-- Add unanswered question detection (questions with no replies)
-- Add content gap analysis (what audience asks but influencer never covers)
-- Add video topic suggestion engine from gaps
-- Frontend: redesign Audience Intel panel with meaningful data
-
----
-
-## Wave 5: Video Cloning Pipeline
-
-### Goal
-End-to-end: analyze competitor video → extract frame chunks → generate VEO clips per chunk → stitch into full recreation.
-
-### Tasks (TBD after Wave 3)
-- Test frame-by-frame analysis on top 5 competitor videos
-- Wire blueprints UI to show analysis + one-click "clone this video"
-- VEO generation per 8-second chunk
-- Video stitching service
-- MiroFish scoring on generated content before publish
-
----
-
-## Wave 6: Production Deployment
-
-### Goal
-Deploy socialRecycle to DigitalOcean or Linode by end of March 2026.
-
-### Tasks (TBD)
-- Containerize for cloud deployment (docker-compose → production)
-- Set up domain, SSL, DNS
-- PostgreSQL managed instance or self-hosted
-- Qdrant + FastEmbed deployment
-- CI/CD pipeline
-- Environment variable management
-- Cloudflare tunnel → proper reverse proxy
-- Execute DB migration (socialrecycle_cleanup.sql)
-- Monitoring + alerting
-
----
-
-## Outstanding Items (non-wave)
+## Outstanding Items
 - Instagram CDN S3 download job (615 expired URLs → Garage)
-- Education/library → SQLite to PostgreSQL migration  
+- Education/library → SQLite to PostgreSQL migration
 - Wire OpenClaw multi-agent config to War Room agent records
-- SNT changes deployed (committed but not deployed)

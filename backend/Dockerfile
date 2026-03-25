@@ -13,8 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt edge-tts openai-whisper \
-    && playwright install chromium --with-deps 2>/dev/null || playwright install chromium
+RUN pip install --no-cache-dir -r requirements.txt edge-tts
 
 COPY app/ app/
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8300", "--workers", "1"]

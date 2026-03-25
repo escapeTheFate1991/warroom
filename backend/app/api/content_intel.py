@@ -1,6 +1,7 @@
 """Enhanced Content intelligence API endpoints for competitive analysis and script generation."""
 import logging
 import json
+import os
 import re
 import httpx
 import asyncio
@@ -29,9 +30,51 @@ from app.api.scraper import (
     sync_instagram_competitor_batch,
     calculate_competitor_engagement_score,
 )
-from app.services.instagram_scraper import scrape_profile, ScrapedProfile
+# Removed direct scraper imports - now using HTTP calls to scraper service
 # _get_business_settings moved here from contracts.py to avoid cross-dependency
 from app.db.leadgen_db import leadgen_session
+
+# Local ScrapedProfile model to maintain compatibility
+class ScrapedProfile:
+    def __init__(self, handle="", full_name="", bio="", followers=0, following=0, post_count=0, 
+                 profile_pic_url="", is_private=False, is_verified=False, category="", 
+                 posts=None, scraped_at=None, error=None, bio_links=None, 
+                 threads_handle="", external_url=""):
+        self.handle = handle
+        self.full_name = full_name
+        self.bio = bio
+        self.followers = followers
+        self.following = following
+        self.post_count = post_count
+        self.profile_pic_url = profile_pic_url
+        self.is_private = is_private
+        self.is_verified = is_verified
+        self.category = category
+        self.posts = posts or []
+        self.scraped_at = scraped_at
+        self.error = error
+        self.bio_links = bio_links or []
+        self.threads_handle = threads_handle
+        self.external_url = external_url
+
+# Service URL configuration
+SCRAPER_SERVICE_URL = os.getenv("SCRAPER_SERVICE_URL", "http://localhost:18797")
+
+async def scrape_profile(handle: str) -> ScrapedProfile:
+    """Call scraper service to scrape a profile."""
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{SCRAPER_SERVICE_URL}/scrape-profile",
+                json={"handle": handle}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return ScrapedProfile(**data)
+            else:
+                return ScrapedProfile(handle=handle, error=f"HTTP {response.status_code}")
+    except Exception as e:
+        return ScrapedProfile(handle=handle, error=f"Service unavailable: {str(e)}")
 
 # Import NLP libraries for better text processing
 try:

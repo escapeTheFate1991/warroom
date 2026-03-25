@@ -17,47 +17,8 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user)
 ):
-    """Transcribe audio file using local Whisper."""
-    try:
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp_file:
-            content = await file.read()
-            tmp_file.write(content)
-            tmp_path = tmp_file.name
-        
-        try:
-            # Use whisper command directly
-            result = subprocess.run([
-                "whisper", tmp_path, 
-                "--model", "base",
-                "--output_format", "json",
-                "--output_dir", "/tmp",
-                "--language", "en"
-            ], capture_output=True, text=True, timeout=30)
-            
-            if result.returncode == 0:
-                # Find the JSON output file
-                json_path = tmp_path.replace(".webm", ".json")
-                if os.path.exists(json_path):
-                    with open(json_path, 'r') as f:
-                        whisper_result = json.load(f)
-                    os.unlink(json_path)  # Clean up JSON file
-                    return {"text": whisper_result.get("text", "").strip()}
-                else:
-                    # Fallback: parse stdout
-                    return {"text": ""}
-            else:
-                raise HTTPException(status_code=500, detail=f"Whisper error: {result.stderr}")
-                
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-                
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=500, detail="Transcription timeout")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Transcription error: {str(e)}")
+    """Transcription service is unavailable — Whisper requires GPU."""
+    return {"text": "", "error": "Transcription service unavailable — GPU required"}
 
 
 @router.post("/tts")

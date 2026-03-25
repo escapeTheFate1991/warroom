@@ -2,6 +2,7 @@
 import logging
 import json
 import re
+import os
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
@@ -22,6 +23,9 @@ from app.db.crm_db import crm_session
 from app.services.video_analysis_service import video_analysis_service
 
 logger = logging.getLogger(__name__)
+
+# Service URLs configuration
+SCRAPER_SERVICE_URL = os.getenv("SCRAPER_SERVICE_URL", "http://localhost:18797")
 
 
 async def _background_sync_competitor(competitor_id: int, platform: str, org_id: int = 1):
@@ -385,8 +389,16 @@ async def create_competitor(
         
         # Auto-follow new Instagram competitors
         if platform == "instagram":
-            from app.services.instagram_scraper import follow_instagram_user
-            background_tasks.add_task(follow_instagram_user, handle)
+            async def follow_task():
+                try:
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        await client.post(
+                            f"{SCRAPER_SERVICE_URL}/follow",
+                            json={"handle": handle}
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to follow new competitor {handle}: {e}")
+            background_tasks.add_task(follow_task)
         
         return CompetitorResponse.model_validate(new_competitor)
         
@@ -866,8 +878,19 @@ async def follow_competitor(
     if comp[1] != "instagram":
         raise HTTPException(status_code=400, detail="Auto-follow only supported for Instagram")
     
-    from app.services.instagram_scraper import follow_instagram_user
-    follow_result = await follow_instagram_user(comp[0])
+    # Call scraper service to follow user
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{SCRAPER_SERVICE_URL}/follow",
+                json={"handle": comp[0]}
+            )
+            if response.status_code == 200:
+                follow_result = response.json()
+            else:
+                follow_result = {"success": False, "error": f"HTTP {response.status_code}: {response.text}"}
+    except Exception as e:
+        follow_result = {"success": False, "error": f"Service unavailable: {str(e)}"}
     
     return follow_result
 
@@ -890,7 +913,21 @@ async def follow_all_competitors(
     if not handles:
         return {"message": "No Instagram competitors to follow", "count": 0}
     
-    from app.services.instagram_scraper import follow_multiple_users
-    background_tasks.add_task(follow_multiple_users, handles, 5.0)
+    # Call scraper service to follow multiple users
+    async def follow_multiple_task():
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                response = await client.post(
+                    f"{SCRAPER_SERVICE_URL}/follow-batch",
+                    json={"handles": handles, "delay": 5.0}
+                )
+                if response.status_code == 200:
+                    logger.info(f"Successfully followed {len(handles)} competitors")
+                else:
+                    logger.error(f"Failed to follow competitors: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Failed to follow competitors: {e}")
+    
+    background_tasks.add_task(follow_multiple_task)
     
     return {"message": f"Following {len(handles)} competitors in background", "count": len(handles)}

@@ -70,6 +70,9 @@ services:
       GARAGE_SECRET_KEY: 370b99ef00dbfee300e3d73b69b217a7f5633935b02b86ee37f5691aacdf602b
       GARAGE_REGION: ai-local
       GARAGE_BUCKET_DIGITAL_COPIES: digital-copies
+      # Microservice URLs
+      SCRAPER_SERVICE_URL: http://localhost:18797
+      ML_SERVICE_URL: http://localhost:18798
     restart: unless-stopped
     network_mode: host
     volumes:
@@ -106,6 +109,30 @@ services:
     volumes:
       - /tmp:/tmp
       - instagram-cookies:/data:ro
+    restart: unless-stopped
+
+  scraper:
+    build: ./services/scraper
+    container_name: warroom-scraper
+    ports:
+      - "18797:18797"
+    volumes:
+      - instagram-cookies:/data
+      - /tmp:/tmp
+    environment:
+      INSTAGRAM_COOKIE_PATH: /data/instagram_cookies.json
+      INSTAGRAM_USERNAME: ${INSTAGRAM_USERNAME}
+      INSTAGRAM_PASSWORD: ${INSTAGRAM_PASSWORD}
+      INSTAGRAM_TOTP_SECRET: ${INSTAGRAM_TOTP_SECRET}
+    restart: unless-stopped
+
+  ml-pipeline:
+    build: ./services/ml-pipeline
+    container_name: warroom-ml-pipeline
+    ports:
+      - "18798:18798"
+    environment:
+      FASTEMBED_URL: http://10.0.0.11:11435
     restart: unless-stopped
 
   warroom-qdrant:
