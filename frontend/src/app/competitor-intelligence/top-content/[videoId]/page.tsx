@@ -5,6 +5,9 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Film, FileText, BarChart3, Play, Loader2 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import ScrollTabs from "@/components/ui/ScrollTabs";
+import CreatorDirectivesTab from "@/components/intelligence/CreatorDirectivesTab";
+// import VideoAnalyticsTab from "@/components/intelligence/VideoAnalyticsTab";
+import TranscriptTab from "@/components/ui/TranscriptTab";
 
 interface VideoRecord {
   id: number;
@@ -227,23 +230,11 @@ export default function VideoDetailPage() {
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === "transcript" && (
-          <div className="max-w-4xl mx-auto">
-            <div className="text-center py-16 text-warroom-muted">
-              <FileText size={48} className="mx-auto mb-4 opacity-20" />
-              <p className="text-lg font-medium text-warroom-text">Transcript content will appear here</p>
-              <p className="text-sm mt-2">Video transcript and analysis will be available in Wave 3</p>
-            </div>
-          </div>
+          <TranscriptTab videoRecord={videoRecord} />
         )}
 
         {activeTab === "creator-directives" && (
-          <div className="max-w-4xl mx-auto">
-            <div className="text-center py-16 text-warroom-muted">
-              <Film size={48} className="mx-auto mb-4 opacity-20" />
-              <p className="text-lg font-medium text-warroom-text">Creator directives will appear here</p>
-              <p className="text-sm mt-2">Detailed creator directives and production specs will be available in Wave 3</p>
-            </div>
-          </div>
+          <CreatorDirectivesTab videoId={videoId} />
         )}
 
         {activeTab === "video-analytics" && (

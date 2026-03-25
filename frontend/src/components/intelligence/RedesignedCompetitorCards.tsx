@@ -282,42 +282,7 @@ function VideoMetricsCard({
 
       {/* Enhanced script generation with frame analysis data */}
       <div className="flex gap-2">
-        <InfoTooltip content="Generate similar content using AI analysis of this video's structure, pacing, and visual elements">
-          <button
-            onClick={() => {
-              // Enhanced script generation with video analysis data
-              const scriptData = {
-                format: video.detected_format || 'direct_to_camera',
-                hook: video.hook || video.content_analysis?.hook?.text,
-                hook_type: video.content_analysis?.hook?.type,
-                hook_strength: getHookScore(),
-                content_themes: video.video_analysis?.dominant_themes || [],
-                visual_elements: video.frame_chunks?.flatMap((chunk: any) => chunk.visual_elements || []) || [],
-                pacing_style: video.video_analysis?.content_style,
-                structure_score: video.content_analysis?.structure_score,
-                retention_curve: video.video_analysis?.retention_curve,
-                engagement_score: getEngagementScore(),
-                source_post_url: video.url || video.post_url,
-                source_handle: video.competitor_handle,
-                duration: video.video_analysis?.total_duration
-              };
-              
-              // Navigate to AI Studio with enhanced prefill data
-              const params = new URLSearchParams();
-              Object.entries(scriptData).forEach(([key, value]) => {
-                if (value !== undefined && value !== null) {
-                  params.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
-                }
-              });
-              
-              window.location.href = `/ai-studio?${params.toString()}`;
-            }}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-warroom-accent/10 hover:bg-warroom-accent/20 border border-warroom-accent/20 hover:border-warroom-accent/40 rounded-lg text-xs font-medium text-warroom-accent transition"
-          >
-            <Sparkles size={12} />
-            Generate Variant
-          </button>
-        </InfoTooltip>
+
 
         {/* Frame analysis toggle */}
         {showFrameAnalysis && video.analysis_status === 'completed' && (
@@ -389,13 +354,11 @@ function formatNumber(num: number): string {
 function EnhancedCompetitorCard({ 
   competitor, 
   topVideos, 
-  onViewDetails,
-  onPsychologyAnalysis
+  onViewDetails
 }: { 
   competitor: any; 
   topVideos: any[]; 
   onViewDetails: () => void;
-  onPsychologyAnalysis?: (competitorId: number) => void;
 }) {
   const [loading, setLoading] = useState(false);
 
@@ -498,16 +461,7 @@ function EnhancedCompetitorCard({
           View Details
         </button>
         
-        {onPsychologyAnalysis && (
-          <InfoTooltip content="Deep behavioral psychology analysis of their audience - understand WHY people engage and share">
-            <button
-              onClick={() => onPsychologyAnalysis(competitor.id)}
-              className="px-3 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-lg text-purple-400 transition"
-            >
-              <Brain size={12} />
-            </button>
-          </InfoTooltip>
-        )}
+
         
         <InfoTooltip content="Generate content ideas based on this competitor's top-performing videos">
           <button

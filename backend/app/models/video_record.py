@@ -109,6 +109,7 @@ class VideoRecord(BaseModel):
     # Basic identifiers
     id: Optional[int] = None
     competitor_id: Optional[int] = None
+    competitor_handle: str = "unknown"  # Handle/username of competitor
     platform: str
     title: str  # Derived from post_text or hook
     url: str
@@ -193,6 +194,7 @@ class VideoRecord(BaseModel):
         return cls(
             id=post_id,
             competitor_id=competitor_id,
+            competitor_handle=competitor_handle,
             platform=platform,
             title=title,
             url=post_url,
