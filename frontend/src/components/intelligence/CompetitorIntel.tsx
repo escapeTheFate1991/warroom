@@ -291,6 +291,72 @@ interface VideoTopicSuggestion {
   source_questions: string[];
 }
 
+// CDR Interfaces
+interface CdrCandidate {
+  post_id: number;
+  hook_preview: string;
+  power_score: number;
+  dominant_intent: string;
+  engagement_metrics: {
+    likes: number;
+    comments: number;
+    shares: number;
+    engagement_score: number;
+  };
+  platform: string;
+  competitor_handle: string;
+  timestamp: string;
+  post_url?: string;
+}
+
+interface HookDirective {
+  visual: string;
+  audio: string;
+  script_line: string;
+  overlay: string;
+}
+
+interface RetentionBlueprint {
+  pacing_rules: string[];
+  pattern_interrupts: Array<{
+    timestamp: number;
+    action: string;
+  }>;
+}
+
+interface ShareCatalyst {
+  vulnerability_frame: string;
+  timestamp: number;
+}
+
+interface ConversionClose {
+  cta_script: string;
+  automation_trigger: string;
+}
+
+interface TechnicalSpecs {
+  lighting: string;
+  aspect_ratio: string;
+  colors: string[];
+  bpm: number;
+  length_seconds: number;
+}
+
+interface CreatorDirectiveReport {
+  post_id: number;
+  hook_directive: HookDirective;
+  retention_blueprint: RetentionBlueprint;
+  share_catalyst: ShareCatalyst;
+  conversion_close: ConversionClose;
+  technical_specs: TechnicalSpecs;
+  generator_prompts: {
+    veo_prompt: string;
+    nano_banana_prompt: string;
+  };
+  power_score: number;
+  dominant_intent: string;
+}
+
 interface AudienceIntel {
   posts_analyzed: number;
   comments_analyzed: number;
@@ -961,7 +1027,7 @@ export default function CompetitorIntel() {
   // OAuth integration for Profile Intel
   const { connected, isConnected, connect } = useSocialAccounts();
   
-  const [activeTab, setActiveTab] = useState<"competitors" | "top-content" | "hooks" | "scripts" | "profile-intel" | "video-analytics">("competitors");
+  const [activeTab, setActiveTab] = useState<"competitors" | "top-content" | "hooks" | "scripts" | "profile-intel" | "video-analytics" | "creator-directives">("competitors");
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [topContent, setTopContent] = useState<TopContentPost[]>([]);
   const [hooks, setHooks] = useState<Hook[]>([]);
@@ -1019,6 +1085,14 @@ export default function CompetitorIntel() {
   const [loadingViralPatterns, setLoadingViralPatterns] = useState(false);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [selectedAnalyticsVideo, setSelectedAnalyticsVideo] = useState<any>(null);
+
+  // CDR state
+  const [cdrCandidates, setCdrCandidates] = useState<CdrCandidate[]>([]);
+  const [selectedCdrPost, setSelectedCdrPost] = useState<number | null>(null);
+  const [currentCdr, setCurrentCdr] = useState<CreatorDirectiveReport | null>(null);
+  const [loadingCdrCandidates, setLoadingCdrCandidates] = useState(false);
+  const [loadingCdr, setLoadingCdr] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
 
   // Fetch competitors
   const fetchCompetitors = async (): Promise<Competitor[]> => {
@@ -1334,7 +1408,49 @@ export default function CompetitorIntel() {
       console.error("Failed to fetch dropoff analysis:", err);
     }
     return null;
+  }
+
+  // CDR fetch functions
+  const fetchCdrCandidates = async () => {
+    try {
+      setLoadingCdrCandidates(true);
+      const response = await authFetch(`${API}/api/content-intel/cdr-candidates`);
+      if (response.ok) {
+        const data = await response.json();
+        setCdrCandidates(Array.isArray(data.candidates) ? data.candidates : []);
+      } else {
+        setCdrCandidates([]);
+      }
+    } catch (error) {
+      setCdrCandidates([]);
+    } finally {
+      setLoadingCdrCandidates(false);
+    }
   };
+
+  const generateCdr = async (postId: number) => {
+    try {
+      setLoadingCdr(true);
+      const response = await authFetch(`${API}/api/content-intel/creator-directive/${postId}`, {
+        method: "POST"
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentCdr(data);
+        setSelectedCdrPost(postId);
+      }
+    } catch (error) {
+      console.error("Failed to generate CDR:", error);
+    } finally {
+      setLoadingCdr(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, type: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedPrompt(type);
+    setTimeout(() => setCopiedPrompt(null), 2000);
+  };;
 
   // Load data based on active tab
   // Fetch all counts on mount so tab badges are accurate
@@ -1343,6 +1459,7 @@ export default function CompetitorIntel() {
     fetchGlobalAudienceIntel();
     fetchAggregateTopVideos();
     fetchScripts();
+    fetchCdrCandidates();
   }, []);
 
   useEffect(() => {
@@ -1376,6 +1493,9 @@ export default function CompetitorIntel() {
         fetchVideoAnalytics();
         fetchViralPatterns();
         fetchContentRecommendations();
+        break;
+      case "creator-directives":
+        fetchCdrCandidates();
         break;
     }
   }, [activeTab]);
@@ -1660,6 +1780,7 @@ export default function CompetitorIntel() {
     { id: "top-content" as const, label: "Top Content", icon: TrendingUp, count: topContent.length },
     { id: "hooks" as const, label: "Hooks", icon: Zap, count: hooks.length },
     { id: "scripts" as const, label: "Scripts", icon: BookOpen, count: scripts.length },
+    { id: "creator-directives" as const, label: "Creator Directives", icon: Brain, count: cdrCandidates.length },
     { id: "profile-intel" as const, label: "Profile Intel", icon: Sparkles },
     { id: "video-analytics" as const, label: "Video Analytics", icon: BarChart3 },
   ];
@@ -3301,6 +3422,338 @@ export default function CompetitorIntel() {
                     <Instagram size={18} />
                     Connect Instagram
                   </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* CREATOR DIRECTIVES TAB */}
+          {activeTab === "creator-directives" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Brain size={18} className="text-purple-400" />
+                  <div>
+                    <h3 className="text-sm font-semibold">Creator Directive Reports (CDR)</h3>
+                    <p className="text-xs text-warroom-muted">Actionable content blueprints ranked by Power Score</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* CDR Detail View */}
+              {selectedCdrPost && currentCdr ? (
+                <div className="space-y-6">
+                  {/* Header with back button */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => { setSelectedCdrPost(null); setCurrentCdr(null); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-bg border border-warroom-border hover:bg-warroom-surface rounded-lg text-xs font-medium transition"
+                    >
+                      <ArrowLeft size={14} /> Back to Candidates
+                    </button>
+                    <div className="flex items-center gap-3">
+                      <div className="bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full text-sm font-bold">
+                        Power Score: {currentCdr.power_score}
+                      </div>
+                      <div className="bg-warroom-accent/20 text-warroom-accent px-3 py-1 rounded-full text-xs font-medium">
+                        {currentCdr.dominant_intent.replace('_', ' ')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CDR Sections */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Hook Directive */}
+                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                      <h4 className="text-sm font-semibold text-orange-400 mb-3 flex items-center gap-2">
+                        <Zap size={16} />
+                        Hook Directive
+                      </h4>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">Visual</p>
+                          <p className="text-sm text-warroom-text">{currentCdr.hook_directive.visual}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">Audio</p>
+                          <p className="text-sm text-warroom-text">{currentCdr.hook_directive.audio}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">Script Line</p>
+                          <p className="text-sm text-warroom-text font-medium">{currentCdr.hook_directive.script_line}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">Overlay</p>
+                          <p className="text-sm text-warroom-text">{currentCdr.hook_directive.overlay}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Retention Blueprint */}
+                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                      <h4 className="text-sm font-semibold text-blue-400 mb-3 flex items-center gap-2">
+                        <Target size={16} />
+                        Retention Blueprint
+                      </h4>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">Pacing Rules</p>
+                          <ul className="space-y-1">
+                            {currentCdr.retention_blueprint.pacing_rules.map((rule, i) => (
+                              <li key={i} className="text-sm text-warroom-text flex items-start gap-2">
+                                <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0 mt-1.5"></span>
+                                {rule}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">Pattern Interrupts</p>
+                          <div className="space-y-2">
+                            {currentCdr.retention_blueprint.pattern_interrupts.map((interrupt, i) => (
+                              <div key={i} className="flex items-center gap-2 bg-warroom-bg rounded-lg px-3 py-2">
+                                <span className="text-xs text-blue-400 font-mono">{interrupt.timestamp}s</span>
+                                <span className="text-sm text-warroom-text">{interrupt.action}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Share Catalyst */}
+                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                      <h4 className="text-sm font-semibold text-pink-400 mb-3 flex items-center gap-2">
+                        <Share size={16} />
+                        Share Catalyst
+                      </h4>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">Vulnerability Frame</p>
+                          <p className="text-sm text-warroom-text">{currentCdr.share_catalyst.vulnerability_frame}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">Timestamp</p>
+                          <p className="text-sm text-pink-400 font-mono">{currentCdr.share_catalyst.timestamp}s</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Conversion Close */}
+                    <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                      <h4 className="text-sm font-semibold text-emerald-400 mb-3 flex items-center gap-2">
+                        <Play size={16} />
+                        Conversion Close
+                      </h4>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">CTA Script</p>
+                          <p className="text-sm text-warroom-text font-medium">{currentCdr.conversion_close.cta_script}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-warroom-muted uppercase mb-1">Automation Trigger</p>
+                          <p className="text-sm text-warroom-text">{currentCdr.conversion_close.automation_trigger}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Technical Specs */}
+                  <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                    <h4 className="text-sm font-semibold text-cyan-400 mb-3 flex items-center gap-2">
+                      <Film size={16} />
+                      Technical Specs
+                    </h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-warroom-border">
+                            <th className="text-left py-2 text-warroom-muted text-xs uppercase">Lighting</th>
+                            <th className="text-left py-2 text-warroom-muted text-xs uppercase">Aspect Ratio</th>
+                            <th className="text-left py-2 text-warroom-muted text-xs uppercase">Colors</th>
+                            <th className="text-left py-2 text-warroom-muted text-xs uppercase">BPM</th>
+                            <th className="text-left py-2 text-warroom-muted text-xs uppercase">Length</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="py-2 text-warroom-text">{currentCdr.technical_specs.lighting}</td>
+                            <td className="py-2 text-warroom-text">{currentCdr.technical_specs.aspect_ratio}</td>
+                            <td className="py-2">
+                              <div className="flex flex-wrap gap-1">
+                                {currentCdr.technical_specs.colors.map((color, i) => (
+                                  <span key={i} className="px-2 py-0.5 bg-warroom-bg rounded text-xs text-warroom-text">{color}</span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="py-2 text-warroom-text">{currentCdr.technical_specs.bpm}</td>
+                            <td className="py-2 text-warroom-text">{currentCdr.technical_specs.length_seconds}s</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Quick Scan Table */}
+                  <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                    <h4 className="text-sm font-semibold text-warroom-text mb-3 flex items-center gap-2">
+                      <Eye size={16} />
+                      Quick Scan Table
+                    </h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-warroom-border">
+                            <th className="text-left py-2 text-warroom-muted text-xs uppercase">Data Signal</th>
+                            <th className="text-left py-2 text-warroom-muted text-xs uppercase">Algorithm Trigger</th>
+                            <th className="text-left py-2 text-warroom-muted text-xs uppercase">CDR Directive</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="border-b border-warroom-border">
+                            <td className="py-2 text-warroom-text">Hook Pattern</td>
+                            <td className="py-2 text-orange-400">{currentCdr.dominant_intent.replace('_', ' ')}</td>
+                            <td className="py-2 text-warroom-text">{currentCdr.hook_directive.script_line}</td>
+                          </tr>
+                          <tr className="border-b border-warroom-border">
+                            <td className="py-2 text-warroom-text">Retention Signals</td>
+                            <td className="py-2 text-blue-400">Pattern Interrupts</td>
+                            <td className="py-2 text-warroom-text">{currentCdr.retention_blueprint.pattern_interrupts.length} breaks planned</td>
+                          </tr>
+                          <tr className="border-b border-warroom-border">
+                            <td className="py-2 text-warroom-text">Share Psychology</td>
+                            <td className="py-2 text-pink-400">Vulnerability Frame</td>
+                            <td className="py-2 text-warroom-text">Trigger at {currentCdr.share_catalyst.timestamp}s</td>
+                          </tr>
+                          <tr>
+                            <td className="py-2 text-warroom-text">Conversion Signal</td>
+                            <td className="py-2 text-emerald-400">CTA Placement</td>
+                            <td className="py-2 text-warroom-text">{currentCdr.conversion_close.cta_script}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Generator Prompts */}
+                  <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                    <h4 className="text-sm font-semibold text-warroom-text mb-3 flex items-center gap-2">
+                      <Sparkles size={16} />
+                      Generator Prompts
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-warroom-bg rounded-lg p-4 border border-warroom-border">
+                        <div className="flex items-center justify-between mb-2">
+                          <h5 className="text-sm font-medium text-warroom-text">Veo Prompt</h5>
+                          <button
+                            onClick={() => copyToClipboard(currentCdr.generator_prompts.veo_prompt, "veo")}
+                            className="flex items-center gap-1 px-2 py-1 bg-warroom-accent/10 hover:bg-warroom-accent/20 text-warroom-accent rounded text-xs transition"
+                          >
+                            {copiedPrompt === "veo" ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                          </button>
+                        </div>
+                        <p className="text-sm text-warroom-text whitespace-pre-line">{currentCdr.generator_prompts.veo_prompt}</p>
+                      </div>
+                      <div className="bg-warroom-bg rounded-lg p-4 border border-warroom-border">
+                        <div className="flex items-center justify-between mb-2">
+                          <h5 className="text-sm font-medium text-warroom-text">Nano Banana Prompt</h5>
+                          <button
+                            onClick={() => copyToClipboard(currentCdr.generator_prompts.nano_banana_prompt, "banana")}
+                            className="flex items-center gap-1 px-2 py-1 bg-warroom-accent/10 hover:bg-warroom-accent/20 text-warroom-accent rounded text-xs transition"
+                          >
+                            {copiedPrompt === "banana" ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                          </button>
+                        </div>
+                        <p className="text-sm text-warroom-text whitespace-pre-line">{currentCdr.generator_prompts.nano_banana_prompt}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* CDR Candidates List */
+                <div className="space-y-4">
+                  {loadingCdrCandidates ? (
+                    <div className="flex items-center gap-2 text-sm text-warroom-muted py-6">
+                      <Loader2 size={16} className="animate-spin" /> Loading CDR candidates…
+                    </div>
+                  ) : cdrCandidates.length === 0 ? (
+                    <div className="text-center py-16 text-warroom-muted">
+                      <Brain size={48} className="mx-auto mb-4 opacity-20" />
+                      <p className="text-sm">No CDR candidates available yet</p>
+                      <p className="text-xs mt-1">Sync competitor data to generate Creator Directive Reports</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {cdrCandidates.map((candidate) => (
+                        <div
+                          key={candidate.post_id}
+                          className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
+                          onClick={() => generateCdr(candidate.post_id)}
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-warroom-muted">@{candidate.competitor_handle}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[candidate.platform] || "bg-gray-500/20 text-gray-400"}`}>{candidate.platform}</span>
+                            </div>
+                            <div className="bg-purple-500/20 text-purple-400 px-2 py-1 rounded-full text-xs font-bold">
+                              {candidate.power_score}
+                            </div>
+                          </div>
+                          
+                          <p className="text-sm text-warroom-text font-medium mb-2 line-clamp-2">{candidate.hook_preview}</p>
+                          
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="bg-warroom-accent/20 text-warroom-accent px-2 py-0.5 rounded-full text-xs font-medium">
+                              {candidate.dominant_intent.replace('_', ' ')}
+                            </span>
+                            {candidate.timestamp && (
+                              <span className="text-xs text-warroom-muted">{timeAgo(candidate.timestamp)}</span>
+                            )}
+                          </div>
+                          
+                          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                            <div>
+                              <p className="font-semibold text-pink-400">{formatNum(candidate.engagement_metrics.likes)}</p>
+                              <p className="text-warroom-muted">Likes</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-blue-400">{formatNum(candidate.engagement_metrics.comments)}</p>
+                              <p className="text-warroom-muted">Comments</p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-warroom-accent">{candidate.engagement_metrics.engagement_score.toFixed(0)}</p>
+                              <p className="text-warroom-muted">Score</p>
+                            </div>
+                          </div>
+                          
+                          {candidate.post_url && (
+                            <div className="mt-3 text-right">
+                              <a
+                                href={candidate.post_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-warroom-muted hover:text-warroom-accent transition"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <ExternalLink size={12} />
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Loading overlay when generating CDR */}
+                  {loadingCdr && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-6 text-center">
+                        <Loader2 size={32} className="mx-auto mb-4 animate-spin text-purple-400" />
+                        <p className="text-sm text-warroom-text font-medium">Generating Creator Directive Report</p>
+                        <p className="text-xs text-warroom-muted mt-1">Analyzing intent patterns and strategic triggers...</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

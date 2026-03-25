@@ -5381,6 +5381,7 @@ class BatchIntentRequest(BaseModel):
 
 @router.post("/classify-intents")
 async def classify_content_intents(
+    http_request: Request,
     request: IntentClassificationRequest,
     db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
@@ -5396,7 +5397,7 @@ async def classify_content_intents(
     try:
         from app.services.intent_classifier import process_post_intent_classification
         
-        org_id = await get_org_id(current_user.id, db)
+        org_id = get_org_id(http_request)
         
         if request.post_id:
             # Process specific post
@@ -5453,6 +5454,7 @@ async def classify_content_intents(
 
 @router.post("/classify-intents/batch")
 async def batch_classify_intents(
+    http_request: Request,
     request: BatchIntentRequest,
     db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
@@ -5465,7 +5467,7 @@ async def batch_classify_intents(
     try:
         from app.services.intent_classifier import batch_classify_intents
         
-        org_id = await get_org_id(current_user.id, db)
+        org_id = get_org_id(http_request)
         
         # Run batch classification
         results = await batch_classify_intents(
@@ -5490,13 +5492,14 @@ async def batch_classify_intents(
 
 @router.get("/intent-analysis/{post_id}")
 async def get_intent_analysis(
+    request: Request,
     post_id: int,
     db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get detailed intent analysis for a specific post."""
     try:
-        org_id = await get_org_id(current_user.id, db)
+        org_id = get_org_id(request)
         
         query = text("""
             SELECT id, competitor_id, platform, likes, comments, shares,
@@ -5537,6 +5540,7 @@ async def get_intent_analysis(
 
 @router.get("/cdr-candidates")
 async def get_cdr_candidates(
+    request: Request,
     min_power_score: float = 2000,
     limit: int = 20,
     db: AsyncSession = Depends(get_tenant_db),
@@ -5544,7 +5548,7 @@ async def get_cdr_candidates(
 ):
     """Get posts flagged for CDR generation based on power score threshold."""
     try:
-        org_id = await get_org_id(current_user.id, db)
+        org_id = get_org_id(request)
         
         query = text("""
             SELECT id, competitor_id, platform, likes, comments, shares,
@@ -5694,6 +5698,7 @@ async def generate_creator_directive_report(
 
 @router.get("/creator-directives/top", response_model=TopCDRsResponse)
 async def get_top_creator_directives(
+    request: Request,
     limit: int = 10,
     min_power_score: float = 2000,
     db: AsyncSession = Depends(get_tenant_db),
@@ -5707,7 +5712,7 @@ async def get_top_creator_directives(
     try:
         from app.services.creator_directive import get_high_power_posts
         
-        org_id = get_org_id(current_user.id)
+        org_id = get_org_id(request)
         
         # Get high-performing post IDs
         post_ids = await get_high_power_posts(db, org_id, limit * 2)  # Get extra in case some fail
