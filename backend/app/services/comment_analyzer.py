@@ -236,16 +236,8 @@ async def analyze_comments_ml(comments: List[Dict], post_caption: str = "", crea
         # Get base ML analysis
         base_result = await _analyze_comments_with_ml(comments, post_caption, creator_username)
         
-        # Add deep behavioral psychology analysis
-        try:
-            from app.services.audience_psychology import analyze_audience_psychology
-            psychology_result = await analyze_audience_psychology(
-                comments, post_caption, creator_username
-            )
-            base_result["psychology_analysis"] = psychology_result
-        except Exception as e:
-            logger.warning("Psychology analysis failed: %s", e)
-            base_result["psychology_analysis"] = {}
+        # Psychology analysis removed - replaced with audience intelligence
+        base_result["psychology_analysis"] = {}
         
         return base_result
         

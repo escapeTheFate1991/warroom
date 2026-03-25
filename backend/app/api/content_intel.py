@@ -5742,3 +5742,158 @@ async def get_top_creator_directives(
     except Exception as e:
         logger.error(f"Top CDRs retrieval failed: {e}")
         raise HTTPException(status_code=500, detail=f"Top CDRs retrieval failed: {str(e)}")
+
+
+# ── Profile Intelligence Endpoints ──────────────────────────────────────
+
+from app.services.profile_intel_service import profile_intel_service, ProfileIntelResult
+from app.models.crm.profile_intel_data import ProfileIntelData
+
+class ProfileIntelDataResponse(BaseModel):
+    """Complete profile intelligence response."""
+    profile_id: str
+    platform: str
+    last_synced_at: Optional[datetime] = None
+    oauth_data: Dict[str, Any] = Field(default_factory=dict)
+    scraped_data: Dict[str, Any] = Field(default_factory=dict)
+    processed_videos: List[Dict[str, Any]] = Field(default_factory=list)
+    grades: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    recommendations: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
+
+@router.get("/profile-intel", response_model=ProfileIntelDataResponse)
+async def get_profile_intel(
+    request: Request,
+    profile_id: Optional[str] = None,
+    platform: str = "instagram",
+    force_refresh: bool = False,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get comprehensive profile intelligence data.
+    
+    Combines OAuth analytics, scraped profile data, video analysis, grading, and recommendations
+    into a single comprehensive view of profile performance.
+    
+    If profile_id is not provided, uses the user's connected Instagram account.
+    """
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    try:
+        # If no profile_id provided, get user's connected account
+        if not profile_id:
+            account_result = await db.execute(
+                select(SocialAccount).where(
+                    and_(
+                        SocialAccount.user_id == user_id,
+                        SocialAccount.org_id == org_id,
+                        SocialAccount.platform == platform.lower(),
+                        SocialAccount.status == "connected"
+                    )
+                ).order_by(SocialAccount.last_synced.desc().nulls_last())
+            )
+            account = account_result.scalar_one_or_none()
+            
+            if not account:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"No connected {platform} account found. Connect an account first."
+                )
+            
+            profile_id = account.username
+            
+            if not profile_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Connected account has no username set"
+                )
+        
+        # Get or create profile intel
+        result = await profile_intel_service.get_or_create_profile_intel(
+            db, org_id, profile_id, platform, force_refresh
+        )
+        
+        return ProfileIntelDataResponse(
+            profile_id=result.profile_id,
+            platform=result.platform,
+            last_synced_at=result.last_synced_at,
+            oauth_data=result.oauth_data,
+            scraped_data=result.scraped_data,
+            processed_videos=result.processed_videos,
+            grades={
+                name: {"score": grade.score, "details": grade.details}
+                for name, grade in result.grades.items()
+            },
+            recommendations=result.recommendations
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Profile intel retrieval failed for {profile_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Profile intel retrieval failed: {str(e)}")
+
+
+@router.post("/profile-intel/sync")
+async def sync_profile_intel(
+    request: Request,
+    profile_id: Optional[str] = None,
+    platform: str = "instagram", 
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Trigger a fresh data sync for profile intelligence.
+    
+    Forces a complete refresh of:
+    - OAuth analytics data
+    - Scraped profile data  
+    - Video analysis of recent posts
+    - Re-grading across all categories
+    - Updated recommendations
+    """
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    try:
+        # If no profile_id provided, get user's connected account
+        if not profile_id:
+            account_result = await db.execute(
+                select(SocialAccount).where(
+                    and_(
+                        SocialAccount.user_id == user_id,
+                        SocialAccount.org_id == org_id,
+                        SocialAccount.platform == platform.lower(),
+                        SocialAccount.status == "connected"
+                    )
+                ).order_by(SocialAccount.last_synced.desc().nulls_last())
+            )
+            account = account_result.scalar_one_or_none()
+            
+            if not account:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No connected {platform} account found. Connect an account first."
+                )
+            
+            profile_id = account.username
+        
+        # Force refresh profile intel
+        result = await profile_intel_service.get_or_create_profile_intel(
+            db, org_id, profile_id, platform, force_refresh=True
+        )
+        
+        return {
+            "success": True,
+            "profile_id": profile_id,
+            "platform": platform,
+            "synced_at": result.last_synced_at.isoformat() if result.last_synced_at else None,
+            "videos_processed": len(result.processed_videos),
+            "grades_generated": len(result.grades),
+            "recommendations_count": sum(len(recs) for recs in result.recommendations.values())
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Profile intel sync failed for {profile_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Profile intel sync failed: {str(e)}")

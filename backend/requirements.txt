@@ -30,4 +30,4 @@ Pillow>=10.0.0
 boto3
 anthropic>=0.7.0
 pyotp
-# scikit-learn>=1.4.0  # Removed - now handled by ml-pipeline service
+scikit-learn>=1.4.0  # Required for audience intelligence clustering

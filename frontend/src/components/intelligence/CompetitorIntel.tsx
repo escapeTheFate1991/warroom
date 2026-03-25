@@ -750,8 +750,24 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="animate-spin text-warroom-accent" size={24} />
+      <div className="p-6 space-y-6">
+        <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+          <div className="h-6 bg-warroom-border rounded w-1/4 mb-4" />
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-warroom-border h-20 rounded-lg" />
+            <div className="bg-warroom-border h-20 rounded-lg" />
+            <div className="bg-warroom-border h-20 rounded-lg" />
+          </div>
+        </div>
+        <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+          <div className="h-6 bg-warroom-border rounded w-1/3 mb-3" />
+          <div className="space-y-2">
+            <div className="h-4 bg-warroom-border rounded w-full" />
+            <div className="h-4 bg-warroom-border rounded w-3/4" />
+            <div className="h-4 bg-warroom-border rounded w-1/2" />
+          </div>
+        </div>
+        <div className="text-sm text-warroom-muted text-center">Loading competitor intelligence...</div>
       </div>
     );
   }

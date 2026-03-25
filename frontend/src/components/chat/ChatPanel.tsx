@@ -1845,18 +1845,16 @@ export default function ChatPanel() {
             </div>
           )}
 
-          {/* Loading dots (initial, no tools yet) */}
+          {/* Response skeleton (no blocking dots) */}
           {isLoading && !streamText && activeTools.length === 0 && !thinkingText && (
             <div className="flex gap-4">
               <div className="w-8 h-8 rounded-full bg-warroom-accent/10 flex items-center justify-center flex-shrink-0">
                 <Bot size={16} className="text-warroom-accent" />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1 py-2">
-                  <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:0ms]" />
-                  <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:150ms]" />
-                  <span className="w-2 h-2 bg-warroom-muted rounded-full animate-bounce [animation-delay:300ms]" />
-                </div>
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="h-4 bg-warroom-border rounded w-3/4 animate-pulse" />
+                <div className="h-4 bg-warroom-border rounded w-1/2 animate-pulse" />
+                <div className="text-xs text-warroom-muted">Preparing response...</div>
               </div>
             </div>
           )}

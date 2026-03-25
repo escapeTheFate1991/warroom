@@ -23,8 +23,16 @@ import CarouselPreview from "./CarouselPreview";
 
 const VideoEditor = dynamic(() => import("./VideoEditor"), {
   loading: () => (
-    <div className="flex justify-center py-12">
-      <Loader2 className="animate-spin text-warroom-accent" size={24} />
+    <div className="p-6 space-y-4">
+      <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+        <div className="h-6 bg-warroom-border rounded w-1/4 mb-4" />
+        <div className="h-40 bg-warroom-border rounded mb-4" />
+        <div className="flex gap-3">
+          <div className="h-8 bg-warroom-border rounded w-20" />
+          <div className="h-8 bg-warroom-border rounded w-16" />
+        </div>
+      </div>
+      <div className="text-sm text-warroom-muted text-center">Loading video editor...</div>
     </div>
   ),
   ssr: false,
@@ -1325,7 +1333,17 @@ export default function AIStudioPanel() {
           </div>
 
           {loadingBlueprints ? (
-            <div className="flex justify-center py-12"><Loader2 className="animate-spin text-warroom-accent" size={24} /></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {[1,2,3,4,5,6].map(i => (
+                <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg overflow-hidden animate-pulse">
+                  <div className="h-36 bg-warroom-border" />
+                  <div className="p-3 space-y-2">
+                    <div className="h-4 bg-warroom-border rounded w-3/4" />
+                    <div className="h-3 bg-warroom-border rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : blueprints.length === 0 ? (
             <div className="text-center py-12 text-warroom-muted">
               <Film size={28} className="mx-auto mb-2 text-warroom-accent/30" />
@@ -1728,7 +1746,23 @@ export default function AIStudioPanel() {
         </div>
 
         {loadingProjects ? (
-          <div className="flex justify-center py-12"><Loader2 className="animate-spin text-warroom-accent" size={24} /></div>
+          <div className="space-y-4">
+            {[1,2,3].map(i => (
+              <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+                <div className="flex gap-3">
+                  <div className="w-12 h-12 bg-warroom-border rounded" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-warroom-border rounded w-3/4" />
+                    <div className="h-3 bg-warroom-border rounded w-1/2" />
+                    <div className="flex gap-2">
+                      <div className="h-6 bg-warroom-border rounded w-16" />
+                      <div className="h-6 bg-warroom-border rounded w-20" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : projects.length === 0 ? (
           <div className="flex flex-col items-center py-16 text-warroom-muted gap-3">
             <Film size={36} className="text-warroom-accent/30" />

@@ -78,11 +78,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logout,
   };
 
-  // Show loading spinner while checking auth
+  // Show structure while checking auth (no blocking spinner)
   if (loading) {
     return (
-      <div className="min-h-screen bg-warroom-bg flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-warroom-accent border-t-transparent" />
+      <div className="min-h-screen bg-warroom-bg flex">
+        <div className="w-60 bg-warroom-surface border-r border-warroom-border animate-pulse">
+          <div className="p-4 space-y-3">
+            <div className="h-6 bg-warroom-border rounded w-3/4" />
+            <div className="h-4 bg-warroom-border rounded w-1/2" />
+            <div className="h-4 bg-warroom-border rounded w-2/3" />
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col">
+          <div className="h-14 bg-warroom-surface border-b border-warroom-border animate-pulse">
+            <div className="h-full flex items-center justify-between px-6">
+              <div className="h-6 bg-warroom-border rounded w-32" />
+              <div className="h-8 w-8 bg-warroom-border rounded-full" />
+            </div>
+          </div>
+          <div className="flex-1 p-6">
+            <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+              <div className="h-6 bg-warroom-border rounded w-1/3 mb-3" />
+              <div className="space-y-2">
+                <div className="h-4 bg-warroom-border rounded w-full" />
+                <div className="h-4 bg-warroom-border rounded w-3/4" />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

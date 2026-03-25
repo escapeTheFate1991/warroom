@@ -25,6 +25,7 @@ from .competitor import Competitor
 from .content_script import ContentScript
 from .organization import Tenant
 from .auto_reply import AutoReplyRule, AutoReplyLog
+from .profile_intel_data import ProfileIntelData
 
 __all__ = [
     "CrmBase",
@@ -46,4 +47,5 @@ __all__ = [
     "ContentScript",
     "Tenant",
     "AutoReplyRule", "AutoReplyLog",
+    "ProfileIntelData",
 ]

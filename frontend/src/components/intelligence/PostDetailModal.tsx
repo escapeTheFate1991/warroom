@@ -235,10 +235,30 @@ export default function PostDetailModal({
           </div>
         </div>
 
-        {/* Loading */}
+        {/* Loading skeleton */}
         {loading && (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="animate-spin text-warroom-accent" size={24} />
+          <div className="p-6 space-y-6">
+            <div className="bg-warroom-surface border border-warroom-border rounded-lg overflow-hidden animate-pulse">
+              <div className="h-64 bg-warroom-border" />
+              <div className="p-4 space-y-3">
+                <div className="h-5 bg-warroom-border rounded w-3/4" />
+                <div className="h-4 bg-warroom-border rounded w-1/2" />
+                <div className="flex gap-2">
+                  <div className="h-6 bg-warroom-border rounded w-16" />
+                  <div className="h-6 bg-warroom-border rounded w-20" />
+                  <div className="h-6 bg-warroom-border rounded w-12" />
+                </div>
+              </div>
+            </div>
+            <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+              <div className="h-6 bg-warroom-border rounded w-1/4 mb-3" />
+              <div className="space-y-2">
+                <div className="h-4 bg-warroom-border rounded w-full" />
+                <div className="h-4 bg-warroom-border rounded w-3/4" />
+                <div className="h-4 bg-warroom-border rounded w-1/2" />
+              </div>
+            </div>
+            <div className="text-sm text-warroom-muted text-center">Loading post details...</div>
           </div>
         )}
 

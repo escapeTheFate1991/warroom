@@ -158,9 +158,37 @@ export default function SocialDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 size={24} className="animate-spin text-warroom-muted" />
-        <span className="ml-3 text-warroom-muted">Loading dashboard...</span>
+      <div className="p-6 space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1,2,3,4].map(i => (
+            <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+              <div className="h-6 bg-warroom-border rounded w-2/3 mb-2" />
+              <div className="h-8 bg-warroom-border rounded w-1/2 mb-1" />
+              <div className="h-4 bg-warroom-border rounded w-1/3" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+            <div className="h-6 bg-warroom-border rounded w-1/4 mb-4" />
+            <div className="h-40 bg-warroom-border rounded" />
+          </div>
+          <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+            <div className="h-6 bg-warroom-border rounded w-1/3 mb-4" />
+            <div className="space-y-3">
+              {[1,2,3].map(j => (
+                <div key={j} className="flex gap-3">
+                  <div className="w-10 h-10 bg-warroom-border rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-warroom-border rounded w-3/4" />
+                    <div className="h-3 bg-warroom-border rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="text-sm text-warroom-muted text-center">Loading dashboard...</div>
       </div>
     );
   }

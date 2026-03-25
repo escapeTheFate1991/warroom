@@ -997,8 +997,24 @@ export default function ActivityCalendar() {
         {/* Calendar Grid — Samsung-style: full width, tall rows, events inline */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {(loading || personalLoading) ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 size={24} className="animate-spin text-warroom-accent" />
+            <div className="space-y-3">
+              <div className="grid grid-cols-7 border-b border-warroom-border">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                  <div key={d} className="text-center py-1.5">
+                    <span className="text-[11px] font-medium text-warroom-muted">{d}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-px bg-warroom-border animate-pulse">
+                {Array.from({ length: 35 }).map((_, i) => (
+                  <div key={i} className="bg-warroom-surface h-20 p-1">
+                    <div className="h-4 bg-warroom-border rounded w-6 mb-2" />
+                    {Math.random() > 0.7 && <div className="h-2 bg-warroom-border rounded w-full mb-1" />}
+                    {Math.random() > 0.8 && <div className="h-2 bg-warroom-border rounded w-3/4" />}
+                  </div>
+                ))}
+              </div>
+              <div className="text-sm text-warroom-muted text-center">Loading calendar...</div>
             </div>
           ) : (
             <div className="flex flex-col flex-1 min-h-0">
@@ -1117,7 +1133,15 @@ export default function ActivityCalendar() {
             </div>
             <div className="flex-1 overflow-auto p-4">
               {dayLoading ? (
-                <div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-warroom-accent" /></div>
+                <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4 animate-pulse">
+                  <div className="h-6 bg-warroom-border rounded w-1/4 mb-4" />
+                  <div className="space-y-2">
+                    <div className="h-4 bg-warroom-border rounded w-full" />
+                    <div className="h-4 bg-warroom-border rounded w-3/4" />
+                    <div className="h-4 bg-warroom-border rounded w-1/2" />
+                  </div>
+                  <div className="text-sm text-warroom-muted text-center mt-4">Loading day details...</div>
+                </div>
               ) : dayDetail ? (
                 <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4">
                   <pre className="text-sm text-warroom-text font-mono whitespace-pre-wrap">{dayDetail.content}</pre>
