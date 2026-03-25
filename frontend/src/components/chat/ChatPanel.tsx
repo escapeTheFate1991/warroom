@@ -1187,8 +1187,10 @@ export default function ChatPanel() {
     const playTask = async () => {
       if (!conversationActiveRef.current && !isTTSEnabled) return;
       try {
-        const resp = await authFetch(`${API_URL}/api/voice/tts?text=${encodeURIComponent(spokenSlice)}`, {
+        const resp = await authFetch(`${API_URL}/api/voice/tts`, {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: spokenSlice }),
         });
         if (resp.ok && (conversationActiveRef.current || isTTSEnabled)) {
           const blob = await resp.blob();
@@ -1360,6 +1362,8 @@ export default function ChatPanel() {
 
       setIsConversationMode(true);
       conversationActiveRef.current = true;
+      // Conversation mode always enables TTS
+      setIsTTSEnabled(true);
 
       // Continuous VAD loop — detect speech, record, transcribe, send, speak response
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -1381,6 +1385,7 @@ export default function ChatPanel() {
         if (isSpeaking && !recording) {
           // Start recording
           recording = true;
+          setIsRecording(true);
           chunks = [];
           recorder = new MediaRecorder(stream);
           recorder.ondataavailable = (e) => chunks.push(e.data);
@@ -1423,6 +1428,7 @@ export default function ChatPanel() {
           if (Date.now() - silenceStart > SILENCE_DURATION) {
             // End of utterance
             recording = false;
+            setIsRecording(false);
             recorder?.stop();
             recorder = null;
             silenceStart = 0;
@@ -1448,6 +1454,7 @@ export default function ChatPanel() {
     lastSpokenTextRef.current = "";
     setIsConversationMode(false);
     setHasVoiceActivity(false);
+    // Keep TTS enabled separately if user had it on
 
     // Kill VAD loop
     cancelAnimationFrame(vadFrameRef.current);
@@ -1862,7 +1869,7 @@ export default function ChatPanel() {
       <VoiceOrb
         isActive={isConversationMode}
         isSpeaking={isTTSPlaying}
-        isListening={hasVoiceActivity}
+        isListening={isRecording}
         isProcessing={isLoading || isGenerating}
         spokenText={spokenText}
         ttsDurationMs={ttsDurationMs}
