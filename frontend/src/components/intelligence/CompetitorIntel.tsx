@@ -3259,12 +3259,7 @@ export default function CompetitorIntel() {
           {/* PROFILE INTEL TAB */}
           {activeTab === "profile-intel" && (
             <div className="space-y-6">
-              {loadingInstagramAdvice ? (
-                <div className="text-center py-16">
-                  <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
-                  <p className="text-sm text-warroom-muted">Analyzing your profile…</p>
-                </div>
-              ) : socialAccountsError ? (
+              {socialAccountsError ? (
                 <div className="text-center py-16 text-warroom-muted">
                   <User size={48} className="mx-auto mb-4 opacity-20 text-red-400" />
                   <p className="text-sm font-medium text-red-400">Connection Error</p>
@@ -3276,37 +3271,20 @@ export default function CompetitorIntel() {
                     Reload Page
                   </button>
                 </div>
-              ) : !isConnected('instagram') && (!instagramAdvice || instagramAdvice.status === "not_connected") ? (
-                <div className="text-center py-16 text-warroom-muted">
-                  <User size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="text-sm font-medium">Enhanced Profile Intelligence Available</p>
-                  <p className="text-xs mt-1">Connect your Instagram for personalized profile optimization advice and analytics.</p>
-                  <button
-                    onClick={async () => {
-                      setConnectingInstagram(true);
-                      try {
-                        await connect('instagram');
-                      } catch (error) {
-                        console.error('Failed to connect Instagram:', error);
-                      } finally {
-                        setConnectingInstagram(false);
-                      }
-                    }}
-                    disabled={connectingInstagram}
-                    className="mt-4 px-4 py-2 bg-pink-500 hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 mx-auto"
-                  >
-                    {connectingInstagram && <Loader2 size={16} className="animate-spin" />}
-                    {connectingInstagram ? 'Connecting...' : 'Connect Instagram'}
-                  </button>
-                  
-                  {/* Show competitor-based intelligence even without OAuth */}
-                  <div className="mt-8 pt-8 border-t border-warroom-border">
+              ) : (
+                <>
+                  {/* Always show competitor intelligence first */}
+                  <div className="space-y-6">
                     <div className="text-left">
-                      <h3 className="text-sm font-semibold text-warroom-text mb-4">
-                        <Target size={16} className="inline mr-2" />
+                      <h3 className="text-sm font-semibold text-warroom-text mb-4 flex items-center gap-2">
+                        <Target size={16} className="text-warroom-accent" />
                         Intelligence from Competitor Analysis
                       </h3>
-                      {globalAudienceIntel && (
+                      {loadingGlobalAudienceIntel ? (
+                        <div className="flex items-center gap-2 text-sm text-warroom-muted py-6">
+                          <Loader2 size={16} className="animate-spin" /> Loading competitor insights...
+                        </div>
+                      ) : globalAudienceIntel ? (
                         <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
                           <p className="text-xs text-warroom-muted mb-3">Based on {globalAudienceIntel.posts_analyzed} competitor posts and {globalAudienceIntel.comments_analyzed.toLocaleString()} audience comments</p>
                           
@@ -3347,10 +3325,40 @@ export default function CompetitorIntel() {
                             )}
                           </div>
                         </div>
+                      ) : (
+                        <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                          <p className="text-sm text-warroom-muted">No competitor data available yet. Add competitors and sync their content to generate insights.</p>
+                        </div>
                       )}
                     </div>
-                  </div>
-                </div>
+
+                    {/* Enhanced Profile Intelligence section */}
+                    {!isConnected('instagram') && (!instagramAdvice || instagramAdvice.status === "not_connected") ? (
+                      <div className="bg-warroom-surface border border-warroom-border rounded-xl p-6">
+                        <div className="text-center">
+                          <User size={48} className="mx-auto mb-4 opacity-20" />
+                          <p className="text-sm font-medium text-warroom-text">Enhanced Profile Intelligence Available</p>
+                          <p className="text-xs mt-1 text-warroom-muted">Connect your Instagram for personalized profile optimization advice and analytics.</p>
+                          <button
+                            onClick={async () => {
+                              setConnectingInstagram(true);
+                              try {
+                                await connect('instagram');
+                              } catch (error) {
+                                console.error('Failed to connect Instagram:', error);
+                              } finally {
+                                setConnectingInstagram(false);
+                              }
+                            }}
+                            disabled={connectingInstagram}
+                            className="mt-4 px-4 py-2 bg-pink-500 hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 mx-auto"
+                          >
+                            {connectingInstagram && <Loader2 size={16} className="animate-spin" />}
+                            {connectingInstagram ? 'Connecting...' : 'Connect Instagram'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : instagramAdvice && instagramAdvice.status !== "not_connected" ? (
               ) : (
                 <>
                   {/* Profile header with scraped data */}
@@ -3602,6 +3610,8 @@ export default function CompetitorIntel() {
                       </div>
                     </div>
                   )}
+                    ) : null}
+                  </div>
                 </>
               )}
             </div>
