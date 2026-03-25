@@ -1449,8 +1449,9 @@ async def load_cached_posts(db: AsyncSession, org_id: int, competitor_id: int = 
 
         if days is not None:
             query += " AND cp.posted_at >= :cutoff_date"
-            # Use timezone-aware datetime to properly filter posts
-            params["cutoff_date"] = datetime.now(timezone.utc) - timedelta(days=days)
+            # Convert to naive datetime to match DB column type
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            params["cutoff_date"] = cutoff.replace(tzinfo=None)
         
         if competitor_id:
             query += " AND cp.competitor_id = :competitor_id"
@@ -5359,3 +5360,379 @@ def _estimate_post_frequency(posts: list) -> str:
             return f"Every ~{int(avg_gap)} days"
     except Exception:
         return "Unknown"
+
+
+# =============================================================================
+# Intent Classification Endpoints
+# =============================================================================
+
+class IntentClassificationRequest(BaseModel):
+    """Request model for intent classification."""
+    competitor_id: Optional[int] = Field(None, description="Specific competitor ID to process")
+    post_id: Optional[int] = Field(None, description="Specific post ID to process")
+    force_reprocess: bool = Field(False, description="Force reprocessing even if already classified")
+
+class BatchIntentRequest(BaseModel):
+    """Request model for batch intent classification."""
+    competitor_id: Optional[int] = Field(None, description="Specific competitor ID (all posts if None)")
+    limit: Optional[int] = Field(None, description="Maximum posts to process")
+    min_power_score: Optional[float] = Field(None, description="Only process posts above this power score")
+
+
+@router.post("/classify-intents")
+async def classify_content_intents(
+    request: IntentClassificationRequest,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Classify comment intents for posts using the Intent Classifier.
+    
+    Processes posts through the 6-bucket intent classification system:
+    - UTILITY_SAVE, IDENTITY_SHARE, CURIOSITY_GAP, FRICTION_POINT, SOCIAL_PROOF, TOPIC_RELEVANCE
+    
+    Updates content_analysis JSONB field with intent scores and power score.
+    Only flags posts with power_score > 2000 for CDR generation.
+    """
+    try:
+        from app.services.intent_classifier import process_post_intent_classification
+        
+        org_id = await get_org_id(current_user.id, db)
+        
+        if request.post_id:
+            # Process specific post
+            result = await process_post_intent_classification(db, request.post_id)
+            if "error" in result:
+                raise HTTPException(status_code=400, detail=result["error"])
+            return result
+            
+        elif request.competitor_id:
+            # Process all posts for competitor
+            query = text("""
+                SELECT id FROM crm.competitor_posts 
+                WHERE competitor_id = :competitor_id 
+                AND comments_data IS NOT NULL
+                AND org_id = :org_id
+                ORDER BY (likes + comments*5 + shares*10) DESC
+                LIMIT 100
+            """)
+            
+            result = await db.execute(query, {
+                "competitor_id": request.competitor_id,
+                "org_id": org_id
+            })
+            post_ids = [row[0] for row in result.fetchall()]
+            
+            if not post_ids:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"No posts with comment data found for competitor {request.competitor_id}"
+                )
+            
+            # Process first 5 posts for demo
+            results = []
+            for post_id in post_ids[:5]:
+                classification = await process_post_intent_classification(db, post_id)
+                results.append(classification)
+            
+            return {
+                "competitor_id": request.competitor_id,
+                "posts_processed": len(results),
+                "results": results
+            }
+        
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Must specify either post_id or competitor_id"
+            )
+            
+    except Exception as e:
+        logger.error(f"Intent classification error: {e}")
+        raise HTTPException(status_code=500, detail=f"Classification failed: {str(e)}")
+
+
+@router.post("/classify-intents/batch")
+async def batch_classify_intents(
+    request: BatchIntentRequest,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Batch process intent classification across all posts.
+    
+    Processes up to 857 posts through intent classification pipeline.
+    Returns summary statistics and top performing posts.
+    """
+    try:
+        from app.services.intent_classifier import batch_classify_intents
+        
+        org_id = await get_org_id(current_user.id, db)
+        
+        # Run batch classification
+        results = await batch_classify_intents(
+            db, 
+            competitor_id=request.competitor_id,
+            limit=request.limit
+        )
+        
+        if "error" in results:
+            raise HTTPException(status_code=400, detail=results["error"])
+        
+        return {
+            "batch_summary": results,
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+            "org_id": org_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Batch classification error: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch processing failed: {str(e)}")
+
+
+@router.get("/intent-analysis/{post_id}")
+async def get_intent_analysis(
+    post_id: int,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get detailed intent analysis for a specific post."""
+    try:
+        org_id = await get_org_id(current_user.id, db)
+        
+        query = text("""
+            SELECT id, competitor_id, platform, likes, comments, shares,
+                   hook, post_text, content_analysis, comments_data
+            FROM crm.competitor_posts 
+            WHERE id = :post_id AND org_id = :org_id
+        """)
+        
+        result = await db.execute(query, {"post_id": post_id, "org_id": org_id})
+        row = result.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Post not found")
+        
+        post_data = row._asdict()
+        content_analysis = post_data.get("content_analysis") or {}
+        intent_classification = content_analysis.get("intent_classification")
+        
+        return {
+            "post_id": post_id,
+            "competitor_id": post_data["competitor_id"],
+            "platform": post_data["platform"],
+            "metrics": {
+                "likes": post_data["likes"],
+                "comments": post_data["comments"],
+                "shares": post_data["shares"]
+            },
+            "hook": post_data["hook"],
+            "intent_classification": intent_classification,
+            "has_analysis": intent_classification is not None,
+            "comments_available": post_data["comments_data"] is not None
+        }
+        
+    except Exception as e:
+        logger.error(f"Intent analysis retrieval error: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis retrieval failed: {str(e)}")
+
+
+@router.get("/cdr-candidates")
+async def get_cdr_candidates(
+    min_power_score: float = 2000,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get posts flagged for CDR generation based on power score threshold."""
+    try:
+        org_id = await get_org_id(current_user.id, db)
+        
+        query = text("""
+            SELECT id, competitor_id, platform, likes, comments, shares,
+                   hook, content_analysis
+            FROM crm.competitor_posts 
+            WHERE org_id = :org_id
+            AND content_analysis ? 'intent_classification'
+            AND CAST(content_analysis->'intent_classification'->>'power_score' AS FLOAT) >= :min_power_score
+            ORDER BY CAST(content_analysis->'intent_classification'->>'power_score' AS FLOAT) DESC
+            LIMIT :limit
+        """)
+        
+        result = await db.execute(query, {
+            "org_id": org_id,
+            "min_power_score": min_power_score,
+            "limit": limit
+        })
+        
+        candidates = []
+        for row in result.fetchall():
+            row_data = row._asdict()
+            intent_data = row_data["content_analysis"]["intent_classification"]
+            
+            candidates.append({
+                "post_id": row_data["id"],
+                "competitor_id": row_data["competitor_id"], 
+                "platform": row_data["platform"],
+                "hook": row_data["hook"][:100] if row_data["hook"] else None,
+                "metrics": {
+                    "likes": row_data["likes"],
+                    "comments": row_data["comments"], 
+                    "shares": row_data["shares"]
+                },
+                "power_score": intent_data["power_score"],
+                "dominant_intent": intent_data["dominant_intent"],
+                "action_priority": intent_data["action_priority"],
+                "should_generate_cdr": intent_data.get("should_generate_cdr", False)
+            })
+        
+        return {
+            "candidates": candidates,
+            "total_found": len(candidates),
+            "min_power_score": min_power_score,
+            "retrieved_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"CDR candidates retrieval error: {e}")
+        raise HTTPException(status_code=500, detail=f"Candidates retrieval failed: {str(e)}")
+
+
+# ==============================================================================
+# CREATOR DIRECTIVE REPORT (CDR) ENDPOINTS
+# ==============================================================================
+
+class CDRResponse(BaseModel):
+    """Creator Directive Report response model"""
+    success: bool = True
+    post_id: int
+    power_score: float
+    dominant_intent: str
+    hook_directive: Dict[str, str]
+    retention_blueprint: Dict[str, List[str]]
+    share_catalyst: Dict[str, str]
+    conversion_close: Dict[str, str]
+    technical_specs: Dict[str, str]
+    generator_prompts: Dict[str, str]
+    generated_at: datetime
+
+
+class TopCDRsResponse(BaseModel):
+    """Response for top CDRs endpoint"""
+    cdrs: List[CDRResponse]
+    total_found: int
+    min_power_score: float
+
+
+@router.post("/creator-directive/{post_id}", response_model=CDRResponse)
+async def generate_creator_directive_report(
+    post_id: int,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate Creator Directive Report for specific post
+    
+    Returns actionable video creation instructions in 5 sections:
+    - Hook Directive: Visual/audio/script for opener
+    - Retention Blueprint: Pacing, interrupts, anti-boredom triggers
+    - Share Catalyst: Viral moment creation strategy
+    - Conversion Close: CTA optimization
+    - Technical Specs: Production requirements
+    """
+    try:
+        from app.services.creator_directive import (
+            CreatorDirectiveService, 
+            get_post_data, 
+            store_cdr,
+            mock_intent_classifier
+        )
+        
+        # Get post data
+        post_data = await get_post_data(db, post_id)
+        if not post_data:
+            raise HTTPException(status_code=404, detail=f"Post {post_id} not found")
+        
+        # Mock intent classification (replace with actual service)
+        intent_scores = mock_intent_classifier(post_data.content_analysis)
+        
+        # Generate CDR
+        cdr_service = CreatorDirectiveService()
+        try:
+            cdr = await cdr_service.generate_cdr(post_data, intent_scores)
+            if not cdr:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Post {post_id} does not meet power score threshold"
+                )
+            
+            # Store CDR in database
+            await store_cdr(db, cdr)
+            
+            logger.info("✅ Generated CDR for post %s: Power=%.0f, Intent=%s", 
+                       post_id, cdr.power_score, cdr.dominant_intent)
+            
+            return CDRResponse(
+                post_id=cdr.post_id,
+                power_score=cdr.power_score,
+                dominant_intent=cdr.dominant_intent,
+                hook_directive=cdr.hook_directive.model_dump(),
+                retention_blueprint=cdr.retention_blueprint.model_dump(),
+                share_catalyst=cdr.share_catalyst.model_dump(),
+                conversion_close=cdr.conversion_close.model_dump(),
+                technical_specs=cdr.technical_specs.model_dump(),
+                generator_prompts=cdr.generator_prompts.model_dump(),
+                generated_at=cdr.generated_at
+            )
+            
+        finally:
+            await cdr_service.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"CDR generation failed for post {post_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"CDR generation failed: {str(e)}")
+
+
+@router.get("/creator-directives/top", response_model=TopCDRsResponse)
+async def get_top_creator_directives(
+    limit: int = 10,
+    min_power_score: float = 2000,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get CDRs for top Power Score posts
+    
+    Returns Creator Directive Reports for the highest-performing posts
+    that exceed the power score threshold.
+    """
+    try:
+        from app.services.creator_directive import get_high_power_posts
+        
+        org_id = get_org_id(current_user.id)
+        
+        # Get high-performing post IDs
+        post_ids = await get_high_power_posts(db, org_id, limit * 2)  # Get extra in case some fail
+        
+        # Generate CDRs for each post
+        cdrs = []
+        
+        for post_id in post_ids[:limit]:
+            try:
+                # Try to generate CDR for this post
+                cdr_response = await generate_creator_directive_report(post_id, db, current_user)
+                if cdr_response.power_score >= min_power_score:
+                    cdrs.append(cdr_response)
+            except Exception as e:
+                logger.warning(f"Skipped CDR for post {post_id}: {e}")
+                continue
+        
+        logger.info("Generated %d CDRs from %d candidate posts", len(cdrs), len(post_ids))
+        
+        return TopCDRsResponse(
+            cdrs=cdrs,
+            total_found=len(cdrs),
+            min_power_score=min_power_score
+        )
+        
+    except Exception as e:
+        logger.error(f"Top CDRs retrieval failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Top CDRs retrieval failed: {str(e)}")
