@@ -439,17 +439,44 @@ async def _login_to_instagram(context) -> bool:
         
         await asyncio.sleep(1)
         
-        # Fill login form — Instagram uses name="email" and name="pass" (not "username"/"password")
-        username_input = await page.wait_for_selector(
-            'input[name="username"], input[name="email"]', timeout=15000
-        )
-        await username_input.fill(username)
-        logger.warning("SCRAPER_LOGIN: Username entered")
+        # Detect which login form Instagram is showing
+        # Meta unified form: input[name="email"] + input[name="pass"] 
+        # Classic Instagram form: input[name="username"] + input[name="password"]
+        meta_email_input = await page.query_selector('input[name="email"]')
+        classic_username_input = await page.query_selector('input[name="username"]')
         
-        password_input = await page.wait_for_selector(
-            'input[name="password"], input[name="pass"]', timeout=5000
-        )
-        await password_input.fill(password)
+        if meta_email_input and await meta_email_input.is_visible():
+            logger.warning("SCRAPER_LOGIN: Meta unified login form detected")
+            # Fill Meta form (email + pass)
+            await meta_email_input.fill(username)
+            logger.warning("SCRAPER_LOGIN: Username entered in Meta form (email field)")
+            
+            password_input = await page.wait_for_selector('input[name="pass"]', timeout=5000)
+            await password_input.fill(password)
+            
+        elif classic_username_input and await classic_username_input.is_visible():
+            logger.warning("SCRAPER_LOGIN: Classic Instagram login form detected")
+            # Fill classic form (username + password)
+            await classic_username_input.fill(username)
+            logger.warning("SCRAPER_LOGIN: Username entered in classic form (username field)")
+            
+            password_input = await page.wait_for_selector('input[name="password"]', timeout=5000)
+            await password_input.fill(password)
+            
+        else:
+            # Fallback to waiting for either form (original logic as backup)
+            logger.warning("SCRAPER_LOGIN: Form detection failed, using fallback selector logic")
+            username_input = await page.wait_for_selector(
+                'input[name="username"], input[name="email"]', timeout=15000
+            )
+            await username_input.fill(username)
+            logger.warning("SCRAPER_LOGIN: Username entered (fallback)")
+            
+            password_input = await page.wait_for_selector(
+                'input[name="password"], input[name="pass"]', timeout=5000
+            )
+            await password_input.fill(password)
+            
         await asyncio.sleep(1)  # Let Instagram enable the submit button
         
         # Submit login — try clicking the Log In button first, fall back to Enter
