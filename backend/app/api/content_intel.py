@@ -5547,6 +5547,7 @@ async def get_cdr_candidates(
     current_user: User = Depends(get_current_user)
 ):
     """Get posts flagged for CDR generation based on power score threshold."""
+    logger.info(f"CDR candidates requested by user {current_user.email} with min_power_score={min_power_score}")
     try:
         org_id = get_org_id(request)
         
