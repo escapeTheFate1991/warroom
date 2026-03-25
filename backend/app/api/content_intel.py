@@ -1554,7 +1554,7 @@ async def _ensure_competitor_cached_posts(
         if cached_posts:
             return cached_posts, None
 
-        sync_result = await sync_instagram_competitor(db, competitor)
+        sync_result = await sync_instagram_competitor(db, competitor, competitor.org_id)
         if not sync_result["success"]:
             raise HTTPException(
                 status_code=422,
