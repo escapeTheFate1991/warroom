@@ -16,6 +16,8 @@ from app.services.tenant import get_org_id, get_user_id
 from app.models.crm.competitor import Competitor
 from app.models.crm.social import SocialAccount
 from app.api.scraper import sync_instagram_competitor, sync_instagram_competitor_batch
+from app.api.auth import get_current_user
+from app.models.crm.user import User
 from app.db.crm_db import crm_session
 from app.services.video_analysis_service import video_analysis_service
 

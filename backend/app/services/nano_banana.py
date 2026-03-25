@@ -63,9 +63,14 @@ async def call_gemini_api(
     messages: List[Dict[str, Any]],
     generation_config: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Make API call to Gemini with proper error handling"""
+    """Make API call to Gemini or Imagen with proper error handling"""
     from fastapi import HTTPException
     
+    # Handle Imagen API differently
+    if model == "imagen-3.0-generate-002":
+        return await call_imagen_api(api_key, model, messages, generation_config)
+    
+    # Standard Gemini API call
     url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
     
     payload = {
@@ -118,6 +123,88 @@ async def call_gemini_api(
                 status_code=402,
                 detail="Google AI billing quota exceeded. Check your billing at https://ai.google.dev"
             )
+        
+        return response_data
+
+
+async def call_imagen_api(
+    api_key: str,
+    model: str,
+    messages: List[Dict[str, Any]],
+    generation_config: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Make API call to Imagen with proper format"""
+    from fastapi import HTTPException
+    
+    # Imagen uses different URL format
+    url = f"{GEMINI_API_BASE}/models/{model}:predict"
+    
+    # Extract prompt from messages
+    prompt = ""
+    for message in messages:
+        parts = message.get("parts", [])
+        for part in parts:
+            if "text" in part:
+                prompt += part["text"] + " "
+    
+    # Imagen uses different payload format
+    payload = {
+        "instances": [{"prompt": prompt.strip()}],
+        "parameters": {"sampleCount": 1}
+    }
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{url}?key={api_key}",
+            headers=headers,
+            json=payload,
+            timeout=120.0
+        )
+        
+        if response.status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="Google AI rate limit reached. Please wait a moment and try again."
+            )
+        
+        if response.status_code == 402 or response.status_code == 403:
+            response_text = response.text.lower()
+            if "quota" in response_text or "exceeded" in response_text:
+                raise HTTPException(
+                    status_code=402,
+                    detail="Google AI billing quota exceeded. Check your billing at https://ai.google.dev"
+                )
+        
+        if response.status_code != 200:
+            error_detail = response.text[:200] if response.text else f"HTTP {response.status_code}"
+            raise HTTPException(
+                status_code=502,
+                detail=f"Imagen API error: {error_detail}"
+            )
+        
+        response_data = response.json()
+        
+        # Convert Imagen response format to Gemini-like format for consistent parsing
+        if "predictions" in response_data and response_data["predictions"]:
+            prediction = response_data["predictions"][0]
+            if "bytesBase64Encoded" in prediction:
+                # Convert to Gemini format
+                return {
+                    "candidates": [{
+                        "content": {
+                            "parts": [{
+                                "inline_data": {
+                                    "data": prediction["bytesBase64Encoded"],
+                                    "mime_type": "image/png"
+                                }
+                            }]
+                        }
+                    }]
+                }
         
         return response_data
 
@@ -214,17 +301,17 @@ Style: Clean reference sheet, consistent lighting, photorealistic"""
     }
     
     try:
-        # Try with the experimental model first
+        # Try with the experimental model first (best for image generation)
         model = "gemini-2.0-flash-exp"
         result = await call_gemini_api(api_key, model, messages, generation_config)
     except Exception as e:
         logger.warning(f"Failed with {model}, trying fallback: {e}")
-        # Fallback to stable model for text-only (no image generation)
+        # Fallback to stable model (also supports image generation)
         model = "gemini-2.0-flash"
         try:
             result = await call_gemini_api(api_key, model, messages, generation_config)
         except Exception as fallback_error:
-            # If both models fail, try imagen for image generation specifically
+            # If both Gemini models fail, try Imagen (different API format)
             logger.warning(f"Both gemini models failed, trying imagen: {fallback_error}")
             model = "imagen-3.0-generate-002"
             result = await call_gemini_api(api_key, model, messages, generation_config)
@@ -237,9 +324,12 @@ Style: Clean reference sheet, consistent lighting, photorealistic"""
     content = candidates[0].get("content", {})
     parts = content.get("parts", [])
     
-    # Find the image part
+    # Find the image part (check both possible field names)
     for part in parts:
-        if "inlineData" in part:
+        if "inline_data" in part:
+            image_data = part["inline_data"]["data"]
+            return base64.b64decode(image_data)
+        elif "inlineData" in part:  # Fallback for older format
             image_data = part["inlineData"]["data"]
             return base64.b64decode(image_data)
     
@@ -308,17 +398,17 @@ The generated image should show this character naturally integrated into the sce
     }
     
     try:
-        # Try with the experimental model first
+        # Try with the experimental model first (best for image generation)
         model = "gemini-2.0-flash-exp"
         result = await call_gemini_api(api_key, model, messages, generation_config)
     except Exception as e:
         logger.warning(f"Failed with {model}, trying fallback: {e}")
-        # Fallback to stable model for text-only (no image generation)
+        # Fallback to stable model (also supports image generation)
         model = "gemini-2.0-flash"
         try:
             result = await call_gemini_api(api_key, model, messages, generation_config)
         except Exception as fallback_error:
-            # If both models fail, try imagen for image generation specifically
+            # If both Gemini models fail, try Imagen (different API format)
             logger.warning(f"Both gemini models failed, trying imagen: {fallback_error}")
             model = "imagen-3.0-generate-002"
             result = await call_gemini_api(api_key, model, messages, generation_config)
@@ -331,9 +421,12 @@ The generated image should show this character naturally integrated into the sce
     content = candidates[0].get("content", {})
     parts = content.get("parts", [])
     
-    # Find the image part
+    # Find the image part (check both possible field names)
     for part in parts:
-        if "inlineData" in part:
+        if "inline_data" in part:
+            image_data = part["inline_data"]["data"]
+            return base64.b64decode(image_data)
+        elif "inlineData" in part:  # Fallback for older format
             image_data = part["inlineData"]["data"]
             return base64.b64decode(image_data)
     

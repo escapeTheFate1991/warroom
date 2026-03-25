@@ -642,6 +642,8 @@ async def generate_video(
     prompt = _build_scene_prompt(storyboard, project["script"] or "", project["content_mode"] or "product")
 
     # If there's a digital copy, load its reference images for the prompt context
+    # NOTE: veo-3.0-fast-generate-001 currently supports text-to-video only
+    # Reference images may be used for prompt enhancement but not direct I2V
     reference_images = []
     if project["digital_copy_id"]:
         dc_row = await db.execute(text(
@@ -686,6 +688,29 @@ async def generate_video(
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, json=request_body)
 
+            # Handle rate limiting
+            if resp.status_code == 429:
+                error = "Google AI rate limit reached. Please wait and try again."
+                await db.execute(text("""
+                    UPDATE public.ugc_video_projects
+                    SET status = 'failed', error_message = :err, updated_at = NOW()
+                    WHERE id = :id
+                """), {"err": error, "id": body.project_id})
+                await db.commit()
+                raise HTTPException(status_code=429, detail=error)
+
+            # Handle quota exhaustion
+            response_text = resp.text.lower()
+            if "quota" in response_text or "exceeded" in response_text:
+                error = "Google AI billing quota exceeded. Check billing at https://ai.google.dev"
+                await db.execute(text("""
+                    UPDATE public.ugc_video_projects
+                    SET status = 'failed', error_message = :err, updated_at = NOW()
+                    WHERE id = :id
+                """), {"err": error, "id": body.project_id})
+                await db.commit()
+                raise HTTPException(status_code=402, detail=error)
+
             if resp.status_code == 200:
                 data = resp.json()
                 generation_id = data.get("name", "")
@@ -697,15 +722,15 @@ async def generate_video(
                 await db.commit()
                 return {"ok": True, "generation_id": generation_id, "status": "processing", "prompt_used": prompt}
             else:
-                error = resp.text[:500]
-                logger.error("Veo API error %s: %s", resp.status_code, error)
+                error_detail = resp.json().get("error", {}).get("message", resp.text[:500]) if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:500]
+                logger.error("Veo API error %s: %s", resp.status_code, error_detail)
                 await db.execute(text("""
                     UPDATE public.ugc_video_projects
                     SET status = 'failed', error_message = :err, updated_at = NOW()
                     WHERE id = :id
-                """), {"err": error, "id": body.project_id})
+                """), {"err": error_detail, "id": body.project_id})
                 await db.commit()
-                raise HTTPException(status_code=502, detail=f"Veo API error: {error}")
+                raise HTTPException(status_code=502, detail=f"Veo API error: {error_detail}")
 
     except httpx.TimeoutException:
         await db.execute(text("""
@@ -736,42 +761,68 @@ async def check_generation_status(
     # If still processing and we have a generation_id, poll the API
     if project["status"] == "processing" and project["generation_id"]:
         api_key = await _get_gemini_key(db)
-        poll_url = f"{GEMINI_API_BASE}/{project['generation_id']}"
+        # Use the correct polling URL format with ?key= parameter
+        poll_url = f"{GEMINI_API_BASE}/{project['generation_id']}?key={api_key}"
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(poll_url, params={"key": api_key})
+                resp = await client.get(poll_url)
                 if resp.status_code == 200:
                     data = resp.json()
                     if data.get("done"):
-                        # Extract video URL from response
-                        video_data = data.get("response", {})
-                        videos = video_data.get("generatedSamples", [])
-                        if videos:
-                            video_b64 = videos[0].get("video", {}).get("bytesBase64Encoded", "")
-                            if video_b64:
-                                # Save video to disk
-                                os.makedirs(VIDEOS_DIR, exist_ok=True)
-                                video_path = os.path.join(VIDEOS_DIR, f"{project_id}.mp4")
-                                with open(video_path, "wb") as f:
-                                    f.write(base64.b64decode(video_b64))
-                                video_url = f"/api/ai-studio/ugc/videos/{project_id}.mp4"
-                                await db.execute(text("""
-                                    UPDATE public.ugc_video_projects
-                                    SET status = 'completed', video_url = :url, updated_at = NOW()
-                                    WHERE id = :id
-                                """), {"url": video_url, "id": project_id})
-                                await db.commit()
-                                return {"status": "completed", "video_url": video_url}
-                        # Done but no video
-                        await db.execute(text("""
-                            UPDATE public.ugc_video_projects
-                            SET status = 'failed', error_message = 'No video in response', updated_at = NOW()
-                            WHERE id = :id
-                        """), {"id": project_id})
-                        await db.commit()
-                        return {"status": "failed", "error": "No video generated"}
+                        # Check for errors first
+                        if "error" in data:
+                            error_msg = data["error"].get("message", "Unknown error")
+                            await db.execute(text("""
+                                UPDATE public.ugc_video_projects
+                                SET status = 'failed', error_message = :err, updated_at = NOW()
+                                WHERE id = :id
+                            """), {"err": error_msg, "id": project_id})
+                            await db.commit()
+                            return {"status": "failed", "error": error_msg}
+                        
+                        # Extract video URL from response - match VeoService pattern
+                        response_data = data.get("response", {})
+                        # Try different response structures
+                        video_b64 = None
+                        
+                        # Pattern 1: generatedSamples structure
+                        samples = response_data.get("generatedSamples", [])
+                        if samples:
+                            video_b64 = samples[0].get("video", {}).get("bytesBase64Encoded", "")
+                        
+                        # Pattern 2: Direct video field
+                        if not video_b64:
+                            video_b64 = response_data.get("video", {}).get("bytesBase64Encoded", "")
+                        
+                        if video_b64:
+                            # Save video to disk
+                            os.makedirs(VIDEOS_DIR, exist_ok=True)
+                            video_path = os.path.join(VIDEOS_DIR, f"{project_id}.mp4")
+                            with open(video_path, "wb") as f:
+                                f.write(base64.b64decode(video_b64))
+                            video_url = f"/api/ai-studio/ugc/videos/{project_id}.mp4"
+                            await db.execute(text("""
+                                UPDATE public.ugc_video_projects
+                                SET status = 'completed', video_url = :url, updated_at = NOW()
+                                WHERE id = :id
+                            """), {"url": video_url, "id": project_id})
+                            await db.commit()
+                            return {"status": "completed", "video_url": video_url}
+                        else:
+                            # Done but no video - log response for debugging
+                            logger.warning(f"No video in response for {project_id}: {response_data}")
+                            await db.execute(text("""
+                                UPDATE public.ugc_video_projects
+                                SET status = 'failed', error_message = 'No video in response', updated_at = NOW()
+                                WHERE id = :id
+                            """), {"id": project_id})
+                            await db.commit()
+                            return {"status": "failed", "error": "No video generated"}
                     else:
-                        return {"status": "processing", "generation_id": project["generation_id"]}
+                        # Still processing - check metadata for progress
+                        metadata = data.get("metadata", {})
+                        progress = metadata.get("progressPercentage", "unknown")
+                        return {"status": "processing", "generation_id": project["generation_id"], "progress": progress}
         except Exception as e:
             logger.warning("Poll error for %s: %s", project_id, e)
             return {"status": "processing", "generation_id": project["generation_id"]}
