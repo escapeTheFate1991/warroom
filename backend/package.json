@@ -1,8 +1,7 @@
 {
   "name": "warroom-backend",
   "version": "1.0.0",
-  "description": "War Room backend Node.js dependencies",
   "dependencies": {
-    "@dymoo/media-understanding": "^1.0.0"
+    "@dymoo/media-understanding": "^0.1.0"
   }
 }
