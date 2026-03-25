@@ -159,6 +159,19 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
     restart: unless-stopped
 
+  voice-io:
+    build:
+      context: ./docker/voice-io
+    container_name: warroom-voice-io
+    ports:
+      - "18793:18793"
+    volumes:
+      - /tmp/warroom-transcribe:/tmp/warroom-transcribe
+      - /home/eddy/.openclaw/workspace/skills/voice-io:/app:ro
+    environment:
+      - WHISPER_MODEL_PATH=/app/models
+    restart: unless-stopped
+
 volumes:
   instagram-cookies:
   warroom-qdrant-data:

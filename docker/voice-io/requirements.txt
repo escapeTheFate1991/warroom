@@ -1,0 +1,11 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sounddevice==0.4.6
+numpy==1.26.0
+webrtcvad==2.0.10
+ffmpeg-python==0.2.0
+pydantic==2.5.1
+python-multipart==0.0.6
+openai-whisper==20231117
+edge-tts==6.1.10
+pulsectl==23.5.2

@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import os
 import json
+import httpx
 from fastapi import APIRouter, HTTPException, UploadFile, File, Request, Response, Depends
 from fastapi.responses import StreamingResponse
 from pathlib import Path
@@ -17,8 +18,37 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user)
 ):
-    """Transcription service is unavailable — Whisper requires GPU."""
-    return {"text": "", "error": "Transcription service unavailable — GPU required"}
+    """Forward to OpenClaw voice server for transcription."""
+    try:
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_file.flush()
+            
+            # Forward to OpenClaw voice server
+            async with httpx.AsyncClient() as client:
+                with open(tmp_file.name, 'rb') as audio_file:
+                    files = {"audio": ("recording.webm", audio_file, "audio/webm")}
+                    response = await client.post(
+                        "http://localhost:18793/transcribe",
+                        files=files,
+                        timeout=30.0
+                    )
+                    
+            # Clean up temp file
+            os.unlink(tmp_file.name)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {"text": "", "error": f"Transcription failed: {response.status_code}"}
+                
+    except Exception as e:
+        return {"text": "", "error": f"Transcription error: {str(e)}"}
+
+
+
 
 
 @router.post("/tts")
