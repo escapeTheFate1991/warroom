@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight, Info, Brain } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight, Info, Brain, Share } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import PostDetailModal from "./PostDetailModal";
 import ScrollTabs from "@/components/ui/ScrollTabs";
@@ -949,7 +949,6 @@ export default function CompetitorIntel() {
   const [psychologyAnalysisCompetitor, setPsychologyAnalysisCompetitor] = useState<{ id: number; handle: string } | null>(null);
 
   const [showAddCompetitor, setShowAddCompetitor] = useState(false);
-  const [showGenerateScript, setShowGenerateScript] = useState(false);
   const [copiedHook, setCopiedHook] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -961,13 +960,7 @@ export default function CompetitorIntel() {
   const [loadingPosts, setLoadingPosts] = useState(false);
 
   const [newComp, setNewComp] = useState({ handle: "", platform: "instagram" });
-  const [scriptForm, setScriptForm] = useState({
-    competitor_id: 0,
-    platform: "instagram",
-    topic: "",
-    hook_style: "",
-    count: 6,
-  });
+
 
   const [error, setError] = useState<string>("");
   const [notice, setNotice] = useState<string>("");
@@ -1530,62 +1523,7 @@ export default function CompetitorIntel() {
     });
   };
 
-  const openGenerateScriptModal = (competitor?: Competitor | null) => {
-    if (competitor) {
-      setScriptForm((prev) => ({
-        ...prev,
-        competitor_id: competitor.id,
-        platform: competitor.platform || prev.platform,
-      }));
-    }
-    setShowGenerateScript(true);
-  };
 
-  const handleScriptCompetitorChange = (value: string) => {
-    const competitorId = parseInt(value, 10) || 0;
-    const selectedCompetitor = competitors.find((comp) => comp.id === competitorId);
-
-    setScriptForm((prev) => ({
-      ...prev,
-      competitor_id: competitorId,
-      platform: selectedCompetitor?.platform || prev.platform,
-    }));
-  };
-
-  // Generate script (aggregated from all competitors)
-  const generateScript = async () => {
-    try {
-      setSubmitting(true);
-      setError("");
-      const response = await authFetch(`${API}/api/content-intel/generate-scripts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: scriptForm.platform,
-          topic: scriptForm.topic.trim() || undefined,
-          hook_style: scriptForm.hook_style || undefined,
-          count: scriptForm.count,
-        }),
-      });
-
-      if (response.ok) {
-        const payload = await response.json();
-        const generatedScripts = Array.isArray(payload) ? payload : [payload];
-        setScripts((prev) => mergeScriptsById(generatedScripts, prev));
-        setExpandedScriptIdx(null);
-        setScriptForm({ competitor_id: 0, platform: "instagram", topic: "", hook_style: "", count: 6 });
-        setShowGenerateScript(false);
-        setNotice(`Generated ${generatedScripts.length} script ideas from all competitors.`);
-      } else {
-        const error = await response.json();
-        setError(`Failed to generate scripts: ${error.detail || response.statusText}`);
-      }
-    } catch (error) {
-      setError(`Error generating scripts: ${error}`);
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   // Delete script
   const deleteScript = async (id: number) => {
@@ -2531,15 +2469,6 @@ export default function CompetitorIntel() {
                           <p className="text-xs text-warroom-muted">Why your audience shares, engages, and converts</p>
                         </div>
                       </div>
-                      {competitors.length > 0 && (
-                        <button
-                          onClick={() => competitors.length > 0 && openPsychologyAnalysis(competitors[0].id)}
-                          className="px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded-lg text-xs font-medium hover:bg-purple-500/20 transition"
-                        >
-                          <Brain size={14} className="mr-1" />
-                          Deep Analysis
-                        </button>
-                      )}
                     </div>
 
                     {loadingGlobalAudienceIntel ? (
@@ -2959,73 +2888,13 @@ export default function CompetitorIntel() {
                   <p className="text-sm text-warroom-muted">Loading scripts...</p>
                 </div>
               ) : scripts.length === 0 ? (
-                /* Empty state - centered generate form */
-                <div className="flex flex-col items-center justify-center py-16 max-w-md mx-auto">
+                /* Empty state */
+                <div className="text-center py-16 text-warroom-muted">
                   <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-warroom-gradient/20 flex items-center justify-center">
                     <Film size={24} className="text-warroom-accent/40" />
                   </div>
-                  <h3 className="text-base font-semibold mb-1">No scripts yet</h3>
-                  <p className="text-sm text-warroom-muted mb-6 text-center">Generate winning scripts aggregated from all your competitors' top-performing content.</p>
-
-                  <div className="w-full space-y-3 bg-warroom-surface border border-warroom-border rounded-xl p-5">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs text-warroom-muted block mb-1">Platform</label>
-                        <select
-                          value={scriptForm.platform}
-                          onChange={(e) => setScriptForm({ ...scriptForm, platform: e.target.value })}
-                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
-                        >
-                          <option value="instagram">Instagram</option>
-                          <option value="tiktok">TikTok</option>
-                          <option value="youtube">YouTube</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs text-warroom-muted block mb-1">How many</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={12}
-                          value={scriptForm.count}
-                          onChange={(e) => setScriptForm({ ...scriptForm, count: parseInt(e.target.value, 10) || 6 })}
-                          className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-xs text-warroom-muted block mb-1">Topic / angle (optional)</label>
-                      <input
-                        type="text"
-                        value={scriptForm.topic}
-                        onChange={(e) => setScriptForm({ ...scriptForm, topic: e.target.value })}
-                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
-                        placeholder="Leave blank to auto-detect from competitor trends"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-warroom-muted block mb-1">Hook style (optional)</label>
-                      <select
-                        value={scriptForm.hook_style}
-                        onChange={(e) => setScriptForm({ ...scriptForm, hook_style: e.target.value })}
-                        className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
-                      >
-                        <option value="">Auto</option>
-                        <option value="question">Question</option>
-                        <option value="bold_claim">Bold Claim</option>
-                        <option value="confession">Confession</option>
-                        <option value="shocking_stat">Shocking Stat</option>
-                        <option value="comparison">Comparison</option>
-                      </select>
-                    </div>
-                    <button
-                      onClick={generateScript}
-                      disabled={submitting}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40 rounded-lg text-sm font-medium transition"
-                    >
-                      {submitting ? <><Loader2 size={14} className="animate-spin" /> Generating...</> : <><Sparkles size={14} /> Generate Scripts</>}
-                    </button>
-                  </div>
+                  <p className="text-sm">No scripts available yet</p>
+                  <p className="text-xs mt-1">Scripts are generated from the AI Studio or Scripts tab</p>
                 </div>
               ) : (
                 /* Script list */
@@ -3035,12 +2904,6 @@ export default function CompetitorIntel() {
                       <Sparkles size={13} className="inline mr-1 -mt-0.5" />
                       {scripts.length} script{scripts.length !== 1 ? "s" : ""} generated from all competitors
                     </p>
-                    <button
-                      onClick={() => setShowGenerateScript(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-warroom-accent hover:bg-warroom-accent/80 rounded-lg text-xs font-medium transition"
-                    >
-                      <Plus size={14} /> Generate More
-                    </button>
                   </div>
 
                   <div className="space-y-2">
@@ -3289,16 +3152,7 @@ export default function CompetitorIntel() {
                   <p className="text-xs text-warroom-muted">Copy winning hook formulas</p>
                 </button>
 
-                <button
-                  onClick={() => setActiveTab("scripts")}
-                  className="bg-warroom-surface border border-warroom-border hover:border-warroom-accent/50 rounded-xl p-4 text-left group transition-all"
-                >
-                  <div className="flex items-center gap-3 mb-2">
-                    <BookOpen size={20} className="text-emerald-400" />
-                    <h4 className="text-sm font-semibold text-warroom-text">Generate Scripts</h4>
-                  </div>
-                  <p className="text-xs text-warroom-muted">AI-generated scripts from competitor data</p>
-                </button>
+
               </div>
 
               {/* Recent Intelligence Updates */}
@@ -3494,87 +3348,7 @@ export default function CompetitorIntel() {
         </div>
       )}
 
-      {/* Generate Script Modal */}
-      {showGenerateScript && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50">
-          <div className="glass-card p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Generate Scripts</h3>
-              <button onClick={() => setShowGenerateScript(false)} className="text-warroom-muted hover:text-warroom-text">
-                <X size={20} />
-              </button>
-            </div>
 
-            <div className="space-y-3">
-              <p className="text-xs text-warroom-muted">Aggregates top-performing posts from all your competitors to generate winning script ideas.</p>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-warroom-muted block mb-1">Platform</label>
-                  <select
-                    value={scriptForm.platform}
-                    onChange={(e) => setScriptForm({ ...scriptForm, platform: e.target.value })}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
-                  >
-                    <option value="instagram">Instagram</option>
-                    <option value="tiktok">TikTok</option>
-                    <option value="youtube">YouTube</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-warroom-muted block mb-1">How many</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={scriptForm.count}
-                    onChange={(e) => setScriptForm({ ...scriptForm, count: parseInt(e.target.value, 10) || 6 })}
-                    className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Topic / angle (optional)</label>
-                <input
-                  type="text"
-                  value={scriptForm.topic}
-                  onChange={(e) => setScriptForm({ ...scriptForm, topic: e.target.value })}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
-                  placeholder="Leave blank to auto-detect from competitor trends"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-warroom-muted block mb-1">Hook style (optional)</label>
-                <select
-                  value={scriptForm.hook_style}
-                  onChange={(e) => setScriptForm({ ...scriptForm, hook_style: e.target.value })}
-                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-warroom-accent"
-                >
-                  <option value="">Auto</option>
-                  <option value="question">Question</option>
-                  <option value="bold_claim">Bold Claim</option>
-                  <option value="confession">Confession</option>
-                  <option value="shocking_stat">Shocking Stat</option>
-                  <option value="comparison">Comparison</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowGenerateScript(false)}
-                className="flex-1 px-4 py-2 bg-warroom-bg border border-warroom-border rounded-lg text-sm hover:bg-warroom-surface transition">
-                Cancel
-              </button>
-              <button onClick={generateScript} disabled={submitting}
-                className="flex-1 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-40 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2">
-                {submitting ? <><Loader2 size={14} className="animate-spin" /> Generating...</> : <><Sparkles size={14} /> Generate Scripts</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Post Detail Modal */}
       {selectedPostId && (
