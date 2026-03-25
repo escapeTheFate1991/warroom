@@ -275,6 +275,18 @@ interface AudienceCommenter {
   count: number;
 }
 
+interface ContentGap {
+  topic: string;
+  unanswered_questions: string[];
+  opportunity_score: number;
+}
+
+interface VideoTopicSuggestion {
+  topic: string;
+  reasoning: string;
+  source_questions: string[];
+}
+
 interface AudienceIntel {
   posts_analyzed: number;
   comments_analyzed: number;
@@ -291,6 +303,8 @@ interface AudienceIntel {
   top_engagers?: any[];
   cross_competitor_overlap?: any[];
   engagement_distribution?: Record<string, number>;
+  content_gaps: ContentGap[];
+  video_topic_suggestions: VideoTopicSuggestion[];
 }
 
 interface HashtagItem {
@@ -909,6 +923,32 @@ function DossierPanel({ competitorId, bio }: { competitorId: number; bio?: strin
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Video Topic Card Component for handling collapsible state
+function VideoTopicCard({ suggestion }: { suggestion: VideoTopicSuggestion }) {
+  const [showSources, setShowSources] = useState(false);
+  
+  return (
+    <div className="bg-emerald-400/5 border border-emerald-400/10 rounded-lg p-3">
+      <h4 className="text-xs font-medium text-warroom-text mb-1">{suggestion.topic}</h4>
+      <p className="text-xs text-warroom-text/80 mb-2">{suggestion.reasoning}</p>
+      <button
+        onClick={() => setShowSources(!showSources)}
+        className="text-[10px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+      >
+        {showSources ? 'Hide' : 'Show'} Source Questions ({suggestion.source_questions.length})
+        <span className={`transform transition-transform ${showSources ? 'rotate-180' : ''}`}>▼</span>
+      </button>
+      {showSources && (
+        <div className="mt-2 space-y-1 pl-2 border-l-2 border-emerald-400/20">
+          {suggestion.source_questions.map((question: string, qi: number) => (
+            <p key={qi} className="text-[10px] text-warroom-text/60">• {question}</p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2188,6 +2228,50 @@ export default function CompetitorIntel() {
                               </div>
                             )}
 
+                            {/* Content Gaps */}
+                            {ai.content_gaps?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">📊 Content Gaps (Unanswered Audience Questions)</p>
+                                <div className="space-y-2">
+                                  {ai.content_gaps.slice(0, 10).map((gap: ContentGap, i: number) => (
+                                    <div key={i} className="bg-orange-400/5 border border-orange-400/10 rounded-lg p-3">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <h4 className="text-xs font-medium text-warroom-text">{gap.topic}</h4>
+                                        <span className="bg-orange-400/20 text-orange-400 rounded-full px-2 py-0.5 text-[10px] font-medium">
+                                          {gap.opportunity_score}/100
+                                        </span>
+                                      </div>
+                                      <div className="space-y-1">
+                                        {gap.unanswered_questions.slice(0, 3).map((question: string, qi: number) => (
+                                          <p key={qi} className="text-xs text-warroom-text flex items-start gap-2">
+                                            <span className="text-orange-400 mt-0.5">•</span>
+                                            {question}
+                                          </p>
+                                        ))}
+                                        {gap.unanswered_questions.length > 3 && (
+                                          <p className="text-[10px] text-warroom-muted italic">
+                                            +{gap.unanswered_questions.length - 3} more questions
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Video Topic Ideas */}
+                            {ai.video_topic_suggestions?.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-warroom-muted mb-2">🎬 Video Topic Ideas (From Audience Demand)</p>
+                                <div className="space-y-2">
+                                  {ai.video_topic_suggestions.slice(0, 10).map((suggestion: VideoTopicSuggestion, i: number) => (
+                                    <VideoTopicCard key={i} suggestion={suggestion} />
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
                             {/* Product Mentions */}
                             {ai.product_mentions?.length > 0 && (
                               <div>
@@ -2484,7 +2568,50 @@ export default function CompetitorIntel() {
                               </div>
                             </div>
                           )}
-                          {/* Enhanced Audience Intelligence */}
+
+                          {globalAudienceIntel.content_gaps?.length > 0 && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">📊 Content Gaps</p>
+                              <div className="space-y-1.5">
+                                {globalAudienceIntel.content_gaps.slice(0, 4).map((gap: ContentGap, i: number) => (
+                                  <div key={i} className="rounded-lg border border-orange-400/10 bg-orange-400/5 px-3 py-2">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <p className="text-xs font-medium text-warroom-text flex-1">{gap.topic}</p>
+                                      <span className="bg-orange-400/20 text-orange-400 rounded-full px-1.5 py-0.5 text-[9px] font-medium">
+                                        {gap.opportunity_score}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-warroom-text/70">
+                                      {gap.unanswered_questions.length} unanswered questions
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {globalAudienceIntel.video_topic_suggestions?.length > 0 && (
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">🎬 Video Topic Ideas</p>
+                              <div className="space-y-1.5">
+                                {globalAudienceIntel.video_topic_suggestions.slice(0, 4).map((suggestion: VideoTopicSuggestion, i: number) => (
+                                  <div key={i} className="rounded-lg border border-emerald-400/10 bg-emerald-400/5 px-3 py-2">
+                                    <div className="flex items-start gap-2">
+                                      <Sparkles size={12} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                                      <div className="flex-1">
+                                        <p className="text-xs font-medium text-warroom-text mb-1">{suggestion.topic}</p>
+                                        <p className="text-[10px] text-warroom-text/70 line-clamp-2">{suggestion.reasoning}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Enhanced Audience Intelligence */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {globalAudienceIntel.top_engagers && globalAudienceIntel.top_engagers.length > 0 && (
                             <div>
                               <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">🏆 Top Engagers Across All Competitors</p>

@@ -481,8 +481,13 @@ async def scrape_competitor_comments(
             # Scrape raw comments (held in memory only)
             raw_comments = await scrape_post_comments(shortcode, limit=comments_per_post)
             
-            # Analyze into audience intelligence — raw text discarded
-            analysis = _analyze_comments(raw_comments, post_caption or "")
+            # Analyze using ML pipeline (FastEmbed + clustering), fallback to regex
+            try:
+                from app.services.comment_analyzer import analyze_comments_ml
+                analysis = await analyze_comments_ml(raw_comments, post_caption or "")
+            except Exception as e:
+                logger.warning("ML analysis failed, falling back to regex: %s", e)
+                analysis = _analyze_comments(raw_comments, post_caption or "")
             
             # Store ONLY the analysis, not raw comments
             await db.execute(
