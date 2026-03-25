@@ -2940,19 +2940,18 @@ async def _get_enhanced_audience_data(db: AsyncSession, org_id: int, competitor_
     try:
         # Extract commenters from comments_data JSONB - this is our current data source
         query = """
-        WITH commenter_data AS (
-            SELECT 
-                cp.id,
-                cp.competitor_id,
-                c.handle as competitor_handle,
-                cp.comments_data,
-                cp.engagement_score,
-                cp.posted_at
-            FROM crm.competitor_posts cp
-            JOIN crm.competitors c ON cp.competitor_id = c.id
-            WHERE c.org_id = :org_id
-              AND cp.comments_data IS NOT NULL
-              AND (cp.comments_data->>'analyzed')::int > 0
+        SELECT 
+            cp.id,
+            cp.competitor_id,
+            c.handle as competitor_handle,
+            cp.comments_data,
+            cp.engagement_score,
+            cp.posted_at
+        FROM crm.competitor_posts cp
+        JOIN crm.competitors c ON cp.competitor_id = c.id
+        WHERE c.org_id = :org_id
+          AND cp.comments_data IS NOT NULL
+          AND (cp.comments_data->>'analyzed')::int > 0
         """
         
         if competitor_id:
@@ -2974,12 +2973,12 @@ async def _get_enhanced_audience_data(db: AsyncSession, org_id: int, competitor_
         commenter_stats = {}  # username -> {competitors: set, interactions: int, first_seen, last_seen}
         
         for post in posts:
-            comments_data = post.comments_data
+            comments_data = getattr(post, "comments_data", None) or post.get("comments_data")
             if isinstance(comments_data, str):
                 comments_data = json.loads(comments_data)
             
-            competitor_handle = post.competitor_handle
-            posted_at = post.posted_at or datetime.now()
+            competitor_handle = getattr(post, "competitor_handle", None) or post.get("competitor_handle", "")
+            posted_at = getattr(post, "posted_at", None) or post.get("posted_at") or datetime.now()
             
             # Extract from top_commenters
             top_commenters = comments_data.get("top_commenters", [])
