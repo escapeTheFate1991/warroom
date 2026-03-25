@@ -153,8 +153,16 @@ export default function PerformanceDashboard({ onSeedForBatch }: PerformanceDash
   const renderProjectsTab = () => {
     if (loading) {
       return (
-        <div className="flex justify-center py-12">
-          <Loader2 className="animate-spin text-warroom-accent" size={24} />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[1,2,3,4].map(i => (
+            <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+              <div className="h-6 bg-warroom-border rounded w-3/4 mb-3" />
+              <div className="space-y-2">
+                <div className="h-4 bg-warroom-border rounded w-full" />
+                <div className="h-4 bg-warroom-border rounded w-2/3" />
+              </div>
+            </div>
+          ))}
         </div>
       );
     }
@@ -230,8 +238,20 @@ export default function PerformanceDashboard({ onSeedForBatch }: PerformanceDash
   const renderInsightsTab = () => {
     if (loading || !dashboardData) {
       return (
-        <div className="flex justify-center py-12">
-          <Loader2 className="animate-spin text-warroom-accent" size={24} />
+        <div className="space-y-6">
+          <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+            <div className="h-6 bg-warroom-border rounded w-1/4 mb-4" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[1,2,3,4].map(i => (
+                <div key={i} className="bg-warroom-border h-16 rounded" />
+              ))}
+            </div>
+          </div>
+          <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+            <div className="h-6 bg-warroom-border rounded w-1/3 mb-4" />
+            <div className="h-32 bg-warroom-border rounded" />
+          </div>
+          <div className="text-sm text-warroom-muted text-center">Loading performance insights...</div>
         </div>
       );
     }

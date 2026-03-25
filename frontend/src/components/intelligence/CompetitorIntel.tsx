@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight, Info, Brain, Share, Instagram, Video } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import PostDetailModal from "./PostDetailModal";
 import ScrollTabs from "@/components/ui/ScrollTabs";
 import { useSocialAccounts, PLATFORM_CONFIGS } from "@/hooks/useSocialAccounts";
 import { VideoMetricsCard, EnhancedCompetitorCard, InfoTooltip } from "./RedesignedCompetitorCards";
-import EnhancedVideoAnalytics from "./EnhancedVideoAnalytics";
 import AudiencePsychologyAnalysis from "./AudiencePsychologyAnalysis";
 
 
@@ -976,10 +976,13 @@ function VideoTopicCard({ suggestion }: { suggestion: VideoTopicSuggestion }) {
 }
 
 export default function CompetitorIntel() {
+  // Next.js router for navigation
+  const router = useRouter();
+  
   // OAuth integration for Profile Intel
   const { connected, isConnected, connect } = useSocialAccounts();
   
-  const [activeTab, setActiveTab] = useState<"competitors" | "top-content" | "hooks" | "scripts" | "creator-directives" | "profile-intel" | "video-analytics">("competitors");
+  const [activeTab, setActiveTab] = useState<"competitors" | "top-content" | "hooks" | "scripts" | "profile-intel">("competitors");
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [topContent, setTopContent] = useState<TopContentPost[]>([]);
   const [hooks, setHooks] = useState<Hook[]>([]);
@@ -1770,7 +1773,7 @@ export default function CompetitorIntel() {
                           <div
                             key={vid.id ?? idx}
                             className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer relative"
-                            onClick={() => vid.id && (window.location.href = `/competitor-intelligence/top-content/${vid.id}`)}
+                            onClick={() => vid.id && router.push(`/competitor-intelligence/top-content/${vid.id}`)}
                           >
                             {/* Format Badge & Analysis Status */}
                             <div className="absolute top-3 right-3 flex items-center gap-2">
@@ -2761,7 +2764,7 @@ export default function CompetitorIntel() {
                     <div
                       key={`${vid.competitor_id || idx}-${vid.id || idx}`}
                       className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer relative"
-                      onClick={() => vid.id && (window.location.href = `/competitor-intelligence/top-content/${vid.id}`)}
+                      onClick={() => vid.id && router.push(`/competitor-intelligence/top-content/${vid.id}`)}
                     >
                       {/* Format Badge & Analysis Status - top right */}
                       <div className="absolute top-3 right-3 flex items-center gap-2">

@@ -236,8 +236,14 @@ export default function VideoEditor() {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="animate-spin text-warroom-accent" size={24} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 animate-pulse">
+                <div className="h-32 bg-warroom-border rounded-lg mb-3" />
+                <div className="h-4 bg-warroom-border rounded w-2/3 mb-2" />
+                <div className="h-3 bg-warroom-border rounded w-1/2" />
+              </div>
+            ))}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

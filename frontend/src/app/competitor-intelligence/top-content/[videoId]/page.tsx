@@ -83,11 +83,20 @@ export default function VideoDetailPage() {
         setLoading(true);
         setError("");
         
-        const response = await authFetch(`${API}/api/content-intel/video/${videoId}`);
+        // Validate videoId is a number
+        const id = parseInt(videoId, 10);
+        if (isNaN(id)) {
+          setError("Invalid video ID");
+          return;
+        }
+        
+        const response = await authFetch(`${API}/api/content-intel/video/${id}`);
         
         if (response.ok) {
           const data = await response.json();
           setVideoRecord(data);
+        } else if (response.status === 404) {
+          setError("Video not found");
         } else {
           setError("Failed to load video details");
         }

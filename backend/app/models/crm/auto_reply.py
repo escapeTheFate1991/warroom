@@ -22,7 +22,7 @@ class AutoReplyRule(CrmBase):
     match_mode = Column(Text, nullable=True, default="any", server_default="any")  # any, all, exact
     case_sensitive = Column(Boolean, nullable=False, default=False, server_default="false")
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
-    delivery_channels = Column(ARRAY(Text), nullable=False, default=["dm"], server_default="'{dm}'")  # comment, dm
+    delivery_channels = Column(ARRAY(Text), nullable=False, default=["dm"])  # comment, dm
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 

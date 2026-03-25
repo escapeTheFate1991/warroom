@@ -5746,7 +5746,6 @@ async def get_top_creator_directives(
 
 # ── Profile Intelligence Endpoints ──────────────────────────────────────
 
-from app.services.profile_intel_service import profile_intel_service, ProfileIntelResult
 from app.models.crm.profile_intel_data import ProfileIntelData
 
 class ProfileIntelDataResponse(BaseModel):
@@ -5780,6 +5779,9 @@ async def get_profile_intel(
     user_id = get_user_id(request)
     
     try:
+        # Import here to avoid circular import
+        from app.services.profile_intel_service import profile_intel_service
+        
         # If no profile_id provided, get user's connected account
         if not profile_id:
             account_result = await db.execute(
@@ -5855,6 +5857,9 @@ async def sync_profile_intel(
     user_id = get_user_id(request)
     
     try:
+        # Import here to avoid circular import
+        from app.services.profile_intel_service import profile_intel_service
+        
         # If no profile_id provided, get user's connected account
         if not profile_id:
             account_result = await db.execute(

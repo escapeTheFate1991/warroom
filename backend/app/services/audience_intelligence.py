@@ -227,7 +227,7 @@ def extract_objections(comments: List[Dict]) -> List[Dict]:
     
     # Convert clusters to Objection objects
     for objection_text, comment_list in objection_clusters.items():
-        if len(comment_list) >= 2:  # At least 2 people have this objection
+        if len(comment_list) >= 1:  # At least 1 person has this objection (individual objections are valuable)
             sample_comments = [
                 SampleComment(
                     comment_id=str(c.get("id", "")),
@@ -292,7 +292,7 @@ def extract_desires(comments: List[Dict]) -> List[Dict]:
     
     # Convert clusters to Desire objects
     for desire_key, comment_list in desire_clusters.items():
-        if len(comment_list) >= 2:  # At least 2 people want this
+        if len(comment_list) >= 1:  # At least 1 person wants this (individual desires are valuable)
             sample_comments = [
                 SampleComment(
                     comment_id=str(c.get("id", "")),
@@ -422,7 +422,7 @@ async def extract_competitor_gaps(comments: List[Dict]) -> List[Dict]:
     
     # Convert to CompetitorGap objects
     for gap_text, comment_list in gap_indicators.items():
-        if len(comment_list) >= 2:  # Multiple people requesting this
+        if len(comment_list) >= 1:  # At least one person requesting this
             sample_comments = [
                 SampleComment(
                     comment_id=str(c.get("id", "")),

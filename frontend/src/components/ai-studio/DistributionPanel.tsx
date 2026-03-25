@@ -442,9 +442,15 @@ export default function DistributionPanel({
   if (loadingAccounts) {
     return (
       <div className="w-full bg-warroom-surface border border-warroom-border rounded-xl p-8">
-        <div className="flex items-center justify-center">
-          <Loader2 className="animate-spin text-warroom-accent" size={24} />
-          <span className="ml-2 text-sm text-warroom-muted">Loading distribution panel...</span>
+        <div className="space-y-4">
+          <div className="h-6 bg-warroom-border rounded w-1/3 animate-pulse mb-4" />
+          <div className="grid grid-cols-2 gap-4">
+            {[1,2].map(i => (
+              <div key={i} className="bg-warroom-border h-24 rounded animate-pulse" />
+            ))}
+          </div>
+          <div className="h-10 bg-warroom-border rounded animate-pulse" />
+          <div className="text-sm text-warroom-muted text-center">Loading distribution panel...</div>
         </div>
       </div>
     );

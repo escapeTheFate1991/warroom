@@ -19,14 +19,16 @@ services:
     build: ./backend
     ports:
       - "8300:8300"
+    depends_on:
+      - postgres
     environment:
       # --- Brain 2 (10.0.0.11) — app backends (permanent) ---
       KANBAN_API_URL: ${KANBAN_API_URL}
       TEAM_DASHBOARD_URL: ${TEAM_DASHBOARD_URL}
       QDRANT_URL: ${QDRANT_URL}
       FASTEMBED_URL: ${FASTEMBED_URL}
-      MEDIA_UNDERSTANDING_URL: http://localhost:18796
-      POSTGRES_URL: ${POSTGRES_URL}
+      MEDIA_UNDERSTANDING_URL: http://host.docker.internal:18796
+      POSTGRES_URL: postgresql+asyncpg://friday:friday-brain2-2026@postgres:5432/knowledge
       # --- Brain 1 (10.0.0.1) — services awaiting migration to Brain 2 ---
       OPENCLAW_WS_URL: ${OPENCLAW_WS_URL}
       OPENCLAW_API_URL: ${OPENCLAW_API_URL}
@@ -63,7 +65,7 @@ services:
       MENTAL_LIBRARY_DB: ${MENTAL_LIBRARY_DB:-/data/mental-library/mental_library.db}
       VOICE_IO_SCRIPTS_PATH: /voice-io-scripts
       # Chatterbox TTS service
-      CHATTERBOX_URL: ${CHATTERBOX_URL:-http://localhost:8401}
+      CHATTERBOX_URL: ${CHATTERBOX_URL:-http://host.docker.internal:8401}
       # Garage S3 for digital copies storage
       GARAGE_ENDPOINT: http://10.0.0.11:3900
       GARAGE_ACCESS_KEY: GK6d3eb1c7bc06e00d77b8f89c
@@ -71,10 +73,9 @@ services:
       GARAGE_REGION: ai-local
       GARAGE_BUCKET_DIGITAL_COPIES: digital-copies
       # Microservice URLs
-      SCRAPER_SERVICE_URL: http://localhost:18797
-      ML_SERVICE_URL: http://localhost:18798
+      SCRAPER_SERVICE_URL: http://host.docker.internal:18797
+      ML_SERVICE_URL: http://host.docker.internal:18798
     restart: unless-stopped
-    network_mode: host
     volumes:
       - /home/eddy/.openclaw/workspace/skills/mental-library/backend/data:/data/mental-library:ro
       - /home/eddy/.openclaw/workspace/skills/voice-io/scripts:/voice-io-scripts:ro
@@ -90,12 +91,12 @@ services:
   worker:
     build: ./backend
     command: arq app.services.workflow_queue.WorkerSettings
-    network_mode: host
     depends_on:
       - backend
+      - postgres
     environment:
-      REDIS_URL: ${REDIS_URL:-redis://localhost:6379/2}
-      POSTGRES_URL: ${POSTGRES_URL}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379/2}
+      POSTGRES_URL: postgresql+asyncpg://friday:friday-brain2-2026@postgres:5432/knowledge
       JWT_SECRET: ${JWT_SECRET}
     restart: unless-stopped
     volumes:
@@ -161,7 +162,21 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
     restart: unless-stopped
 
+  postgres:
+    image: postgres:15-alpine
+    container_name: warroom-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: knowledge
+      POSTGRES_USER: friday
+      POSTGRES_PASSWORD: friday-brain2-2026
+    volumes:
+      - warroom-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
 volumes:
   instagram-cookies:
   warroom-qdrant-data:
   warroom-ml-taxonomy:
+  warroom-postgres-data:

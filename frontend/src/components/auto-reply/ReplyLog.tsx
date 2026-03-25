@@ -84,9 +84,20 @@ export default function ReplyLog() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-16">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-warroom-accent border-t-transparent mb-4" />
-        <p className="text-sm text-warroom-muted">Loading reply log...</p>
+      <div className="space-y-4">
+        {[1,2,3,4].map(i => (
+          <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg p-4 animate-pulse">
+            <div className="flex gap-3">
+              <div className="w-8 h-8 bg-warroom-border rounded-lg" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 bg-warroom-border rounded w-3/4" />
+                <div className="h-3 bg-warroom-border rounded w-1/2" />
+                <div className="h-3 bg-warroom-border rounded w-1/4" />
+              </div>
+            </div>
+          </div>
+        ))}
+        <p className="text-sm text-warroom-muted text-center">Loading reply log...</p>
       </div>
     );
   }

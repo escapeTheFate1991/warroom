@@ -15,7 +15,6 @@ import httpx
 from app.models.crm.profile_intel_data import ProfileIntelData
 from app.models.crm.social import SocialAccount, SocialAnalytics
 from app.services.video_analysis_service import video_analysis_service
-from app.api.content_intel import scrape_profile, ScrapedProfile
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +240,8 @@ class ProfileIntelService:
     async def _fetch_scraped_data(self, profile_id: str) -> Optional[Dict[str, Any]]:
         """Fetch public profile data via scraping."""
         try:
+            # Import here to avoid circular import
+            from app.api.content_intel import scrape_profile
             scraped = await scrape_profile(profile_id)
             
             if scraped.error:

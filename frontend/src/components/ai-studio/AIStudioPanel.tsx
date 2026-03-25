@@ -1584,7 +1584,17 @@ export default function AIStudioPanel() {
             <button onClick={fetchCompetitorVideos} className="p-1.5 rounded-lg hover:bg-warroom-border/50 text-warroom-muted"><RefreshCw size={14} /></button>
           </div>
           {loadingCompetitorVideos ? (
-            <div className="flex justify-center py-8"><Loader2 className="animate-spin text-warroom-accent" size={24} /></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {[1,2,3,4,5,6].map(i => (
+                <div key={i} className="bg-warroom-surface border border-warroom-border rounded-lg overflow-hidden animate-pulse">
+                  <div className="h-32 bg-warroom-border" />
+                  <div className="p-3 space-y-2">
+                    <div className="h-4 bg-warroom-border rounded w-3/4" />
+                    <div className="h-3 bg-warroom-border rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : competitorVideos.length === 0 ? (
             <div className="flex flex-col items-center py-12 text-warroom-muted gap-2">
               <TrendingUp size={28} className="text-warroom-accent/30" />
