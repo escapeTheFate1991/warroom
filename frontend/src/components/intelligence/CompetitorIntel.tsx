@@ -2759,100 +2759,119 @@ export default function CompetitorIntel() {
                   <p className="text-xs mt-1">Refresh competitor data to analyze their posts</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-3">
                   {aggregateTopVideos.map((vid, idx) => (
                     <div
                       key={`${vid.competitor_id || idx}-${vid.id || idx}`}
-                      className="bg-warroom-bg border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer relative"
+                      className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition cursor-pointer"
                       onClick={() => vid.id && router.push(`/competitor-intelligence/top-content/${vid.id}`)}
                     >
-                      {/* Format Badge & Analysis Status - top right */}
-                      <div className="absolute top-3 right-3 flex items-center gap-2">
-                        {vid.detected_format && (
-                          <FormatBadge format={vid.detected_format} post={vid} allPosts={aggregateTopVideos} />
-                        )}
-                        {/* Video Analysis Status Indicator */}
-                        {(vid.media_type === 'video' || vid.media_type === 'reel' || vid.media_type === 'clip') && (
-                          <div>
-                            {vid.analysis_status === 'completed' && (
-                              <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-medium" title="Frame analysis completed">
-                                <Film size={10} />
-                                Analyzed
-                              </span>
-                            )}
-                            {vid.analysis_status === 'processing' && (
-                              <span className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded-full text-[10px] font-medium" title="Frame analysis in progress">
-                                <Loader2 size={10} className="animate-spin" />
-                                Processing
-                              </span>
-                            )}
+                      <div className="flex items-center justify-between gap-4">
+                        {/* Left Section: Platform + Handle + Video Title */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {/* Platform Icon */}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {vid.platform === 'instagram' && <Instagram size={16} className="text-pink-400" />}
+                            {vid.platform === 'tiktok' && <Video size={16} className="text-cyan-400" />}
+                            {vid.platform === 'youtube' && <Video size={16} className="text-red-400" />}
+                            {vid.platform === 'x' && <div className="w-4 h-4 bg-gray-300 rounded-sm"></div>}
+                            {!vid.platform && <Video size={16} className="text-warroom-muted" />}
+                            <span className="text-sm text-warroom-muted">@{vid.competitor_handle || 'unknown'}</span>
                           </div>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-start justify-between gap-3 mb-2 pr-28">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[10px] uppercase tracking-wider text-warroom-muted">{vid.competitor_handle ? `@${vid.competitor_handle}` : "Competitor"}</span>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-400">{formatPlatformLabel(vid.platform || "instagram")}</span>
+                          
+                          {/* Video Title */}
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-medium text-warroom-text truncate">
+                              {vid.title || vid.hook || "Untitled"}
+                            </h3>
                           </div>
-                          <p className="text-sm text-warroom-text font-medium line-clamp-2">{vid.title || "Untitled"}</p>
                         </div>
-                        {(vid.media_type === "reel" || vid.media_type === "video") && <Film size={12} className="text-pink-400 flex-shrink-0" />}
+
+                        {/* Right Section: Metrics + Flow + Date */}
+                        <div className="flex items-center gap-6 flex-shrink-0">
+                          {/* Runtime */}
+                          <div className="text-center">
+                            <p className="text-sm font-semibold text-warroom-text">
+                              {vid.analysis?.duration_seconds ? formatTime(vid.analysis.duration_seconds) || "0:00" : "—"}
+                            </p>
+                            <p className="text-[10px] text-warroom-muted">Runtime</p>
+                          </div>
+
+                          {/* Likes */}
+                          <div className="text-center">
+                            <p className="text-sm font-semibold text-warroom-text">{formatNum(vid.likes)}</p>
+                            <p className="text-[10px] text-warroom-muted">Likes</p>
+                          </div>
+
+                          {/* Comments */}
+                          <div className="text-center">
+                            <p className="text-sm font-semibold text-warroom-text">{formatNum(vid.comments)}</p>
+                            <p className="text-[10px] text-warroom-muted">Comments</p>
+                          </div>
+
+                          {/* Pacing Label */}
+                          <div className="text-center">
+                            <p className="text-sm font-semibold text-amber-400">
+                              {vid.analysis?.pacing_label ? titleizeToken(vid.analysis.pacing_label) : "—"}
+                            </p>
+                            <p className="text-[10px] text-warroom-muted">Pace</p>
+                          </div>
+
+                          {/* Format Label */}
+                          <div className="text-center">
+                            <p className="text-sm font-semibold text-sky-400">
+                              {vid.analysis?.content_format ? titleizeToken(vid.analysis.content_format) : vid.detected_format ? titleizeToken(vid.detected_format) : "—"}
+                            </p>
+                            <p className="text-[10px] text-warroom-muted">Format</p>
+                          </div>
+
+                          {/* Structure Score */}
+                          <div className="text-center">
+                            <p className="text-sm font-semibold text-emerald-400">
+                              {vid.analysis?.structure_score ? `${Math.round(vid.analysis.structure_score * 100)}%` : "—"}
+                            </p>
+                            <p className="text-[10px] text-warroom-muted">Structure</p>
+                          </div>
+
+                          {/* Posted Date */}
+                          <div className="text-center">
+                            <p className="text-sm font-semibold text-warroom-text">
+                              {vid.posted_at ? timeAgo(vid.posted_at) : "—"}
+                            </p>
+                            <p className="text-[10px] text-warroom-muted">Posted</p>
+                          </div>
+                        </div>
                       </div>
 
-                      {vid.hook && <p className="text-xs text-warroom-accent mb-2 line-clamp-2">🪝 {vid.hook}</p>}
+                      {/* Second Row: Pacing Summary + Flow Indicator */}
+                      <div className="mt-3 pt-3 border-t border-warroom-border/30">
+                        <div className="flex items-center justify-between gap-4">
+                          {/* Pacing + Pattern Summary */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-warroom-muted truncate">
+                              {vid.analysis?.pacing_reason ? 
+                                vid.analysis.pacing_reason.split('.')[0] + (vid.analysis.pacing_reason.includes('.') ? '.' : '') :
+                                "No pacing analysis available"
+                              }
+                            </p>
+                          </div>
 
-                      <div className="grid grid-cols-4 gap-2 text-center mb-3">
-                        <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
-                          <p className="text-xs font-semibold text-warroom-text">{formatNum(vid.likes)}</p>
-                          <p className="text-[10px] text-warroom-muted">Likes</p>
-                        </div>
-                        <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
-                          <p className="text-xs font-semibold text-warroom-text">{formatNum(vid.comments)}</p>
-                          <p className="text-[10px] text-warroom-muted">Comments</p>
-                        </div>
-                        <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
-                          <p className="text-xs font-semibold text-warroom-accent">{vid.engagement_score.toFixed(0)}</p>
-                          <p className="text-[10px] text-warroom-muted">Engage</p>
-                        </div>
-                        <div className="rounded-lg border border-warroom-border bg-warroom-surface px-2 py-2">
-                          <p className="text-xs font-semibold text-pink-400">{vid.virality_score.toFixed(0)}</p>
-                          <p className="text-[10px] text-warroom-muted">Virality</p>
+                          {/* Hook → Value → CTA Flow */}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs px-2 py-1 bg-orange-500/10 text-orange-400 rounded border border-orange-500/20">
+                              {vid.analysis?.hook_type ? titleizeToken(vid.analysis.hook_type) : "Hook"}
+                            </span>
+                            <span className="text-warroom-muted">→</span>
+                            <span className="text-xs px-2 py-1 bg-blue-500/10 text-blue-400 rounded border border-blue-500/20">
+                              Value Stack
+                            </span>
+                            <span className="text-warroom-muted">→</span>
+                            <span className="text-xs px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded border border-emerald-500/20">
+                              {vid.analysis?.cta_type ? titleizeToken(vid.analysis.cta_type) : "CTA"}
+                            </span>
+                          </div>
                         </div>
                       </div>
-
-                      <div className="flex items-center justify-between text-[10px] text-warroom-muted mb-2">
-                        <div className="flex items-center gap-2">
-                          {vid.posted_at && <span>{timeAgo(vid.posted_at)}</span>}
-                          {vid.has_transcript && <span className="text-emerald-400">Transcript</span>}
-                        </div>
-                        {vid.post_url && (
-                          <a
-                            href={vid.post_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-warroom-muted hover:text-warroom-accent transition"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <ExternalLink size={12} />
-                          </a>
-                        )}
-                      </div>
-                      
-                      {/* Generate Variant Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigateToAIStudio(vid, vid.competitor_handle);
-                        }}
-                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-warroom-surface border border-warroom-border hover:border-warroom-accent/50 hover:bg-warroom-accent/5 rounded-lg text-xs font-medium text-warroom-text transition"
-                      >
-                        <Sparkles size={12} />
-                        Generate Variant
-                      </button>
-
-                      <TopVideoInsights video={vid} compact />
                     </div>
                   ))}
                 </div>
