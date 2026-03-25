@@ -7,7 +7,7 @@ from typing import Optional
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Index, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 
-from app.models.base import Base
+from . import CrmBase
 
 
 class EngagementLevel(str, Enum):
@@ -16,7 +16,7 @@ class EngagementLevel(str, Enum):
     LOW = "low"
 
 
-class AudienceProfile(Base):
+class AudienceProfile(CrmBase):
     """Tracks profile data for commenters and likers across competitor posts."""
     
     __tablename__ = "audience_profiles"

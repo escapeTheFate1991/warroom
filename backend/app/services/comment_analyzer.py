@@ -13,8 +13,8 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import httpx
 import numpy as np
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.metrics import silhouette_score
+# from sklearn.cluster import KMeans, DBSCAN
+# from sklearn.metrics import silhouette_score
 
 logger = logging.getLogger(__name__)
 
@@ -210,9 +210,9 @@ def generate_video_topic_suggestions(content_gaps: List[Dict], post_caption: str
 
 
 async def analyze_comments_ml(comments: List[Dict], post_caption: str = "", creator_username: str = "") -> Dict:
-    """ML-powered comment analysis using FastEmbed + scikit-learn clustering.
+    """Enhanced ML-powered comment analysis with behavioral psychology insights.
     
-    Falls back to regex analysis if FastEmbed is unreachable.
+    Falls back to regex analysis if ML services are unreachable.
     """
     if not comments:
         return {
@@ -228,11 +228,27 @@ async def analyze_comments_ml(comments: List[Dict], post_caption: str = "", crea
             "top_commenters": [],
             "engagement_quality": "low",
             "content_gaps": [],
-            "video_topic_suggestions": []
+            "video_topic_suggestions": [],
+            "psychology_analysis": {}
         }
     
     try:
-        return await _analyze_comments_with_ml(comments, post_caption, creator_username)
+        # Get base ML analysis
+        base_result = await _analyze_comments_with_ml(comments, post_caption, creator_username)
+        
+        # Add deep behavioral psychology analysis
+        try:
+            from app.services.audience_psychology import analyze_audience_psychology
+            psychology_result = await analyze_audience_psychology(
+                comments, post_caption, creator_username
+            )
+            base_result["psychology_analysis"] = psychology_result
+        except Exception as e:
+            logger.warning("Psychology analysis failed: %s", e)
+            base_result["psychology_analysis"] = {}
+        
+        return base_result
+        
     except Exception as e:
         logger.warning("ML analysis failed, falling back to regex: %s", e)
         # Import the original function for fallback
@@ -242,6 +258,7 @@ async def analyze_comments_ml(comments: List[Dict], post_caption: str = "", crea
         result = _analyze_comments_regex(comments, post_caption)
         result["content_gaps"] = []
         result["video_topic_suggestions"] = []
+        result["psychology_analysis"] = {}
         return result
 
 

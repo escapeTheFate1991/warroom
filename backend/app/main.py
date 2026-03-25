@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import chat, health, settings, auth, social, social_oauth, social_content, social_sync, files, competitors, content_intel, calendar as cal_api, google_calendar, notifications, stripe_settings, google_ai_studio, ugc_studio, video_editor, content_scheduler, video_copycat, video_assets, video_formats, content_social, carousel, auto_reply, social_accounts, mirofish, email_inbox, usage, voice
+from app.api import chat, health, settings, auth, social, social_oauth, social_content, social_sync, files, competitors, content_intel, calendar as cal_api, google_calendar, notifications, stripe_settings, google_ai_studio, ugc_studio, video_editor, content_scheduler, video_copycat, video_assets, video_formats, content_social, carousel, auto_reply, social_accounts, mirofish, email_inbox, usage, voice, audience_intel
 
 from app.api.webhooks.instagram import router as instagram_webhook_router
 
@@ -300,6 +300,7 @@ app.include_router(social_sync.router, prefix="/api/social", tags=["social-sync"
 app.include_router(content_social.router, prefix="/api/content-social", tags=["content-social"])
 app.include_router(competitors.router, prefix="/api", tags=["competitors"])
 app.include_router(content_intel.router, prefix="/api/content-intel", tags=["content-intelligence"])
+app.include_router(audience_intel.router, tags=["audience-intelligence"])
 app.include_router(content_scheduler.router, prefix="/api/scheduler", tags=["content-scheduler"])
 app.include_router(carousel.router, prefix="/api/carousel", tags=["carousel"])
 app.include_router(auto_reply.router, prefix="/api/auto-reply", tags=["auto-reply"])

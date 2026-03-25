@@ -140,18 +140,29 @@ export default function PostDetailModal({
 }) {
   const [post, setPost] = useState<PostDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "transcript" | "comments" | "frames">("overview");
   const [frameAnalysisData, setFrameAnalysisData] = useState<FrameAnalysisData | null>(null);
   const [loadingFrames, setLoadingFrames] = useState(false);
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     authFetch(`${_API}/api/scraper/posts/${postId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data) setPost(data);
+      .then(async (r) => {
+        if (r.ok) {
+          const data = await r.json();
+          setPost(data);
+        } else {
+          const errorText = await r.text();
+          console.error(`Failed to load post ${postId}:`, r.status, errorText);
+          setError(`Failed to load post detail: ${r.status} ${r.statusText}`);
+        }
       })
-      .catch(() => {})
+      .catch((error) => {
+        console.error(`Network error loading post ${postId}:`, error);
+        setError(`Failed to load post detail: ${error.message}`);
+      })
       .finally(() => setLoading(false));
   }, [postId]);
 
@@ -763,7 +774,10 @@ export default function PostDetailModal({
         {/* Error state */}
         {!loading && !post && (
           <div className="flex items-center justify-center py-20">
-            <p className="text-sm text-warroom-muted">Failed to load post detail</p>
+            <div className="text-center">
+              <p className="text-sm text-red-400">{error || "Failed to load post detail"}</p>
+              <p className="text-xs text-warroom-muted mt-1">Post ID: {postId}</p>
+            </div>
           </div>
         )}
       </div>

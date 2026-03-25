@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight, Info } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import PostDetailModal from "./PostDetailModal";
 import ScrollTabs from "@/components/ui/ScrollTabs";
 import { useSocialAccounts, PLATFORM_CONFIGS } from "@/hooks/useSocialAccounts";
+import { VideoMetricsCard, EnhancedCompetitorCard, InfoTooltip } from "./RedesignedCompetitorCards";
+import EnhancedVideoAnalytics from "./EnhancedVideoAnalytics";
+import AudiencePsychologyAnalysis from "./AudiencePsychologyAnalysis";
 
 
 interface Competitor {
@@ -971,6 +974,7 @@ export default function CompetitorIntel() {
   const [competitorDetailTab, setCompetitorDetailTab] = useState<"overview" | "dossier" | "audience">("overview");
   const [audienceIntel, setAudienceIntel] = useState<any>(null);
   const [loadingAudienceIntel, setLoadingAudienceIntel] = useState(false);
+  const [psychologyAnalysisCompetitor, setPsychologyAnalysisCompetitor] = useState<{ id: number; handle: string } | null>(null);
 
   const [showAddCompetitor, setShowAddCompetitor] = useState(false);
   const [showGenerateScript, setShowGenerateScript] = useState(false);
@@ -1694,6 +1698,19 @@ export default function CompetitorIntel() {
     setCompetitorPosts([]);
     setFocusedTopVideos([]);
     setHashtags([]);
+  };
+
+  // Open psychology analysis modal
+  const openPsychologyAnalysis = (competitorId: number) => {
+    const competitor = competitors.find(c => c.id === competitorId);
+    if (competitor) {
+      setPsychologyAnalysisCompetitor({ id: competitorId, handle: competitor.handle });
+    }
+  };
+
+  // Close psychology analysis modal
+  const closePsychologyAnalysis = () => {
+    setPsychologyAnalysisCompetitor(null);
   };
 
   const TABS = [
@@ -2811,77 +2828,13 @@ export default function CompetitorIntel() {
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {[...competitors].sort((a, b) => (b.avg_engagement_rate || 0) - (a.avg_engagement_rate || 0)).map(comp => (
-                        <div key={comp.id}
-                          className="glass-card p-5 hover:shadow-glow transition-all cursor-pointer flex flex-col group"
-                          onClick={() => focusOnCompetitor(comp)}
-                        >
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-warroom-gradient flex items-center justify-center text-lg font-bold text-white group-hover:shadow-glow-sm transition-all">
-                                {comp.handle.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <h4 className="font-semibold text-sm">@{comp.handle}</h4>
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${PLATFORM_COLORS[comp.platform] || "bg-gray-500/20 text-gray-400"}`}>{comp.platform}</span>
-                                  {comp.last_auto_sync && (
-                                    <span className="text-[9px] text-warroom-muted">
-                                      Last synced: {timeAgo(comp.last_auto_sync)}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            <button onClick={async (e) => {
-                                e.stopPropagation();
-                                const btn = e.currentTarget;
-                                btn.classList.add("animate-spin");
-                                try {
-                                  const resp = await authFetch(`${API}/api/scraper/instagram/${comp.handle}`, { method: "POST" });
-                                  if (resp.ok) {
-                                    await fetchCompetitors();
-                                  }
-                                } catch { /* ignore */ } finally {
-                                  btn.classList.remove("animate-spin");
-                                }
-                              }}
-                              className="text-warroom-muted hover:text-warroom-accent transition"
-                              title="Sync this competitor">
-                              <RefreshCw size={14} />
-                            </button>
-                            <button onClick={(e) => { e.stopPropagation(); deleteCompetitor(comp.id); }}
-                              className="text-warroom-muted hover:text-red-400 transition">
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-1 text-center mb-3">
-                            <div className="stat-card py-2">
-                              <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.followers)}</p>
-                              <p className="text-[10px] text-warroom-muted">Followers</p>
-                            </div>
-                            <div className="stat-card py-2">
-                              <p className="text-sm font-semibold text-warroom-text">{formatNum(comp.post_count)}</p>
-                              <p className="text-[10px] text-warroom-muted">Posts</p>
-                            </div>
-                            <div className="stat-card py-2">
-                              <p className="text-sm font-semibold gradient-text">{comp.avg_engagement_rate.toFixed(1)}%</p>
-                              <p className="text-[10px] text-warroom-muted">Eng Rate</p>
-                            </div>
-                          </div>
-
-                          {comp.bio && (
-                            <div className="relative mb-2 flex-1">
-                              <p className="text-xs text-warroom-muted line-clamp-2">{comp.bio}</p>
-                              <div className="absolute bottom-0 left-0 right-0 h-3 bg-gradient-to-t from-warroom-surface-2 to-transparent pointer-events-none"></div>
-                            </div>
-                          )}
-
-                          <div className="flex items-center justify-between text-[10px] text-warroom-muted mt-auto pt-2 border-t border-warroom-border">
-                            <span>{comp.posting_frequency || "-"}</span>
-                            <span>{comp.last_auto_sync ? timeAgo(comp.last_auto_sync) : "Never synced"}</span>
-                          </div>
-                        </div>
+                        <EnhancedCompetitorCard
+                          key={comp.id}
+                          competitor={comp}
+                          topVideos={aggregateTopVideos.filter(video => video.competitor_handle === comp.handle)}
+                          onViewDetails={() => focusOnCompetitor(comp)}
+                          onPsychologyAnalysis={openPsychologyAnalysis}
+                        />
                       ))}
                     </div>
                   )}
@@ -3327,58 +3280,58 @@ export default function CompetitorIntel() {
                   <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
                     <div className="flex items-start justify-between gap-4 mb-3">
                       <div className="flex items-start gap-3">
-                        {instagramAdvice.profile_pic_url ? (
-                          <img src={instagramAdvice.profile_pic_url} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
+                        {instagramAdvice?.profile_pic_url ? (
+                          <img src={instagramAdvice?.profile_pic_url} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
                         ) : (
                           <div className="w-12 h-12 rounded-full bg-warroom-accent/10 flex items-center justify-center text-lg font-bold text-warroom-accent flex-shrink-0">
-                            {(instagramAdvice.username || "?").charAt(0).toUpperCase()}
+                            {(instagramAdvice?.username || "?").charAt(0).toUpperCase()}
                           </div>
                         )}
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className="text-base font-semibold text-warroom-text">{instagramAdvice.username ? `@${instagramAdvice.username}` : "Your Instagram"}</p>
-                            {instagramAdvice.is_verified && <span className="text-blue-400" title="Verified">✓</span>}
-                            {instagramAdvice.category && <span className="text-[10px] text-warroom-muted bg-warroom-bg px-1.5 py-0.5 rounded">{instagramAdvice.category}</span>}
+                            <p className="text-base font-semibold text-warroom-text">{instagramAdvice?.username ? `@${instagramAdvice?.username}` : "Your Instagram"}</p>
+                            {instagramAdvice?.is_verified && <span className="text-blue-400" title="Verified">✓</span>}
+                            {instagramAdvice?.category && <span className="text-[10px] text-warroom-muted bg-warroom-bg px-1.5 py-0.5 rounded">{instagramAdvice?.category}</span>}
                           </div>
-                          <p className="text-xs text-warroom-muted mt-0.5">{instagramAdvice.summary}</p>
+                          <p className="text-xs text-warroom-muted mt-0.5">{instagramAdvice?.summary}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {instagramAdvice.posting_frequency && (
-                          <span className="text-[10px] text-warroom-muted bg-warroom-bg border border-warroom-border px-2 py-1 rounded-lg">{instagramAdvice.posting_frequency}</span>
+                        {instagramAdvice?.posting_frequency && (
+                          <span className="text-[10px] text-warroom-muted bg-warroom-bg border border-warroom-border px-2 py-1 rounded-lg">{instagramAdvice?.posting_frequency}</span>
                         )}
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider ${instagramAdvice.connected ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
-                          {instagramAdvice.status.replace(/_/g, " ")}
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider ${instagramAdvice?.connected ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+                          {instagramAdvice?.status.replace(/_/g, " ")}
                         </span>
                       </div>
                     </div>
 
                     {/* Bio + Links snapshot */}
-                    {instagramAdvice.bio && (
+                    {instagramAdvice?.bio && (
                       <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3 mb-3">
                         <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-1">Current bio</p>
-                        <p className="text-sm text-warroom-text whitespace-pre-line">{instagramAdvice.bio}</p>
+                        <p className="text-sm text-warroom-text whitespace-pre-line">{instagramAdvice?.bio}</p>
                       </div>
                     )}
                     <div className="flex flex-wrap items-center gap-3 text-xs">
-                      {instagramAdvice.external_url && (
-                        <a href={instagramAdvice.external_url} target="_blank" rel="noopener noreferrer"
+                      {instagramAdvice?.external_url && (
+                        <a href={instagramAdvice?.external_url} target="_blank" rel="noopener noreferrer"
                           className="flex items-center gap-1 text-warroom-accent hover:underline">
-                          <ExternalLink size={12} /> {instagramAdvice.external_url.replace(/^https?:\/\//, "").slice(0, 40)}
+                          <ExternalLink size={12} /> {instagramAdvice?.external_url.replace(/^https?:\/\//, "").slice(0, 40)}
                         </a>
                       )}
-                      {(instagramAdvice.bio_links || []).map((link: any, i: number) => (
+                      {(instagramAdvice?.bio_links || []).map((link: any, i: number) => (
                         <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
                           className="flex items-center gap-1 text-warroom-accent hover:underline">
                           <ExternalLink size={12} /> {link.title || link.url?.replace(/^https?:\/\//, "").slice(0, 30)}
                         </a>
                       ))}
-                      {!instagramAdvice.external_url && !(instagramAdvice.bio_links || []).length && (
+                      {!instagramAdvice?.external_url && !(instagramAdvice?.bio_links || []).length && (
                         <span className="text-warroom-muted italic">No links in profile</span>
                       )}
                     </div>
-                    {instagramAdvice.last_synced && (
-                      <p className="text-[11px] text-warroom-muted mt-3">Last synced {timeAgo(instagramAdvice.last_synced)} · {instagramAdvice.days_analyzed} days analyzed</p>
+                    {instagramAdvice?.last_synced && (
+                      <p className="text-[11px] text-warroom-muted mt-3">Last synced {timeAgo(instagramAdvice?.last_synced)} · {instagramAdvice?.days_analyzed} days analyzed</p>
                     )}
                   </div>
 
@@ -3387,31 +3340,31 @@ export default function CompetitorIntel() {
                     <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Metrics snapshot</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
                       <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.follower_count)}</p>
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.follower_count || 0)}</p>
                         <p className="text-[10px] text-warroom-muted">Followers</p>
                       </div>
                       <div className="text-center">
-                        <p className={`text-lg font-bold ${instagramAdvice.net_followers >= 0 ? "text-emerald-400" : "text-red-400"}`}>{instagramAdvice.net_followers >= 0 ? "+" : ""}{formatNum(instagramAdvice.net_followers)}</p>
+                        <p className={`text-lg font-bold ${(instagramAdvice?.net_followers || 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{(instagramAdvice?.net_followers || 0) >= 0 ? "+" : ""}{formatNum(instagramAdvice?.net_followers || 0)}</p>
                         <p className="text-[10px] text-warroom-muted">Net followers</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-accent">{formatPercent(instagramAdvice.avg_engagement_rate, 2)}</p>
+                        <p className="text-lg font-bold text-warroom-accent">{formatPercent(instagramAdvice?.avg_engagement_rate || 0, 2)}</p>
                         <p className="text-[10px] text-warroom-muted">Engagement</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_reach)}</p>
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.avg_reach || 0)}</p>
                         <p className="text-[10px] text-warroom-muted">Avg reach</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_video_views)}</p>
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.avg_video_views || 0)}</p>
                         <p className="text-[10px] text-warroom-muted">Avg views</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.avg_profile_views)}</p>
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.avg_profile_views || 0)}</p>
                         <p className="text-[10px] text-warroom-muted">Profile views</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice.total_link_clicks)}</p>
+                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.total_link_clicks || 0)}</p>
                         <p className="text-[10px] text-warroom-muted">Link clicks</p>
                       </div>
                     </div>
@@ -3421,7 +3374,7 @@ export default function CompetitorIntel() {
                   <div>
                     <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Actionable intelligence</h3>
                     <div className="space-y-3">
-                      {instagramAdvice.recommendations.length > 0 ? instagramAdvice.recommendations.map((item: any, idx: number) => {
+                      {(instagramAdvice?.recommendations?.length || 0) > 0 ? instagramAdvice?.recommendations?.map((item: any, idx: number) => {
                         const categoryColors: Record<string, string> = {
                           bio: "bg-purple-500/10 text-purple-400",
                           content: "bg-blue-500/10 text-blue-400",
@@ -3459,11 +3412,11 @@ export default function CompetitorIntel() {
                   </div>
 
                   {/* Recent Posts — stays at the bottom */}
-                  {(instagramAdvice.recent_posts || []).length > 0 && (
+                  {(instagramAdvice?.recent_posts || []).length > 0 && (
                     <div>
                       <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Your recent posts</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {(instagramAdvice.recent_posts || []).map((post: any, idx: number) => (
+                        {(instagramAdvice?.recent_posts || []).map((post: any, idx: number) => (
                           <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition">
                             <div className="flex items-center gap-2 mb-2">
                               {post.media_type === "reel" || post.media_type === "video" ? (
@@ -3893,6 +3846,15 @@ export default function CompetitorIntel() {
         <PostDetailModal
           postId={selectedPostId}
           onClose={() => setSelectedPostId(null)}
+        />
+      )}
+
+      {/* Psychology Analysis Modal */}
+      {psychologyAnalysisCompetitor && (
+        <AudiencePsychologyAnalysis
+          competitorId={psychologyAnalysisCompetitor.id}
+          competitorHandle={psychologyAnalysisCompetitor.handle}
+          onClose={closePsychologyAnalysis}
         />
       )}
     </div>

@@ -15,6 +15,9 @@ from app.db.crm_db import get_tenant_db
 from app.services.tenant import get_org_id
 from app.models.crm.audience_profile import AudienceProfile
 from app.models.crm.competitor import Competitor
+from app.services.audience_psychology import analyze_audience_psychology
+from app.services.audience_deduplication import audience_deduplicator
+from app.services.comment_analyzer import analyze_comments_ml
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -269,3 +272,311 @@ async def get_audience_intel_summary(
     except Exception as e:
         logger.error("Failed to get audience intel summary: %s", e)
         raise HTTPException(status_code=500, detail="Failed to get audience intelligence summary")
+
+
+class PsychologyAnalysisRequest(BaseModel):
+    """Request model for behavioral psychology analysis."""
+    competitor_id: int
+    post_shortcode: Optional[str] = None  # Analyze specific post, or all posts if None
+    include_related_competitors: bool = True  # Remove shared audience with related competitors
+    min_comment_length: int = Field(default=10, ge=5)  # Minimum comment length for analysis
+    max_profiles: int = Field(default=100, ge=10, le=500)  # Max psychological profiles to analyze
+
+
+class PsychologyAnalysisResponse(BaseModel):
+    """Comprehensive behavioral psychology analysis response."""
+    analysis_metadata: Dict[str, Any]
+    psychological_profiles: List[Dict[str, Any]]
+    content_psychology: Dict[str, Any]
+    behavioral_insights: Dict[str, Any] 
+    sharing_psychology: Dict[str, Any]
+    optimization_recommendations: List[Dict[str, str]]
+    audience_uniqueness: Dict[str, Any]
+    excluded_profiles: Dict[str, int]
+
+
+@router.post("/api/audience-intel/psychology-analysis", response_model=PsychologyAnalysisResponse)
+async def analyze_audience_psychology_endpoint(
+    request: PsychologyAnalysisRequest,
+    db_request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Deep behavioral psychology analysis of audience.
+    
+    Analyzes WHY people engage and share content, removes shared audience members,
+    and provides insights for viral content creation.
+    """
+    org_id = get_org_id(db_request)
+    
+    try:
+        # Get competitor details
+        competitor_result = await db.execute(
+            select(Competitor).where(
+                Competitor.id == request.competitor_id,
+                Competitor.org_id == org_id
+            )
+        )
+        competitor = competitor_result.scalar_one_or_none()
+        if not competitor:
+            raise HTTPException(status_code=404, detail="Competitor not found")
+        
+        # Get posts and comments for analysis
+        if request.post_shortcode:
+            # Analyze specific post
+            posts_query = text("""
+                SELECT id, post_text, likes, comments, engagement_score, 
+                       post_url, posted_at, comment_analysis
+                FROM crm.competitor_posts 
+                WHERE competitor_id = :competitor_id 
+                AND org_id = :org_id
+                AND post_url LIKE :shortcode_pattern
+                AND comment_analysis IS NOT NULL
+                ORDER BY posted_at DESC
+                LIMIT 1
+            """)
+            posts_result = await db.execute(posts_query, {
+                "competitor_id": request.competitor_id,
+                "org_id": org_id,
+                "shortcode_pattern": f"%{request.post_shortcode}%"
+            })
+        else:
+            # Analyze all recent posts
+            posts_query = text("""
+                SELECT id, post_text, likes, comments, engagement_score,
+                       post_url, posted_at, comment_analysis
+                FROM crm.competitor_posts 
+                WHERE competitor_id = :competitor_id 
+                AND org_id = :org_id
+                AND comment_analysis IS NOT NULL
+                AND posted_at >= NOW() - INTERVAL '30 days'
+                ORDER BY engagement_score DESC
+                LIMIT 5
+            """)
+            posts_result = await db.execute(posts_query, {
+                "competitor_id": request.competitor_id,
+                "org_id": org_id
+            })
+        
+        posts = posts_result.fetchall()
+        if not posts:
+            raise HTTPException(
+                status_code=404, 
+                detail="No posts with comment analysis found"
+            )
+        
+        # Aggregate comments from all selected posts
+        all_comments = []
+        post_captions = []
+        post_metrics = {"total_likes": 0, "total_comments": 0}
+        
+        for post in posts:
+            if post.comment_analysis and isinstance(post.comment_analysis, dict):
+                # Extract raw comment data from the stored analysis
+                stored_comments = post.comment_analysis.get("raw_comments", [])
+                if stored_comments:
+                    # Filter by minimum length
+                    filtered_comments = [
+                        comment for comment in stored_comments
+                        if len(comment.get("text", "")) >= request.min_comment_length
+                    ]
+                    all_comments.extend(filtered_comments)
+                
+            if post.post_text:
+                post_captions.append(post.post_text)
+            
+            post_metrics["total_likes"] += post.likes or 0
+            post_metrics["total_comments"] += post.comments or 0
+        
+        if not all_comments:
+            raise HTTPException(
+                status_code=404,
+                detail="No comments found matching minimum length criteria"
+            )
+        
+        # Limit comments for performance
+        if len(all_comments) > 1000:
+            # Sort by likes and take top comments
+            all_comments.sort(key=lambda c: c.get("likes", 0), reverse=True)
+            all_comments = all_comments[:1000]
+        
+        logger.info(f"Analyzing {len(all_comments)} comments for competitor {request.competitor_id}")
+        
+        # Perform deep psychology analysis
+        combined_caption = " ".join(post_captions)
+        psychology_analysis = await analyze_audience_psychology(
+            comments=all_comments,
+            post_caption=combined_caption,
+            creator_username=competitor.handle,
+            post_metrics=post_metrics
+        )
+        
+        # Get related competitors for deduplication
+        related_competitor_ids = []
+        if request.include_related_competitors:
+            related_query = text("""
+                SELECT id FROM crm.competitors 
+                WHERE org_id = :org_id 
+                AND id != :competitor_id
+                AND (platform = :platform OR niche = :niche)
+                LIMIT 10
+            """)
+            related_result = await db.execute(related_query, {
+                "org_id": org_id,
+                "competitor_id": request.competitor_id,
+                "platform": competitor.platform,
+                "niche": competitor.niche
+            })
+            related_competitor_ids = [row.id for row in related_result.fetchall()]
+        
+        # Apply audience deduplication
+        deduplicated_analysis = await audience_deduplicator.deduplicate_audience_analysis(
+            db=db,
+            psychology_analysis=psychology_analysis,
+            competitor_id=request.competitor_id,
+            related_competitor_ids=related_competitor_ids
+        )
+        
+        # Prepare response
+        return PsychologyAnalysisResponse(
+            analysis_metadata={
+                "competitor_handle": competitor.handle,
+                "competitor_platform": competitor.platform,
+                "total_comments_analyzed": len(all_comments),
+                "posts_analyzed": len(posts),
+                "analysis_date": datetime.utcnow().isoformat(),
+                "filters_applied": {
+                    "min_comment_length": request.min_comment_length,
+                    "deduplication_enabled": request.include_related_competitors,
+                    "related_competitors_checked": len(related_competitor_ids)
+                }
+            },
+            psychological_profiles=deduplicated_analysis.get("psychological_profiles", [])[:request.max_profiles],
+            content_psychology=deduplicated_analysis.get("content_psychology", {}),
+            behavioral_insights=deduplicated_analysis.get("behavioral_insights", {}),
+            sharing_psychology=deduplicated_analysis.get("sharing_psychology", {}),
+            optimization_recommendations=deduplicated_analysis.get("optimization_recommendations", []),
+            audience_uniqueness=deduplicated_analysis.get("audience_uniqueness", {}),
+            excluded_profiles=deduplicated_analysis.get("excluded_profiles", {})
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to analyze audience psychology: %s", e)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to analyze audience psychology: {str(e)}"
+        )
+
+
+@router.get("/api/audience-intel/psychology-analysis/{competitor_id}/quick")
+async def quick_psychology_analysis(
+    competitor_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Quick psychology analysis for a competitor using existing comment analysis data.
+    
+    Returns simplified insights without full reprocessing.
+    """
+    org_id = get_org_id(request)
+    
+    try:
+        # Get competitor
+        competitor_result = await db.execute(
+            select(Competitor).where(
+                Competitor.id == competitor_id,
+                Competitor.org_id == org_id
+            )
+        )
+        competitor = competitor_result.scalar_one_or_none()
+        if not competitor:
+            raise HTTPException(status_code=404, detail="Competitor not found")
+        
+        # Get existing comment analysis
+        analysis_query = text("""
+            SELECT comment_analysis, post_text, engagement_score, posted_at
+            FROM crm.competitor_posts 
+            WHERE competitor_id = :competitor_id 
+            AND org_id = :org_id
+            AND comment_analysis IS NOT NULL
+            ORDER BY engagement_score DESC
+            LIMIT 3
+        """)
+        
+        result = await db.execute(analysis_query, {
+            "competitor_id": competitor_id,
+            "org_id": org_id
+        })
+        posts = result.fetchall()
+        
+        if not posts:
+            return {
+                "error": "No analyzed posts found",
+                "recommendation": "Run full scraping and analysis first"
+            }
+        
+        # Aggregate insights from existing analyses
+        total_questions = 0
+        total_pain_points = 0
+        themes = Counter()
+        content_gaps = []
+        
+        for post in posts:
+            if post.comment_analysis:
+                analysis = post.comment_analysis
+                total_questions += len(analysis.get("questions", []))
+                total_pain_points += len(analysis.get("pain_points", []))
+                
+                for theme in analysis.get("themes", []):
+                    if isinstance(theme, dict):
+                        themes[theme.get("theme", "")] += theme.get("count", 0)
+                
+                content_gaps.extend(analysis.get("content_gaps", []))
+        
+        # Simple psychological insights
+        insights = {
+            "competitor_handle": competitor.handle,
+            "platform": competitor.platform,
+            "posts_analyzed": len(posts),
+            "engagement_signals": {
+                "question_volume": total_questions,
+                "pain_point_indicators": total_pain_points,
+                "content_gap_opportunities": len(content_gaps)
+            },
+            "top_themes": dict(themes.most_common(5)),
+            "quick_recommendations": []
+        }
+        
+        # Generate quick recommendations
+        if total_questions > total_pain_points * 2:
+            insights["quick_recommendations"].append({
+                "type": "Content Strategy",
+                "insight": "High question volume - audience seeks educational content",
+                "action": "Create tutorial and how-to content"
+            })
+        
+        if total_pain_points > 10:
+            insights["quick_recommendations"].append({
+                "type": "Pain Point Addressing",
+                "insight": "Significant pain points expressed",
+                "action": "Create solution-focused content addressing common struggles"
+            })
+        
+        if len(content_gaps) > 5:
+            insights["quick_recommendations"].append({
+                "type": "Content Gaps", 
+                "insight": "Multiple unanswered questions identified",
+                "action": "Fill content gaps with targeted responses"
+            })
+        
+        return insights
+        
+    except Exception as e:
+        logger.error("Failed quick psychology analysis: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed quick analysis: {str(e)}"
+        )

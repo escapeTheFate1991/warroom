@@ -82,9 +82,10 @@ try:
     from nltk.corpus import stopwords
     from nltk.tokenize import word_tokenize, sent_tokenize
     from nltk.util import ngrams
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.cluster import KMeans
+    # from sklearn.feature_extraction.text import TfidfVectorizer
+    # from sklearn.cluster import KMeans
     NLTK_AVAILABLE = True
+    SKLEARN_AVAILABLE = False
     
     # Download required NLTK data
     try:
@@ -99,6 +100,7 @@ try:
         
 except ImportError:
     NLTK_AVAILABLE = False
+    SKLEARN_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -1447,7 +1449,8 @@ async def load_cached_posts(db: AsyncSession, org_id: int, competitor_id: int = 
 
         if days is not None:
             query += " AND cp.posted_at >= :cutoff_date"
-            params["cutoff_date"] = datetime.now() - timedelta(days=days)
+            # Use timezone-aware datetime to properly filter posts
+            params["cutoff_date"] = datetime.now(timezone.utc) - timedelta(days=days)
         
         if competitor_id:
             query += " AND cp.competitor_id = :competitor_id"
