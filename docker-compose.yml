@@ -133,6 +133,9 @@ services:
       - "18798:18798"
     environment:
       FASTEMBED_URL: http://10.0.0.11:11435/api/embed
+      TAXONOMY_PATH: /app/taxonomy.json
+    volumes:
+      - warroom-ml-taxonomy:/app
     restart: unless-stopped
 
   warroom-qdrant:
@@ -162,3 +165,4 @@ services:
 volumes:
   instagram-cookies:
   warroom-qdrant-data:
+  warroom-ml-taxonomy:

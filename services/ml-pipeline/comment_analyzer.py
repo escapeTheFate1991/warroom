@@ -328,11 +328,47 @@ async def _analyze_comments_with_ml(comments: List[Dict], post_caption: str = ""
             "type": comment_type
         })
     
-    # Step 2: Generate embeddings and cluster
+    # Step 2: Try taxonomy-based classification first
     themes = []
     content_gaps = []
     
-    if len(filtered_comments) >= 2:
+    # Check if taxonomy exists and use it for theme labeling
+    try:
+        from taxonomy import load_taxonomy, batch_classify
+        taxonomy = load_taxonomy()
+        
+        if taxonomy is not None and len(filtered_comments) >= 1:
+            logger.info("Using taxonomy for theme classification")
+            comment_texts = [c["text"] for c in filtered_comments]
+            embeddings = await get_embeddings(comment_texts)
+            
+            if embeddings is not None:
+                # Use taxonomy for classification
+                classifications = batch_classify(comment_texts, embeddings, taxonomy)
+                
+                # Count themes from taxonomy classifications
+                theme_counts = Counter()
+                for classification in classifications:
+                    if not classification.get("is_new", True):  # Only count confident matches
+                        theme_counts[classification["label"]] += 1
+                
+                # Convert to themes format
+                themes = [{"theme": theme, "count": count} 
+                         for theme, count in theme_counts.most_common(15)]
+                
+                logger.info(f"Classified comments using taxonomy: {len(themes)} unique themes found")
+            else:
+                logger.warning("Embeddings failed, falling back to clustering")
+                taxonomy = None  # Fall back to clustering
+        else:
+            logger.info("No taxonomy found, using clustering approach")
+            
+    except Exception as e:
+        logger.warning(f"Taxonomy classification failed: {e}, falling back to clustering")
+        taxonomy = None
+    
+    # Step 3: Fall back to clustering if taxonomy not available
+    if not themes and len(filtered_comments) >= 2:
         comment_texts = [c["text"] for c in filtered_comments]
         embeddings = await get_embeddings(comment_texts)
         
