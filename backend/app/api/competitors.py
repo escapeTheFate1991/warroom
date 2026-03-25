@@ -931,3 +931,222 @@ async def follow_all_competitors(
     background_tasks.add_task(follow_multiple_task)
     
     return {"message": f"Following {len(handles)} competitors in background", "count": len(handles)}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  VIDEO ANALYTICS — Performance comparison and recommendations  
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.get("/video-analytics/performance-comparison")
+async def get_video_performance_comparison(
+    request: Request,
+    competitor_handles: Optional[str] = None,  # Comma-separated list
+    timeframe_days: int = 30,
+    min_views: int = 1000,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Compare video performance across competitors and identify top performers.
+    Returns comprehensive analytics including retention curves and drop-off analysis.
+    """
+    from app.services.video_analytics_service import video_analytics_service
+    
+    org_id = get_org_id(request)
+    
+    try:
+        # Parse competitor handles
+        handles_list = None
+        if competitor_handles:
+            handles_list = [h.strip() for h in competitor_handles.split(',') if h.strip()]
+        
+        # Get performance comparison
+        comparison_result = await video_analytics_service.compare_video_performance(
+            db=db,
+            org_id=org_id,
+            competitor_handles=handles_list,
+            timeframe_days=timeframe_days,
+            min_views=min_views
+        )
+        
+        return comparison_result
+        
+    except Exception as e:
+        logger.error(f"Video performance comparison failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to analyze video performance")
+
+
+@router.get("/video-analytics/viral-patterns") 
+async def get_viral_content_patterns(
+    request: Request,
+    min_engagement_rate: float = 10.0,
+    min_sample_size: int = 5,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Identify patterns in high-performing viral content.
+    Returns actionable insights for content creation.
+    """
+    from app.services.video_analytics_service import video_analytics_service
+    
+    org_id = get_org_id(request)
+    
+    try:
+        patterns = await video_analytics_service.identify_viral_patterns(
+            db=db,
+            org_id=org_id,
+            min_engagement_rate=min_engagement_rate,
+            min_sample_size=min_sample_size
+        )
+        
+        # Convert patterns to dict format
+        pattern_dicts = []
+        for pattern in patterns:
+            pattern_dicts.append({
+                "pattern_id": pattern.pattern_id,
+                "pattern_type": pattern.pattern_type,
+                "description": pattern.description,
+                "success_rate": pattern.success_rate,
+                "avg_engagement_boost": pattern.avg_engagement_boost,
+                "example_posts": pattern.example_posts,
+                "recommended_usage": pattern.recommended_usage
+            })
+        
+        return {
+            "success": True,
+            "patterns_found": len(pattern_dicts),
+            "patterns": pattern_dicts,
+            "analysis_timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Viral patterns analysis failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to identify viral patterns")
+
+
+@router.get("/video-analytics/recommendations")
+async def get_content_recommendations(
+    request: Request,
+    user_avg_engagement: Optional[float] = None,
+    weak_areas: Optional[str] = None,  # Comma-separated: hook,retention,visual_appeal
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Generate personalized content recommendations based on viral patterns and user performance.
+    Returns actionable recommendations for improving video content.
+    """
+    from app.services.video_analytics_service import video_analytics_service
+    
+    org_id = get_org_id(request)
+    
+    try:
+        # Parse user performance data
+        user_performance = None
+        if user_avg_engagement is not None or weak_areas:
+            user_performance = {
+                'avg_engagement_rate': user_avg_engagement or 2.0,
+                'weak_areas': weak_areas.split(',') if weak_areas else ['hook', 'retention', 'visual_appeal']
+            }
+        
+        recommendations = await video_analytics_service.generate_content_recommendations(
+            db=db,
+            org_id=org_id,
+            user_video_performance=user_performance
+        )
+        
+        # Convert recommendations to dict format
+        recommendation_dicts = []
+        for rec in recommendations:
+            recommendation_dicts.append({
+                "recommendation_id": rec.recommendation_id,
+                "title": rec.title,
+                "description": rec.description,
+                "confidence_score": rec.confidence_score,
+                "expected_impact": rec.expected_impact,
+                "category": rec.category,
+                "supporting_data": rec.supporting_data,
+                "example_videos": rec.example_videos
+            })
+        
+        return {
+            "success": True,
+            "recommendations_count": len(recommendation_dicts),
+            "recommendations": recommendation_dicts,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Content recommendations failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate recommendations")
+
+
+@router.get("/video-analytics/dropoff-analysis/{post_id}")
+async def get_video_dropoff_analysis(
+    post_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Get detailed drop-off analysis for a specific video.
+    Returns retention curve and critical drop-off points with explanations.
+    """
+    from app.services.video_analytics_service import video_analytics_service
+    
+    org_id = get_org_id(request)
+    
+    try:
+        # Get video data
+        result = await db.execute(
+            text("""
+                SELECT cp.frame_chunks, cp.video_analysis, cp.likes, cp.comments, cp.shares,
+                       c.handle, c.platform, cp.text, cp.hook
+                FROM crm.competitor_posts cp
+                JOIN crm.competitors c ON cp.competitor_id = c.id
+                WHERE cp.id = :post_id 
+                  AND cp.org_id = :org_id 
+                  AND cp.analysis_status = 'completed'
+            """),
+            {"post_id": post_id, "org_id": org_id}
+        )
+        
+        video_data = result.first()
+        if not video_data:
+            raise HTTPException(status_code=404, detail="Analyzed video not found")
+        
+        import json
+        frame_chunks = json.loads(video_data[0]) if video_data[0] else []
+        video_analysis = json.loads(video_data[1]) if video_data[1] else {}
+        
+        # Analyze retention and drop-offs
+        retention_curve, drop_offs = video_analytics_service._analyze_retention_curve(
+            frame_chunks, video_analysis
+        )
+        
+        # Calculate additional metrics
+        engagement_rate = video_analytics_service._calculate_engagement_rate(
+            video_data[2], video_data[3], video_data[4]  # likes, comments, shares
+        )
+        hook_strength = video_analytics_service._analyze_hook_strength(video_data[8])
+        
+        return {
+            "post_id": post_id,
+            "competitor_handle": video_data[5],
+            "platform": video_data[6],
+            "video_duration": video_analysis.get('duration', 0),
+            "engagement_rate": engagement_rate,
+            "hook_strength": hook_strength,
+            "retention_curve": retention_curve,
+            "drop_off_points": drop_offs,
+            "critical_moments": len([d for d in drop_offs if d['drop_percentage'] > 25]),
+            "average_retention": sum(retention_curve) / len(retention_curve) if retention_curve else 0,
+            "analysis_summary": {
+                "total_drop_offs": len(drop_offs),
+                "worst_drop_off": max(drop_offs, key=lambda x: x['drop_percentage']) if drop_offs else None,
+                "retention_at_30s": retention_curve[6] if len(retention_curve) > 6 else None
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Drop-off analysis failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to analyze video drop-offs")
