@@ -1,35 +1,20 @@
 FROM python:3.12-slim
 
-# System deps for ffmpeg + Playwright Chromium + Node.js
+# System deps for ffmpeg + Playwright Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     pulseaudio-utils \
     bluez \
-    ca-certificates \
-    curl \
-    gnupg \
-    # Playwright Chromium dependencies
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
     libdrm2 libdbus-1-3 libxkbcommon0 libatspi2.0-0 libxcomposite1 \
     libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 \
     libcairo2 libasound2 libwayland-client0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20.x LTS
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
-
-# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt edge-tts openai-whisper \
     && playwright install chromium --with-deps 2>/dev/null || playwright install chromium
-
-# Install Node.js dependencies
-COPY package.json package-lock.json* ./
-RUN npm install --production
 
 COPY app/ app/
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8300", "--workers", "1"]

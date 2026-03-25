@@ -25,6 +25,7 @@ services:
       TEAM_DASHBOARD_URL: ${TEAM_DASHBOARD_URL}
       QDRANT_URL: ${QDRANT_URL}
       FASTEMBED_URL: ${FASTEMBED_URL}
+      MEDIA_UNDERSTANDING_URL: http://localhost:18796
       POSTGRES_URL: ${POSTGRES_URL}
       # --- Brain 1 (10.0.0.1) — services awaiting migration to Brain 2 ---
       OPENCLAW_WS_URL: ${OPENCLAW_WS_URL}
@@ -96,6 +97,16 @@ services:
     restart: unless-stopped
     volumes:
       - /home/eddy/.openclaw/workspace/skills/mental-library/backend/data:/data/mental-library:ro
+
+  media-understanding:
+    build: ./services/media-understanding
+    container_name: warroom-media-understanding
+    ports:
+      - "18796:18796"
+    volumes:
+      - /tmp:/tmp
+      - instagram-cookies:/data:ro
+    restart: unless-stopped
 
   warroom-qdrant:
     image: qdrant/qdrant:latest

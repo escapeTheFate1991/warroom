@@ -1,7 +1,0 @@
-{
-  "name": "warroom-backend",
-  "version": "1.0.0",
-  "dependencies": {
-    "@dymoo/media-understanding": "^0.1.0"
-  }
-}

@@ -33,7 +33,7 @@ class VideoAnalysisService:
     """Service for analyzing competitor videos frame-by-frame"""
     
     def __init__(self):
-        self.mcp_server_path = "/app/node_modules/@dymoo/media-understanding/dist/mcp.js"
+        self.media_api_url = os.getenv("MEDIA_UNDERSTANDING_URL", "http://localhost:18796")
         self.chunk_duration = 8.0  # VEO optimal duration
     
     async def analyze_competitor_video(
@@ -118,93 +118,62 @@ class VideoAnalysisService:
             }
     
     async def _download_video(self, video_url: str) -> str:
-        """Download video to temporary file"""
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.get(video_url)
-            response.raise_for_status()
-            
-            # Create temp file with video extension
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
-                temp_file.write(response.content)
-                return temp_file.name
+        """Download video to temporary file using yt-dlp (handles Instagram auth)."""
+        import subprocess as sp
+        
+        temp_path = tempfile.mktemp(suffix='.mp4')
+        try:
+            result = await asyncio.to_thread(
+                sp.run,
+                ["yt-dlp", "--no-warnings", "--quiet", "-o", temp_path,
+                 "--max-filesize", "100M", "--format", "mp4/best[ext=mp4]/best",
+                 video_url],
+                capture_output=True, text=True, timeout=90,
+            )
+            if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1000:
+                logger.info("Downloaded video (%d KB)", os.path.getsize(temp_path) // 1024)
+                return temp_path
+            logger.warning("yt-dlp failed: %s", result.stderr[:200] if result.stderr else "empty file")
+        except Exception as e:
+            logger.error("Video download error: %s", e)
+        
+        # Fallback to direct HTTP (for S3/Garage URLs)
+        try:
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                response = await client.get(video_url)
+                response.raise_for_status()
+                with open(temp_path, 'wb') as f:
+                    f.write(response.content)
+                if os.path.getsize(temp_path) > 1000:
+                    return temp_path
+        except Exception as e:
+            logger.error("HTTP download fallback failed: %s", e)
+        
+        raise Exception(f"Could not download video from {video_url[:80]}")
     
     async def _analyze_with_media_understanding(self, video_path: str) -> Dict[str, Any]:
         """
-        Analyze video using @dymoo/media-understanding MCP server via stdio subprocess
+        Analyze video using media-understanding HTTP API service.
+        The service runs as a separate Docker container on port 18796.
         """
         try:
-            # Start the MCP server as subprocess
-            process = await asyncio.create_subprocess_exec(
-                "node", self.mcp_server_path,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    f"{self.media_api_url}/analyze",
+                    json={"file_path": video_path}
+                )
+                resp.raise_for_status()
+                result = resp.json()
             
-            # Initialize the MCP connection
-            init_message = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "warroom",
-                        "version": "1.0.0"
-                    }
-                }
-            }
+            if result.get("isError"):
+                error_text = ""
+                for item in result.get("content", []):
+                    if item.get("type") == "text":
+                        error_text += item.get("text", "")
+                raise Exception(f"Analysis failed: {error_text[:200]}")
             
-            # Send initialization
-            init_json = json.dumps(init_message) + "\n"
-            process.stdin.write(init_json.encode())
-            await process.stdin.drain()
-            
-            # Read initialization response
-            init_response_line = await process.stdout.readline()
-            init_response = json.loads(init_response_line.decode().strip())
-            
-            if init_response.get("error"):
-                raise Exception(f"MCP initialization failed: {init_response['error']}")
-            
-            # Send understand_media tool call
-            analysis_message = {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "understand_media",
-                    "arguments": {
-                        "file": video_path
-                    }
-                }
-            }
-            
-            analysis_json = json.dumps(analysis_message) + "\n"
-            process.stdin.write(analysis_json.encode())
-            await process.stdin.drain()
-            
-            # Read analysis response
-            analysis_response_line = await process.stdout.readline()
-            analysis_response = json.loads(analysis_response_line.decode().strip())
-            
-            # Close stdin and wait for process to complete
-            process.stdin.close()
-            await process.wait()
-            
-            if analysis_response.get("error"):
-                raise Exception(f"MCP analysis failed: {analysis_response['error']}")
-            
-            # Extract result data from MCP response
-            result = analysis_response.get("result", {})
-            
-            # The MCP server returns content in result.content array
+            # Extract content from the MCP-style response
             content = result.get("content", [])
-            if not content:
-                raise Exception("No content returned from MCP analysis")
-            
-            # Parse the content to extract video analysis data
             analysis_data = {}
             for item in content:
                 if item.get("type") == "text":
@@ -229,11 +198,7 @@ class VideoAnalysisService:
             return analysis_data
             
         except Exception as e:
-            # Make sure process is terminated
-            if 'process' in locals() and process.returncode is None:
-                process.terminate()
-                await process.wait()
-            raise Exception(f"MCP subprocess analysis failed: {str(e)}");
+            raise Exception(f"Media analysis failed: {str(e)}")
     
     async def _create_frame_chunks(
         self, 
