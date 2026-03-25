@@ -132,7 +132,7 @@ services:
     ports:
       - "18798:18798"
     environment:
-      FASTEMBED_URL: http://10.0.0.11:11435
+      FASTEMBED_URL: http://10.0.0.11:11435/api/embed
     restart: unless-stopped
 
   warroom-qdrant:
