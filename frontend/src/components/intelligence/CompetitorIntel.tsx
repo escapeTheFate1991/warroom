@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight, Info } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight, Info, Brain } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import PostDetailModal from "./PostDetailModal";
 import ScrollTabs from "@/components/ui/ScrollTabs";
-import { useSocialAccounts, PLATFORM_CONFIGS } from "@/hooks/useSocialAccounts";
+// Removed OAuth integration - Profile Intel now shows competitor intelligence directly
 import { VideoMetricsCard, EnhancedCompetitorCard, InfoTooltip } from "./RedesignedCompetitorCards";
 import EnhancedVideoAnalytics from "./EnhancedVideoAnalytics";
 import AudiencePsychologyAnalysis from "./AudiencePsychologyAnalysis";
@@ -226,33 +226,7 @@ interface ProfilePostSummary {
   engagement_score: number;
 }
 
-interface InstagramProfileAdvice {
-  connected: boolean;
-  platform: string;
-  username?: string | null;
-  status: string;
-  summary: string;
-  follower_count: number;
-  following_count: number;
-  post_count: number;
-  last_synced?: string | null;
-  days_analyzed: number;
-  avg_engagement_rate: number;
-  avg_reach: number;
-  avg_profile_views: number;
-  avg_video_views: number;
-  total_link_clicks: number;
-  net_followers: number;
-  bio?: string | null;
-  external_url?: string | null;
-  bio_links?: { url: string; title?: string }[];
-  profile_pic_url?: string | null;
-  is_verified?: boolean;
-  category?: string | null;
-  posting_frequency?: string | null;
-  recent_posts?: ProfilePostSummary[];
-  recommendations: InstagramAdviceItem[];
-}
+// Removed Instagram advice interfaces - Profile Intel now shows competitor intelligence
 
 interface AudienceQuestion {
   question: string;
@@ -1003,7 +977,7 @@ export default function CompetitorIntel() {
   const [loadingGlobalAudienceIntel, setLoadingGlobalAudienceIntel] = useState(false);
   const [focusedTopVideos, setFocusedTopVideos] = useState<TopVideoItem[]>([]);
   const [aggregateTopVideos, setAggregateTopVideos] = useState<TopVideoItem[]>([]);
-  const [instagramAdvice, setInstagramAdvice] = useState<InstagramProfileAdvice | null>(null);
+  // Removed Instagram advice state - Profile Intel now shows competitor intelligence
   const [selectedPostId, setSelectedPostId] = useState<number | null>(null);
   const [expandedPostId, setExpandedPostId] = useState<number | null>(null);
   const [expandedPostData, setExpandedPostData] = useState<any>(null);
@@ -3212,201 +3186,190 @@ export default function CompetitorIntel() {
           {/* PROFILE INTEL TAB */}
           {activeTab === "profile-intel" && (
             <div className="space-y-6">
-              {!isConnected('instagram') ? (
-                <div className="text-center py-16">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-warroom-gradient/20 flex items-center justify-center">
-                    <User size={32} className="text-warroom-accent/60" />
+              {/* Competitor Intelligence Summary */}
+              <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-warroom-accent/10 flex items-center justify-center">
+                    <Sparkles size={20} className="text-warroom-accent" />
                   </div>
-                  <h3 className="text-lg font-semibold text-warroom-text mb-2">Competitor Intelligence Available</h3>
-                  <p className="text-sm text-warroom-muted mb-4">Access advanced competitor analysis and audience insights without connecting your own account.</p>
-                  
-                  <div className="max-w-md mx-auto space-y-3">
-                    <div className="bg-warroom-surface border border-warroom-border rounded-lg p-4">
-                      <h4 className="text-sm font-medium text-warroom-text mb-2">Available Intelligence:</h4>
-                      <ul className="text-xs text-warroom-muted space-y-1">
-                        <li className="flex items-center gap-2"><Target size={12} className="text-emerald-400" /> Competitor profile analysis</li>
-                        <li className="flex items-center gap-2"><BarChart3 size={12} className="text-blue-400" /> Content performance metrics</li>
-                        <li className="flex items-center gap-2"><Users size={12} className="text-purple-400" /> Audience psychology insights</li>
-                        <li className="flex items-center gap-2"><TrendingUp size={12} className="text-orange-400" /> Growth strategy recommendations</li>
-                      </ul>
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={() => connect('instagram')}
-                    className="mt-6 px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-lg text-sm font-medium transition-colors"
-                  >
-                    Connect Instagram for Personal Analysis
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {/* Profile header with scraped data */}
-                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
-                    <div className="flex items-start justify-between gap-4 mb-3">
-                      <div className="flex items-start gap-3">
-                        {instagramAdvice?.profile_pic_url ? (
-                          <img src={instagramAdvice?.profile_pic_url} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
-                        ) : (
-                          <div className="w-12 h-12 rounded-full bg-warroom-accent/10 flex items-center justify-center text-lg font-bold text-warroom-accent flex-shrink-0">
-                            {(instagramAdvice?.username || "?").charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-base font-semibold text-warroom-text">{instagramAdvice?.username ? `@${instagramAdvice?.username}` : "Your Instagram"}</p>
-                            {instagramAdvice?.is_verified && <span className="text-blue-400" title="Verified">✓</span>}
-                            {instagramAdvice?.category && <span className="text-[10px] text-warroom-muted bg-warroom-bg px-1.5 py-0.5 rounded">{instagramAdvice?.category}</span>}
-                          </div>
-                          <p className="text-xs text-warroom-muted mt-0.5">{instagramAdvice?.summary}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {instagramAdvice?.posting_frequency && (
-                          <span className="text-[10px] text-warroom-muted bg-warroom-bg border border-warroom-border px-2 py-1 rounded-lg">{instagramAdvice?.posting_frequency}</span>
-                        )}
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider ${instagramAdvice?.connected ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
-                          {instagramAdvice?.status.replace(/_/g, " ")}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Bio + Links snapshot */}
-                    {instagramAdvice?.bio && (
-                      <div className="bg-warroom-bg border border-warroom-border rounded-xl p-3 mb-3">
-                        <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-1">Current bio</p>
-                        <p className="text-sm text-warroom-text whitespace-pre-line">{instagramAdvice?.bio}</p>
-                      </div>
-                    )}
-                    <div className="flex flex-wrap items-center gap-3 text-xs">
-                      {instagramAdvice?.external_url && (
-                        <a href={instagramAdvice?.external_url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-warroom-accent hover:underline">
-                          <ExternalLink size={12} /> {instagramAdvice?.external_url.replace(/^https?:\/\//, "").slice(0, 40)}
-                        </a>
-                      )}
-                      {(instagramAdvice?.bio_links || []).map((link: any, i: number) => (
-                        <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-warroom-accent hover:underline">
-                          <ExternalLink size={12} /> {link.title || link.url?.replace(/^https?:\/\//, "").slice(0, 30)}
-                        </a>
-                      ))}
-                      {!instagramAdvice?.external_url && !(instagramAdvice?.bio_links || []).length && (
-                        <span className="text-warroom-muted italic">No links in profile</span>
-                      )}
-                    </div>
-                    {instagramAdvice?.last_synced && (
-                      <p className="text-[11px] text-warroom-muted mt-3">Last synced {timeAgo(instagramAdvice?.last_synced)} · {instagramAdvice?.days_analyzed} days analyzed</p>
-                    )}
-                  </div>
-
-                  {/* Metrics snapshot — right below profile card */}
-                  <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
-                    <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Metrics snapshot</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.follower_count || 0)}</p>
-                        <p className="text-[10px] text-warroom-muted">Followers</p>
-                      </div>
-                      <div className="text-center">
-                        <p className={`text-lg font-bold ${(instagramAdvice?.net_followers || 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{(instagramAdvice?.net_followers || 0) >= 0 ? "+" : ""}{formatNum(instagramAdvice?.net_followers || 0)}</p>
-                        <p className="text-[10px] text-warroom-muted">Net followers</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-accent">{formatPercent(instagramAdvice?.avg_engagement_rate || 0, 2)}</p>
-                        <p className="text-[10px] text-warroom-muted">Engagement</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.avg_reach || 0)}</p>
-                        <p className="text-[10px] text-warroom-muted">Avg reach</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.avg_video_views || 0)}</p>
-                        <p className="text-[10px] text-warroom-muted">Avg views</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.avg_profile_views || 0)}</p>
-                        <p className="text-[10px] text-warroom-muted">Profile views</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-warroom-text">{formatNum(instagramAdvice?.total_link_clicks || 0)}</p>
-                        <p className="text-[10px] text-warroom-muted">Link clicks</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Actionable Intelligence Cards */}
                   <div>
-                    <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Actionable intelligence</h3>
-                    <div className="space-y-3">
-                      {(instagramAdvice?.recommendations?.length || 0) > 0 ? instagramAdvice?.recommendations?.map((item: any, idx: number) => {
-                        const categoryColors: Record<string, string> = {
-                          bio: "bg-purple-500/10 text-purple-400",
-                          content: "bg-blue-500/10 text-blue-400",
-                          growth: "bg-emerald-500/10 text-emerald-400",
-                          profile: "bg-amber-500/10 text-amber-400",
-                          engagement: "bg-pink-500/10 text-pink-400",
-                        };
-                        const catClass = categoryColors[item.category] || "bg-warroom-accent/10 text-warroom-accent";
-                        return (
-                          <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-2xl p-5 hover:border-warroom-accent/20 transition">
-                            <div className="flex items-start gap-3">
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${catClass}`}>
-                                <Sparkles size={16} />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <p className="text-sm font-semibold text-warroom-text">{item.title}</p>
-                                  {item.category && <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded ${catClass}`}>{item.category}</span>}
-                                </div>
-                                <p className="text-sm text-warroom-muted leading-relaxed whitespace-pre-line">{item.detail}</p>
-                                {item.metric && (
-                                  <p className="text-xs text-warroom-accent mt-3 px-2.5 py-1 bg-warroom-accent/10 rounded-lg inline-block">{item.metric}</p>
-                                )}
-                              </div>
+                    <h3 className="text-lg font-semibold text-warroom-text">Competitor Intelligence</h3>
+                    <p className="text-sm text-warroom-muted">Strategic insights from your competitors' performance</p>
+                  </div>
+                </div>
+
+                {/* Key Metrics */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-warroom-text">{competitors.length}</p>
+                    <p className="text-xs text-warroom-muted">Competitors Tracked</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-warroom-accent">{topContent.length}</p>
+                    <p className="text-xs text-warroom-muted">Top Posts Analyzed</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-pink-400">{hooks.length}</p>
+                    <p className="text-xs text-warroom-muted">Viral Hooks</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-emerald-400">{scripts.length}</p>
+                    <p className="text-xs text-warroom-muted">Generated Scripts</p>
+                  </div>
+                </div>
+
+                {/* Top Performing Competitors */}
+                <div>
+                  <h4 className="text-sm font-semibold text-warroom-text mb-3">Top Performing Competitors</h4>
+                  <div className="space-y-2">
+                    {[...competitors]
+                      .sort((a, b) => (b.avg_engagement_rate || 0) - (a.avg_engagement_rate || 0))
+                      .slice(0, 5)
+                      .map((comp, idx) => (
+                        <div key={comp.id} className="flex items-center justify-between bg-warroom-bg border border-warroom-border rounded-lg px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <span className={`text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center ${
+                              idx === 0 ? "bg-yellow-500/20 text-yellow-400" :
+                              idx === 1 ? "bg-gray-400/20 text-gray-300" :
+                              idx === 2 ? "bg-orange-500/20 text-orange-400" :
+                              "bg-warroom-surface text-warroom-muted"
+                            }`}>
+                              #{idx + 1}
+                            </span>
+                            <div>
+                              <p className="text-sm font-medium text-warroom-text">@{comp.handle}</p>
+                              <span className={`text-xs px-2 py-0.5 rounded ${PLATFORM_COLORS[comp.platform] || "bg-gray-500/20 text-gray-400"}`}>
+                                {formatPlatformLabel(comp.platform)}
+                              </span>
                             </div>
                           </div>
-                        );
-                      }) : (
-                        <div className="text-center py-10 text-warroom-muted">
-                          <Sparkles size={32} className="mx-auto mb-3 opacity-20" />
-                          <p className="text-sm">Your profile analysis will appear here after connecting Instagram</p>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-warroom-accent">{comp.avg_engagement_rate.toFixed(1)}%</p>
+                            <p className="text-xs text-warroom-muted">{formatNum(comp.followers)} followers</p>
+                          </div>
+                        </div>
+                      ))
+                    }
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <button
+                  onClick={() => setActiveTab("competitors")}
+                  className="bg-warroom-surface border border-warroom-border hover:border-warroom-accent/50 rounded-xl p-4 text-left group transition-all"
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <Target size={20} className="text-warroom-accent" />
+                    <h4 className="text-sm font-semibold text-warroom-text">View Competitors</h4>
+                  </div>
+                  <p className="text-xs text-warroom-muted">Analyze competitor profiles and performance metrics</p>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("top-content")}
+                  className="bg-warroom-surface border border-warroom-border hover:border-warroom-accent/50 rounded-xl p-4 text-left group transition-all"
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <TrendingUp size={20} className="text-pink-400" />
+                    <h4 className="text-sm font-semibold text-warroom-text">Top Content</h4>
+                  </div>
+                  <p className="text-xs text-warroom-muted">Discover their highest-performing posts</p>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("hooks")}
+                  className="bg-warroom-surface border border-warroom-border hover:border-warroom-accent/50 rounded-xl p-4 text-left group transition-all"
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <Zap size={20} className="text-yellow-400" />
+                    <h4 className="text-sm font-semibold text-warroom-text">Viral Hooks</h4>
+                  </div>
+                  <p className="text-xs text-warroom-muted">Copy winning hook formulas</p>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("scripts")}
+                  className="bg-warroom-surface border border-warroom-border hover:border-warroom-accent/50 rounded-xl p-4 text-left group transition-all"
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <BookOpen size={20} className="text-emerald-400" />
+                    <h4 className="text-sm font-semibold text-warroom-text">Generate Scripts</h4>
+                  </div>
+                  <p className="text-xs text-warroom-muted">AI-generated scripts from competitor data</p>
+                </button>
+              </div>
+
+              {/* Recent Intelligence Updates */}
+              {(globalAudienceIntel || aggregateTopVideos.length > 0) && (
+                <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
+                  <h4 className="text-sm font-semibold text-warroom-text mb-4">Recent Intelligence Updates</h4>
+                  
+                  {/* Latest Audience Insights */}
+                  {globalAudienceIntel && (
+                    <div className="mb-6">
+                      <h5 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Audience Intelligence</h5>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                        <div className="text-center bg-warroom-bg rounded-lg p-3">
+                          <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.posts_analyzed}</p>
+                          <p className="text-xs text-warroom-muted">Posts Analyzed</p>
+                        </div>
+                        <div className="text-center bg-warroom-bg rounded-lg p-3">
+                          <p className="text-lg font-bold text-warroom-text">{globalAudienceIntel.comments_analyzed.toLocaleString()}</p>
+                          <p className="text-xs text-warroom-muted">Comments</p>
+                        </div>
+                        <div className="text-center bg-warroom-bg rounded-lg p-3">
+                          <p className={`text-lg font-bold capitalize ${AUDIENCE_SENTIMENT_COLORS[globalAudienceIntel.sentiment] || "text-warroom-text"}`}>
+                            {globalAudienceIntel.sentiment.replace(/_/g, " ")}
+                          </p>
+                          <p className="text-xs text-warroom-muted">Sentiment</p>
+                        </div>
+                        <div className="text-center bg-warroom-bg rounded-lg p-3">
+                          <p className="text-lg font-bold text-emerald-400">{globalAudienceIntel.sentiment_percentages.positive || 0}%</p>
+                          <p className="text-xs text-warroom-muted">Positive</p>
+                        </div>
+                      </div>
+                      
+                      {/* Top Questions */}
+                      {globalAudienceIntel.questions.length > 0 && (
+                        <div>
+                          <p className="text-xs text-warroom-muted mb-2">🔍 Top Questions from Competitor Audiences:</p>
+                          <div className="space-y-2">
+                            {globalAudienceIntel.questions.slice(0, 3).map((question: any, i: number) => (
+                              <div key={i} className="bg-blue-400/5 border border-blue-400/10 rounded-lg px-3 py-2">
+                                <p className="text-xs text-warroom-text">{question.question}</p>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
-                  </div>
+                  )}
 
-                  {/* Recent Posts — stays at the bottom */}
-                  {(instagramAdvice?.recent_posts || []).length > 0 && (
+                  {/* Latest Top Videos */}
+                  {aggregateTopVideos.length > 0 && (
                     <div>
-                      <h3 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Your recent posts</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {(instagramAdvice?.recent_posts || []).map((post: any, idx: number) => (
-                          <div key={idx} className="bg-warroom-surface border border-warroom-border rounded-xl p-4 hover:border-warroom-accent/20 transition">
+                      <h5 className="text-xs font-semibold text-warroom-muted uppercase tracking-wider mb-3">Latest Top Videos</h5>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {aggregateTopVideos.slice(0, 4).map((vid, idx) => (
+                          <div key={vid.id || idx} className="bg-warroom-bg border border-warroom-border rounded-lg p-3">
                             <div className="flex items-center gap-2 mb-2">
-                              {post.media_type === "reel" || post.media_type === "video" ? (
-                                <Film size={12} className="text-pink-400" />
-                              ) : (
-                                <EyeIcon size={12} className="text-warroom-muted" />
-                              )}
-                              <span className="text-[10px] text-warroom-muted uppercase">{post.media_type}</span>
-                              {post.posted_at && <span className="text-[10px] text-warroom-muted ml-auto">{timeAgo(post.posted_at)}</span>}
+                              <span className="text-xs text-warroom-muted">@{vid.competitor_handle}</span>
+                              {vid.detected_format && <FormatBadge format={vid.detected_format} post={vid} allPosts={aggregateTopVideos} />}
                             </div>
-                            {post.hook && (
-                              <p className="text-xs font-medium text-warroom-accent mb-1 line-clamp-1">🪝 {post.hook}</p>
-                            )}
-                            <p className="text-xs text-warroom-text line-clamp-2 mb-2">{post.caption_preview}</p>
-                            <div className="flex items-center gap-3 text-[11px] text-warroom-muted">
-                              <span className="flex items-center gap-1"><Heart size={10} className="text-pink-400" /> {formatNum(post.likes)}</span>
-                              <span className="flex items-center gap-1"><MessageCircle size={10} className="text-blue-400" /> {formatNum(post.comments)}</span>
-                              {post.views > 0 && <span className="flex items-center gap-1"><Play size={10} className="text-purple-400" /> {formatNum(post.views)}</span>}
+                            <p className="text-sm text-warroom-text font-medium line-clamp-2 mb-2">{vid.title || "Untitled"}</p>
+                            <div className="flex items-center gap-3 text-xs text-warroom-muted">
+                              <span className="flex items-center gap-1"><Heart size={10} className="text-pink-400" /> {formatNum(vid.likes)}</span>
+                              <span className="flex items-center gap-1"><MessageCircle size={10} className="text-blue-400" /> {formatNum(vid.comments)}</span>
+                              <span className="text-warroom-accent">Score: {vid.engagement_score.toFixed(0)}</span>
                             </div>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
-                </>
+                </div>
               )}
             </div>
           )}
