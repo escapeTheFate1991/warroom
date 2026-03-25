@@ -129,8 +129,7 @@ services:
   ml-pipeline:
     build: ./services/ml-pipeline
     container_name: warroom-ml-pipeline
-    ports:
-      - "18798:18798"
+    network_mode: host
     environment:
       FASTEMBED_URL: http://10.0.0.11:11435/api/embed
       TAXONOMY_PATH: /app/taxonomy.json

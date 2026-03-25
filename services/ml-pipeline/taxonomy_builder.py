@@ -41,37 +41,38 @@ PRAISE_PATTERNS = [r'\blove\b', r'\bamazing\b', r'\bawesome\b', r'\bthank\b', r'
 PRODUCT_PATTERNS = [r'[A-Z][a-z]+(?:\s+[A-Z][a-z]*){0,2}', r'@\w+']
 
 
-async def get_fastembed_embeddings(texts: List[str], fastembed_url: str) -> np.ndarray:
-    """Get embeddings from FastEmbed server.
+async def get_fastembed_embeddings(texts: List[str], fastembed_url: str, batch_size: int = 64) -> np.ndarray:
+    """Get embeddings from FastEmbed server in batches.
     
     Args:
         texts: List of text strings to embed
         fastembed_url: FastEmbed server endpoint URL
+        batch_size: Number of texts per API call (prevents timeouts)
         
     Returns:
         numpy array of shape (n_texts, 768)
-        
-    Raises:
-        Exception if FastEmbed request fails
     """
     if not texts:
         return np.array([])
     
+    all_embeddings = []
     async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            fastembed_url,
-            json={"input": texts},
-            headers={"Content-Type": "application/json"}
-        )
-        response.raise_for_status()
-        
-        data = response.json()
-        embeddings = data.get("embeddings", [])
-        
-        if len(embeddings) != len(texts):
-            raise ValueError(f"Expected {len(texts)} embeddings, got {len(embeddings)}")
-        
-        return np.array(embeddings, dtype=np.float32)
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            logger.info(f"Embedding batch {i//batch_size + 1}/{(len(texts)-1)//batch_size + 1} ({len(batch)} texts)")
+            response = await client.post(
+                fastembed_url,
+                json={"input": batch},
+                headers={"Content-Type": "application/json"}
+            )
+            response.raise_for_status()
+            data = response.json()
+            embeddings = data.get("embeddings", [])
+            if len(embeddings) != len(batch):
+                raise ValueError(f"Expected {len(batch)} embeddings, got {len(embeddings)}")
+            all_embeddings.extend(embeddings)
+    
+    return np.array(all_embeddings, dtype=np.float32)
 
 
 def find_representative_texts(texts: List[str], embeddings: np.ndarray, centroid: np.ndarray, top_k: int = 3) -> List[str]:
