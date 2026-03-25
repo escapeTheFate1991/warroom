@@ -6,6 +6,7 @@ import {
   User, Play, Eye, Clock, ChevronRight, FileText, Wand2,
   CheckCircle, AlertCircle, RefreshCw, X, Camera, Link, Mic,
   ExternalLink, Zap, TrendingUp, Save, Settings, BarChart, Grid3X3,
+  Copy,
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import { getStoredUser } from "@/lib/auth";
@@ -278,6 +279,12 @@ export default function AIStudioPanel() {
   const [pipelineId, setPipelineId] = useState<number | null>(null);
   const [pipelineStatus, setPipelineStatus] = useState<any>(null);
   const [selectedReferencePostId, setSelectedReferencePostId] = useState<number | null>(null);
+  
+  // Clone video modal state
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
+  const [cloneVideoData, setCloneVideoData] = useState<any>(null);
+  const [cloneCustomTopic, setCloneCustomTopic] = useState("");
+  const [cloningInProgress, setCloningInProgress] = useState(false);
   
   // API key notification
   const [apiKeyWarning, setApiKeyWarning] = useState<string | null>(null);
@@ -723,6 +730,100 @@ export default function AIStudioPanel() {
     setShowHookLibrary(false);
   };
 
+  // Clone video functions
+  const openCloneModal = (blueprintData: any) => {
+    setCloneVideoData(blueprintData);
+    setCloneCustomTopic(brandTopic); // Pre-fill with current brand topic
+    setCloneModalOpen(true);
+  };
+
+  const closeCloneModal = () => {
+    setCloneModalOpen(false);
+    setCloneVideoData(null);
+    setCloneCustomTopic("");
+    setCloningInProgress(false);
+  };
+
+  const executeCloneVideo = async () => {
+    if (!cloneVideoData || cloningInProgress) return;
+    
+    setCloningInProgress(true);
+    setGenerationResult(null);
+    
+    try {
+      // Step 1: Auto-fill the blueprint
+      const autoFillResponse = await authFetch(`${API}/api/ai-studio/ugc/blueprints/${cloneVideoData.post_id}/auto-fill`, {
+        method: "POST",
+        body: JSON.stringify({ 
+          brand_topic: cloneCustomTopic || brandTopic,
+          digital_copy_id: wizardCopyId 
+        }),
+      });
+
+      if (!autoFillResponse.ok) {
+        const error = await autoFillResponse.json().catch(() => ({}));
+        throw new Error(error.detail || error.error || "Auto-fill failed");
+      }
+
+      const autoFillData = await autoFillResponse.json();
+      
+      // Update the main form with auto-filled data
+      setAutoFilledData(autoFillData);
+      setWizardScript(autoFillData.script || "");
+      if (autoFillData.storyboard) setWizardStoryboard(autoFillData.storyboard);
+      setSelectedBlueprint(cloneVideoData);
+      
+      // Step 2: Start the pipeline
+      const pipelinePayload = {
+        reference_post_id: cloneVideoData.post_id,
+        digital_copy_id: wizardCopyId,
+        editing_dna_id: selectedEditingDna?.id,
+        brand_context: {
+          brand_name: brandName || cloneCustomTopic || "My Brand",
+          product_name: cloneCustomTopic || "Cloned Video",
+          script: autoFillData.script || ""
+        }
+      };
+
+      const pipelineResponse = await authFetch(`${API}/api/ai-studio/ugc/pipeline/start`, {
+        method: "POST",
+        body: JSON.stringify(pipelinePayload),
+      });
+
+      if (pipelineResponse.ok) {
+        const pipelineData = await pipelineResponse.json();
+        setPipelineId(pipelineData.pipeline_id);
+        setGenerationResult({ 
+          ok: true, 
+          generation_id: pipelineData.pipeline_id?.toString(),
+          prompt_used: "Video clone pipeline started"
+        });
+        setPollStatus("processing");
+        fetchProjects();
+        closeCloneModal();
+      } else if (pipelineResponse.status === 500) {
+        const errorData = await pipelineResponse.json().catch(() => ({}));
+        if (errorData.error && errorData.error.toLowerCase().includes("api key")) {
+          setApiKeyWarning("Google AI Studio API key needs billing. Go to Settings to update.");
+          setTimeout(() => setApiKeyWarning(null), 10000);
+        }
+        throw new Error(errorData.error || "Pipeline failed to start");
+      } else {
+        const errorData = await pipelineResponse.json().catch(() => ({}));
+        throw new Error(errorData.detail || errorData.error || "Pipeline failed to start");
+      }
+    } catch (e: any) {
+      if (e.message && e.message.toLowerCase().includes("api key")) {
+        setApiKeyWarning("Google AI Studio API key needs billing. Go to Settings to update.");
+        setTimeout(() => setApiKeyWarning(null), 10000);
+      }
+      setGenerationResult({ ok: false, error: e.message });
+      closeCloneModal();
+    } finally { 
+      setCloningInProgress(false); 
+    }
+  };
+
   const schedulePost = async (videoUrl: string) => {
     setScheduling(true);
     setScheduleSuccess(false);
@@ -783,6 +884,12 @@ export default function AIStudioPanel() {
     setSelectedBlueprint(null);
     setAutoFilledData(null);
     setBrandTopic("");
+    
+    // Clear clone modal state
+    setCloneModalOpen(false);
+    setCloneVideoData(null);
+    setCloneCustomTopic("");
+    setCloningInProgress(false);
   };
 
   const fetchFormatSceneStructure = async (formatSlug: string) => {
@@ -940,6 +1047,107 @@ export default function AIStudioPanel() {
           console.log("Selected DNA template:", dna.name);
         }}
       />
+
+      {/* Clone Video Modal */}
+      {cloneModalOpen && cloneVideoData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-warroom-surface border border-warroom-border rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-warroom-border">
+              <div className="flex items-center gap-3">
+                <Copy size={16} className="text-emerald-400" />
+                <div>
+                  <h2 className="text-sm font-semibold text-warroom-text">Clone This Video</h2>
+                  <p className="text-xs text-warroom-muted">@{cloneVideoData.handle} · {cloneVideoData.format?.replace(/_/g, " ")}</p>
+                </div>
+              </div>
+              <button 
+                onClick={closeCloneModal}
+                className="p-1 rounded-lg hover:bg-warroom-border/50 text-warroom-muted"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 space-y-4 overflow-y-auto max-h-[60vh]">
+              {/* Preview */}
+              <div className="bg-warroom-bg rounded-lg p-3">
+                <h3 className="text-xs font-semibold text-warroom-text mb-2">Original Script & Structure</h3>
+                <div className="text-xs text-warroom-muted space-y-2">
+                  {cloneVideoData.script && (
+                    <div>
+                      <strong>Script:</strong>
+                      <p className="mt-1 whitespace-pre-wrap">{cloneVideoData.script}</p>
+                    </div>
+                  )}
+                  {cloneVideoData.storyboard && cloneVideoData.storyboard.length > 0 && (
+                    <div>
+                      <strong>Structure:</strong>
+                      <div className="mt-1 space-y-1">
+                        {cloneVideoData.storyboard.slice(0, 3).map((scene: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 text-[11px]">
+                            <span className="w-4 h-4 rounded-full bg-warroom-accent/20 text-warroom-accent flex items-center justify-center text-[9px] font-bold">{i + 1}</span>
+                            <span className="text-warroom-muted">{scene.label || `Scene ${i + 1}`}</span>
+                          </div>
+                        ))}
+                        {cloneVideoData.storyboard.length > 3 && (
+                          <span className="text-[11px] text-warroom-muted">... +{cloneVideoData.storyboard.length - 3} more scenes</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <div className="text-[11px] text-warroom-muted pt-1 border-t border-warroom-border">
+                    Duration: {cloneVideoData.total_duration ? Math.round(cloneVideoData.total_duration) : "Unknown"}s · 
+                    Engagement: {cloneVideoData.engagement_score?.toLocaleString() || 0}
+                  </div>
+                </div>
+              </div>
+
+              {/* Custom Topic Input */}
+              <div>
+                <label className="text-xs font-semibold text-warroom-text block mb-2">
+                  Your Topic <span className="text-warroom-muted font-normal">(optional - rewrites script for your brand)</span>
+                </label>
+                <input
+                  value={cloneCustomTopic}
+                  onChange={(e) => setCloneCustomTopic(e.target.value)}
+                  placeholder="e.g. AI website management, productivity apps, etc."
+                  className="w-full bg-warroom-bg border border-warroom-border rounded-lg px-3 py-2 text-sm text-warroom-text focus:outline-none focus:border-warroom-accent"
+                />
+              </div>
+
+              {/* Avatar Selection Warning */}
+              {!wizardCopyId && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={14} className="text-yellow-400 flex-shrink-0" />
+                    <p className="text-xs text-yellow-300">Select an avatar (Digital Copy) in the production bar above to generate video.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between p-4 border-t border-warroom-border">
+              <button
+                onClick={closeCloneModal}
+                className="px-4 py-2 bg-warroom-bg border border-warroom-border text-warroom-text text-xs rounded-lg hover:bg-warroom-border/50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeCloneVideo}
+                disabled={cloningInProgress || !wizardCopyId}
+                className="px-4 py-2 bg-emerald-500 text-white text-xs font-medium rounded-lg disabled:opacity-40 hover:bg-emerald-600 transition flex items-center gap-1.5"
+              >
+                {cloningInProgress ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                {cloningInProgress ? "Generating Video..." : "Generate Video"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1202,6 +1410,31 @@ export default function AIStudioPanel() {
                       className="absolute top-2 right-2 p-1.5 bg-black/50 rounded-lg text-white/70 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity z-10">
                       <ExternalLink size={12} />
                     </a>
+                  )}
+
+                  {/* Clone This Video button */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openCloneModal(bp); }}
+                    className="absolute bottom-2 right-2 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 rounded-lg px-3 py-1.5 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 z-10"
+                  >
+                    <Copy size={12} />
+                    Clone This Video
+                  </button>
+
+                  {/* Pipeline status indicator */}
+                  {pipelineId && selectedBlueprint?.post_id === bp.post_id && pipelineStatus && (
+                    <div className="absolute bottom-2 left-2 bg-black/80 rounded-lg px-2 py-1 opacity-90">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Loader2 size={10} className="animate-spin text-emerald-400" />
+                        <span className="text-[9px] text-white font-medium">{pipelineStatus.current_step || "Processing"}</span>
+                      </div>
+                      <div className="w-16 bg-gray-600 rounded-full h-1">
+                        <div 
+                          className="bg-emerald-400 h-1 rounded-full transition-all" 
+                          style={{ width: `${(pipelineStatus.progress || 0) * 100}%` }} 
+                        />
+                      </div>
+                    </div>
                   )}
 
                   {/* Selection checkmark */}

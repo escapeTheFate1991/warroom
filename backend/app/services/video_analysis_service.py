@@ -33,7 +33,7 @@ class VideoAnalysisService:
     """Service for analyzing competitor videos frame-by-frame"""
     
     def __init__(self):
-        self.mcp_server_path = "/home/eddy/Development/warroom/node_modules/@dymoo/media-understanding/dist/mcp.js"
+        self.mcp_server_path = "/app/node_modules/@dymoo/media-understanding/dist/mcp.js"
         self.chunk_duration = 8.0  # VEO optimal duration
     
     async def analyze_competitor_video(
