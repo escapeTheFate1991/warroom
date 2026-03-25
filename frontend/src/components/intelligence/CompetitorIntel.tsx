@@ -959,7 +959,7 @@ function VideoTopicCard({ suggestion }: { suggestion: VideoTopicSuggestion }) {
 
 export default function CompetitorIntel() {
   // OAuth integration for Profile Intel
-  const { connected, isConnected, connect } = useSocialAccounts();
+  const { connected, isConnected, connect, loading: socialAccountsLoading, error: socialAccountsError } = useSocialAccounts();
   
   const [activeTab, setActiveTab] = useState<"competitors" | "top-content" | "hooks" | "scripts" | "profile-intel" | "video-analytics">("competitors");
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
@@ -1013,6 +1013,7 @@ export default function CompetitorIntel() {
   const [loadingFocusedTopVideos, setLoadingFocusedTopVideos] = useState(false);
   const [loadingAggregateTopVideos, setLoadingAggregateTopVideos] = useState(false);
   const [loadingInstagramAdvice, setLoadingInstagramAdvice] = useState(false);
+  const [connectingInstagram, setConnectingInstagram] = useState(false);
   const [hashtags, setHashtags] = useState<HashtagItem[]>([]);
   const [loadingHashtags, setLoadingHashtags] = useState(false);
   const [contentTimeframeDays, setContentTimeframeDays] = useState<number>(30);
@@ -1239,7 +1240,7 @@ export default function CompetitorIntel() {
     const nextCompetitors = await fetchCompetitors();
     await Promise.all([
       fetchGlobalAudienceIntel(),
-      fetchInstagramAdvice(),
+      // fetchInstagramAdvice() is now handled by OAuth useEffect
       fetchAggregateTopVideos(),
       fetchTopContent(),
       fetchHooks(),
@@ -1415,10 +1416,11 @@ export default function CompetitorIntel() {
 
   // Monitor OAuth connection status for Profile Intel
   useEffect(() => {
-    if (activeTab === "profile-intel" && isConnected('instagram')) {
+    if (activeTab === "profile-intel" && !socialAccountsLoading) {
+      // Always fetch advice - backend will provide competitor-based insights if no OAuth
       fetchInstagramAdvice();
     }
-  }, [connected, activeTab]);
+  }, [connected, activeTab, socialAccountsLoading]);
 
   // Add competitor
   const addCompetitor = async () => {
@@ -3262,17 +3264,92 @@ export default function CompetitorIntel() {
                   <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
                   <p className="text-sm text-warroom-muted">Analyzing your profile…</p>
                 </div>
-              ) : !isConnected('instagram') ? (
+              ) : socialAccountsError ? (
+                <div className="text-center py-16 text-warroom-muted">
+                  <User size={48} className="mx-auto mb-4 opacity-20 text-red-400" />
+                  <p className="text-sm font-medium text-red-400">Connection Error</p>
+                  <p className="text-xs mt-1 text-warroom-muted">{socialAccountsError}</p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="mt-4 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Reload Page
+                  </button>
+                </div>
+              ) : !isConnected('instagram') && (!instagramAdvice || instagramAdvice.status === "not_connected") ? (
                 <div className="text-center py-16 text-warroom-muted">
                   <User size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="text-sm font-medium">Connect your Instagram account</p>
-                  <p className="text-xs mt-1">Once connected and synced, War Room will analyze your profile and give you actionable advice.</p>
+                  <p className="text-sm font-medium">Enhanced Profile Intelligence Available</p>
+                  <p className="text-xs mt-1">Connect your Instagram for personalized profile optimization advice and analytics.</p>
                   <button
-                    onClick={() => connect('instagram')}
-                    className="mt-4 px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-lg text-sm font-medium transition-colors"
+                    onClick={async () => {
+                      setConnectingInstagram(true);
+                      try {
+                        await connect('instagram');
+                      } catch (error) {
+                        console.error('Failed to connect Instagram:', error);
+                      } finally {
+                        setConnectingInstagram(false);
+                      }
+                    }}
+                    disabled={connectingInstagram}
+                    className="mt-4 px-4 py-2 bg-pink-500 hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 mx-auto"
                   >
-                    Connect Instagram
+                    {connectingInstagram && <Loader2 size={16} className="animate-spin" />}
+                    {connectingInstagram ? 'Connecting...' : 'Connect Instagram'}
                   </button>
+                  
+                  {/* Show competitor-based intelligence even without OAuth */}
+                  <div className="mt-8 pt-8 border-t border-warroom-border">
+                    <div className="text-left">
+                      <h3 className="text-sm font-semibold text-warroom-text mb-4">
+                        <Target size={16} className="inline mr-2" />
+                        Intelligence from Competitor Analysis
+                      </h3>
+                      {globalAudienceIntel && (
+                        <div className="bg-warroom-surface border border-warroom-border rounded-xl p-5">
+                          <p className="text-xs text-warroom-muted mb-3">Based on {globalAudienceIntel.posts_analyzed} competitor posts and {globalAudienceIntel.comments_analyzed.toLocaleString()} audience comments</p>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {globalAudienceIntel.video_topic_suggestions?.length > 0 && (
+                              <div>
+                                <p className="text-xs font-medium text-warroom-text mb-2">🎬 Trending Video Topics</p>
+                                <div className="space-y-2">
+                                  {globalAudienceIntel.video_topic_suggestions.slice(0, 3).map((suggestion: VideoTopicSuggestion, i: number) => (
+                                    <div key={i} className="bg-warroom-bg border border-warroom-border rounded-lg p-3">
+                                      <p className="text-xs font-medium text-warroom-text mb-1">{suggestion.topic}</p>
+                                      <p className="text-[10px] text-warroom-muted line-clamp-2">{suggestion.reasoning}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {globalAudienceIntel.content_gaps?.length > 0 && (
+                              <div>
+                                <p className="text-xs font-medium text-warroom-text mb-2">📊 Content Opportunities</p>
+                                <div className="space-y-2">
+                                  {globalAudienceIntel.content_gaps.slice(0, 3).map((gap: ContentGap, i: number) => (
+                                    <div key={i} className="bg-warroom-bg border border-warroom-border rounded-lg p-3">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <p className="text-xs font-medium text-warroom-text flex-1">{gap.topic}</p>
+                                        <span className="bg-orange-400/20 text-orange-400 rounded-full px-1.5 py-0.5 text-[9px] font-medium">
+                                          {gap.opportunity_score}
+                                        </span>
+                                      </div>
+                                      <p className="text-[10px] text-warroom-muted">
+                                        {gap.unanswered_questions.length} unanswered questions
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -3402,10 +3479,16 @@ export default function CompetitorIntel() {
                             </div>
                           </div>
                         );
-                      }) : (
+                      }) : instagramAdvice?.status === "competitor_insights" ? (
+                        <div className="text-center py-10 text-warroom-muted">
+                          <Target size={32} className="mx-auto mb-3 opacity-20" />
+                          <p className="text-sm">Intelligence based on competitor analysis</p>
+                          <p className="text-xs mt-1">Connect Instagram for personalized recommendations</p>
+                        </div>
+                      ) : (
                         <div className="text-center py-10 text-warroom-muted">
                           <Sparkles size={32} className="mx-auto mb-3 opacity-20" />
-                          <p className="text-sm">Sync your Instagram data to unlock profile intelligence</p>
+                          <p className="text-sm">Loading intelligence...</p>
                         </div>
                       )}
                     </div>
@@ -3438,6 +3521,84 @@ export default function CompetitorIntel() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Competitor Intelligence Integration */}
+                  {globalAudienceIntel && (
+                    <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Target size={18} className="text-warroom-accent" />
+                        <h3 className="text-sm font-semibold">Market Intelligence</h3>
+                        <span className="text-xs text-warroom-muted bg-warroom-bg px-2 py-1 rounded-lg ml-auto">
+                          {globalAudienceIntel.posts_analyzed} competitor posts analyzed
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Video Topic Opportunities */}
+                        {globalAudienceIntel.video_topic_suggestions?.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-warroom-text mb-3 flex items-center gap-1">
+                              <Film size={12} className="text-purple-400" />
+                              High-Opportunity Video Topics
+                            </h4>
+                            <div className="space-y-2">
+                              {globalAudienceIntel.video_topic_suggestions.slice(0, 4).map((suggestion: VideoTopicSuggestion, i: number) => (
+                                <div key={i} className="bg-warroom-bg border border-warroom-border rounded-lg p-3">
+                                  <p className="text-xs font-medium text-warroom-text mb-1">{suggestion.topic}</p>
+                                  <p className="text-[10px] text-warroom-muted leading-relaxed line-clamp-2">{suggestion.reasoning}</p>
+                                  <p className="text-[9px] text-purple-400 mt-1">
+                                    Based on {suggestion.source_questions.length} audience questions
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Content Gaps */}
+                        {globalAudienceIntel.content_gaps?.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-warroom-text mb-3 flex items-center gap-1">
+                              <Sparkles size={12} className="text-orange-400" />
+                              Underserved Content Areas
+                            </h4>
+                            <div className="space-y-2">
+                              {globalAudienceIntel.content_gaps.slice(0, 4).map((gap: ContentGap, i: number) => (
+                                <div key={i} className="bg-warroom-bg border border-warroom-border rounded-lg p-3">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <p className="text-xs font-medium text-warroom-text flex-1">{gap.topic}</p>
+                                    <span className="bg-orange-400/20 text-orange-400 rounded-full px-1.5 py-0.5 text-[9px] font-medium">
+                                      {gap.opportunity_score}/100
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-warroom-muted">
+                                    {gap.unanswered_questions.length} unanswered questions from competitor audiences
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Top Trending Themes */}
+                        {globalAudienceIntel.themes?.length > 0 && (
+                          <div className="md:col-span-2">
+                            <h4 className="text-xs font-semibold text-warroom-text mb-3 flex items-center gap-1">
+                              <Hash size={12} className="text-cyan-400" />
+                              Trending Discussion Themes
+                            </h4>
+                            <div className="flex flex-wrap gap-2">
+                              {globalAudienceIntel.themes.slice(0, 12).map((theme, i) => (
+                                <span key={i} className="px-2.5 py-1 bg-cyan-400/10 text-cyan-400 text-xs rounded-full font-medium">
+                                  {theme.theme} ({theme.count})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

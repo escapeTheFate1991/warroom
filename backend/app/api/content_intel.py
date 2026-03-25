@@ -3521,7 +3521,7 @@ async def get_instagram_account_advice(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ):
-    """Review only the authenticated user's connected Instagram account."""
+    """Review the authenticated user's connected Instagram account, with competitor-based fallback."""
     org_id = get_org_id(request)
     try:
         account_result = await db.execute(
@@ -3539,16 +3539,42 @@ async def get_instagram_account_advice(
         account_row = account_result.mappings().first()
 
         if not account_row:
-            return InstagramProfileAdviceResponse(
-                connected=False,
-                status="not_connected",
-                summary="Connect your Instagram account to get profile-specific advice for your own profile.",
-                recommendations=[
+            # Fallback: provide insights based on competitor analysis
+            audience_intel = await get_audience_intelligence(request, days=30, db=db)
+            competitor_insights = []
+            
+            if audience_intel.video_topic_suggestions:
+                competitor_insights.extend([
+                    InstagramAdviceItem(
+                        title="Trending Topic Opportunities",
+                        detail=f"Based on competitor analysis, these topics are performing well: {', '.join([s.topic for s in audience_intel.video_topic_suggestions[:3]])}. Consider creating content around these themes.",
+                        category="content"
+                    )
+                ])
+            
+            if audience_intel.content_gaps:
+                competitor_insights.extend([
+                    InstagramAdviceItem(
+                        title="Content Gap Analysis",
+                        detail=f"Your competitors' audiences are asking about {audience_intel.content_gaps[0].topic} with {audience_intel.content_gaps[0].opportunity_score}/100 opportunity score. Create content addressing these gaps.",
+                        category="content"
+                    )
+                ])
+            
+            if not competitor_insights:
+                competitor_insights = [
                     InstagramAdviceItem(
                         title="Connect your Instagram account",
-                        detail="Once your account is connected and synced, War Room will review only your Instagram profile instead of competitor accounts.",
+                        detail="For personalized profile advice based on your own analytics and performance data.",
+                        category="profile"
                     )
-                ],
+                ]
+            
+            return InstagramProfileAdviceResponse(
+                connected=False,
+                status="competitor_insights",
+                summary=f"Profile Intelligence based on {audience_intel.posts_analyzed} competitor posts and {audience_intel.comments_analyzed:,} audience interactions.",
+                recommendations=competitor_insights,
             )
 
         analytics_result = await db.execute(
