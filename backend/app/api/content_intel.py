@@ -11,10 +11,10 @@ from collections import Counter, defaultdict
 import string
 import re
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text, func
+from sqlalchemy import select, text, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -30,6 +30,7 @@ from app.api.scraper import (
     sync_instagram_competitor_batch,
     calculate_competitor_engagement_score,
 )
+from app.services.competitor_benchmarks import competitor_benchmarks_service
 # Removed direct scraper imports - now using HTTP calls to scraper service
 # _get_business_settings moved here from contracts.py to avoid cross-dependency
 from app.db.leadgen_db import leadgen_session
@@ -5773,7 +5774,8 @@ async def get_profile_intel(
     Combines OAuth analytics, scraped profile data, video analysis, grading, and recommendations
     into a single comprehensive view of profile performance.
     
-    If profile_id is not provided, uses the user's connected Instagram account.
+    If profile_id is not provided, tries to use the user's connected Instagram account.
+    If no OAuth connection exists, returns clean response indicating "Connect Instagram to get started".
     """
     org_id = get_org_id(request)
     user_id = get_user_id(request)
@@ -5797,22 +5799,76 @@ async def get_profile_intel(
             account = account_result.scalar_one_or_none()
             
             if not account:
-                raise HTTPException(
-                    status_code=404, 
-                    detail=f"No connected {platform} account found. Connect an account first."
+                # Return clean "no connection" response instead of 404 error
+                return ProfileIntelDataResponse(
+                    profile_id="",
+                    platform=platform,
+                    last_synced_at=None,
+                    oauth_data={},
+                    scraped_data={},
+                    processed_videos=[],
+                    grades={
+                        "profileOptimization": {"score": 0, "details": "Connect Instagram to analyze profile optimization"},
+                        "videoMessaging": {"score": 0, "details": "Connect Instagram to analyze video messaging"}, 
+                        "storyboarding": {"score": 0, "details": "Connect Instagram to analyze storyboarding"},
+                        "audienceEngagement": {"score": 0, "details": "Connect Instagram to analyze audience engagement"},
+                        "contentConsistency": {"score": 0, "details": "Connect Instagram to analyze content consistency"},
+                        "replyQuality": {"score": 0, "details": "Connect Instagram to analyze reply quality"}
+                    },
+                    recommendations={
+                        "keepDoing": [],
+                        "stopDoing": [],
+                        "profileChanges": [],
+                        "contentRecommendations": [],
+                        "videosToRemove": [],
+                        "nextSteps": [
+                            {
+                                "action": "Connect your Instagram account via OAuth",
+                                "expectedImpact": "Unlock full profile intelligence analysis",
+                                "priority": "high"
+                            }
+                        ]
+                    }
                 )
             
             profile_id = account.username
             
             if not profile_id:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Connected account has no username set"
+                # Connected account has no username
+                return ProfileIntelDataResponse(
+                    profile_id="",
+                    platform=platform,
+                    last_synced_at=None,
+                    oauth_data={},
+                    scraped_data={},
+                    processed_videos=[],
+                    grades={
+                        "profileOptimization": {"score": 0, "details": "Connected account missing username"},
+                        "videoMessaging": {"score": 0, "details": "Connected account missing username"}, 
+                        "storyboarding": {"score": 0, "details": "Connected account missing username"},
+                        "audienceEngagement": {"score": 0, "details": "Connected account missing username"},
+                        "contentConsistency": {"score": 0, "details": "Connected account missing username"},
+                        "replyQuality": {"score": 0, "details": "Connected account missing username"}
+                    },
+                    recommendations={
+                        "keepDoing": [],
+                        "stopDoing": [],
+                        "profileChanges": [],
+                        "contentRecommendations": [],
+                        "videosToRemove": [],
+                        "nextSteps": [
+                            {
+                                "action": "Update your connected Instagram account with username",
+                                "expectedImpact": "Enable profile intelligence analysis",
+                                "priority": "high"
+                            }
+                        ]
+                    }
                 )
         
         # Get or create profile intel
         result = await profile_intel_service.get_or_create_profile_intel(
-            db, org_id, profile_id, platform, force_refresh
+            db, org_id, profile_id, platform, force_refresh, user_id
         )
         
         return ProfileIntelDataResponse(
@@ -5834,6 +5890,7 @@ async def get_profile_intel(
     except Exception as e:
         logger.error(f"Profile intel retrieval failed for {profile_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Profile intel retrieval failed: {str(e)}")
+
 
 
 @router.post("/profile-intel/sync")
@@ -5884,7 +5941,7 @@ async def sync_profile_intel(
         
         # Force refresh profile intel
         result = await profile_intel_service.get_or_create_profile_intel(
-            db, org_id, profile_id, platform, force_refresh=True
+            db, org_id, profile_id, platform, force_refresh=True, user_id=user_id
         )
         
         return {
@@ -5902,3 +5959,353 @@ async def sync_profile_intel(
     except Exception as e:
         logger.error(f"Profile intel sync failed for {profile_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Profile intel sync failed: {str(e)}")
+
+
+@router.post("/profile-intel/analyze-videos")
+async def analyze_user_videos(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    platform: str = "instagram",
+    force_reanalysis: bool = False,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Analyze user's own videos through the full pipeline.
+    
+    WAVE 2, AGENT 2A: Auto-detect OAuth Account + Video Analysis Pipeline
+    
+    This endpoint:
+    1. Auto-detects user's OAuth-connected Instagram handle from crm.social_accounts
+    2. Scrapes user's last 5 video post URLs using existing scraper infrastructure  
+    3. Downloads each video via yt-dlp
+    4. Runs each through media-understanding service (localhost:18796) for frame-by-frame analysis
+    5. Gets transcript with timestamps (/transcript), frame grids (/frames)
+    6. Extracts per-video: hook strength, pacing, structure score, CTA effectiveness, visual quality
+    7. Stores results so profile_intel_service.py can consume them
+    8. Each video gets: title, grade (A-F), hook analysis, pacing analysis, strengths list, weaknesses list
+    9. Wires into profile_intel_service.py for Video Messaging + Storyboarding grades
+    
+    Returns immediately with task ID, processing happens in background.
+    """
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    try:
+        # Import here to avoid circular import
+        from app.services.user_video_analysis_service import user_video_analysis_service
+        
+        # Start video analysis in background
+        task_id = f"video_analysis_{org_id}_{user_id}_{int(datetime.now().timestamp())}"
+        
+        async def run_analysis():
+            try:
+                logger.info(f"Starting background video analysis for user_id={user_id}, org_id={org_id}")
+                
+                result = await user_video_analysis_service.analyze_user_videos(
+                    db, org_id, user_id, platform, force_reanalysis
+                )
+                
+                if result["success"]:
+                    logger.info(f"Video analysis completed: {result['videos_analyzed']} videos analyzed for {result.get('username', 'unknown')}")
+                else:
+                    logger.error(f"Video analysis failed: {result.get('error', 'Unknown error')}")
+                
+            except Exception as e:
+                logger.error(f"Background video analysis failed: {e}")
+        
+        # Add to background tasks
+        background_tasks.add_task(run_analysis)
+        
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": "processing",
+            "message": "Video analysis started in background. Results will be available in Profile Intel.",
+            "estimated_completion": "2-5 minutes",
+            "org_id": org_id,
+            "user_id": user_id,
+            "platform": platform
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to start video analysis for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to start video analysis: {str(e)}"
+        )
+
+
+@router.get("/profile-intel/audience-intelligence", summary="Get user's own audience intelligence")
+async def get_profile_intel_audience_intelligence(
+    request: Request,
+    days_back: int = 30,
+    force_refresh: bool = False,
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    GET /api/content-intel/profile-intel/audience-intelligence
+    
+    Extracts audience intelligence from USER'S OWN comments and DMs.
+    Uses same extraction pipeline as competitor audience intelligence.
+    
+    Returns:
+    - objections: What USER'S audience resists or questions  
+    - desires: What USER'S audience wants (with verbatim language)
+    - questions: Unanswered questions from USER'S audience (content ideas)
+    - emotional_triggers: What makes USER'S audience share/save/comment
+    - competitor_gaps: What USER'S audience wants that competitors don't address
+    - sentiment_trends: Comment sentiment over specified time period
+    - content_opportunities: Most requested topics from audience
+    """
+    org_id = get_org_id(request)
+    user_id = get_user_id(request)
+    
+    try:
+        from app.services.user_audience_intelligence import user_audience_intelligence_service
+        
+        logger.info(f"Extracting audience intelligence for user {user_id}, last {days_back} days")
+        
+        # Get user's audience intelligence
+        intelligence = await user_audience_intelligence_service.get_user_audience_intelligence(
+            db=db,
+            org_id=org_id,
+            user_id=user_id,
+            platform="instagram",
+            days_back=days_back
+        )
+        
+        # Handle error cases
+        if "error" in intelligence:
+            if intelligence.get("connect_required"):
+                return {
+                    "success": False,
+                    "error": intelligence["error"],
+                    "action_required": "Connect Instagram account via OAuth to analyze your audience",
+                    "total_comments_analyzed": 0
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": intelligence["error"],
+                    "suggestion": intelligence.get("suggestion", ""),
+                    "total_comments_analyzed": 0
+                }
+        
+        # Return successful analysis
+        return {
+            "success": True,
+            "account_username": intelligence.get("account_username", ""),
+            "extraction_period_days": days_back,
+            "total_comments_analyzed": intelligence.get("total_comments_analyzed", 0),
+            "analysis_timestamp": intelligence.get("analysis_timestamp", ""),
+            "audience_intelligence": {
+                "objections": intelligence.get("objections", []),
+                "desires": intelligence.get("desires", []),
+                "questions": intelligence.get("questions", []),
+                "emotional_triggers": intelligence.get("emotional_triggers", []),
+                "competitor_gaps": intelligence.get("competitor_gaps", [])
+            },
+            "user_specific_insights": {
+                "sentiment_trends": intelligence.get("sentiment_trends", {}),
+                "content_opportunities": intelligence.get("content_opportunities", []),
+                "engagement_patterns": intelligence.get("engagement_patterns", {}),
+                "question_categories": intelligence.get("question_categories", {}),
+                "commenter_patterns": intelligence.get("commenter_patterns", {})
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get profile intel audience intelligence: {e}")
+        return {
+            "success": False,
+            "error": f"Failed to extract audience intelligence: {str(e)}",
+            "total_comments_analyzed": 0
+        }
+
+
+@router.get("/profile-intel/audience-intelligence/demo", summary="Demo user audience intelligence with sample data")
+async def demo_user_audience_intelligence():
+    """
+    Demo endpoint showing user audience intelligence extraction with sample data.
+    Demonstrates the extraction pipeline without requiring OAuth/database setup.
+    """
+    try:
+        from app.services.user_audience_intelligence import UserAudienceIntelligenceService
+        from app.services.audience_intelligence import analyze_audience_intelligence
+        from datetime import datetime, timedelta
+        
+        # Sample user comments (simulating user's Instagram post comments)
+        sample_comments = [
+            {
+                "id": "1",
+                "text": "How do you create content so consistently? I struggle with ideas!",
+                "username": "content_creator_22",
+                "timestamp": (datetime.utcnow() - timedelta(days=2)).isoformat(),
+                "likes": 5,
+                "replies": 0
+            },
+            {
+                "id": "2", 
+                "text": "I want to learn your editing style! Can you make a tutorial?",
+                "username": "video_editor_pro",
+                "timestamp": (datetime.utcnow() - timedelta(days=5)).isoformat(),
+                "likes": 12,
+                "replies": 1
+            },
+            {
+                "id": "3",
+                "text": "This is amazing but I can't afford the software you use 😭",
+                "username": "student_creator",
+                "timestamp": (datetime.utcnow() - timedelta(days=7)).isoformat(),
+                "likes": 8,
+                "replies": 0
+            },
+            {
+                "id": "4",
+                "text": "Saving this for later! So much value in your posts",
+                "username": "marketing_sarah", 
+                "timestamp": (datetime.utcnow() - timedelta(days=10)).isoformat(),
+                "likes": 15,
+                "replies": 0
+            },
+            {
+                "id": "5",
+                "text": "I disagree with this approach. What about those of us who don't have time?",
+                "username": "busy_entrepreneur",
+                "timestamp": (datetime.utcnow() - timedelta(days=12)).isoformat(),
+                "likes": 3,
+                "replies": 2
+            },
+            {
+                "id": "6",
+                "text": "Tag someone who needs to see this! @friend_handle",
+                "username": "social_enthusiast",
+                "timestamp": (datetime.utcnow() - timedelta(days=14)).isoformat(),
+                "likes": 7,
+                "replies": 0
+            }
+        ]
+        
+        # Extract base audience intelligence
+        base_intelligence = await analyze_audience_intelligence(sample_comments)
+        
+        # Extract user-specific insights
+        service = UserAudienceIntelligenceService()
+        user_insights = await service._extract_user_specific_insights(
+            sample_comments, None, 30
+        )
+        
+        # Combine results 
+        return {
+            "success": True,
+            "demo_mode": True,
+            "account_username": "demo_user",
+            "extraction_period_days": 30,
+            "total_comments_analyzed": len(sample_comments),
+            "analysis_timestamp": datetime.utcnow().isoformat(),
+            "audience_intelligence": {
+                "objections": base_intelligence.get("objections", []),
+                "desires": base_intelligence.get("desires", []),
+                "questions": base_intelligence.get("questions", []),
+                "emotional_triggers": base_intelligence.get("emotional_triggers", []),
+                "competitor_gaps": base_intelligence.get("competitor_gaps", [])
+            },
+            "user_specific_insights": {
+                "sentiment_trends": user_insights.get("sentiment_trends", {}),
+                "content_opportunities": user_insights.get("content_opportunities", []),
+                "engagement_patterns": user_insights.get("engagement_patterns", {}),
+                "question_categories": user_insights.get("question_categories", {}),
+                "commenter_patterns": user_insights.get("commenter_patterns", {})
+            },
+            "sample_data_used": len(sample_comments)
+        }
+        
+    except Exception as e:
+        logger.error(f"Demo audience intelligence failed: {e}")
+        return {
+            "success": False,
+            "error": f"Demo failed: {str(e)}",
+            "demo_mode": True
+        }
+
+
+@router.get("/competitor-benchmarks", summary="Get competitor benchmarks and comparison data")
+async def get_competitor_benchmarks(
+    db: AsyncSession = Depends(get_tenant_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    GET /api/content-intel/competitor-benchmarks
+    
+    Computes real benchmarks from 867+ competitor posts:
+    - Average engagement rate across all competitors
+    - Average hook length for top performers  
+    - Most common content formats + performance
+    - Average posting frequency
+    - Top performing hook types and CTA types
+    - Average structure scores
+    - Content topic distribution
+    """
+    try:
+        user_id = get_user_id(current_user)
+        org_id = get_org_id(current_user)
+        
+        logger.info(f"Computing competitor benchmarks for org_id={org_id}")
+        
+        # Get comprehensive benchmark metrics
+        benchmarks = await competitor_benchmarks_service.get_benchmarks(db, org_id)
+        
+        # Format response with all computed metrics
+        response = {
+            "success": True,
+            "benchmarks": {
+                "engagement_metrics": {
+                    "avg_engagement_rate": benchmarks.avg_engagement_rate,
+                    "top_performer_engagement_rate": benchmarks.top_performer_engagement_rate,
+                    "description": f"Based on {benchmarks.total_competitors} competitors and {benchmarks.total_posts_analyzed} posts"
+                },
+                "hook_performance": {
+                    "avg_hook_length_chars": benchmarks.avg_hook_length_chars,
+                    "top_performer_avg_hook_length": benchmarks.top_performer_avg_hook_length,
+                    "top_hook_types": benchmarks.top_hook_types,
+                    "description": "Hook length and style analysis from high-performing content"
+                },
+                "content_formats": {
+                    "best_performing_formats": benchmarks.best_performing_formats,
+                    "description": "Content formats ranked by average engagement performance"
+                },
+                "posting_patterns": {
+                    "avg_posting_frequency_per_week": benchmarks.avg_posting_frequency_per_week,
+                    "description": "Weekly posting frequency analysis across competitor set"
+                },
+                "cta_analysis": {
+                    "top_cta_patterns": benchmarks.top_cta_patterns,
+                    "description": "Call-to-action patterns that drive highest engagement"
+                },
+                "content_quality": {
+                    "avg_structure_score": benchmarks.avg_structure_score,
+                    "description": "Video structure and storytelling quality metrics"
+                },
+                "topic_insights": {
+                    "content_topic_distribution": benchmarks.content_topic_distribution,
+                    "description": "Most common content topics in competitive landscape"
+                }
+            },
+            "meta": {
+                "total_posts_analyzed": benchmarks.total_posts_analyzed,
+                "total_competitors": benchmarks.total_competitors,
+                "last_updated": datetime.utcnow().isoformat(),
+                "cache_status": "computed" if competitor_benchmarks_service._cached_benchmarks else "fresh"
+            }
+        }
+        
+        logger.info(f"Competitor benchmarks computed successfully: {benchmarks.total_posts_analyzed} posts from {benchmarks.total_competitors} competitors")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Failed to compute competitor benchmarks: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to compute competitor benchmarks: {str(e)}"
+        )

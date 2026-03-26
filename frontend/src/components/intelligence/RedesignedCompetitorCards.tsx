@@ -433,23 +433,7 @@ function EnhancedCompetitorCard({
         </InfoTooltip>
       </div>
 
-      {/* Top performing video preview */}
-      {topVideos && topVideos.length > 0 && (
-        <div className="mb-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Flame size={12} className="text-orange-400" />
-            <span className="text-xs font-medium text-warroom-text">Top Performing Video</span>
-            <InfoTooltip content="Highest engagement video from recent analysis with detailed insights">
-              <Info size={10} className="text-warroom-muted" />
-            </InfoTooltip>
-          </div>
-          <VideoMetricsCard 
-            video={topVideos[0]} 
-            compact={true}
-            showFrameAnalysis={false}
-          />
-        </div>
-      )}
+
 
       {/* Actions */}
       <div className="flex gap-2">
@@ -460,37 +444,6 @@ function EnhancedCompetitorCard({
           <Eye size={12} />
           View Details
         </button>
-        
-
-        
-        <InfoTooltip content="Generate content ideas based on this competitor's top-performing videos">
-          <button
-            onClick={() => {
-              // Generate script from competitor's best content
-              const bestVideo = topVideos?.[0];
-              if (bestVideo) {
-                const scriptData = {
-                  source_competitor: competitor.handle,
-                  top_themes: bestVideo.video_analysis?.dominant_themes || [],
-                  avg_engagement: competitor.avg_engagement_rate,
-                  format_patterns: topVideos?.map((v: any) => v.detected_format).filter(Boolean) || []
-                };
-                
-                const params = new URLSearchParams();
-                Object.entries(scriptData).forEach(([key, value]) => {
-                  if (value !== undefined) {
-                    params.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
-                  }
-                });
-                
-                window.location.href = `/ai-studio/competitor-analysis?${params.toString()}`;
-              }
-            }}
-            className="px-3 py-2 bg-warroom-accent/10 hover:bg-warroom-accent/20 border border-warroom-accent/20 rounded-lg text-warroom-accent transition"
-          >
-            <Sparkles size={12} />
-          </button>
-        </InfoTooltip>
       </div>
     </div>
   );

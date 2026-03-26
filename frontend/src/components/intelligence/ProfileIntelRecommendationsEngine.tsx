@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { 
   User, TrendingUp, Users, Target, Edit3, Trash2, ArrowRight, 
-  Check, X, AlertTriangle, Star, Loader2, Film, ChevronDown, ChevronRight,
-  Crown, MessageCircle, Eye, BarChart3
+  Check, X, AlertTriangle, Star, Film, ChevronDown, ChevronRight,
+  Crown, MessageCircle, Eye, BarChart3, RefreshCw, Play, Lightbulb,
+  Brain, Zap, Clock, Award, TrendingDown
 } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import { useSocialAccounts } from "@/hooks/useSocialAccounts";
@@ -16,23 +17,19 @@ interface CategoryGrade {
 
 interface VideoGrade {
   video_id: string;
+  title?: string;
   grade: string; // Letter grade A-F
   strengths: string[];
   weaknesses: string[];
-  title?: string;
   engagement_score?: number;
+  format_tags?: string[];
 }
 
-interface Recommendation {
-  what: string;
-  why: string;
-  priority: string; // HIGH, MEDIUM, LOW
-}
-
-interface NextStep {
-  action: string;
-  expected_impact: string;
-  priority: string;
+interface AudienceIntelligenceItem {
+  text: string;
+  frequency: number;
+  usage_hint?: string;
+  category?: string;
 }
 
 interface ProfileIntelData {
@@ -64,20 +61,30 @@ interface ProfileIntelData {
     replyQuality?: CategoryGrade;
   };
   recommendations?: {
-    profileChanges?: Recommendation[];
-    videosToDelete?: Array<{
-      video_id: string;
-      reason: string;
-      title?: string;
-    }>;
-    keepDoing?: Recommendation[];
-    stopDoing?: Recommendation[];
-    nextSteps?: NextStep[];
+    keepDoing?: Array<{what: string, why: string, priority: string}>;
+    stopDoing?: Array<{what: string, why: string, priority: string}>;
+    profileChanges?: Array<{what: string, why: string, priority: string}>;
+    contentRecommendations?: Array<{topic: string, reason: string, priority: string}>;
+    videosToRemove?: Array<{video_id?: string, videoId?: string, title?: string, reason: string}>;
+    nextSteps?: Array<{action: string, expected_impact?: string, expectedImpact?: string, priority: string}>;
   };
 }
 
-function formatScore(score: number): string {
-  return score.toString();
+interface CompetitorBenchmarks {
+  avg_engagement_rate: number;
+  top_performer_engagement_rate: number;
+  avg_hook_length_chars: number;
+  avg_posting_frequency_per_week: number;
+  total_posts_analyzed: number;
+  total_competitors: number;
+}
+
+interface AudienceIntelligence {
+  objections: AudienceIntelligenceItem[];
+  desires: AudienceIntelligenceItem[];
+  questions: AudienceIntelligenceItem[];
+  emotional_triggers: AudienceIntelligenceItem[];
+  competitor_gaps: AudienceIntelligenceItem[];
 }
 
 function getGradeColor(score: number): string {
@@ -88,50 +95,37 @@ function getGradeColor(score: number): string {
   return "text-red-400";
 }
 
-function getLetterGrade(grade: string): { letter: string; color: string } {
-  const gradeColors: Record<string, string> = {
-    'A': 'text-emerald-400',
-    'B': 'text-green-400', 
-    'C': 'text-yellow-400',
-    'D': 'text-orange-400',
-    'F': 'text-red-400'
-  };
-  return {
-    letter: grade,
-    color: gradeColors[grade] || 'text-warroom-muted'
-  };
+function getLetterGrade(score: number): string {
+  if (score >= 90) return "A+";
+  if (score >= 85) return "A";
+  if (score >= 80) return "A-";
+  if (score >= 75) return "B+";
+  if (score >= 70) return "B";
+  if (score >= 65) return "B-";
+  if (score >= 60) return "C+";
+  if (score >= 55) return "C";
+  if (score >= 50) return "C-";
+  if (score >= 45) return "D+";
+  if (score >= 40) return "D";
+  return "F";
 }
 
 function getPriorityColor(priority: string): string {
   switch (priority.toUpperCase()) {
     case 'HIGH': return 'bg-red-500/10 text-red-400 border-red-500/20';
-    case 'MEDIUM': return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
+    case 'MEDIUM': case 'MED': return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
     case 'LOW': return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
     default: return 'bg-warroom-surface text-warroom-muted border-warroom-border';
   }
 }
 
-function CategoryProgressBar({ label, score, details }: { label: string; score: number; details: string }) {
-  const percentage = Math.min(score, 100);
-  const color = score >= 80 ? 'bg-emerald-400' : 
-               score >= 60 ? 'bg-yellow-400' : 'bg-red-400';
-  
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-warroom-text">{label}</span>
-        <span className={`text-sm font-bold ${getGradeColor(score)}`}>{score}/100</span>
-      </div>
-      <div className="w-full bg-warroom-bg rounded-full h-2">
-        <div 
-          className={`h-2 rounded-full transition-all duration-300 ${color}`}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-      {details && (
-        <p className="text-xs text-warroom-muted">{details}</p>
-      )}
-    </div>
+function isUnanalyzed(grade?: CategoryGrade): boolean {
+  if (!grade) return true;
+  return grade.score === 0 && (
+    grade.details === "not_analyzed" || 
+    grade.details.includes("Not yet analyzed") ||
+    grade.details.includes("Connect Instagram") ||
+    grade.details.includes("Connected account missing")
   );
 }
 
@@ -140,22 +134,46 @@ function VideoGradeCard({ video, expanded, onToggle }: {
   expanded: boolean; 
   onToggle: () => void;
 }) {
-  const { letter, color } = getLetterGrade(video.grade);
+  const letterGrade = getLetterGrade(video.engagement_score || 0);
+  const gradeColor = getGradeColor(video.engagement_score || 0);
+  
+  // Handle titles
+  const videoTitle = video.title && video.title !== "undefined" && video.title !== "Video undefined" 
+    ? video.title 
+    : "Analysis pending";
+
+  // Determine if this is best/worst
+  const isBest = video.grade === "A+" || video.grade === "A";
+  const isWorst = video.grade === "D" || video.grade === "F";
   
   return (
-    <div className="bg-warroom-bg border border-warroom-border rounded-lg">
+    <div className={`bg-warroom-bg border rounded-lg ${
+      isBest ? 'border-emerald-500/40 bg-emerald-500/5' : 
+      isWorst ? 'border-red-500/40 bg-red-500/5' : 
+      'border-warroom-border'
+    }`}>
       <button 
         onClick={onToggle}
         className="w-full flex items-center justify-between p-3 text-left hover:bg-warroom-surface/50 transition"
       >
         <div className="flex items-center gap-3">
-          <div className={`w-8 h-8 rounded-full bg-warroom-surface border border-warroom-border flex items-center justify-center text-sm font-bold ${color}`}>
-            {letter}
+          <div className={`w-8 h-8 rounded-full bg-warroom-surface border border-warroom-border flex items-center justify-center text-sm font-bold ${gradeColor}`}>
+            {letterGrade}
           </div>
-          <div>
-            <p className="text-sm font-medium text-warroom-text">{video.title || `Video ${video.video_id}`}</p>
-            {video.engagement_score && (
-              <p className="text-xs text-warroom-muted">Score: {video.engagement_score}</p>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-warroom-text">{videoTitle}</p>
+              {isBest && <Award size={14} className="text-emerald-400" />}
+              {isWorst && <TrendingDown size={14} className="text-red-400" />}
+            </div>
+            {video.format_tags && video.format_tags.length > 0 && (
+              <div className="flex gap-1 mt-1">
+                {video.format_tags.map((tag, i) => (
+                  <span key={i} className="text-xs px-2 py-1 bg-warroom-surface rounded-full text-warroom-muted">
+                    {tag}
+                  </span>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -199,29 +217,48 @@ function VideoGradeCard({ video, expanded, onToggle }: {
 
 export default function ProfileIntelRecommendationsEngine() {
   const [profileIntel, setProfileIntel] = useState<ProfileIntelData | null>(null);
+  const [benchmarks, setBenchmarks] = useState<CompetitorBenchmarks | null>(null);
+  const [audienceIntelligence, setAudienceIntelligence] = useState<AudienceIntelligence | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
   const [expandedVideo, setExpandedVideo] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [analyzingVideos, setAnalyzingVideos] = useState(false);
   
-  const { isConnected } = useSocialAccounts();
+  const { isConnected, connect } = useSocialAccounts();
 
   useEffect(() => {
-    const fetchProfileIntel = async () => {
+    const fetchAllData = async () => {
       try {
         setLoading(true);
         setError("");
         
-        const response = await authFetch(`${API}/api/content-intel/profile-intel`);
+        // Fetch profile intel data
+        const [profileResponse, benchmarksResponse, audienceResponse] = await Promise.all([
+          authFetch(`${API}/api/content-intel/profile-intel`),
+          authFetch(`${API}/api/content-intel/competitor-benchmarks`),
+          authFetch(`${API}/api/content-intel/profile-intel/audience-intelligence`)
+        ]);
         
-        if (response.ok) {
-          const data = await response.json();
-          setProfileIntel(data);
-        } else if (response.status === 404) {
-          setError("Profile intel data not available. Connect your Instagram account to get started.");
-        } else {
-          setError("Failed to load profile intelligence data.");
+        if (profileResponse.ok) {
+          const profileData = await profileResponse.json();
+          setProfileIntel(profileData);
+        } else if (profileResponse.status === 404) {
+          setError("Profile intel data not available.");
         }
+
+        if (benchmarksResponse.ok) {
+          const benchmarksData = await benchmarksResponse.json();
+          setBenchmarks(benchmarksData.benchmarks?.engagement_metrics || null);
+        }
+
+        if (audienceResponse.ok) {
+          const audienceData = await audienceResponse.json();
+          if (audienceData.success) {
+            setAudienceIntelligence(audienceData.audience_intelligence || null);
+          }
+        }
+        
       } catch (err) {
         setError("Error connecting to intelligence service.");
       } finally {
@@ -229,39 +266,79 @@ export default function ProfileIntelRecommendationsEngine() {
       }
     };
 
-    if (isConnected("instagram")) {
-      fetchProfileIntel();
-    } else {
-      setLoading(false);
-      setError("Instagram account not connected.");
-    }
-  }, [isConnected]);
+    fetchAllData();
+  }, []);
 
-  const handleSync = async () => {
+  const handleRefresh = async () => {
     try {
-      setSyncing(true);
-      const response = await authFetch(`${API}/api/content-intel/profile-intel/sync`, {
+      setRefreshing(true);
+      const response = await authFetch(`${API}/api/content-intel/profile-intel`, {
+        method: 'GET'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setProfileIntel(data);
+      } else {
+        setError("Failed to refresh profile intel data.");
+      }
+    } catch (err) {
+      setError("Error refreshing profile data.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleAnalyzeVideos = async () => {
+    try {
+      setAnalyzingVideos(true);
+      const response = await authFetch(`${API}/api/content-intel/profile-intel/analyze-videos`, {
         method: 'POST'
       });
       
       if (response.ok) {
-        // Refresh the data after sync
-        window.location.reload();
+        // Video analysis started in background
+        setTimeout(() => {
+          handleRefresh(); // Refresh data after analysis should be complete
+        }, 30000); // 30 seconds
       } else {
-        setError("Failed to sync profile intel data.");
+        setError("Failed to start video analysis.");
       }
     } catch (err) {
-      setError("Error syncing profile data.");
+      setError("Error starting video analysis.");
     } finally {
-      setSyncing(false);
+      setAnalyzingVideos(false);
     }
   };
 
   if (loading) {
     return (
       <div className="text-center py-16">
-        <Loader2 size={32} className="mx-auto mb-4 animate-spin text-warroom-accent" />
-        <p className="text-sm text-warroom-muted">Loading profile intelligence...</p>
+        <div className="text-center py-16 space-y-6 max-w-md mx-auto">
+          {/* Loading Structure Instead of Loader */}
+          <div className="space-y-4">
+            <div className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-xl bg-warroom-bg animate-pulse" />
+                <div className="space-y-2 flex-1">
+                  <div className="h-4 bg-warroom-bg animate-pulse rounded w-3/4" />
+                  <div className="h-3 bg-warroom-bg animate-pulse rounded w-1/2" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <div className="h-3 bg-warroom-bg animate-pulse rounded" />
+                  <div className="h-2 bg-warroom-bg animate-pulse rounded w-full" />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-3 bg-warroom-bg animate-pulse rounded" />
+                  <div className="h-2 bg-warroom-bg animate-pulse rounded w-full" />
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-warroom-text">Building your profile intelligence report...</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -272,7 +349,15 @@ export default function ProfileIntelRecommendationsEngine() {
         <AlertTriangle size={32} className="mx-auto mb-4 text-orange-400" />
         <p className="text-sm text-orange-400 mb-4">{error}</p>
         {!isConnected("instagram") && (
-          <p className="text-xs text-warroom-muted">Connect your Instagram account in the header to enable Profile Intel.</p>
+          <div className="space-y-4">
+            <p className="text-sm text-warroom-muted">Connect your Instagram account to begin analysis</p>
+            <button 
+              onClick={() => connect('instagram')}
+              className="px-6 py-3 bg-warroom-accent hover:bg-warroom-accent/80 text-black rounded-lg font-medium transition"
+            >
+              Connect Instagram Account
+            </button>
+          </div>
         )}
       </div>
     );
@@ -282,92 +367,162 @@ export default function ProfileIntelRecommendationsEngine() {
     return (
       <div className="text-center py-16">
         <User size={32} className="mx-auto mb-4 text-warroom-muted opacity-50" />
-        <p className="text-sm text-warroom-muted">No profile intelligence data available</p>
+        <p className="text-sm text-warroom-muted mb-4">No profile intelligence data available</p>
+        {!isConnected("instagram") && (
+          <button 
+            onClick={() => connect('instagram')}
+            className="px-6 py-3 bg-warroom-accent hover:bg-warroom-accent/80 text-black rounded-lg font-medium transition"
+          >
+            Connect Instagram Account
+          </button>
+        )}
       </div>
     );
   }
 
-  const overallScore = profileIntel.grades ? 
-    Math.round(Object.values(profileIntel.grades).reduce((sum, grade) => sum + (grade?.score || 0), 0) / 6) : 0;
+  // Calculate overall score only from analyzed categories
+  const analyzedGrades = Object.values(profileIntel.grades || {}).filter(grade => !isUnanalyzed(grade));
+  const overallScore = analyzedGrades.length > 0 
+    ? Math.round(analyzedGrades.reduce((sum, grade) => sum + (grade?.score || 0), 0) / analyzedGrades.length) 
+    : 0;
+
+  const totalCategories = Object.keys(profileIntel.grades || {}).length;
+  const analyzedCategories = analyzedGrades.length;
 
   return (
     <div className="space-y-8">
-      {/* Sync Controls */}
+      {/* Control Bar */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-warroom-text">Profile Intelligence Audit</h3>
+          <h3 className="text-lg font-semibold text-warroom-text">Profile Intelligence</h3>
           {profileIntel.last_synced_at && (
             <p className="text-xs text-warroom-muted">
               Last updated: {new Date(profileIntel.last_synced_at).toLocaleDateString()}
             </p>
           )}
         </div>
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 text-black rounded-lg text-sm font-medium transition"
-        >
-          {syncing ? <Loader2 size={16} className="animate-spin" /> : <Eye size={16} />}
-          {syncing ? 'Syncing...' : 'Refresh Analysis'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleAnalyzeVideos}
+            disabled={analyzingVideos}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 disabled:opacity-50 text-purple-400 rounded-lg text-sm font-medium transition"
+          >
+            {analyzingVideos ? <RefreshCw size={16} className="animate-spin" /> : <Play size={16} />}
+            {analyzingVideos ? 'Analyzing Videos...' : 'Analyze My Videos'}
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 text-black rounded-lg text-sm font-medium transition"
+          >
+            {refreshing ? <RefreshCw size={16} className="animate-spin" /> : <Eye size={16} />}
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
-      {/* 1. Profile Grade */}
+      {/* 1. OVERALL GRADE */}
       <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-warroom-accent/20 to-purple-500/20 flex items-center justify-center">
             <Crown size={24} className="text-warroom-accent" />
           </div>
-          <div>
-            <h4 className="text-xl font-bold text-warroom-text">Overall Profile Grade</h4>
-            <p className="text-sm text-warroom-muted">Comprehensive analysis across 6 key categories</p>
+          <div className="flex-1">
+            <h4 className="text-xl font-bold text-warroom-text">Overall Grade</h4>
+            <p className="text-sm text-warroom-muted">
+              Based on {analyzedCategories} of {totalCategories} categories
+            </p>
           </div>
-          <div className="ml-auto text-right">
-            <div className={`text-4xl font-bold ${getGradeColor(overallScore)}`}>{overallScore}/100</div>
-            <p className="text-xs text-warroom-muted">Overall Score</p>
+          <div className="text-right">
+            <div className={`text-4xl font-bold ${getGradeColor(overallScore)}`}>
+              {getLetterGrade(overallScore)}
+            </div>
+            <div className="flex items-center gap-1 text-xs text-warroom-muted">
+              <TrendingUp size={12} className="text-emerald-400" />
+              <span>Improving</span>
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {profileIntel.grades && Object.entries(profileIntel.grades).map(([key, grade]) => {
-            const labels: Record<string, string> = {
-              profileOptimization: 'Profile Optimization',
-              videoMessaging: 'Video Messaging',
-              storyboarding: 'Storyboarding',
-              audienceEngagement: 'Audience Engagement',
-              contentConsistency: 'Content Consistency',
-              replyQuality: 'Reply Quality'
-            };
-            
-            return grade && (
-              <CategoryProgressBar
-                key={key}
-                label={labels[key] || key}
-                score={grade.score}
-                details={grade.details}
-              />
-            );
-          })}
-        </div>
+        {overallScore > 0 && (
+          <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4">
+            <p className="text-sm text-warroom-text">
+              {overallScore >= 85 
+                ? "Excellent profile performance — you're outperforming most creators in your niche."
+                : overallScore >= 70 
+                ? "Strong foundation with clear improvement opportunities identified below."
+                : overallScore >= 60
+                ? "Good potential with several optimization areas that could significantly boost your reach."
+                : "Significant opportunity to optimize your profile for better audience engagement and growth."
+              }
+            </p>
+          </div>
+        )}
       </section>
 
-      {/* 2. Video Grades */}
+      {/* 2. PROFILE OPTIMIZATION */}
+      {profileIntel.grades?.profileOptimization && !isUnanalyzed(profileIntel.grades.profileOptimization) && (
+        <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center">
+              <Edit3 size={20} className="text-purple-400" />
+            </div>
+            <div>
+              <h4 className="text-lg font-semibold text-warroom-text">Profile Optimization</h4>
+              <p className="text-xs text-warroom-muted">Bio, link, highlights, and visual consistency</p>
+            </div>
+            <div className="ml-auto">
+              <div className={`text-2xl font-bold ${getGradeColor(profileIntel.grades.profileOptimization.score)}`}>
+                {profileIntel.grades.profileOptimization.score}/100
+              </div>
+            </div>
+          </div>
+
+          {profileIntel.recommendations?.profileChanges && profileIntel.recommendations.profileChanges.length > 0 && (
+            <div className="space-y-3">
+              {profileIntel.recommendations.profileChanges.map((change, idx) => (
+                <div key={idx} className="border border-warroom-border rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center mt-0.5">
+                      <Edit3 size={12} className="text-purple-400" />
+                    </div>
+                    <div className="flex-1">
+                      <h5 className="text-sm font-semibold text-warroom-text mb-1">{change.what}</h5>
+                      <p className="text-xs text-warroom-muted mb-2">{change.why}</p>
+                      <span className={`text-xs px-2 py-1 rounded-full ${getPriorityColor(change.priority)}`}>
+                        {change.priority.toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* 3. VIDEO GRADES */}
       <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-pink-500/20 to-purple-500/20 flex items-center justify-center">
             <Film size={20} className="text-pink-400" />
           </div>
-          <div>
+          <div className="flex-1">
             <h4 className="text-lg font-semibold text-warroom-text">Video Grades</h4>
-            <p className="text-xs text-warroom-muted">Performance analysis for your last 5 videos</p>
+            <p className="text-xs text-warroom-muted">
+              {profileIntel.processed_videos && profileIntel.processed_videos.length > 0 
+                ? `Analysis of your last ${profileIntel.processed_videos.length} videos`
+                : "No videos analyzed yet"
+              }
+            </p>
           </div>
         </div>
 
         {profileIntel.processed_videos && profileIntel.processed_videos.length > 0 ? (
           <div className="space-y-3">
-            {profileIntel.processed_videos.slice(0, 5).map((video) => (
+            {profileIntel.processed_videos.map((video, idx) => (
               <VideoGradeCard
-                key={video.video_id}
+                key={video.video_id || idx}
                 video={video}
                 expanded={expandedVideo === video.video_id}
                 onToggle={() => setExpandedVideo(expandedVideo === video.video_id ? null : video.video_id)}
@@ -375,50 +530,205 @@ export default function ProfileIntelRecommendationsEngine() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-8 text-warroom-muted">
-            <Film size={32} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">No video analysis available yet</p>
-            <p className="text-xs mt-1">Videos are analyzed automatically after posting</p>
+          <div className="text-center py-8 border border-warroom-border rounded-lg">
+            <Film size={32} className="mx-auto mb-3 opacity-30 text-warroom-muted" />
+            <p className="text-sm text-warroom-text mb-2">No videos analyzed</p>
+            <p className="text-xs text-warroom-muted mb-4">Click "Analyze My Videos" to start frame-by-frame analysis</p>
+            <button
+              onClick={handleAnalyzeVideos}
+              disabled={analyzingVideos}
+              className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-lg text-sm transition"
+            >
+              {analyzingVideos ? 'Analyzing...' : 'Analyze My Videos'}
+            </button>
           </div>
         )}
       </section>
 
-      {/* 3. Engagement Grade */}
+      {/* 4. AUDIENCE INTELLIGENCE (NEW SECTION) */}
+      {audienceIntelligence && (
+        <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
+              <Brain size={20} className="text-blue-400" />
+            </div>
+            <div>
+              <h4 className="text-lg font-semibold text-warroom-text">Audience Intelligence</h4>
+              <p className="text-xs text-warroom-muted">What YOUR audience wants, resists, and asks for</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Objections */}
+            {audienceIntelligence.objections.length > 0 && (
+              <div className="space-y-3">
+                <h5 className="text-sm font-semibold text-red-400 flex items-center gap-2">
+                  <X size={14} />
+                  Common Objections
+                </h5>
+                {audienceIntelligence.objections.slice(0, 3).map((objection, idx) => (
+                  <div key={idx} className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                    <p className="text-sm text-warroom-text mb-1">"{objection.text}"</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-red-400">{objection.frequency} mentions</span>
+                      {objection.usage_hint && (
+                        <span className="text-xs text-warroom-muted">{objection.usage_hint}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Desires */}
+            {audienceIntelligence.desires.length > 0 && (
+              <div className="space-y-3">
+                <h5 className="text-sm font-semibold text-emerald-400 flex items-center gap-2">
+                  <Star size={14} />
+                  What They Want
+                </h5>
+                {audienceIntelligence.desires.slice(0, 3).map((desire, idx) => (
+                  <div key={idx} className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+                    <p className="text-sm text-warroom-text mb-1">"{desire.text}"</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-emerald-400">{desire.frequency} mentions</span>
+                      {desire.usage_hint && (
+                        <span className="text-xs text-warroom-muted">{desire.usage_hint}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Questions */}
+            {audienceIntelligence.questions.length > 0 && (
+              <div className="space-y-3 md:col-span-2">
+                <h5 className="text-sm font-semibold text-blue-400 flex items-center gap-2">
+                  <MessageCircle size={14} />
+                  Frequent Questions
+                </h5>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {audienceIntelligence.questions.slice(0, 4).map((question, idx) => (
+                    <div key={idx} className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                      <p className="text-sm text-warroom-text mb-1">"{question.text}"</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-blue-400">{question.frequency} mentions</span>
+                        {question.usage_hint && (
+                          <span className="text-xs text-warroom-muted">{question.usage_hint}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* 5. ENGAGEMENT ANALYSIS */}
       <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center">
             <Users size={20} className="text-blue-400" />
           </div>
           <div>
-            <h4 className="text-lg font-semibold text-warroom-text">Engagement Grade</h4>
-            <p className="text-xs text-warroom-muted">How effectively you connect with your audience</p>
+            <h4 className="text-lg font-semibold text-warroom-text">Engagement Analysis</h4>
+            <p className="text-xs text-warroom-muted">Your performance vs. competitor benchmarks</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4 text-center">
             <div className="text-2xl font-bold text-blue-400 mb-1">
-              {profileIntel.oauth_data?.replyRate?.toFixed(1) || '3.2'}%
+              {profileIntel.oauth_data?.replyRate !== undefined
+                ? `${profileIntel.oauth_data.replyRate.toFixed(1)}%`
+                : 'N/A'
+              }
             </div>
-            <p className="text-xs text-warroom-muted">Reply Rate</p>
-            <p className="text-xs text-blue-400 mt-1">Above Average</p>
+            <p className="text-xs text-warroom-muted mb-1">Reply Rate</p>
+            <p className="text-xs text-blue-400">
+              {benchmarks && profileIntel.oauth_data?.replyRate !== undefined
+                ? `Competitor avg: ${(benchmarks.avg_engagement_rate * 100).toFixed(1)}%`
+                : 'Connect for comparison'
+              }
+            </p>
           </div>
           
           <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4 text-center">
-            <div className="text-2xl font-bold text-emerald-400 mb-1">A-</div>
-            <p className="text-xs text-warroom-muted">Reply Quality</p>
-            <p className="text-xs text-emerald-400 mt-1">Thoughtful responses</p>
+            <div className="text-2xl font-bold text-emerald-400 mb-1">
+              {profileIntel.oauth_data?.engagementRate !== undefined
+                ? `${profileIntel.oauth_data.engagementRate.toFixed(1)}%`
+                : 'N/A'
+              }
+            </div>
+            <p className="text-xs text-warroom-muted mb-1">Engagement Rate</p>
+            <p className="text-xs text-emerald-400">
+              {benchmarks && profileIntel.oauth_data?.engagementRate !== undefined
+                ? `${profileIntel.oauth_data.engagementRate >= benchmarks.avg_engagement_rate ? 'Above' : 'Below'} average`
+                : 'Connect for comparison'
+              }
+            </p>
           </div>
           
           <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4 text-center">
-            <div className="text-2xl font-bold text-purple-400 mb-1">Strong</div>
-            <p className="text-xs text-warroom-muted">Interaction Patterns</p>
-            <p className="text-xs text-purple-400 mt-1">Active community</p>
+            <div className="text-2xl font-bold text-purple-400 mb-1">
+              {profileIntel.oauth_data?.followerCount || 'N/A'}
+            </div>
+            <p className="text-xs text-warroom-muted mb-1">Followers</p>
+            <p className="text-xs text-purple-400">Current audience size</p>
           </div>
         </div>
       </section>
 
-      {/* 4. What's Working */}
+      {/* 6. COMPETITIVE POSITIONING */}
+      {benchmarks && (
+        <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500/20 to-red-500/20 flex items-center justify-center">
+              <BarChart3 size={20} className="text-orange-400" />
+            </div>
+            <div>
+              <h4 className="text-lg font-semibold text-warroom-text">Competitive Positioning</h4>
+              <p className="text-xs text-warroom-muted">
+                Based on {benchmarks.total_posts_analyzed} posts from {benchmarks.total_competitors} competitors
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-warroom-muted">Market avg engagement:</span>
+                <span className="ml-2 font-medium text-warroom-text">
+                  {(benchmarks.avg_engagement_rate * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div>
+                <span className="text-warroom-muted">Top performers:</span>
+                <span className="ml-2 font-medium text-warroom-text">
+                  {(benchmarks.top_performer_engagement_rate * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div>
+                <span className="text-warroom-muted">Avg posting:</span>
+                <span className="ml-2 font-medium text-warroom-text">
+                  {benchmarks.avg_posting_frequency_per_week.toFixed(1)}x/week
+                </span>
+              </div>
+              <div>
+                <span className="text-warroom-muted">Hook length:</span>
+                <span className="ml-2 font-medium text-warroom-text">
+                  {benchmarks.avg_hook_length_chars} chars
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 7. WHAT'S WORKING */}
       <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500/20 to-green-500/20 flex items-center justify-center">
@@ -426,7 +736,7 @@ export default function ProfileIntelRecommendationsEngine() {
           </div>
           <div>
             <h4 className="text-lg font-semibold text-warroom-text">What's Working</h4>
-            <p className="text-xs text-warroom-muted">Strategies to double down on based on your data</p>
+            <p className="text-xs text-warroom-muted">Double down on these strengths</p>
           </div>
         </div>
 
@@ -448,14 +758,14 @@ export default function ProfileIntelRecommendationsEngine() {
           </div>
         ) : (
           <div className="text-center py-8 text-warroom-muted">
-            <Check size={32} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">Analysis in progress</p>
-            <p className="text-xs mt-1">Check back after more data is collected</p>
+            <TrendingUp size={32} className="mx-auto mb-3 opacity-30" />
+            <p className="text-sm">Building performance insights</p>
+            <p className="text-xs mt-1">Positive patterns will appear as data is collected</p>
           </div>
         )}
       </section>
 
-      {/* 5. What to Improve */}
+      {/* 8. WHAT TO IMPROVE */}
       <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500/20 to-red-500/20 flex items-center justify-center">
@@ -473,7 +783,7 @@ export default function ProfileIntelRecommendationsEngine() {
               <div key={idx} className={`border rounded-lg p-4 ${getPriorityColor(item.priority)}`}>
                 <div className="flex items-start gap-3">
                   <span className={`text-xs font-bold px-2 py-1 rounded-full ${getPriorityColor(item.priority)}`}>
-                    {item.priority}
+                    {item.priority.toUpperCase()}
                   </span>
                   <div className="flex-1">
                     <h5 className="text-sm font-semibold text-warroom-text mb-1">{item.what}</h5>
@@ -486,37 +796,37 @@ export default function ProfileIntelRecommendationsEngine() {
         ) : (
           <div className="text-center py-8 text-warroom-muted">
             <Target size={32} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">Analysis in progress</p>
-            <p className="text-xs mt-1">Recommendations will appear after data collection</p>
+            <p className="text-sm">Identifying improvement opportunities</p>
+            <p className="text-xs mt-1">Recommendations will appear after analysis</p>
           </div>
         )}
       </section>
 
-      {/* 6. Profile Changes */}
+      {/* 9. CONTENT RECOMMENDATIONS (NEW) */}
       <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center">
-            <Edit3 size={20} className="text-purple-400" />
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-yellow-500/20 to-orange-500/20 flex items-center justify-center">
+            <Lightbulb size={20} className="text-yellow-400" />
           </div>
           <div>
-            <h4 className="text-lg font-semibold text-warroom-text">Profile Changes</h4>
-            <p className="text-xs text-warroom-muted">Specific bio, link, and aesthetic recommendations</p>
+            <h4 className="text-lg font-semibold text-warroom-text">Content Recommendations</h4>
+            <p className="text-xs text-warroom-muted">Create Next — based on audience demand</p>
           </div>
         </div>
 
-        {profileIntel.recommendations?.profileChanges && profileIntel.recommendations.profileChanges.length > 0 ? (
-          <div className="space-y-4">
-            {profileIntel.recommendations.profileChanges.map((item, idx) => (
-              <div key={idx} className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-4">
+        {profileIntel.recommendations?.contentRecommendations && profileIntel.recommendations.contentRecommendations.length > 0 ? (
+          <div className="space-y-3">
+            {profileIntel.recommendations.contentRecommendations.map((rec, idx) => (
+              <div key={idx} className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-4">
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center mt-0.5">
-                    <Edit3 size={12} className="text-purple-400" />
+                  <div className="w-6 h-6 rounded-full bg-yellow-500/20 flex items-center justify-center mt-0.5">
+                    <Lightbulb size={12} className="text-yellow-400" />
                   </div>
                   <div className="flex-1">
-                    <h5 className="text-sm font-semibold text-warroom-text mb-2">{item.what}</h5>
-                    <p className="text-xs text-warroom-muted mb-3">{item.why}</p>
-                    <span className={`text-xs px-2 py-1 rounded-full ${getPriorityColor(item.priority)}`}>
-                      {item.priority} Priority
+                    <h5 className="text-sm font-semibold text-warroom-text mb-1">{rec.topic}</h5>
+                    <p className="text-xs text-warroom-muted mb-2">{rec.reason}</p>
+                    <span className={`text-xs px-2 py-1 rounded-full ${getPriorityColor(rec.priority)}`}>
+                      {rec.priority.toUpperCase()}
                     </span>
                   </div>
                 </div>
@@ -525,14 +835,14 @@ export default function ProfileIntelRecommendationsEngine() {
           </div>
         ) : (
           <div className="text-center py-8 text-warroom-muted">
-            <Edit3 size={32} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">Analysis in progress</p>
-            <p className="text-xs mt-1">Profile optimization recommendations coming soon</p>
+            <Lightbulb size={32} className="mx-auto mb-3 opacity-30" />
+            <p className="text-sm">Analyzing audience demand</p>
+            <p className="text-xs mt-1">Content ideas will appear based on your audience intelligence</p>
           </div>
         )}
       </section>
 
-      {/* 7. Videos to Consider Removing */}
+      {/* 10. VIDEOS TO CONSIDER REMOVING */}
       <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-red-500/20 to-orange-500/20 flex items-center justify-center">
@@ -544,9 +854,9 @@ export default function ProfileIntelRecommendationsEngine() {
           </div>
         </div>
 
-        {profileIntel.recommendations?.videosToDelete && profileIntel.recommendations.videosToDelete.length > 0 ? (
+        {profileIntel.recommendations?.videosToRemove && profileIntel.recommendations.videosToRemove.length > 0 ? (
           <div className="space-y-3">
-            {profileIntel.recommendations.videosToDelete.map((video, idx) => (
+            {profileIntel.recommendations.videosToRemove.map((video, idx) => (
               <div key={idx} className="bg-red-500/5 border border-red-500/20 rounded-lg p-4">
                 <div className="flex items-start gap-3">
                   <div className="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center mt-0.5">
@@ -554,7 +864,7 @@ export default function ProfileIntelRecommendationsEngine() {
                   </div>
                   <div className="flex-1">
                     <h5 className="text-sm font-semibold text-warroom-text mb-1">
-                      {video.title || `Video ${video.video_id}`}
+                      {video.title || `Video ${video.videoId || video.video_id}`}
                     </h5>
                     <p className="text-xs text-warroom-muted">{video.reason}</p>
                   </div>
@@ -565,13 +875,13 @@ export default function ProfileIntelRecommendationsEngine() {
         ) : (
           <div className="text-center py-8 text-warroom-muted">
             <Trash2 size={32} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">All content performing well</p>
-            <p className="text-xs mt-1">No videos recommended for removal at this time</p>
+            <p className="text-sm">No videos recommended for removal</p>
+            <p className="text-xs mt-1">All analyzed content is performing adequately</p>
           </div>
         )}
       </section>
 
-      {/* 8. Next Steps */}
+      {/* 11. NEXT STEPS */}
       <section className="bg-warroom-surface border border-warroom-border rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500/20 to-blue-500/20 flex items-center justify-center">
@@ -579,13 +889,13 @@ export default function ProfileIntelRecommendationsEngine() {
           </div>
           <div>
             <h4 className="text-lg font-semibold text-warroom-text">Next Steps</h4>
-            <p className="text-xs text-warroom-muted">Prioritized action items for maximum impact</p>
+            <p className="text-xs text-warroom-muted">Top 5 actions for maximum impact</p>
           </div>
         </div>
 
         {profileIntel.recommendations?.nextSteps && profileIntel.recommendations.nextSteps.length > 0 ? (
           <div className="space-y-4">
-            {profileIntel.recommendations.nextSteps.map((step, idx) => (
+            {profileIntel.recommendations.nextSteps.slice(0, 5).map((step, idx) => (
               <div key={idx} className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-4">
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center mt-0.5">
@@ -593,10 +903,18 @@ export default function ProfileIntelRecommendationsEngine() {
                   </div>
                   <div className="flex-1">
                     <h5 className="text-sm font-semibold text-warroom-text mb-1">{step.action}</h5>
-                    <p className="text-xs text-warroom-muted mb-2">Expected: {step.expected_impact}</p>
-                    <span className={`text-xs px-2 py-1 rounded-full ${getPriorityColor(step.priority)}`}>
-                      {step.priority} Priority
-                    </span>
+                    <p className="text-xs text-warroom-muted mb-2">
+                      Impact: {step.expected_impact || step.expectedImpact || "Positive improvement expected"}
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs px-2 py-1 rounded-full ${getPriorityColor(step.priority)}`}>
+                        {step.priority.toUpperCase()}
+                      </span>
+                      <div className="flex items-center gap-1 text-xs text-warroom-muted">
+                        <Clock size={10} />
+                        <span>~15 min</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -605,7 +923,7 @@ export default function ProfileIntelRecommendationsEngine() {
         ) : (
           <div className="text-center py-8 text-warroom-muted">
             <ArrowRight size={32} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">Action plan generating</p>
+            <p className="text-sm">Building action plan</p>
             <p className="text-xs mt-1">Personalized next steps will appear after analysis</p>
           </div>
         )}

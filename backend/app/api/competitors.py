@@ -1150,3 +1150,264 @@ async def get_video_dropoff_analysis(
     except Exception as e:
         logger.error(f"Drop-off analysis failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to analyze video drop-offs")
+
+
+# ========================
+# PROFILE INTEL ENDPOINTS
+# ========================
+
+@router.post("/profile-intel/analyze-videos")
+async def analyze_user_videos(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """
+    Trigger analysis of user's own videos for Profile Intel.
+    Downloads user's videos, runs through same pipeline as competitors,
+    and feeds results into Profile Intel system.
+    """
+    from app.services.user_video_analysis_service import user_video_analysis_service
+    from app.services.profile_intel_service import profile_intel_service
+    
+    org_id = get_org_id(request)
+    
+    try:
+        # Get user's connected Instagram account
+        result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.org_id == org_id,
+                SocialAccount.platform == "instagram",
+                SocialAccount.status == "connected"
+            ).order_by(SocialAccount.connected_at.desc())
+        )
+        
+        social_account = result.scalar_one_or_none()
+        
+        if not social_account:
+            return {
+                "success": False,
+                "error": "No connected Instagram account found",
+                "message": "Connect your Instagram account first to analyze your videos"
+            }
+        
+        instagram_username = social_account.username
+        
+        if not instagram_username:
+            return {
+                "success": False,
+                "error": "Instagram username not found in connected account",
+                "message": "Re-connect your Instagram account to refresh profile data"
+            }
+        
+        # Start background analysis
+        async def run_video_analysis():
+            """Background task to analyze user videos and update Profile Intel."""
+            try:
+                logger.info(f"Starting background video analysis for user @{instagram_username}")
+                
+                # 1. Analyze user's videos
+                analyzed_videos = await user_video_analysis_service.analyze_user_videos(
+                    db=db,
+                    org_id=org_id,
+                    instagram_username=instagram_username,
+                    max_videos=10
+                )
+                
+                if not analyzed_videos:
+                    logger.warning(f"No videos analyzed for @{instagram_username}")
+                    return
+                
+                # 2. Get competitor benchmarks for comparison
+                benchmarks = await user_video_analysis_service.get_competitor_benchmarks(db, org_id)
+                
+                # 3. Store results in profile_intel_data table
+                await _store_video_analysis_results(
+                    db, org_id, instagram_username, analyzed_videos, benchmarks
+                )
+                
+                # 4. Refresh Profile Intel to include new video analysis
+                await profile_intel_service.get_or_create_profile_intel(
+                    db=db,
+                    org_id=org_id,
+                    profile_id=instagram_username,
+                    platform="instagram",
+                    force_refresh=True
+                )
+                
+                logger.info(f"Video analysis complete for @{instagram_username}: {len(analyzed_videos)} videos processed")
+                
+            except Exception as e:
+                logger.error(f"Background video analysis failed for @{instagram_username}: {e}")
+        
+        # Add to background tasks
+        background_tasks.add_task(run_video_analysis)
+        
+        return {
+            "success": True,
+            "message": f"Video analysis started for @{instagram_username}",
+            "instagram_username": instagram_username,
+            "status": "processing",
+            "estimated_completion": "2-5 minutes depending on number of videos"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to start video analysis: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start video analysis")
+
+
+async def _store_video_analysis_results(
+    db: AsyncSession,
+    org_id: int,
+    instagram_username: str,
+    analyzed_videos: List,
+    benchmarks: Dict[str, float]
+) -> None:
+    """Store video analysis results in profile_intel_data table."""
+    try:
+        # Convert analyzed videos to storable format
+        processed_videos = []
+        
+        for video in analyzed_videos:
+            processed_videos.append({
+                "videoId": video.video_id,
+                "grade": video.grade,
+                "hookStrength": video.hook_strength,
+                "pacingScore": video.pacing_score,
+                "structureScore": video.structure_score,
+                "ctaEffectiveness": video.cta_effectiveness,
+                "visualQuality": video.visual_quality,
+                "textOverlayUsage": video.text_overlay_usage,
+                "strengths": video.strengths,
+                "weaknesses": video.weaknesses,
+                "transcript": video.transcript[:500],  # Truncate for storage
+                "duration": video.duration,
+                "engagementMetrics": video.engagement_metrics
+            })
+        
+        # Calculate overall video performance vs competitors
+        user_avg_hook = sum(v.hook_strength for v in analyzed_videos) / len(analyzed_videos)
+        user_avg_structure = sum(v.structure_score for v in analyzed_videos) / len(analyzed_videos)
+        user_avg_engagement = sum(v.engagement_metrics.get("engagement_rate", 0) for v in analyzed_videos) / len(analyzed_videos)
+        
+        comparison_data = {
+            "userMetrics": {
+                "avgHookStrength": user_avg_hook,
+                "avgStructureScore": user_avg_structure,
+                "avgEngagementRate": user_avg_engagement,
+                "totalVideosAnalyzed": len(analyzed_videos)
+            },
+            "competitorBenchmarks": benchmarks,
+            "comparison": {
+                "hookPerformance": "above" if user_avg_hook > 2.5 else "below",
+                "structurePerformance": "above" if user_avg_structure > 70 else "below",
+                "engagementPerformance": "above" if user_avg_engagement > benchmarks.get("avg_engagement_score", 0) else "below"
+            }
+        }
+        
+        # Update or create profile intel entry
+        from app.models.crm.profile_intel_data import ProfileIntelData
+        from sqlalchemy import and_
+        
+        result = await db.execute(
+            select(ProfileIntelData).where(
+                and_(
+                    ProfileIntelData.org_id == org_id,
+                    ProfileIntelData.profile_id == instagram_username,
+                    ProfileIntelData.platform == "instagram"
+                )
+            )
+        )
+        
+        profile_intel = result.scalar_one_or_none()
+        
+        if profile_intel:
+            # Update existing
+            profile_intel.processed_videos = processed_videos
+            if not profile_intel.scraped_data:
+                profile_intel.scraped_data = {}
+            profile_intel.scraped_data["videoAnalysisComparison"] = comparison_data
+            profile_intel.last_synced_at = datetime.utcnow()
+            profile_intel.updated_at = datetime.utcnow()
+        else:
+            # Create new
+            profile_intel = ProfileIntelData(
+                org_id=org_id,
+                profile_id=instagram_username,
+                platform="instagram",
+                processed_videos=processed_videos,
+                scraped_data={"videoAnalysisComparison": comparison_data},
+                oauth_data={},
+                grades={},
+                recommendations={},
+                last_synced_at=datetime.utcnow()
+            )
+            db.add(profile_intel)
+        
+        await db.commit()
+        logger.info(f"Stored video analysis results for @{instagram_username}: {len(processed_videos)} videos")
+        
+    except Exception as e:
+        logger.error(f"Failed to store video analysis results: {e}")
+        await db.rollback()
+        raise
+
+
+@router.get("/profile-intel/video-analysis-status/{username}")
+async def get_video_analysis_status(
+    username: str,
+    request: Request,
+    db: AsyncSession = Depends(get_tenant_db)
+):
+    """Get status of video analysis for a user."""
+    from app.models.crm.profile_intel_data import ProfileIntelData
+    from sqlalchemy import and_
+    
+    org_id = get_org_id(request)
+    
+    try:
+        result = await db.execute(
+            select(ProfileIntelData).where(
+                and_(
+                    ProfileIntelData.org_id == org_id,
+                    ProfileIntelData.profile_id == username,
+                    ProfileIntelData.platform == "instagram"
+                )
+            )
+        )
+        
+        profile_intel = result.scalar_one_or_none()
+        
+        if not profile_intel:
+            return {
+                "status": "not_started",
+                "message": "No video analysis data found",
+                "videos_analyzed": 0
+            }
+        
+        processed_videos = profile_intel.processed_videos or []
+        comparison_data = profile_intel.scraped_data.get("videoAnalysisComparison", {}) if profile_intel.scraped_data else {}
+        
+        if not processed_videos:
+            return {
+                "status": "not_started", 
+                "message": "No videos processed yet",
+                "videos_analyzed": 0
+            }
+        
+        return {
+            "status": "completed",
+            "message": f"Analysis complete for {len(processed_videos)} videos",
+            "videos_analyzed": len(processed_videos),
+            "last_updated": profile_intel.last_synced_at.isoformat() if profile_intel.last_synced_at else None,
+            "summary": {
+                "total_videos": len(processed_videos),
+                "avg_grade": sum(1 for v in processed_videos if v.get("grade") in ["A", "B"]) / len(processed_videos) * 100 if processed_videos else 0,
+                "user_metrics": comparison_data.get("userMetrics", {}),
+                "vs_competitors": comparison_data.get("comparison", {})
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get video analysis status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get analysis status")

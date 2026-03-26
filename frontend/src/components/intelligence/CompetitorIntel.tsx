@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight, Info, Brain, Share, Instagram, Video, AlertTriangle, HelpCircle } from "lucide-react";
+import { Search, Plus, X, Flame, Copy, Check, User, TrendingUp, Eye, Target, Zap, BookOpen, ExternalLink, Trash2, Loader2, RefreshCw, Play, Save, Edit3, ArrowLeft, Heart, MessageCircle, EyeIcon, BarChart3, Hash, Users, Sparkles, ShoppingBag, Film, FileText, ChevronDown, ChevronRight, Info, Share, Instagram, Video, AlertTriangle, HelpCircle } from "lucide-react";
 import { API, authFetch } from "@/lib/api";
 import PostDetailModal from "./PostDetailModal";
 import ScrollTabs from "@/components/ui/ScrollTabs";
@@ -2522,107 +2522,7 @@ export default function CompetitorIntel() {
                     </div>
                   </div>
 
-                  {/* 2. Audience Psychology Intelligence */}
-                  <div className="glass-card inner-glow p-5">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <Brain size={18} className="text-purple-400" />
-                        <div>
-                          <h3 className="text-sm font-semibold">Audience Psychology Intelligence</h3>
-                          <p className="text-xs text-warroom-muted">Why your audience shares, engages, and converts</p>
-                        </div>
-                      </div>
-                    </div>
 
-                    {loadingGlobalAudienceIntel ? (
-                      <div className="flex items-center gap-2 text-sm text-warroom-muted py-4">
-                        <Loader2 size={16} className="animate-spin" /> Analyzing behavioral patterns…
-                      </div>
-                    ) : globalAudienceIntel ? (
-                      <div className="space-y-4">
-                        {/* Psychology Metrics */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          <div className="stat-card p-3">
-                            <p className="text-lg font-bold text-purple-400">{globalAudienceIntel.posts_analyzed}</p>
-                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Behavioral signals</p>
-                          </div>
-                          <div className="stat-card p-3">
-                            <p className="text-lg font-bold text-emerald-400">{Math.round((globalAudienceIntel.sentiment_percentages?.positive || 0))}%</p>
-                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Positive psychology</p>
-                          </div>
-                          <div className="stat-card p-3">
-                            <p className="text-lg font-bold text-orange-400">{globalAudienceIntel.pain_points.length}</p>
-                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Pain triggers</p>
-                          </div>
-                          <div className="stat-card p-3">
-                            <p className="text-lg font-bold text-blue-400">{globalAudienceIntel.questions.length}</p>
-                            <p className="text-[10px] uppercase tracking-wider text-warroom-muted">Curiosity gaps</p>
-                          </div>
-                        </div>
-
-                        {/* Sharing Psychology */}
-                        <div className="bg-gradient-to-r from-purple-500/5 to-blue-500/5 border border-purple-500/20 rounded-xl p-4">
-                          <h4 className="text-xs font-semibold text-purple-400 mb-2 flex items-center gap-2">
-                            <Share className="w-4 h-4" />
-                            Sharing Psychology Analysis
-                          </h4>
-                          <div className="grid grid-cols-3 gap-3">
-                            <div className="text-center">
-                              <p className="text-lg font-bold text-purple-400">Identity</p>
-                              <p className="text-[10px] text-warroom-muted">"This represents me"</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-lg font-bold text-blue-400">Utility</p>
-                              <p className="text-[10px] text-warroom-muted">"Others need this"</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-lg font-bold text-emerald-400">Emotion</p>
-                              <p className="text-[10px] text-warroom-muted">"This is how I feel"</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Behavioral Patterns */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {globalAudienceIntel.pain_points.length > 0 && (
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">🧠 Psychological Pain Points</p>
-                              <div className="space-y-1.5">
-                                {globalAudienceIntel.pain_points.slice(0, 3).map((painPoint, i) => (
-                                  <div key={i} className="flex items-start gap-2 rounded-lg border border-red-400/10 bg-red-400/5 px-3 py-2">
-                                    <Target size={12} className="text-red-400 flex-shrink-0 mt-0.5" />
-                                    <p className="text-xs text-warroom-text flex-1">{painPoint.pain}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {globalAudienceIntel.questions.length > 0 && (
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-warroom-muted mb-2">🤔 Curiosity Patterns</p>
-                              <div className="space-y-1.5">
-                                {globalAudienceIntel.questions.slice(0, 3).map((question, i) => (
-                                  <div key={i} className="flex items-start gap-2 rounded-lg border border-blue-400/10 bg-blue-400/5 px-3 py-2">
-                                    <Zap size={12} className="text-blue-400 flex-shrink-0 mt-0.5" />
-                                    <p className="text-xs text-warroom-text flex-1">{question.question}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-warroom-muted">
-                        <Brain size={32} className="mx-auto mb-3 opacity-20" />
-                        <p className="text-sm">No psychological data available yet</p>
-                        <p className="text-xs mt-1">Sync competitor data to enable deep audience psychology analysis</p>
-                      </div>
-                    )}
-                  </div>
 
                   {/* 3. Competitor Cards */}
                   {loading ? (
@@ -2917,13 +2817,78 @@ export default function CompetitorIntel() {
                   <p className="text-sm text-warroom-muted">Loading scripts...</p>
                 </div>
               ) : scripts.length === 0 ? (
-                /* Empty state */
-                <div className="text-center py-16 text-warroom-muted">
-                  <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-warroom-gradient/20 flex items-center justify-center">
-                    <Film size={24} className="text-warroom-accent/40" />
+                /* Empty state with Generate button */
+                <div className="text-center py-16">
+                  <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-warroom-gradient/20 flex items-center justify-center">
+                    <Film size={32} className="text-warroom-accent/60" />
                   </div>
-                  <p className="text-sm">No scripts available yet</p>
-                  <p className="text-xs mt-1">Scripts are generated from the AI Studio or Scripts tab</p>
+                  <h3 className="text-lg font-semibold text-warroom-text mb-2">No scripts available yet</h3>
+                  <p className="text-sm text-warroom-muted mb-6 max-w-md mx-auto">
+                    Generate high-performing scripts using aggregated competitor intelligence and proven frameworks
+                  </p>
+                  <button
+                    onClick={async () => {
+                      try {
+                        setLoading(true);
+                        
+                        // Gather competitor data for script generation
+                        const scriptParams = {
+                          competitors: competitors.map(c => ({
+                            handle: c.handle,
+                            platform: c.platform,
+                            engagement_rate: c.avg_engagement_rate,
+                            follower_count: c.followers
+                          })),
+                          audience_intel: globalAudienceIntel,
+                          top_hooks: hooks.slice(0, 5).map(h => h.hook),
+                          content_timeframe_days: contentTimeframeDays
+                        };
+                        
+                        // Call script generation endpoint
+                        const response = await authFetch(`${API}/api/content-intel/competitors/generate-scripts`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            ...scriptParams,
+                            script_count: 3,
+                            platforms: ["instagram", "youtube", "x"]
+                          })
+                        });
+                        
+                        if (response.ok) {
+                          const newScripts = await response.json();
+                          setScripts(Array.isArray(newScripts) ? newScripts : [newScripts]);
+                          setNotice(`Generated ${Array.isArray(newScripts) ? newScripts.length : 1} script(s) from competitor intelligence!`);
+                        } else {
+                          const error = await response.text();
+                          setError(`Failed to generate scripts: ${error}`);
+                        }
+                      } catch (error) {
+                        setError(`Error generating scripts: ${error}`);
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    disabled={loading || competitors.length === 0}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-warroom-accent hover:bg-warroom-accent/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Generating Scripts...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={16} />
+                        Generate Scripts from Competitor Data
+                      </>
+                    )}
+                  </button>
+                  {competitors.length === 0 && (
+                    <p className="text-xs text-warroom-muted mt-3">
+                      Add competitors first to generate scripts from their intelligence
+                    </p>
+                  )}
                 </div>
               ) : (
                 /* Script list */
