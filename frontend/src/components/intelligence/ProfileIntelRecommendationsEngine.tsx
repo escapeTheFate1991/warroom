@@ -43,6 +43,16 @@ interface ProfileIntelData {
     engagementRate?: number;
     replyRate?: number;
     avgReplyTime?: number;
+    reachMetrics?: {
+      avgDailyReach?: number;
+      avgDailyImpressions?: number;
+      totalDays?: number;
+    };
+    audienceDemographics?: {
+      netFollowerGrowth?: number;
+      totalProfileViews?: number;
+      saveToShareRatio?: number;
+    };
     topPerformingPosts?: any[];
   };
   scraped_data?: {
@@ -348,17 +358,15 @@ export default function ProfileIntelRecommendationsEngine() {
       <div className="text-center py-16">
         <AlertTriangle size={32} className="mx-auto mb-4 text-orange-400" />
         <p className="text-sm text-orange-400 mb-4">{error}</p>
-        {!isConnected("instagram") && (
-          <div className="space-y-4">
-            <p className="text-sm text-warroom-muted">Connect your Instagram account to begin analysis</p>
-            <button 
-              onClick={() => connect('instagram')}
-              className="px-6 py-3 bg-warroom-accent hover:bg-warroom-accent/80 text-black rounded-lg font-medium transition"
-            >
-              Connect Instagram Account
-            </button>
-          </div>
-        )}
+        <div className="space-y-4">
+          <p className="text-sm text-warroom-muted">Connect your Instagram account to begin analysis</p>
+          <button 
+            onClick={() => connect('instagram')}
+            className="px-6 py-3 bg-warroom-accent hover:bg-warroom-accent/80 text-black rounded-lg font-medium transition"
+          >
+            Connect Instagram Account
+          </button>
+        </div>
       </div>
     );
   }
@@ -368,14 +376,26 @@ export default function ProfileIntelRecommendationsEngine() {
       <div className="text-center py-16">
         <User size={32} className="mx-auto mb-4 text-warroom-muted opacity-50" />
         <p className="text-sm text-warroom-muted mb-4">No profile intelligence data available</p>
-        {!isConnected("instagram") && (
-          <button 
-            onClick={() => connect('instagram')}
-            className="px-6 py-3 bg-warroom-accent hover:bg-warroom-accent/80 text-black rounded-lg font-medium transition"
-          >
-            Connect Instagram Account
-          </button>
-        )}
+      </div>
+    );
+  }
+
+  // Check if we have real OAuth data (indicating connected account)
+  const hasOAuthData = profileIntel.oauth_data && Object.keys(profileIntel.oauth_data).length > 0;
+  const isProfileConnected = hasOAuthData;
+
+  // If we have the profile intel response but no OAuth data, show connect prompt
+  if (!isProfileConnected) {
+    return (
+      <div className="text-center py-16">
+        <User size={32} className="mx-auto mb-4 text-warroom-muted opacity-50" />
+        <p className="text-sm text-warroom-muted mb-4">Connect your Instagram account to get started</p>
+        <button 
+          onClick={() => connect('instagram')}
+          className="px-6 py-3 bg-warroom-accent hover:bg-warroom-accent/80 text-black rounded-lg font-medium transition"
+        >
+          Connect Instagram Account
+        </button>
       </div>
     );
   }
@@ -394,11 +414,28 @@ export default function ProfileIntelRecommendationsEngine() {
       {/* Control Bar */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-warroom-text">Profile Intelligence</h3>
-          {profileIntel.last_synced_at && (
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-warroom-text">Profile Intelligence</h3>
+            {isProfileConnected && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                <span className="text-xs text-emerald-400">Connected</span>
+              </div>
+            )}
+          </div>
+          {profileIntel.last_synced_at ? (
             <p className="text-xs text-warroom-muted">
               Last updated: {new Date(profileIntel.last_synced_at).toLocaleDateString()}
+              {isProfileConnected && profileIntel.oauth_data?.followerCount && (
+                <span> • {profileIntel.oauth_data.followerCount.toLocaleString()} followers</span>
+              )}
             </p>
+          ) : (
+            isProfileConnected && profileIntel.oauth_data?.followerCount && (
+              <p className="text-xs text-warroom-muted">
+                {profileIntel.oauth_data.followerCount.toLocaleString()} followers
+              </p>
+            )
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -430,7 +467,10 @@ export default function ProfileIntelRecommendationsEngine() {
           <div className="flex-1">
             <h4 className="text-xl font-bold text-warroom-text">Overall Grade</h4>
             <p className="text-sm text-warroom-muted">
-              Based on {analyzedCategories} of {totalCategories} categories
+              {isProfileConnected 
+                ? `@${profileIntel.profile_id} • Based on ${analyzedCategories} of ${totalCategories} categories`
+                : `Based on ${analyzedCategories} of ${totalCategories} categories`
+              }
             </p>
           </div>
           <div className="text-right">
@@ -674,10 +714,18 @@ export default function ProfileIntelRecommendationsEngine() {
           
           <div className="bg-warroom-bg border border-warroom-border rounded-lg p-4 text-center">
             <div className="text-2xl font-bold text-purple-400 mb-1">
-              {profileIntel.oauth_data?.followerCount || 'N/A'}
+              {profileIntel.oauth_data?.followerCount !== undefined 
+                ? profileIntel.oauth_data.followerCount.toLocaleString()
+                : 'N/A'
+              }
             </div>
             <p className="text-xs text-warroom-muted mb-1">Followers</p>
-            <p className="text-xs text-purple-400">Current audience size</p>
+            <p className="text-xs text-purple-400">
+              {profileIntel.oauth_data?.audienceDemographics?.netFollowerGrowth 
+                ? `${profileIntel.oauth_data.audienceDemographics.netFollowerGrowth > 0 ? '+' : ''}${profileIntel.oauth_data.audienceDemographics.netFollowerGrowth} last 30 days`
+                : 'Current audience size'
+              }
+            </p>
           </div>
         </div>
       </section>
